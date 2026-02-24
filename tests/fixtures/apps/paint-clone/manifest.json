@@ -1,0 +1,20 @@
+{
+  "id": "paint-clone",
+  "name": "Paint Clone",
+  "version": "2.3",
+  "category": "Graphics",
+  "description": "A classic bitmap paint program ported to run smoothly under Wine.",
+  "icon": "apps/paint-clone/icon.png",
+  "screenshots": [
+    "apps/paint-clone/screenshots/01.png"
+  ],
+  "archive": "apps/paint-clone/paint-clone-2.3.tar.gz",
+  "archive_size": 52428800,
+  "archive_sha256": "cafebabecafebabecafebabecafebabecafebabecafebabecafebabecafebabe",
+  "built_with": {
+    "runner": "wine-ge-8-25",
+    "dxvk": "2.2"
+  },
+  "update_strategy": "full",
+  "changelog": "Version 2.3: improved brush rendering, fixed crash on large canvases."
+}

@@ -1,0 +1,20 @@
+[
+  {
+    "id": "example-app",
+    "name": "Example App",
+    "category": "Productivity",
+    "summary": "A sample Windows app managed by Bottles",
+    "icon": "apps/example-app/icon.png",
+    "version": "1.0",
+    "manifest": "apps/example-app/manifest.json"
+  },
+  {
+    "id": "paint-clone",
+    "name": "Paint Clone",
+    "category": "Graphics",
+    "summary": "A classic bitmap paint program",
+    "icon": "apps/paint-clone/icon.png",
+    "version": "2.3",
+    "manifest": "apps/paint-clone/manifest.json"
+  }
+]

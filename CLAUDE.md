@@ -191,9 +191,10 @@ Model the layout on GNOME Software. Use libadwaita components throughout.
 
 ### Main window
 
-- **Sidebar or top tabs:** All, categories (Games, Productivity, Utilities, etc.), Installed, Updates
-- **Main area:** `GtkGridView` or `GtkFlowBox` of app cards — icon, name, short description
-- **Header bar:** Search, Refresh button, Settings
+- **Category filter:** horizontal strip of linked `GtkToggleButton` pills (radio behaviour via `set_group`), built dynamically from the catalogue — one button per category plus "All". Scrolls horizontally if categories overflow.
+- **Main area:** `GtkFlowBox` of app cards — icon, name, short description. Cards use the `.card` Adwaita style class.
+- **Header bar:** Search toggle (reveals `GtkSearchBar`), Refresh button, Menu button. Typing anywhere in the window opens the search bar automatically via `set_key_capture_widget`.
+- Empty/error states use `AdwStatusPage`.
 
 ### App detail view
 
@@ -264,8 +265,8 @@ cellar/
 
 Build in this order:
 
-1. **Repo backend** — parse a local `catalogue.json` and `manifest.json`, no network yet
-2. **Browse UI** — grid of app cards from parsed catalogue, category filter, search
+1. ~~**Repo backend** — parse a local `catalogue.json` and `manifest.json`, no network yet~~ ✅
+2. ~~**Browse UI** — grid of app cards from parsed catalogue, category filter, search~~ ✅
 3. **Detail view** — app page driven by manifest data
 4. **Bottles backend** — path detection, `bottles-cli` wrapper, basic install (extract + copy)
 5. **Local DB** — track installed apps, wire up Install button state
@@ -274,6 +275,18 @@ Build in this order:
 8. **Component update UI** — post-install prompt to upgrade runner/DXVK
 9. **Multi-repo support** — settings page, repo management
 10. **Flatpak packaging**
+
+---
+
+## Running in development
+
+```bash
+PYTHONPATH=. CELLAR_REPO=tests/fixtures python3 -m cellar.main
+```
+
+`CELLAR_REPO` points to any directory containing a `catalogue.json`. The test fixtures under `tests/fixtures/` work out of the box. Tests: `python3 -m pytest tests/ -v`.
+
+UI files are resolved by `cellar/utils/paths.py` — it checks the source tree (`data/ui/`) first, then the installed location (`/app/share/cellar/ui/`), so no build step is needed during development.
 
 ---
 

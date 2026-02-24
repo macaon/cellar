@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Meson build directory
+_build/
+builddir/
+
+# pytest
+.pytest_cache/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*~

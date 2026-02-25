@@ -51,11 +51,15 @@ class EditAppDialog(Adw.Dialog):
         # Optional archive replacement
         self._new_archive_src: str = ""
 
-        # Image selections — only keys with a non-empty value are written
-        self._icon_path: str = ""
-        self._cover_path: str = ""
-        self._hero_path: str = ""
-        self._screenshot_paths: list[str] = []
+        # Image selections
+        # None = keep existing; "" = clear from catalogue; str = replace with new file
+        self._icon_path: str | None = None
+        self._cover_path: str | None = None
+        self._hero_path: str | None = None
+
+        # Screenshot list + dirty flag
+        self._screenshot_paths: list[str] = []   # effective local paths
+        self._screenshots_dirty: bool = False    # True once user adds or removes anything
 
         self._build_ui()
         self._prefill()
@@ -197,18 +201,41 @@ class EditAppDialog(Adw.Dialog):
         # ── Images ────────────────────────────────────────────────────────
         images_group = Adw.PreferencesGroup(title="Images")
 
-        self._icon_row = self._make_image_row("Icon", self._pick_icon)
-        self._cover_row = self._make_image_row("Cover", self._pick_cover)
-        self._hero_row = self._make_image_row("Hero", self._pick_hero)
-        self._screenshots_row = self._make_image_row(
-            "Screenshots", self._pick_screenshots, multi=True
-        )
+        self._icon_row, self._icon_clear_btn = self._make_image_row("Icon", self._pick_icon)
+        self._cover_row, self._cover_clear_btn = self._make_image_row("Cover", self._pick_cover)
+        self._hero_row, self._hero_clear_btn = self._make_image_row("Hero", self._pick_hero)
+
+        self._icon_clear_btn.connect("clicked", self._on_icon_clear)
+        self._cover_clear_btn.connect("clicked", self._on_cover_clear)
+        self._hero_clear_btn.connect("clicked", self._on_hero_clear)
 
         images_group.add(self._icon_row)
         images_group.add(self._cover_row)
         images_group.add(self._hero_row)
-        images_group.add(self._screenshots_row)
         page.add(images_group)
+
+        # ── Screenshots ───────────────────────────────────────────────────
+        ss_group = Adw.PreferencesGroup(title="Screenshots")
+
+        self._ss_empty_label = Gtk.Label(label="No screenshots")
+        self._ss_empty_label.add_css_class("dim-label")
+        self._ss_empty_label.set_margin_top(6)
+        self._ss_empty_label.set_margin_bottom(6)
+        ss_group.add(self._ss_empty_label)
+
+        self._ss_listbox = Gtk.ListBox()
+        self._ss_listbox.add_css_class("boxed-list")
+        self._ss_listbox.set_selection_mode(Gtk.SelectionMode.NONE)
+        self._ss_listbox.set_visible(False)
+        ss_group.add(self._ss_listbox)
+
+        add_ss_row = Adw.ActionRow(title="Add Screenshots…")
+        add_ss_row.set_activatable(True)
+        add_ss_row.add_prefix(Gtk.Image.new_from_icon_name("list-add-symbolic"))
+        add_ss_row.connect("activated", lambda _: self._pick_screenshots(None))
+        ss_group.add(add_ss_row)
+
+        page.add(ss_group)
 
         # ── Install ───────────────────────────────────────────────────────
         install_group = Adw.PreferencesGroup(title="Install")
@@ -243,14 +270,22 @@ class EditAppDialog(Adw.Dialog):
 
         return scroll
 
-    def _make_image_row(self, label: str, handler, *, multi: bool = False) -> Adw.ActionRow:
+    def _make_image_row(self, label: str, handler) -> tuple[Adw.ActionRow, Gtk.Button]:
         row = Adw.ActionRow(title=label)
-        row.set_subtitle("Current file kept")
-        btn = Gtk.Button(label="Change…")
-        btn.set_valign(Gtk.Align.CENTER)
-        btn.connect("clicked", handler)
-        row.add_suffix(btn)
-        return row
+        row.set_subtitle("No image set")
+
+        clear_btn = Gtk.Button(icon_name="edit-clear-symbolic", tooltip_text="Remove image")
+        clear_btn.add_css_class("flat")
+        clear_btn.set_valign(Gtk.Align.CENTER)
+        clear_btn.set_sensitive(False)
+        row.add_suffix(clear_btn)
+
+        change_btn = Gtk.Button(label="Change…")
+        change_btn.set_valign(Gtk.Align.CENTER)
+        change_btn.connect("clicked", handler)
+        row.add_suffix(change_btn)
+
+        return row, clear_btn
 
     def _build_progress(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
@@ -328,18 +363,24 @@ class EditAppDialog(Adw.Dialog):
             self._dxvk_row.set_subtitle(bw.dxvk or "")
             self._vkd3d_row.set_subtitle(bw.vkd3d or "")
 
-        # Show current image filenames as row subtitles
+        # Single images — show current filename + enable clear button
         if e.icon:
             self._icon_row.set_subtitle(Path(e.icon).name)
+            self._icon_clear_btn.set_sensitive(True)
         if e.cover:
             self._cover_row.set_subtitle(Path(e.cover).name)
+            self._cover_clear_btn.set_sensitive(True)
         if e.hero:
             self._hero_row.set_subtitle(Path(e.hero).name)
-        if e.screenshots:
-            count = len(e.screenshots)
-            self._screenshots_row.set_subtitle(
-                f"{count} file{'s' if count != 1 else ''} (current)"
-            )
+            self._hero_clear_btn.set_sensitive(True)
+
+        # Screenshots — resolve relative paths to absolute local paths
+        try:
+            repo_root = self._repo.local_path()
+            self._screenshot_paths = [str(repo_root / rel) for rel in e.screenshots]
+        except Exception:
+            self._screenshot_paths = []
+        self._rebuild_screenshot_list()
 
         strategy = e.update_strategy or "safe"
         if strategy in _STRATEGIES:
@@ -418,6 +459,7 @@ class EditAppDialog(Adw.Dialog):
         if response == Gtk.ResponseType.ACCEPT:
             self._icon_path = chooser.get_file().get_path()
             self._icon_row.set_subtitle(Path(self._icon_path).name)
+            self._icon_clear_btn.set_sensitive(True)
 
     def _pick_cover(self, _btn) -> None:
         self._pick_image("Select Cover", False, self._on_cover_chosen)
@@ -426,6 +468,7 @@ class EditAppDialog(Adw.Dialog):
         if response == Gtk.ResponseType.ACCEPT:
             self._cover_path = chooser.get_file().get_path()
             self._cover_row.set_subtitle(Path(self._cover_path).name)
+            self._cover_clear_btn.set_sensitive(True)
 
     def _pick_hero(self, _btn) -> None:
         self._pick_image("Select Hero Banner", False, self._on_hero_chosen)
@@ -434,6 +477,7 @@ class EditAppDialog(Adw.Dialog):
         if response == Gtk.ResponseType.ACCEPT:
             self._hero_path = chooser.get_file().get_path()
             self._hero_row.set_subtitle(Path(self._hero_path).name)
+            self._hero_clear_btn.set_sensitive(True)
 
     def _pick_screenshots(self, _btn) -> None:
         self._pick_image("Select Screenshots", True, self._on_screenshots_chosen)
@@ -441,13 +485,55 @@ class EditAppDialog(Adw.Dialog):
     def _on_screenshots_chosen(self, _chooser, response, chooser) -> None:
         if response == Gtk.ResponseType.ACCEPT:
             files = chooser.get_files()
-            self._screenshot_paths = [
-                files.get_item(i).get_path() for i in range(files.get_n_items())
-            ]
-            count = len(self._screenshot_paths)
-            self._screenshots_row.set_subtitle(
-                f"{count} file{'s' if count != 1 else ''} selected"
-            )
+            new_paths = [files.get_item(i).get_path() for i in range(files.get_n_items())]
+            self._screenshot_paths.extend(new_paths)
+            self._screenshots_dirty = True
+            self._rebuild_screenshot_list()
+
+    # ── Image clear handlers ──────────────────────────────────────────────
+
+    def _on_icon_clear(self, _btn) -> None:
+        self._icon_path = ""
+        self._icon_row.set_subtitle("Will be removed")
+        self._icon_clear_btn.set_sensitive(False)
+
+    def _on_cover_clear(self, _btn) -> None:
+        self._cover_path = ""
+        self._cover_row.set_subtitle("Will be removed")
+        self._cover_clear_btn.set_sensitive(False)
+
+    def _on_hero_clear(self, _btn) -> None:
+        self._hero_path = ""
+        self._hero_row.set_subtitle("Will be removed")
+        self._hero_clear_btn.set_sensitive(False)
+
+    # ── Screenshot list helpers ───────────────────────────────────────────
+
+    def _rebuild_screenshot_list(self) -> None:
+        row = self._ss_listbox.get_row_at_index(0)
+        while row is not None:
+            self._ss_listbox.remove(row)
+            row = self._ss_listbox.get_row_at_index(0)
+        for path in self._screenshot_paths:
+            self._ss_listbox.append(self._make_ss_row(path))
+        has = bool(self._screenshot_paths)
+        self._ss_listbox.set_visible(has)
+        self._ss_empty_label.set_visible(not has)
+
+    def _make_ss_row(self, path: str) -> Adw.ActionRow:
+        row = Adw.ActionRow(title=Path(path).name)
+        btn = Gtk.Button(icon_name="edit-delete-symbolic", tooltip_text="Remove")
+        btn.add_css_class("flat")
+        btn.add_css_class("circular")
+        btn.set_valign(Gtk.Align.CENTER)
+        btn.connect("clicked", lambda _b, p=path: self._remove_screenshot(p))
+        row.add_suffix(btn)
+        return row
+
+    def _remove_screenshot(self, path: str) -> None:
+        self._screenshot_paths.remove(path)
+        self._screenshots_dirty = True
+        self._rebuild_screenshot_list()
 
     # ── Save flow ─────────────────────────────────────────────────────────
 
@@ -481,23 +567,30 @@ class EditAppDialog(Adw.Dialog):
         else:
             archive_rel = e.archive
 
-        # Images: use new path if chosen, otherwise keep existing repo path
-        icon_rel = (
-            f"apps/{app_id}/icon{Path(self._icon_path).suffix}"
-            if self._icon_path
-            else e.icon
-        )
-        cover_rel = (
-            f"apps/{app_id}/cover{Path(self._cover_path).suffix}"
-            if self._cover_path
-            else e.cover
-        )
-        hero_rel = (
-            f"apps/{app_id}/hero{Path(self._hero_path).suffix}"
-            if self._hero_path
-            else e.hero
-        )
-        if self._screenshot_paths:
+        # Single images: None=keep existing, ""=clear, str=new file
+        if self._icon_path is None:
+            icon_rel = e.icon
+        elif self._icon_path == "":
+            icon_rel = ""
+        else:
+            icon_rel = f"apps/{app_id}/icon{Path(self._icon_path).suffix}"
+
+        if self._cover_path is None:
+            cover_rel = e.cover
+        elif self._cover_path == "":
+            cover_rel = ""
+        else:
+            cover_rel = f"apps/{app_id}/cover{Path(self._cover_path).suffix}"
+
+        if self._hero_path is None:
+            hero_rel = e.hero
+        elif self._hero_path == "":
+            hero_rel = ""
+        else:
+            hero_rel = f"apps/{app_id}/hero{Path(self._hero_path).suffix}"
+
+        # Screenshots: dirty flag controls whether to send None (keep) or list (replace/clear)
+        if self._screenshots_dirty:
             screenshot_rels = tuple(
                 f"apps/{app_id}/screenshots/{i + 1:02d}{Path(p).suffix}"
                 for i, p in enumerate(self._screenshot_paths)
@@ -535,10 +628,10 @@ class EditAppDialog(Adw.Dialog):
         )
 
         images = {
-            "icon": self._icon_path,
+            "icon": self._icon_path,      # None / "" / path
             "cover": self._cover_path,
             "hero": self._hero_path,
-            "screenshots": self._screenshot_paths,
+            "screenshots": self._screenshot_paths if self._screenshots_dirty else None,
         }
 
         self._cancel_event.clear()

@@ -5,6 +5,18 @@ Versioning follows [Semantic Versioning](https://semver.org/) — while the majo
 
 ---
 
+## [0.7.2] — 2026-02-25
+
+### Added
+- **EditAppDialog**: clear (×) button on each single-image row (Icon, Cover, Hero) — starts insensitive; becomes active when an image is set or picked; clicking sets the catalogue field to empty and shows "Will be removed" subtitle
+- **EditAppDialog**: screenshots replaced by a per-item listbox — each existing or newly added screenshot is shown as its own row with a trash button for individual removal; an "Add Screenshots…" activatable row appends to the list via the file picker (multi-select); an empty state label "No screenshots" is shown when the list is empty
+- **`cellar/backend/packager.py`**: `update_in_repo` now distinguishes `None` (keep existing screenshots), `[]` (clear all — deletes the screenshots directory), and `[…]` (replace — removes old dir, copies new files)
+
+### Changed
+- `EditAppDialog` state variables: `_icon_path`, `_cover_path`, `_hero_path` are now `str | None` (`None` = keep, `""` = clear, `str` = new file path); `_screenshots_dirty` flag replaces the old replace-all approach so unchanged screenshots are never re-written
+
+---
+
 ## [0.7.1] — 2026-02-25
 
 ### Added

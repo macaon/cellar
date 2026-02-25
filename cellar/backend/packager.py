@@ -213,14 +213,16 @@ def update_in_repo(
             shutil.copy2(src, dest)
 
     # ── Screenshots ───────────────────────────────────────────────────────
-    new_screenshots = images.get("screenshots") or []
-    if new_screenshots:
+    # None = keep existing, [] = clear all, [...] = replace
+    new_screenshots = images.get("screenshots")
+    if new_screenshots is not None:
         ss_dir = repo_root / "apps" / new_entry.id / "screenshots"
         if ss_dir.exists():
             shutil.rmtree(ss_dir)
-        ss_dir.mkdir(parents=True, exist_ok=True)
-        for i, src in enumerate(new_screenshots, 1):
-            shutil.copy2(src, ss_dir / f"{i:02d}{Path(src).suffix}")
+        if new_screenshots:
+            ss_dir.mkdir(parents=True, exist_ok=True)
+            for i, src in enumerate(new_screenshots, 1):
+                shutil.copy2(src, ss_dir / f"{i:02d}{Path(src).suffix}")
 
     # ── catalogue.json ────────────────────────────────────────────────────
     _upsert_catalogue(repo_root, new_entry)

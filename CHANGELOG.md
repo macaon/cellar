@@ -5,6 +5,30 @@ Versioning follows [Semantic Versioning](https://semver.org/) — while the majo
 
 ---
 
+## [0.6.0] — 2026-02-25
+
+### Added
+- **Detail view** (`cellar/views/detail.py`): full app page shown when an app card is activated
+  - Hero banner image (full-width, only if a local file is available)
+  - App header: icon (96 px), name (`title-1`), developer · publisher · year byline, category and content-rating chips
+  - Description text
+  - Screenshots carousel (`AdwCarousel` + `AdwCarouselIndicatorDots`); only shown when local screenshots exist
+  - **Details** info group: developer, publisher, release year, languages, content rating, tags, website and store links (clickable, opens default browser)
+  - **Wine Components** info group: runner, DXVK, VKD3D (only shown when `built_with` is set)
+  - **Package** info group: download size, install size, update strategy (human-readable label)
+  - **Compatibility Notes** and **What's New** (changelog) sections, shown only when content is present
+  - Install button in the header bar — visible but insensitive, with a tooltip; placeholder until the installer backend lands
+  - All sizes formatted as human-readable strings (B / KB / MB / GB / TB)
+  - Asset images (icon, hero, screenshots) loaded from local files; remote URIs fall back to a generic placeholder — async remote loading is a future improvement
+- `BrowseView` now emits an `app-selected` GObject signal when a card is activated
+- Window navigation converted to `AdwNavigationView` — clicking a card pushes an `AdwNavigationPage` with the detail view; the back button is provided automatically
+
+### Changed
+- `data/ui/window.ui`: `AdwToolbarView` is now wrapped in `AdwNavigationView`; the browse toolbar and content sit inside an `AdwNavigationPage` with tag `browse`
+- `window.py`: tracks the first successfully loaded `Repo` for asset URI resolution in the detail view; `About` dialog version bumped to 0.6.0
+
+---
+
 ## [0.5.0] — 2026-02-25
 
 ### Added

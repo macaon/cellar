@@ -8,7 +8,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gtk, Pango
+from gi.repository import Adw, GObject, Gtk, Pango
 
 from cellar.models.app_entry import AppEntry
 
@@ -92,6 +92,11 @@ class AppCard(Gtk.FlowBoxChild):
 
 class BrowseView(Gtk.Box):
     """Main browse page: horizontal category strip + scrolling app grid."""
+
+    __gsignals__ = {
+        # Emitted when the user activates an app card.
+        "app-selected": (GObject.SignalFlags.RUN_FIRST, None, (object,)),
+    }
 
     def __init__(self) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
@@ -242,4 +247,4 @@ class BrowseView(Gtk.Box):
 
     def _on_card_activated(self, _flow_box: Gtk.FlowBox, child: AppCard) -> None:
         log.debug("App selected: %s", child.entry.id)
-        # Phase 3: push detail page onto the navigation stack.
+        self.emit("app-selected", child.entry)

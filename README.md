@@ -150,7 +150,7 @@ cellar/
     window.py        Main AdwApplicationWindow
     views/
       browse.py      Grid browse view (app cards, category filter, search) ✅
-      detail.py      App detail page (phase 3)
+      detail.py      App detail page ✅
       installed.py   Installed apps view (phase 5)
       updates.py     Available updates view (phase 6)
       settings.py    Settings / repo management (phase 9)
@@ -182,7 +182,7 @@ cellar/
 
 1. **Repo backend** — catalogue parsing, all transport backends ✅
 2. **Browse UI** — app card grid, category filter, search ✅
-3. **Detail view** — full app page from catalogue data
+3. **Detail view** — full app page from catalogue data ✅
 4. **Bottles backend** — path detection, `bottles-cli` wrapper, basic install
 5. **Local DB** — track installed apps, wire up Install button state
 6. **Update logic** — safe rsync strategy, full replacement

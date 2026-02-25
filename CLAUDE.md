@@ -257,7 +257,7 @@ cellar/
       bottles.py             # bottles-cli wrapper, path detection
       database.py            # SQLite installed/repo tracking
     models/
-      app_entry.py           # Unified AppEntry + BuiltWith dataclasses
+      app_entry.py           # Unified AppEntry + BuiltWith dataclasses ✅
     utils/
       gio_io.py              # GIO-based file/network helpers
       checksum.py            # SHA256 verification
@@ -286,7 +286,7 @@ Build in this order:
 1. ~~**Repo backend** — local catalogue parsing~~ ✅
 2. ~~**Browse UI** — grid of app cards, category filter, search~~ ✅
 3. ~~**Network repo support** — HTTP/HTTPS, SSH, SMB, NFS transports; unified `AppEntry` model; fat `catalogue.json` format~~ ✅
-4. **Detail view** — full app page from catalogue data
+4. ~~**Detail view** — full app page from catalogue data; `AdwNavigationView` navigation~~ ✅
 5. **Bottles backend** — path detection, `bottles-cli` wrapper, basic install (extract + copy)
 6. **Local DB** — track installed apps, wire up Install button state
 7. **Update logic** — safe rsync strategy first, full replacement second

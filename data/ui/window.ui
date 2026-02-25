@@ -7,46 +7,56 @@
     <property name="default-width">1100</property>
     <property name="default-height">720</property>
     <child>
-      <object class="AdwToolbarView">
-        <child type="top">
-          <object class="AdwHeaderBar">
-            <child type="end">
-              <object class="GtkMenuButton" id="menu_button">
-                <property name="icon-name">open-menu-symbolic</property>
-                <property name="tooltip-text" translatable="yes">Main menu</property>
-                <property name="menu-model">main_menu</property>
+      <object class="AdwNavigationView" id="nav_view">
+        <child>
+          <object class="AdwNavigationPage" id="browse_page">
+            <property name="title" translatable="yes">Cellar</property>
+            <property name="tag">browse</property>
+            <property name="child">
+              <object class="AdwToolbarView">
+                <child type="top">
+                  <object class="AdwHeaderBar">
+                    <child type="end">
+                      <object class="GtkMenuButton" id="menu_button">
+                        <property name="icon-name">open-menu-symbolic</property>
+                        <property name="tooltip-text" translatable="yes">Main menu</property>
+                        <property name="menu-model">main_menu</property>
+                      </object>
+                    </child>
+                    <child type="end">
+                      <object class="GtkButton" id="refresh_button">
+                        <property name="icon-name">view-refresh-symbolic</property>
+                        <property name="tooltip-text" translatable="yes">Refresh catalogue</property>
+                      </object>
+                    </child>
+                    <child type="end">
+                      <object class="GtkToggleButton" id="search_button">
+                        <property name="icon-name">system-search-symbolic</property>
+                        <property name="tooltip-text" translatable="yes">Search (Ctrl+F)</property>
+                      </object>
+                    </child>
+                  </object>
+                </child>
+                <child type="top">
+                  <object class="GtkSearchBar" id="search_bar">
+                    <child>
+                      <object class="GtkSearchEntry" id="search_entry">
+                        <property name="placeholder-text" translatable="yes">Search apps…</property>
+                        <property name="hexpand">True</property>
+                        <property name="max-width-chars">50</property>
+                      </object>
+                    </child>
+                  </object>
+                </child>
+                <property name="content">
+                  <object class="GtkBox" id="main_content">
+                    <property name="orientation">vertical</property>
+                  </object>
+                </property>
               </object>
-            </child>
-            <child type="end">
-              <object class="GtkButton" id="refresh_button">
-                <property name="icon-name">view-refresh-symbolic</property>
-                <property name="tooltip-text" translatable="yes">Refresh catalogue</property>
-              </object>
-            </child>
-            <child type="end">
-              <object class="GtkToggleButton" id="search_button">
-                <property name="icon-name">system-search-symbolic</property>
-                <property name="tooltip-text" translatable="yes">Search (Ctrl+F)</property>
-              </object>
-            </child>
+            </property>
           </object>
         </child>
-        <child type="top">
-          <object class="GtkSearchBar" id="search_bar">
-            <child>
-              <object class="GtkSearchEntry" id="search_entry">
-                <property name="placeholder-text" translatable="yes">Search apps…</property>
-                <property name="hexpand">True</property>
-                <property name="max-width-chars">50</property>
-              </object>
-            </child>
-          </object>
-        </child>
-        <property name="content">
-          <object class="GtkBox" id="main_content">
-            <property name="orientation">vertical</property>
-          </object>
-        </property>
       </object>
     </child>
   </template>

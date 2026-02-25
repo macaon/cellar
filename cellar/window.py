@@ -20,6 +20,7 @@ log = logging.getLogger(__name__)
 class CellarWindow(Adw.ApplicationWindow):
     __gtype_name__ = "CellarWindow"
 
+    nav_view: Adw.NavigationView = Gtk.Template.Child()
     search_button: Gtk.ToggleButton = Gtk.Template.Child()
     search_bar: Gtk.SearchBar = Gtk.Template.Child()
     search_entry: Gtk.SearchEntry = Gtk.Template.Child()
@@ -30,6 +31,10 @@ class CellarWindow(Adw.ApplicationWindow):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
+        # The first successfully loaded Repo — used to resolve asset URIs in
+        # the detail view.  Updated on every catalogue reload.
+        self._first_repo = None
+
         self.search_bar.set_key_capture_widget(self)
         self.search_button.connect("toggled", self._on_search_toggled)
         self.search_bar.connect(
@@ -38,12 +43,10 @@ class CellarWindow(Adw.ApplicationWindow):
         self.search_entry.connect("search-changed", self._on_search_changed)
         self.refresh_button.connect("clicked", self._on_refresh_clicked)
 
-        # Register win.preferences action (used by the hamburger menu item).
         prefs_action = Gio.SimpleAction.new("preferences", None)
         prefs_action.connect("activate", self._on_preferences_activated)
         self.add_action(prefs_action)
 
-        # Register app.about action so the menu item doesn't crash.
         about_action = Gio.SimpleAction.new("about", None)
         about_action.connect("activate", self._on_about_activated)
         self.get_application().add_action(about_action)
@@ -52,6 +55,7 @@ class CellarWindow(Adw.ApplicationWindow):
 
         self._browse = BrowseView()
         self._browse.set_vexpand(True)
+        self._browse.connect("app-selected", self._on_app_selected)
         self.main_content.append(self._browse)
 
         self.connect("realize", lambda _w: self._load_catalogue())
@@ -63,18 +67,22 @@ class CellarWindow(Adw.ApplicationWindow):
         from cellar.backend.repo import Repo, RepoError, RepoManager
 
         manager = RepoManager()
+        self._first_repo = None
 
-        # CELLAR_REPO env var acts as a dev/testing override on top of config.
         env_uri = os.environ.get("CELLAR_REPO", "")
         if env_uri:
             try:
-                manager.add(Repo(env_uri))
+                r = Repo(env_uri)
+                manager.add(r)
+                self._first_repo = self._first_repo or r
             except RepoError as exc:
                 log.warning("CELLAR_REPO %r is invalid: %s", env_uri, exc)
 
         for cfg in load_repos():
             try:
-                manager.add(Repo(cfg["uri"], ssh_identity=cfg.get("ssh_identity")))
+                r = Repo(cfg["uri"], ssh_identity=cfg.get("ssh_identity"))
+                manager.add(r)
+                self._first_repo = self._first_repo or r
             except RepoError as exc:
                 log.warning("Configured repo %r invalid: %s", cfg["uri"], exc)
 
@@ -104,6 +112,14 @@ class CellarWindow(Adw.ApplicationWindow):
 
     # ── Signal handlers ───────────────────────────────────────────────────
 
+    def _on_app_selected(self, _browse, entry) -> None:
+        from cellar.views.detail import DetailView
+
+        resolver = self._first_repo.resolve_asset_uri if self._first_repo else None
+        detail = DetailView(entry, resolve_asset=resolver)
+        page = Adw.NavigationPage(title=entry.name, child=detail)
+        self.nav_view.push(page)
+
     def _on_preferences_activated(self, _action, _param) -> None:
         from cellar.views.settings import SettingsDialog
 
@@ -114,7 +130,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="application-x-executable",
-            version="0.4.0",
+            version="0.6.0",
             comments="A GNOME storefront for Bottles-managed Windows apps.",
             license_type=Gtk.License.GPL_3_0,
         )

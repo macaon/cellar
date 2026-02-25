@@ -14,6 +14,7 @@
               <object class="GtkMenuButton" id="menu_button">
                 <property name="icon-name">open-menu-symbolic</property>
                 <property name="tooltip-text" translatable="yes">Main menu</property>
+                <property name="menu-model">main_menu</property>
               </object>
             </child>
             <child type="end">
@@ -49,4 +50,18 @@
       </object>
     </child>
   </template>
+  <menu id="main_menu">
+    <section>
+      <item>
+        <attribute name="label" translatable="yes">Preferences</attribute>
+        <attribute name="action">win.preferences</attribute>
+      </item>
+    </section>
+    <section>
+      <item>
+        <attribute name="label" translatable="yes">About Cellar</attribute>
+        <attribute name="action">app.about</attribute>
+      </item>
+    </section>
+  </menu>
 </interface>

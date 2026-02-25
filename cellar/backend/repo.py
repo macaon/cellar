@@ -1,16 +1,24 @@
 """Catalogue and manifest fetching/parsing.
 
-Phase 1: local file paths only.
-Phase 7 will add GIO-based SMB/NFS and HTTP support.
+Supported URI schemes
+---------------------
+- Bare local path or ``file://`` → reads directly from the filesystem
+- ``http://`` / ``https://``     → fetches via urllib (no extra deps)
+- ``ssh://[user@]host[:port]/path`` → streams files through the system ssh client;
+  key auth is handled by the user's SSH agent / ``~/.ssh/config``;
+  an explicit identity file can be passed via ``ssh_identity=``
+- ``smb://`` / ``nfs://``        → delegates to GVFS through GIO
 """
 
 from __future__ import annotations
 
 import json
 import logging
-import os
+import subprocess
+import urllib.error
+import urllib.request
 from pathlib import Path
-from typing import Iterator
+from typing import Iterator, Protocol, runtime_checkable
 from urllib.parse import urlparse
 
 from cellar.models.app_entry import AppEntry
@@ -23,58 +31,265 @@ class RepoError(Exception):
     """Raised when a repo operation fails."""
 
 
+# ---------------------------------------------------------------------------
+# Fetcher protocol & implementations
+# ---------------------------------------------------------------------------
+
+@runtime_checkable
+class _Fetcher(Protocol):
+    """Reads raw bytes from a repo by relative path and resolves asset URIs."""
+
+    def fetch_bytes(self, rel_path: str) -> bytes: ...
+    def resolve_uri(self, rel_path: str) -> str: ...
+
+
+class _LocalFetcher:
+    """Serves files from a local directory (bare path or ``file://``)."""
+
+    def __init__(self, root: Path) -> None:
+        self._root = root
+
+    def fetch_bytes(self, rel_path: str) -> bytes:
+        path = self._root / rel_path.lstrip("/")
+        try:
+            return path.read_bytes()
+        except FileNotFoundError as exc:
+            raise RepoError(f"File not found: {path}") from exc
+        except OSError as exc:
+            raise RepoError(f"Could not read {path}: {exc}") from exc
+
+    def resolve_uri(self, rel_path: str) -> str:
+        return str(self._root / rel_path.lstrip("/"))
+
+
+class _HttpFetcher:
+    """Serves files from an HTTP or HTTPS server."""
+
+    def __init__(self, base_url: str) -> None:
+        self._base = base_url.rstrip("/") + "/"
+
+    def fetch_bytes(self, rel_path: str) -> bytes:
+        url = self._base + rel_path.lstrip("/")
+        try:
+            with urllib.request.urlopen(url, timeout=30) as resp:  # noqa: S310
+                return resp.read()
+        except urllib.error.HTTPError as exc:
+            raise RepoError(f"HTTP {exc.code} fetching {url}: {exc.reason}") from exc
+        except urllib.error.URLError as exc:
+            raise RepoError(f"Network error fetching {url}: {exc.reason}") from exc
+
+    def resolve_uri(self, rel_path: str) -> str:
+        return self._base + rel_path.lstrip("/")
+
+
+class _SshFetcher:
+    """Reads files from a remote host via the system ``ssh`` client.
+
+    Key authentication is handled transparently by the SSH agent and
+    ``~/.ssh/config``.  An explicit identity file can be provided via
+    the *identity* parameter.
+
+    The connection uses ``BatchMode=yes`` so it fails fast instead of
+    hanging on a password prompt.
+    """
+
+    def __init__(
+        self,
+        host: str,
+        remote_root: str,
+        *,
+        user: str | None = None,
+        port: int | None = None,
+        identity: str | None = None,
+    ) -> None:
+        self._host = host
+        self._root = remote_root.rstrip("/") or "/"
+        self._user = user
+        self._port = port
+        self._identity = identity
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _dest(self) -> str:
+        return f"{self._user}@{self._host}" if self._user else self._host
+
+    def _base_args(self) -> list[str]:
+        args = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new"]
+        if self._port:
+            args += ["-p", str(self._port)]
+        if self._identity:
+            args += ["-i", self._identity]
+        args.append(self._dest())
+        return args
+
+    # ------------------------------------------------------------------
+    # _Fetcher interface
+    # ------------------------------------------------------------------
+
+    def fetch_bytes(self, rel_path: str) -> bytes:
+        remote = f"{self._root}/{rel_path.lstrip('/')}"
+        cmd = self._base_args() + ["cat", remote]
+        try:
+            result = subprocess.run(cmd, capture_output=True, timeout=30, check=False)
+        except FileNotFoundError:
+            raise RepoError(
+                "ssh executable not found; install OpenSSH client to use ssh:// repos"
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RepoError(f"SSH connection timed out fetching {rel_path}") from exc
+        if result.returncode != 0:
+            stderr = result.stderr.decode(errors="replace").strip()
+            raise RepoError(
+                f"SSH fetch failed for {rel_path}: {stderr or 'unknown error'}"
+            )
+        return result.stdout
+
+    def resolve_uri(self, rel_path: str) -> str:
+        user_part = f"{self._user}@" if self._user else ""
+        port_part = f":{self._port}" if self._port else ""
+        return (
+            f"ssh://{user_part}{self._host}{port_part}"
+            f"{self._root}/{rel_path.lstrip('/')}"
+        )
+
+
+class _GioFetcher:
+    """Reads files via GVFS through GIO — used for ``smb://`` and ``nfs://``.
+
+    GIO is imported lazily so that the rest of the backend can be used
+    (and tested) without a display or GObject environment.
+    """
+
+    def __init__(self, base_uri: str) -> None:
+        try:
+            import gi
+            gi.require_version("Gio", "2.0")
+            from gi.repository import Gio, GLib  # type: ignore[import]
+        except (ImportError, ValueError) as exc:
+            raise RepoError(
+                "GIO is unavailable; cannot use smb:// or nfs:// URIs"
+            ) from exc
+        self._Gio = Gio
+        self._GLib = GLib
+        self._base = base_uri.rstrip("/")
+
+    def fetch_bytes(self, rel_path: str) -> bytes:
+        uri = f"{self._base}/{rel_path.lstrip('/')}"
+        gfile = self._Gio.File.new_for_uri(uri)
+        try:
+            _ok, contents, _etag = gfile.load_contents(None)
+        except self._GLib.Error as exc:
+            raise RepoError(f"GIO could not read {uri}: {exc.message}") from exc
+        return bytes(contents)
+
+    def resolve_uri(self, rel_path: str) -> str:
+        return f"{self._base}/{rel_path.lstrip('/')}"
+
+
+# ---------------------------------------------------------------------------
+# Fetcher factory
+# ---------------------------------------------------------------------------
+
+_SUPPORTED_SCHEMES = "local path, file://, http(s)://, ssh://, smb://, nfs://"
+
+
+def _make_fetcher(uri: str, *, ssh_identity: str | None = None) -> _Fetcher:
+    """Return the appropriate fetcher for *uri*."""
+    parsed = urlparse(uri)
+    scheme = parsed.scheme.lower()
+
+    if scheme in ("", "file"):
+        root = Path(parsed.path if parsed.path else uri).expanduser().resolve()
+        if not root.is_dir():
+            raise RepoError(
+                f"Repo root does not exist or is not a directory: {root}"
+            )
+        return _LocalFetcher(root)
+
+    if scheme in ("http", "https"):
+        return _HttpFetcher(uri)
+
+    if scheme == "ssh":
+        if not parsed.hostname:
+            raise RepoError(f"Invalid SSH URI (no host): {uri!r}")
+        return _SshFetcher(
+            host=parsed.hostname,
+            remote_root=parsed.path or "/",
+            user=parsed.username or None,
+            port=parsed.port or None,
+            identity=ssh_identity,
+        )
+
+    if scheme in ("smb", "nfs"):
+        return _GioFetcher(uri)
+
+    raise RepoError(
+        f"Unsupported URI scheme {scheme!r}. Supported: {_SUPPORTED_SCHEMES}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Repo
+# ---------------------------------------------------------------------------
+
 class Repo:
     """Represents a single Cellar repository source.
 
-    ``uri`` can currently be:
-    - An absolute local path  (``/mnt/share/repo``)
-    - A ``file://`` URL
-
-    SMB, NFS, and HTTP support will be layered on in phase 7.
+    *uri* can be any of the supported schemes listed at the top of this module.
+    For ``ssh://`` repos, an explicit identity file path can be passed via
+    *ssh_identity*; otherwise the system SSH agent / ``~/.ssh/config`` is used.
     """
 
-    def __init__(self, uri: str, name: str = "") -> None:
+    def __init__(
+        self,
+        uri: str,
+        name: str = "",
+        *,
+        ssh_identity: str | None = None,
+    ) -> None:
         self.uri = uri
         self.name = name or uri
-        self._root = self._resolve_root(uri)
+        self._fetcher: _Fetcher = _make_fetcher(uri, ssh_identity=ssh_identity)
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
     def fetch_catalogue(self) -> list[AppEntry]:
-        """Load and parse catalogue.json, returning all entries."""
-        path = self._root / "catalogue.json"
-        raw = self._read_json(path)
+        """Load and parse ``catalogue.json``, returning all entries."""
+        raw = self._fetch_json("catalogue.json")
         entries: list[AppEntry] = []
         for item in raw:
             try:
                 entries.append(AppEntry.from_dict(item))
             except (KeyError, TypeError) as exc:
-                log.warning("Skipping malformed catalogue entry %r: %s", item.get("id"), exc)
+                log.warning(
+                    "Skipping malformed catalogue entry %r: %s", item.get("id"), exc
+                )
         log.info("Loaded %d entries from %s", len(entries), self.uri)
         return entries
 
     def fetch_manifest(self, entry: AppEntry) -> Manifest:
         """Load and parse the manifest for a specific app entry."""
-        path = self._root / entry.manifest
-        raw = self._read_json(path)
+        raw = self._fetch_json(entry.manifest)
         try:
             return Manifest.from_dict(raw)
         except (KeyError, TypeError, ValueError) as exc:
             raise RepoError(f"Malformed manifest for {entry.id!r}: {exc}") from exc
 
     def fetch_manifest_by_id(self, app_id: str) -> Manifest:
-        """Convenience: load the catalogue, find ``app_id``, fetch its manifest."""
+        """Convenience: load the catalogue, find *app_id*, fetch its manifest."""
         entries = self.fetch_catalogue()
         for entry in entries:
             if entry.id == app_id:
                 return self.fetch_manifest(entry)
         raise RepoError(f"App {app_id!r} not found in catalogue at {self.uri}")
 
-    def resolve_path(self, repo_relative: str) -> Path:
-        """Return the absolute local Path for a repo-relative asset path."""
-        return self._root / repo_relative
+    def resolve_asset_uri(self, repo_relative: str) -> str:
+        """Return a URI/path string for a repo-relative asset (icon, screenshot…)."""
+        return self._fetcher.resolve_uri(repo_relative)
 
     def iter_categories(self) -> Iterator[str]:
         """Yield the distinct categories present in the catalogue."""
@@ -88,30 +303,17 @@ class Repo:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _resolve_root(uri: str) -> Path:
-        parsed = urlparse(uri)
-        if parsed.scheme in ("", "file"):
-            root = Path(parsed.path if parsed.path else uri).expanduser().resolve()
-        else:
-            raise RepoError(
-                f"URI scheme {parsed.scheme!r} is not yet supported. "
-                "Use a local path or file:// URI for now."
-            )
-        if not root.is_dir():
-            raise RepoError(f"Repo root does not exist or is not a directory: {root}")
-        return root
-
-    @staticmethod
-    def _read_json(path: Path) -> dict | list:
+    def _fetch_json(self, rel_path: str) -> dict | list:
+        data = self._fetcher.fetch_bytes(rel_path)
         try:
-            with path.open(encoding="utf-8") as fh:
-                return json.load(fh)
-        except FileNotFoundError as exc:
-            raise RepoError(f"File not found: {path}") from exc
+            return json.loads(data)
         except json.JSONDecodeError as exc:
-            raise RepoError(f"Invalid JSON in {path}: {exc}") from exc
+            raise RepoError(f"Invalid JSON at {rel_path}: {exc}") from exc
 
+
+# ---------------------------------------------------------------------------
+# RepoManager
+# ---------------------------------------------------------------------------
 
 class RepoManager:
     """Manages the collection of configured repos.

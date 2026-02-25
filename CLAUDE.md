@@ -14,7 +14,7 @@ The project is tentatively called **Cellar** (working title — rename freely).
 - **UI toolkit:** GTK4 + libadwaita (target GNOME 46+)
 - **Packaging:** Flatpak (target `io.github.cellar` or similar)
 - **Local data:** SQLite via `sqlite3` stdlib for installed app tracking
-- **Network I/O:** GIO (`gi.repository.Gio`) for share access; `urllib` or `httpx` for HTTP repos
+- **Network I/O:** `urllib` for HTTP/HTTPS; system `ssh` subprocess for SSH repos; GIO (`gi.repository.Gio`) for SMB/NFS via GVFS
 - **Archive handling:** Python `tarfile` stdlib
 - **File sync:** `rsync` subprocess call for smart updates
 - **Bottles integration:** `bottles-cli` subprocess calls + direct YAML manipulation
@@ -25,66 +25,85 @@ Avoid pulling in heavy dependencies where the stdlib or GLib/GIO covers the need
 
 ## Repository / network share format
 
-The app reads from a structured repository. The repo root contains a master index:
+A Cellar repo is a directory (local or remote) containing a single master index and per-app asset directories:
 
 ```
-/repo/
-  catalogue.json
+repo/
+  catalogue.json          ← single source of truth; fetched on launch/refresh
   apps/
     appname/
-      manifest.json
-      icon.png
+      icon.png            ← square icon (browse grid)
+      cover.png           ← portrait cover (detail view)
+      hero.png            ← wide banner (detail view header)
       screenshots/
         01.png
         02.png
       appname-1.0.tar.gz
 ```
 
+There are no per-app `manifest.json` files. All metadata lives in `catalogue.json`.
+
 ### `catalogue.json`
 
-Top-level index fetched on launch/refresh. Contains an array of lightweight entries:
-
-```json
-[
-  {
-    "id": "appname",
-    "name": "App Name",
-    "category": "Productivity",
-    "summary": "One-line description",
-    "icon": "apps/appname/icon.png",
-    "version": "1.0",
-    "manifest": "apps/appname/manifest.json"
-  }
-]
-```
-
-### `manifest.json`
-
-Full metadata for a single app. Fetched when opening the detail view or installing:
+A fat JSON file containing every app's full metadata. All asset paths are relative to the repo root.
 
 ```json
 {
-  "id": "appname",
-  "name": "App Name",
-  "version": "1.0",
-  "category": "Productivity",
-  "description": "Full description...",
-  "icon": "apps/appname/icon.png",
-  "screenshots": ["apps/appname/screenshots/01.png"],
-  "archive": "apps/appname/appname-1.0.tar.gz",
-  "archive_size": 524288000,
-  "archive_sha256": "abc123...",
-  "built_with": {
-    "runner": "proton-ge-9-1",
-    "dxvk": "2.3",
-    "vkd3d": "2.11"
-  },
-  "update_strategy": "safe",
-  "changelog": "Updated to version X, fixed Y"
+  "cellar_version": 1,
+  "generated_at": "2026-02-25T12:00:00Z",
+  "apps": [
+    {
+      "id": "appname",
+      "name": "App Name",
+      "version": "1.0",
+      "category": "Productivity",
+      "tags": ["Productivity", "Office"],
+      "summary": "One-line description",
+      "description": "Full description...",
+      "developer": "Some Studio",
+      "publisher": "Some Publisher",
+      "release_year": 2020,
+      "content_rating": "PEGI 3",
+      "languages": ["English", "German"],
+      "website": "https://example.com",
+      "store_links": { "steam": "https://store.steampowered.com/app/12345" },
+      "icon": "apps/appname/icon.png",
+      "cover": "apps/appname/cover.png",
+      "hero": "apps/appname/hero.png",
+      "screenshots": ["apps/appname/screenshots/01.png"],
+      "archive": "apps/appname/appname-1.0.tar.gz",
+      "archive_size": 524288000,
+      "archive_sha256": "abc123...",
+      "install_size_estimate": 2147483648,
+      "built_with": {
+        "runner": "proton-ge-9-1",
+        "dxvk": "2.3",
+        "vkd3d": "2.11"
+      },
+      "update_strategy": "safe",
+      "entry_point": "Program Files/AppName/app.exe",
+      "compatibility_notes": "",
+      "changelog": "Updated to version X, fixed Y"
+    }
+  ]
 }
 ```
 
-`update_strategy` is either `"safe"` (rsync, preserve user data) or `"full"` (complete replacement, warn user).
+`update_strategy` is either `"safe"` (rsync overlay, preserves user data) or `"full"` (complete replacement, warn user).
+
+All fields except `id`, `name`, `version`, and `category` are optional; unset fields default to empty strings / empty collections / `None`.
+
+### Supported URI schemes
+
+| Scheme | Writable | Notes |
+|---|---|---|
+| Local path / `file://` | Yes | |
+| `http://` / `https://` | **No** | Read-only; intended for family/shared access |
+| `ssh://[user@]host[:port]/path` | Yes | Uses system `ssh` client; key auth via agent or `ssh_identity=` |
+| `smb://` | Yes | Via GIO/GVFS |
+| `nfs://` | Yes | Via GIO/GVFS |
+
+If the client reaches a location with no `catalogue.json`, it offers to initialise a new repo (writable transports only). HTTP repos show an error instead.
 
 ---
 
@@ -238,8 +257,7 @@ cellar/
       bottles.py             # bottles-cli wrapper, path detection
       database.py            # SQLite installed/repo tracking
     models/
-      app_entry.py           # Dataclass for catalogue entries
-      manifest.py            # Dataclass for full app manifest
+      app_entry.py           # Unified AppEntry + BuiltWith dataclasses
     utils/
       gio_io.py              # GIO-based file/network helpers
       checksum.py            # SHA256 verification
@@ -265,15 +283,15 @@ cellar/
 
 Build in this order:
 
-1. ~~**Repo backend** — parse a local `catalogue.json` and `manifest.json`, no network yet~~ ✅
-2. ~~**Browse UI** — grid of app cards from parsed catalogue, category filter, search~~ ✅
-3. **Detail view** — app page driven by manifest data
-4. **Bottles backend** — path detection, `bottles-cli` wrapper, basic install (extract + copy)
-5. **Local DB** — track installed apps, wire up Install button state
-6. **Update logic** — safe rsync strategy first, full replacement second
-7. **Network repo support** — GIO for SMB/NFS, HTTP fallback
+1. ~~**Repo backend** — local catalogue parsing~~ ✅
+2. ~~**Browse UI** — grid of app cards, category filter, search~~ ✅
+3. ~~**Network repo support** — HTTP/HTTPS, SSH, SMB, NFS transports; unified `AppEntry` model; fat `catalogue.json` format~~ ✅
+4. **Detail view** — full app page from catalogue data
+5. **Bottles backend** — path detection, `bottles-cli` wrapper, basic install (extract + copy)
+6. **Local DB** — track installed apps, wire up Install button state
+7. **Update logic** — safe rsync strategy first, full replacement second
 8. **Component update UI** — post-install prompt to upgrade runner/DXVK
-9. **Multi-repo support** — settings page, repo management
+9. **Repo management UI** — add/remove/initialise repos from settings; optional IGDB/Steam metadata fetch on add
 10. **Flatpak packaging**
 
 ---
@@ -284,7 +302,7 @@ Build in this order:
 PYTHONPATH=. CELLAR_REPO=tests/fixtures python3 -m cellar.main
 ```
 
-`CELLAR_REPO` points to any directory containing a `catalogue.json`. The test fixtures under `tests/fixtures/` work out of the box. Tests: `python3 -m pytest tests/ -v`.
+`CELLAR_REPO` accepts a local path or any supported URI (`https://`, `ssh://`, `smb://`, `nfs://`). The test fixtures under `tests/fixtures/` work out of the box. Tests: `PYTHONPATH=. python3 -m pytest tests/ -v`.
 
 UI files are resolved by `cellar/utils/paths.py` — it checks the source tree (`data/ui/`) first, then the installed location (`/app/share/cellar/ui/`), so no build step is needed during development.
 
@@ -303,7 +321,6 @@ UI files are resolved by `cellar/utils/paths.py` — it checks the source tree (
 
 ## Out of scope (for now)
 
-- Publishing/uploading to a repo from within the app (read-only client for now)
 - Per-app sandboxing beyond what Bottles provides
 - Windows app auto-detection or installer execution
 - Cloud sync of user data inside bottles

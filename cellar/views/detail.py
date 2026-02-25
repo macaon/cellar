@@ -19,7 +19,7 @@ log = logging.getLogger(__name__)
 _ICON_SIZE = 96
 
 
-class DetailView(Adw.ToolbarView):
+class DetailView(Gtk.Box):
     """Full-page detail view for a single app/game.
 
     Displayed inside an ``AdwNavigationPage`` pushed onto the window's
@@ -28,6 +28,9 @@ class DetailView(Adw.ToolbarView):
     All data is read from the ``AppEntry``; no archive or network access
     happens at display time.  Asset images are loaded only if they resolve
     to a local file path; otherwise a generic placeholder is shown.
+
+    Note: ``AdwToolbarView`` is a final GType and cannot be subclassed in
+    Python, so this widget inherits ``Gtk.Box`` and embeds a toolbar view.
     """
 
     def __init__(
@@ -39,13 +42,15 @@ class DetailView(Adw.ToolbarView):
         super().__init__()
         self._entry = entry
         self._resolve = resolve_asset or (lambda rel: rel)
-        self._build()
+        toolbar = Adw.ToolbarView()
+        self.append(toolbar)
+        self._build(toolbar)
 
     # ------------------------------------------------------------------
     # Layout construction
     # ------------------------------------------------------------------
 
-    def _build(self) -> None:
+    def _build(self, toolbar: Adw.ToolbarView) -> None:
         e = self._entry
 
         # ── Header bar ────────────────────────────────────────────────────
@@ -55,12 +60,12 @@ class DetailView(Adw.ToolbarView):
         install_btn.set_sensitive(False)
         install_btn.set_tooltip_text("Installer not yet available")
         header.pack_end(install_btn)
-        self.add_top_bar(header)
+        toolbar.add_top_bar(header)
 
         # ── Scrollable body ───────────────────────────────────────────────
         scroll = Gtk.ScrolledWindow(vexpand=True)
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        self.set_content(scroll)
+        toolbar.set_content(scroll)
 
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         scroll.set_child(outer)

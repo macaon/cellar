@@ -5,6 +5,13 @@ Versioning follows [Semantic Versioning](https://semver.org/) — while the majo
 
 ---
 
+## [0.6.1] — 2026-02-25
+
+### Fixed
+- `DetailView` crashed on startup with `RuntimeError: could not create new GType` because `AdwToolbarView` is a final GType and cannot be subclassed in Python (PyGObject). `DetailView` now inherits `Gtk.Box` and embeds an `Adw.ToolbarView` instance internally.
+
+---
+
 ## [0.6.0] — 2026-02-25
 
 ### Added

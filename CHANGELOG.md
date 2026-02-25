@@ -5,6 +5,28 @@ Versioning follows [Semantic Versioning](https://semver.org/) — while the majo
 
 ---
 
+## [0.5.0] — 2026-02-25
+
+### Added
+- **Settings dialog** (`cellar/views/settings.py`): `AdwPreferencesDialog` accessible via hamburger menu → Preferences
+  - Repositories group lists configured sources as rows with individual remove buttons
+  - `AdwEntryRow` to add a new repo by URI — accepts Enter key or the + button
+  - On add, validates the URI and attempts to fetch `catalogue.json`:
+    - Found → repo added immediately, main window refreshes
+    - Missing + writable local path → "Initialise?" `AdwAlertDialog`; confirms creates the directory and writes an empty `catalogue.json`
+    - Missing + HTTP(S) → explains the source is read-only and the catalogue must exist on the server
+    - Missing + SSH/SMB/NFS → explains remote init is not yet supported and shows manual setup instructions
+  - Duplicate URIs are rejected
+- **About dialog** (`AdwAboutDialog`) wired to the `app.about` menu action
+- **`cellar/backend/config.py`**: persists the repo list to `~/.local/share/cellar/config.json` (XDG_DATA_HOME-aware); `load_repos()` / `save_repos()` helpers
+
+### Changed
+- Hamburger menu (`data/ui/window.ui`) is now wired to a `GMenu` with Preferences (`win.preferences`) and About (`app.about`) items
+- Window catalogue loading now merges repos from `config.json` **and** the `CELLAR_REPO` environment variable (env var acts as a dev/testing override on top of persisted config)
+- "No repository configured" status page now directs users to Preferences instead of the `CELLAR_REPO` env var
+
+---
+
 ## [0.4.0] — 2026-02-25
 
 ### Added

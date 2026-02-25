@@ -323,6 +323,15 @@ class Repo:
                 seen.add(entry.category)
                 yield entry.category
 
+    def local_path(self, rel_path: str = "") -> Path:
+        """Return the absolute local filesystem path for a repo-relative path.
+
+        Raises :exc:`RepoError` for non-local repos (HTTP, SSH, SMB, NFS).
+        """
+        if not isinstance(self._fetcher, _LocalFetcher):
+            raise RepoError("local_path() is only available for local repos")
+        return self._fetcher._root / rel_path.lstrip("/")
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------

@@ -30,6 +30,13 @@
                       </object>
                     </child>
                     <child type="end">
+                      <object class="GtkButton" id="add_button">
+                        <property name="icon-name">list-add-symbolic</property>
+                        <property name="tooltip-text" translatable="yes">Add app to catalogue</property>
+                        <property name="visible">false</property>
+                      </object>
+                    </child>
+                    <child type="end">
                       <object class="GtkToggleButton" id="search_button">
                         <property name="icon-name">system-search-symbolic</property>
                         <property name="tooltip-text" translatable="yes">Search (Ctrl+F)</property>
@@ -49,8 +56,12 @@
                   </object>
                 </child>
                 <property name="content">
-                  <object class="GtkBox" id="main_content">
-                    <property name="orientation">vertical</property>
+                  <object class="AdwToastOverlay" id="toast_overlay">
+                    <property name="child">
+                      <object class="GtkBox" id="main_content">
+                        <property name="orientation">vertical</property>
+                      </object>
+                    </property>
                   </object>
                 </property>
               </object>

@@ -5,6 +5,35 @@ Versioning follows [Semantic Versioning](https://semver.org/) — while the majo
 
 ---
 
+## [0.7.0] — 2026-02-25
+
+### Added
+- **Add-app dialog** (`cellar/views/add_app.py`): UI flow for adding a Bottles backup to a local Cellar repo directly from the main window
+  - `+` button in the header bar, visible only when the first configured repo is writable (local path)
+  - File chooser pre-filtered to `*.tar.gz` Bottles backup archives
+  - `AddAppDialog` (`Adw.Dialog`) with full metadata form organised as `AdwPreferencesGroup` sections: Archive, Identity, Details, Attribution, Wine Components, Images, Install
+  - Auto-extracts `bottle.yml` from the archive (no PyYAML required — simple line-by-line regex parser) to pre-fill Name, Runner, DXVK, VKD3D, and suggest "Games" category for `Environment: Game` bottles
+  - App ID auto-generated from name via `slugify()` (e.g. `Notepad++` → `notepad-plus-plus`); ID field locks as soon as the user manually edits it
+  - Image pickers for Icon, Cover, Hero, and multi-select Screenshots via `Gtk.FileChooserNative`
+  - "Add to Catalogue" button enabled only when Name is non-empty; Category always has a default selection
+  - Progress view replaces the form during import: determinate `GtkProgressBar`, status label, Cancel button
+  - Archive copied in 1 MB chunks on a background thread so the UI stays responsive; cancellation via `threading.Event` cleans up the partial destination file
+  - On success: dialog closes, `AdwToast` "App added to catalogue" shown on main window, browse view reloads
+  - On error: form is restored and an `AdwAlertDialog` shows the failure message
+- **`cellar/backend/packager.py`** (new): packaging helpers
+  - `read_bottle_yml(archive_path)` — extracts and parses `bottle.yml` from inside a `.tar.gz`
+  - `slugify(name)` — converts human app names to URL-safe IDs
+  - `import_to_repo(repo_root, entry, archive_src, images, ...)` — copies archive + images into the repo tree and appends/updates the `catalogue.json` entry; accepts optional `progress_cb` and `cancel_event`
+  - `CancelledError` exception for clean cancellation signalling
+- `Repo.local_path(rel_path)` — returns the absolute `Path` for a repo-relative path; raises `RepoError` for non-local repos
+- `AdwToastOverlay` (`toast_overlay`) wraps `main_content` in `window.ui`; `CellarWindow._show_toast()` helper method
+
+### Changed
+- `data/ui/window.ui`: `main_content` box is now wrapped in `AdwToastOverlay id="toast_overlay"`; `add_button` (hidden by default) added to the header bar left of the search toggle
+- `cellar/window.py`: `add_button` and `toast_overlay` template children; `_load_catalogue()` shows the add button for writable repos; About dialog version bumped to 0.7.0
+
+---
+
 ## [0.6.1] — 2026-02-25
 
 ### Fixed

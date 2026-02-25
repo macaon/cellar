@@ -21,11 +21,13 @@ class CellarWindow(Adw.ApplicationWindow):
     __gtype_name__ = "CellarWindow"
 
     nav_view: Adw.NavigationView = Gtk.Template.Child()
+    add_button: Gtk.Button = Gtk.Template.Child()
     search_button: Gtk.ToggleButton = Gtk.Template.Child()
     search_bar: Gtk.SearchBar = Gtk.Template.Child()
     search_entry: Gtk.SearchEntry = Gtk.Template.Child()
     refresh_button: Gtk.Button = Gtk.Template.Child()
     menu_button: Gtk.MenuButton = Gtk.Template.Child()
+    toast_overlay: Adw.ToastOverlay = Gtk.Template.Child()
     main_content: Gtk.Box = Gtk.Template.Child()
 
     def __init__(self, **kwargs) -> None:
@@ -36,6 +38,7 @@ class CellarWindow(Adw.ApplicationWindow):
         self._first_repo = None
 
         self.search_bar.set_key_capture_widget(self)
+        self.add_button.connect("clicked", self._on_add_app_clicked)
         self.search_button.connect("toggled", self._on_search_toggled)
         self.search_bar.connect(
             "notify::search-mode-enabled", self._on_search_mode_changed
@@ -86,6 +89,9 @@ class CellarWindow(Adw.ApplicationWindow):
             except RepoError as exc:
                 log.warning("Configured repo %r invalid: %s", cfg["uri"], exc)
 
+        can_add = self._first_repo is not None and self._first_repo.is_writable
+        self.add_button.set_visible(can_add)
+
         if not list(manager):
             self._browse.show_error(
                 "No Repository Configured",
@@ -120,6 +126,32 @@ class CellarWindow(Adw.ApplicationWindow):
         page = Adw.NavigationPage(title=entry.name, child=detail)
         self.nav_view.push(page)
 
+    def _on_add_app_clicked(self, _button) -> None:
+        chooser = Gtk.FileChooserNative(
+            title="Select Bottles Backup",
+            transient_for=self,
+            action=Gtk.FileChooserAction.OPEN,
+        )
+        f = Gtk.FileFilter()
+        f.set_name("Bottles backup (*.tar.gz)")
+        f.add_pattern("*.tar.gz")
+        chooser.add_filter(f)
+        chooser.connect("response", self._on_archive_chosen, chooser)
+        chooser.show()
+
+    def _on_archive_chosen(self, _chooser, response, chooser) -> None:
+        if response != Gtk.ResponseType.ACCEPT:
+            return
+        archive_path = chooser.get_file().get_path()
+        from cellar.views.add_app import AddAppDialog
+
+        dialog = AddAppDialog(
+            archive_path=archive_path,
+            repo=self._first_repo,
+            on_done=self._load_catalogue,
+        )
+        dialog.present(self)
+
     def _on_preferences_activated(self, _action, _param) -> None:
         from cellar.views.settings import SettingsDialog
 
@@ -130,11 +162,14 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="application-x-executable",
-            version="0.6.0",
+            version="0.7.0",
             comments="A GNOME storefront for Bottles-managed Windows apps.",
             license_type=Gtk.License.GPL_3_0,
         )
         dialog.present(self)
+
+    def _show_toast(self, message: str) -> None:
+        self.toast_overlay.add_toast(Adw.Toast(title=message))
 
     def _on_search_toggled(self, button: Gtk.ToggleButton) -> None:
         self.search_bar.set_search_mode(button.get_active())

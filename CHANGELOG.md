@@ -5,6 +5,29 @@ Versioning follows [Semantic Versioning](https://semver.org/) — while the majo
 
 ---
 
+## [0.7.1] — 2026-02-25
+
+### Added
+- **Edit catalogue entry** (`cellar/views/edit_app.py`): `EditAppDialog(Adw.Dialog)` — opened from a new Edit (pencil) button in the detail view header bar, visible only when the repo is writable
+  - All metadata fields pre-filled from the existing `AppEntry`; App ID is read-only (displayed as a non-editable `ActionRow` subtitle — renaming an ID would break installed records)
+  - **Archive** group: shows current filename; "Replace…" button opens a `.tar.gz` file chooser; on pick, the archive row subtitle updates and `bottle.yml` is read in a background thread to refresh the Wine Components rows
+  - **Identity / Details / Attribution / Wine Components / Images / Install** groups — identical layout to the Add-app dialog
+  - Images: "Change…" button per image; subtitle shows current filename as default; only picked images are overwritten on save
+  - **Danger Zone** group at the bottom with a destructive "Delete Entry…" button
+  - Save flow: background thread → `update_in_repo()`; progress view with determinate progress bar and Cancel; on success → "Entry updated" toast + browse reload; on error → form restored + `AdwAlertDialog`
+  - Delete confirmation (`AdwAlertDialog`) offers three choices: Cancel, "Move Archive…" (folder picker, archive moved before directory removal), "Delete Archive" (archive removed with the rest)
+  - Delete flow: spinner progress view; background thread → `remove_from_repo()`; on success → dialog closes, "Entry deleted" toast, nav pops back to browse, browse reloads; cancellable
+- **`cellar/backend/packager.py`** additions:
+  - `update_in_repo(repo_root, old_entry, new_entry, images, new_archive_src, ...)` — chunked archive copy (optional), selective image updates, full screenshot replacement, catalogue upsert; `cancel_event` supported throughout
+  - `remove_from_repo(repo_root, entry, *, move_archive_to, cancel_event)` — optional archive move, `shutil.rmtree` of the app directory, catalogue entry removal; all steps are cancellable
+  - Internal helpers `_upsert_catalogue()`, `_remove_from_catalogue()`, `_write_catalogue()` extracted from `import_to_repo()` to eliminate duplicated catalogue-write logic
+
+### Changed
+- `cellar/views/detail.py`: accepts two new keyword-only constructor parameters — `is_writable: bool` (default `False`) and `on_edit: Callable | None`; when both are set, a `document-edit-symbolic` button is packed into the header bar after the Install button
+- `cellar/window.py`: `_on_app_selected()` now derives `can_write` from `self._first_repo.is_writable`, constructs an `_on_edit` closure, and passes both to `DetailView`; new `_on_entry_deleted()` method pops the nav view and reloads the catalogue; About dialog version bumped to 0.7.1
+
+---
+
 ## [0.7.0] — 2026-02-25
 
 ### Added

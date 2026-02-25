@@ -145,15 +145,149 @@ def import_to_repo(
         shutil.copy2(src, ss_dir / f"{i:02d}{Path(src).suffix}")
 
     # ── catalogue.json ────────────────────────────────────────────────────
+    _upsert_catalogue(repo_root, entry)
+
+    if progress_cb:
+        progress_cb(1.0)
+
+
+def update_in_repo(
+    repo_root: Path,
+    old_entry,                          # AppEntry
+    new_entry,                          # AppEntry
+    images: dict,                       # {"icon": path|None, "cover": path|None, ...}
+    new_archive_src: str | None = None,
+    *,
+    progress_cb: Callable[[float], None] | None = None,
+    cancel_event=None,
+) -> None:
+    """Update an existing entry in *repo_root*.
+
+    - If *new_archive_src* is given, the archive is replaced (chunked copy,
+      old file removed if the path changed and the file still exists).
+    - Only image keys with a non-empty value in *images* are overwritten.
+    - Screenshots are fully replaced when *images["screenshots"]* is non-empty.
+    - ``catalogue.json`` is updated in place (matched by ID).
+    """
+    app_dir = repo_root / "apps" / new_entry.id
+    app_dir.mkdir(parents=True, exist_ok=True)
+
+    # ── Archive (optional replacement) ────────────────────────────────────
+    if new_archive_src:
+        archive_dest = repo_root / new_entry.archive
+        archive_dest.parent.mkdir(parents=True, exist_ok=True)
+        src_size = Path(new_archive_src).stat().st_size
+        chunk = 1 * 1024 * 1024
+        copied = 0
+        try:
+            with open(new_archive_src, "rb") as src_f, open(archive_dest, "wb") as dst_f:
+                while True:
+                    if cancel_event and cancel_event.is_set():
+                        dst_f.close()
+                        archive_dest.unlink(missing_ok=True)
+                        raise CancelledError("Update cancelled by user")
+                    buf = src_f.read(chunk)
+                    if not buf:
+                        break
+                    dst_f.write(buf)
+                    copied += len(buf)
+                    if progress_cb and src_size > 0:
+                        progress_cb(min(copied / src_size * 0.9, 0.9))
+        except CancelledError:
+            raise
+        except OSError as exc:
+            archive_dest.unlink(missing_ok=True)
+            raise RuntimeError(f"Failed to copy archive: {exc}") from exc
+
+        # Remove the old archive file if its path changed
+        old_archive = repo_root / old_entry.archive
+        if old_archive != archive_dest and old_archive.exists():
+            old_archive.unlink(missing_ok=True)
+
+    # ── Single images (icon, cover, hero) ─────────────────────────────────
+    for key in ("icon", "cover", "hero"):
+        src = images.get(key)
+        if src and getattr(new_entry, key):
+            dest = repo_root / getattr(new_entry, key)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest)
+
+    # ── Screenshots ───────────────────────────────────────────────────────
+    new_screenshots = images.get("screenshots") or []
+    if new_screenshots:
+        ss_dir = repo_root / "apps" / new_entry.id / "screenshots"
+        if ss_dir.exists():
+            shutil.rmtree(ss_dir)
+        ss_dir.mkdir(parents=True, exist_ok=True)
+        for i, src in enumerate(new_screenshots, 1):
+            shutil.copy2(src, ss_dir / f"{i:02d}{Path(src).suffix}")
+
+    # ── catalogue.json ────────────────────────────────────────────────────
+    _upsert_catalogue(repo_root, new_entry)
+
+    if progress_cb:
+        progress_cb(1.0)
+
+
+def remove_from_repo(
+    repo_root: Path,
+    entry,                          # AppEntry
+    *,
+    move_archive_to: str | None = None,
+    cancel_event=None,
+) -> None:
+    """Remove *entry* from *repo_root*.
+
+    If *move_archive_to* is set and the archive file exists, it is moved to
+    that directory before the rest of the app directory is deleted.
+    """
+    archive_file = repo_root / entry.archive
+
+    if move_archive_to and archive_file.exists():
+        if cancel_event and cancel_event.is_set():
+            raise CancelledError("Delete cancelled by user")
+        shutil.move(str(archive_file), Path(move_archive_to) / archive_file.name)
+
+    if cancel_event and cancel_event.is_set():
+        raise CancelledError("Delete cancelled by user")
+
+    shutil.rmtree(repo_root / "apps" / entry.id, ignore_errors=True)
+
+    if cancel_event and cancel_event.is_set():
+        raise CancelledError("Delete cancelled by user")
+
+    _remove_from_catalogue(repo_root, entry.id)
+
+
+# ---------------------------------------------------------------------------
+# catalogue.json helpers (shared by import / update / remove)
+# ---------------------------------------------------------------------------
+
+def _upsert_catalogue(repo_root: Path, entry) -> None:
+    """Replace or append *entry* in ``catalogue.json``."""
     cat_path = repo_root / "catalogue.json"
     if cat_path.exists():
         raw = json.loads(cat_path.read_text())
         apps = raw.get("apps", raw) if isinstance(raw, dict) else raw
     else:
         apps = []
-    # Replace existing entry with same ID, or append
     apps = [a for a in apps if a.get("id") != entry.id]
     apps.append(entry.to_dict())
+    _write_catalogue(cat_path, apps)
+
+
+def _remove_from_catalogue(repo_root: Path, app_id: str) -> None:
+    """Filter *app_id* out of ``catalogue.json``."""
+    cat_path = repo_root / "catalogue.json"
+    if not cat_path.exists():
+        return
+    raw = json.loads(cat_path.read_text())
+    apps = raw.get("apps", raw) if isinstance(raw, dict) else raw
+    apps = [a for a in apps if a.get("id") != app_id]
+    _write_catalogue(cat_path, apps)
+
+
+def _write_catalogue(cat_path: Path, apps: list) -> None:
     cat_path.write_text(
         json.dumps(
             {
@@ -165,9 +299,6 @@ def import_to_repo(
             ensure_ascii=False,
         )
     )
-
-    if progress_cb:
-        progress_cb(1.0)
 
 
 class CancelledError(Exception):

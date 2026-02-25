@@ -122,9 +122,30 @@ class CellarWindow(Adw.ApplicationWindow):
         from cellar.views.detail import DetailView
 
         resolver = self._first_repo.resolve_asset_uri if self._first_repo else None
-        detail = DetailView(entry, resolve_asset=resolver)
+        can_write = self._first_repo is not None and self._first_repo.is_writable
+
+        def _on_edit(selected_entry):
+            from cellar.views.edit_app import EditAppDialog
+
+            EditAppDialog(
+                entry=selected_entry,
+                repo=self._first_repo,
+                on_done=self._load_catalogue,
+                on_deleted=self._on_entry_deleted,
+            ).present(self)
+
+        detail = DetailView(
+            entry,
+            resolve_asset=resolver,
+            is_writable=can_write,
+            on_edit=_on_edit if can_write else None,
+        )
         page = Adw.NavigationPage(title=entry.name, child=detail)
         self.nav_view.push(page)
+
+    def _on_entry_deleted(self) -> None:
+        self.nav_view.pop()
+        self._load_catalogue()
 
     def _on_add_app_clicked(self, _button) -> None:
         chooser = Gtk.FileChooserNative(
@@ -162,7 +183,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="application-x-executable",
-            version="0.7.0",
+            version="0.7.1",
             comments="A GNOME storefront for Bottles-managed Windows apps.",
             license_type=Gtk.License.GPL_3_0,
         )

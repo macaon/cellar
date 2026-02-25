@@ -38,10 +38,14 @@ class DetailView(Gtk.Box):
         entry: AppEntry,
         *,
         resolve_asset: Callable[[str], str] | None = None,
+        is_writable: bool = False,
+        on_edit: Callable | None = None,
     ) -> None:
         super().__init__()
         self._entry = entry
         self._resolve = resolve_asset or (lambda rel: rel)
+        self._is_writable = is_writable
+        self._on_edit = on_edit
         toolbar = Adw.ToolbarView()
         self.append(toolbar)
         self._build(toolbar)
@@ -60,6 +64,15 @@ class DetailView(Gtk.Box):
         install_btn.set_sensitive(False)
         install_btn.set_tooltip_text("Installer not yet available")
         header.pack_end(install_btn)
+
+        if self._is_writable and self._on_edit:
+            edit_btn = Gtk.Button(
+                icon_name="document-edit-symbolic",
+                tooltip_text="Edit catalogue entry",
+            )
+            edit_btn.connect("clicked", lambda _b: self._on_edit(e))
+            header.pack_end(edit_btn)
+
         toolbar.add_top_bar(header)
 
         # ── Scrollable body ───────────────────────────────────────────────

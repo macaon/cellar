@@ -17,57 +17,172 @@ from cellar.backend.repo import (
     _LocalFetcher,
     _SshFetcher,
 )
-from cellar.models.app_entry import AppEntry
-from cellar.models.manifest import Manifest
+from cellar.models.app_entry import AppEntry, BuiltWith
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
 # ---------------------------------------------------------------------------
-# Repo.fetch_catalogue
+# Repo.fetch_catalogue — basic parsing
 # ---------------------------------------------------------------------------
 
 def test_fetch_catalogue_returns_all_entries():
     repo = Repo(str(FIXTURES))
     entries = repo.fetch_catalogue()
     assert len(entries) == 2
-    ids = {e.id for e in entries}
-    assert ids == {"example-app", "paint-clone"}
+    assert {e.id for e in entries} == {"example-app", "paint-clone"}
 
 
-def test_catalogue_entry_fields():
+def test_catalogue_entries_are_app_entry_instances():
     repo = Repo(str(FIXTURES))
-    entries = {e.id: e for e in repo.fetch_catalogue()}
-    ea = entries["example-app"]
-    assert ea.name == "Example App"
-    assert ea.category == "Productivity"
-    assert ea.version == "1.0"
-    assert ea.manifest == "apps/example-app/manifest.json"
+    for entry in repo.fetch_catalogue():
+        assert isinstance(entry, AppEntry)
+
+
+def test_catalogue_wrapper_format_parsed():
+    """The cellar_version wrapper dict is accepted."""
+    repo = Repo(str(FIXTURES))
+    entries = repo.fetch_catalogue()
+    assert len(entries) == 2  # wrapper format is the fixture default
+
+
+def test_catalogue_bare_array_fallback(tmp_path):
+    """A bare JSON array is still accepted for backwards compatibility."""
+    bare = tmp_path / "catalogue.json"
+    bare.write_text(
+        '[{"id":"x","name":"X","version":"1","category":"C"}]', encoding="utf-8"
+    )
+    repo = Repo(str(tmp_path))
+    entries = repo.fetch_catalogue()
+    assert len(entries) == 1
+    assert entries[0].id == "x"
 
 
 # ---------------------------------------------------------------------------
-# Repo.fetch_manifest
+# AppEntry field coverage
 # ---------------------------------------------------------------------------
 
-def test_fetch_manifest_fields():
-    repo = Repo(str(FIXTURES))
-    entries = {e.id: e for e in repo.fetch_catalogue()}
-    m = repo.fetch_manifest(entries["example-app"])
-    assert isinstance(m, Manifest)
-    assert m.id == "example-app"
-    assert m.update_strategy == "safe"
-    assert m.built_with.runner == "proton-ge-9-1"
-    assert m.built_with.dxvk == "2.3"
-    assert m.built_with.vkd3d == "2.11"
-    assert m.archive_size == 104857600
-    assert len(m.screenshots) == 2
+def test_example_app_identity_fields():
+    entries = {e.id: e for e in Repo(str(FIXTURES)).fetch_catalogue()}
+    e = entries["example-app"]
+    assert e.name == "Example App"
+    assert e.version == "1.0"
+    assert e.category == "Productivity"
 
 
-def test_fetch_manifest_full_strategy():
+def test_example_app_display_fields():
+    entries = {e.id: e for e in Repo(str(FIXTURES)).fetch_catalogue()}
+    e = entries["example-app"]
+    assert e.summary == "A sample Windows app managed by Bottles."
+    assert "longer description" in e.description
+    assert "Productivity" in e.tags
+    assert "Office" in e.tags
+
+
+def test_example_app_attribution_fields():
+    entries = {e.id: e for e in Repo(str(FIXTURES)).fetch_catalogue()}
+    e = entries["example-app"]
+    assert e.developer == "Example Corp"
+    assert e.publisher == "Example Corp"
+    assert e.release_year == 2022
+    assert e.content_rating == "PEGI 3"
+    assert "English" in e.languages
+    assert "German" in e.languages
+    assert e.website == "https://example.com"
+    assert e.store_links.get("gog") == "https://www.gog.com/game/example"
+
+
+def test_example_app_media_fields():
+    entries = {e.id: e for e in Repo(str(FIXTURES)).fetch_catalogue()}
+    e = entries["example-app"]
+    assert e.icon == "apps/example-app/icon.png"
+    assert e.cover == "apps/example-app/cover.png"
+    assert e.hero == "apps/example-app/hero.png"
+    assert len(e.screenshots) == 2
+
+
+def test_example_app_install_fields():
+    entries = {e.id: e for e in Repo(str(FIXTURES)).fetch_catalogue()}
+    e = entries["example-app"]
+    assert e.archive == "apps/example-app/example-app-1.0.tar.gz"
+    assert e.archive_size == 104857600
+    assert e.archive_sha256 == "deadbeef1234567890abcdef1234567890abcdef1234567890abcdef12345678"
+    assert e.install_size_estimate == 524288000
+    assert e.update_strategy == "safe"
+    assert e.entry_point == "Program Files/ExampleApp/example.exe"
+    assert e.changelog == "Initial release."
+
+
+def test_example_app_built_with():
+    entries = {e.id: e for e in Repo(str(FIXTURES)).fetch_catalogue()}
+    e = entries["example-app"]
+    assert isinstance(e.built_with, BuiltWith)
+    assert e.built_with.runner == "proton-ge-9-1"
+    assert e.built_with.dxvk == "2.3"
+    assert e.built_with.vkd3d == "2.11"
+
+
+def test_paint_clone_full_strategy():
+    entries = {e.id: e for e in Repo(str(FIXTURES)).fetch_catalogue()}
+    e = entries["paint-clone"]
+    assert e.update_strategy == "full"
+    assert e.built_with is not None
+    assert e.built_with.vkd3d == ""  # not specified in fixture
+
+
+def test_optional_fields_default_gracefully(tmp_path):
+    """An entry with only required fields should parse without error."""
+    minimal = tmp_path / "catalogue.json"
+    minimal.write_text(
+        '{"cellar_version":1,"apps":[{"id":"m","name":"Min","version":"0","category":"Other"}]}',
+        encoding="utf-8",
+    )
+    repo = Repo(str(tmp_path))
+    entries = repo.fetch_catalogue()
+    e = entries[0]
+    assert e.id == "m"
+    assert e.summary == ""
+    assert e.tags == ()
+    assert e.developer == ""
+    assert e.store_links == {}
+    assert e.built_with is None
+    assert e.update_strategy == "safe"
+
+
+# ---------------------------------------------------------------------------
+# AppEntry.to_dict round-trip
+# ---------------------------------------------------------------------------
+
+def test_to_dict_round_trip():
+    entries = {e.id: e for e in Repo(str(FIXTURES)).fetch_catalogue()}
+    original = entries["example-app"]
+    restored = AppEntry.from_dict(original.to_dict())
+    assert restored == original
+
+
+def test_to_dict_omits_empty_fields():
+    e = AppEntry(id="x", name="X", version="1", category="C")
+    d = e.to_dict()
+    assert "summary" not in d
+    assert "developer" not in d
+    assert "built_with" not in d
+    assert "archive" not in d
+
+
+# ---------------------------------------------------------------------------
+# Repo.fetch_entry_by_id
+# ---------------------------------------------------------------------------
+
+def test_fetch_entry_by_id_found():
     repo = Repo(str(FIXTURES))
-    m = repo.fetch_manifest_by_id("paint-clone")
-    assert m.update_strategy == "full"
-    assert m.built_with.vkd3d == ""  # not specified in fixture
+    entry = repo.fetch_entry_by_id("paint-clone")
+    assert entry.id == "paint-clone"
+
+
+def test_fetch_entry_by_id_missing_raises():
+    repo = Repo(str(FIXTURES))
+    with pytest.raises(RepoError, match="not found"):
+        repo.fetch_entry_by_id("does-not-exist")
 
 
 # ---------------------------------------------------------------------------
@@ -78,6 +193,35 @@ def test_resolve_asset_uri_local():
     repo = Repo(str(FIXTURES))
     uri = repo.resolve_asset_uri("apps/example-app/icon.png")
     assert uri.endswith("apps/example-app/icon.png")
+
+
+# ---------------------------------------------------------------------------
+# Repo.is_writable
+# ---------------------------------------------------------------------------
+
+def test_local_repo_is_writable():
+    assert Repo(str(FIXTURES)).is_writable is True
+
+
+def test_http_repo_is_not_writable():
+    repo = Repo.__new__(Repo)
+    repo.uri = "http://example.com/repo"
+    repo.name = "test"
+    repo._fetcher = _HttpFetcher("http://example.com/repo")
+    assert repo.is_writable is False
+
+
+def test_https_repo_is_not_writable():
+    repo = Repo.__new__(Repo)
+    repo.uri = "https://example.com/repo"
+    repo.name = "test"
+    repo._fetcher = _HttpFetcher("https://example.com/repo")
+    assert repo.is_writable is False
+
+
+def test_ssh_repo_is_writable():
+    repo = Repo("ssh://bob@builds.example.com/srv/cellar-repo")
+    assert repo.is_writable is True
 
 
 # ---------------------------------------------------------------------------
@@ -109,8 +253,7 @@ def test_nonexistent_root_raises():
 
 def test_iter_categories():
     repo = Repo(str(FIXTURES))
-    cats = list(repo.iter_categories())
-    assert set(cats) == {"Productivity", "Graphics"}
+    assert set(repo.iter_categories()) == {"Productivity", "Graphics"}
 
 
 # ---------------------------------------------------------------------------
@@ -120,41 +263,32 @@ def test_iter_categories():
 def test_repo_manager_merges_catalogues():
     mgr = RepoManager()
     mgr.add(Repo(str(FIXTURES)))
-    entries = mgr.fetch_all_catalogues()
-    assert len(entries) == 2
+    assert len(mgr.fetch_all_catalogues()) == 2
 
 
 def test_repo_manager_last_repo_wins():
-    """If two repos have the same app ID, the later repo's entry wins."""
     mgr = RepoManager()
     mgr.add(Repo(str(FIXTURES)))
-    mgr.add(Repo(str(FIXTURES)))  # same repo twice — last entry for same id wins
-    entries = mgr.fetch_all_catalogues()
-    # Still deduplicated by id
-    assert len(entries) == 2
+    mgr.add(Repo(str(FIXTURES)))
+    assert len(mgr.fetch_all_catalogues()) == 2
 
 
 def test_repo_manager_skips_bad_repo(tmp_path):
-    """An unreachable repo is skipped; others still load."""
     mgr = RepoManager()
-    good = Repo(str(FIXTURES))
-    mgr.add(good)
-    # Manually add a broken repo by bypassing the constructor check
+    mgr.add(Repo(str(FIXTURES)))
     bad = Repo.__new__(Repo)
     bad.uri = str(tmp_path / "nonexistent")
     bad.name = "bad"
     bad._fetcher = _LocalFetcher(tmp_path / "nonexistent")
     mgr.add(bad)
-    entries = mgr.fetch_all_catalogues()
-    assert len(entries) == 2  # bad repo skipped gracefully
+    assert len(mgr.fetch_all_catalogues()) == 2
 
 
 # ---------------------------------------------------------------------------
 # _HttpFetcher
 # ---------------------------------------------------------------------------
 
-def _make_mock_response(body: bytes, status: int = 200):
-    """Return a mock context manager that urlopen would yield."""
+def _mock_response(body: bytes):
     resp = MagicMock()
     resp.read.return_value = body
     resp.__enter__ = lambda s: s
@@ -164,19 +298,16 @@ def _make_mock_response(body: bytes, status: int = 200):
 
 def test_http_fetcher_fetch_bytes():
     payload = b'{"key": "value"}'
-    with patch("urllib.request.urlopen", return_value=_make_mock_response(payload)):
-        fetcher = _HttpFetcher("https://example.com/repo")
-        data = fetcher.fetch_bytes("catalogue.json")
-    assert data == payload
+    with patch("urllib.request.urlopen", return_value=_mock_response(payload)):
+        assert _HttpFetcher("https://example.com/repo").fetch_bytes("catalogue.json") == payload
 
 
 def test_http_fetcher_resolve_uri():
-    fetcher = _HttpFetcher("https://example.com/repo/")
-    assert fetcher.resolve_uri("apps/foo/icon.png") == "https://example.com/repo/apps/foo/icon.png"
+    f = _HttpFetcher("https://example.com/repo/")
+    assert f.resolve_uri("apps/foo/icon.png") == "https://example.com/repo/apps/foo/icon.png"
 
 
 def test_http_fetcher_trailing_slash_normalised():
-    """Base URL with or without trailing slash should produce the same asset URI."""
     f1 = _HttpFetcher("https://example.com/repo")
     f2 = _HttpFetcher("https://example.com/repo/")
     assert f1.resolve_uri("catalogue.json") == f2.resolve_uri("catalogue.json")
@@ -186,33 +317,25 @@ def test_http_fetcher_http_error_raises():
     import urllib.error
     with patch(
         "urllib.request.urlopen",
-        side_effect=urllib.error.HTTPError(
-            "https://example.com/404", 404, "Not Found", {}, None
-        ),
+        side_effect=urllib.error.HTTPError("https://example.com/404", 404, "Not Found", {}, None),
     ):
-        fetcher = _HttpFetcher("https://example.com/repo")
         with pytest.raises(RepoError, match="HTTP 404"):
-            fetcher.fetch_bytes("missing.json")
+            _HttpFetcher("https://example.com/repo").fetch_bytes("missing.json")
 
 
 def test_http_fetcher_network_error_raises():
     import urllib.error
-    with patch(
-        "urllib.request.urlopen",
-        side_effect=urllib.error.URLError("Connection refused"),
-    ):
-        fetcher = _HttpFetcher("https://example.com/repo")
+    with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("Connection refused")):
         with pytest.raises(RepoError, match="Network error"):
-            fetcher.fetch_bytes("catalogue.json")
+            _HttpFetcher("https://example.com/repo").fetch_bytes("catalogue.json")
 
 
-def test_repo_http_catalogue(tmp_path):
-    """End-to-end: Repo backed by an HTTP fetcher reads catalogue correctly."""
+def test_repo_http_catalogue():
     catalogue = (FIXTURES / "catalogue.json").read_bytes()
-    repo = Repo.__new__(Repo)
-    repo.uri = "https://example.com/repo"
-    repo.name = "test"
-    with patch("urllib.request.urlopen", return_value=_make_mock_response(catalogue)):
+    with patch("urllib.request.urlopen", return_value=_mock_response(catalogue)):
+        repo = Repo.__new__(Repo)
+        repo.uri = "https://example.com/repo"
+        repo.name = "test"
         repo._fetcher = _HttpFetcher("https://example.com/repo")
         entries = repo.fetch_catalogue()
     assert len(entries) == 2
@@ -223,68 +346,54 @@ def test_repo_http_catalogue(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_ssh_fetcher_resolve_uri():
-    fetcher = _SshFetcher("myhost.example.com", "/srv/repo", user="alice", port=2222)
-    uri = fetcher.resolve_uri("catalogue.json")
-    assert uri == "ssh://alice@myhost.example.com:2222/srv/repo/catalogue.json"
+    f = _SshFetcher("host.example.com", "/srv/repo", user="alice", port=2222)
+    assert f.resolve_uri("catalogue.json") == "ssh://alice@host.example.com:2222/srv/repo/catalogue.json"
 
 
 def test_ssh_fetcher_resolve_uri_no_user_no_port():
-    fetcher = _SshFetcher("myhost.example.com", "/srv/repo")
-    uri = fetcher.resolve_uri("apps/foo/icon.png")
-    assert uri == "ssh://myhost.example.com/srv/repo/apps/foo/icon.png"
+    f = _SshFetcher("host.example.com", "/srv/repo")
+    assert f.resolve_uri("apps/foo/icon.png") == "ssh://host.example.com/srv/repo/apps/foo/icon.png"
 
 
-def test_ssh_fetcher_missing_ssh_raises(monkeypatch):
-    """If ssh is not installed, a clear RepoError is raised."""
-    import subprocess
-    fetcher = _SshFetcher("myhost.example.com", "/srv/repo", user="alice")
-    with patch("subprocess.run", side_effect=FileNotFoundError("ssh not found")):
+def test_ssh_fetcher_missing_ssh_raises():
+    with patch("subprocess.run", side_effect=FileNotFoundError):
         with pytest.raises(RepoError, match="ssh executable not found"):
-            fetcher.fetch_bytes("catalogue.json")
+            _SshFetcher("host.example.com", "/srv/repo", user="alice").fetch_bytes("catalogue.json")
 
 
 def test_ssh_fetcher_nonzero_exit_raises():
-    """Non-zero SSH exit code surfaces stderr as a RepoError."""
     result = MagicMock()
     result.returncode = 255
     result.stderr = b"Connection refused"
     with patch("subprocess.run", return_value=result):
-        fetcher = _SshFetcher("myhost.example.com", "/srv/repo", user="alice")
         with pytest.raises(RepoError, match="SSH fetch failed"):
-            fetcher.fetch_bytes("catalogue.json")
+            _SshFetcher("host.example.com", "/srv/repo", user="alice").fetch_bytes("catalogue.json")
 
 
 def test_ssh_fetcher_success():
-    payload = b'[{"id":"x","name":"X","category":"C","summary":"s","icon":"i","version":"1","manifest":"m"}]'
+    payload = b'{"cellar_version":1,"apps":[]}'
     result = MagicMock()
     result.returncode = 0
     result.stdout = payload
     with patch("subprocess.run", return_value=result):
-        fetcher = _SshFetcher("myhost.example.com", "/srv/repo", user="alice")
-        data = fetcher.fetch_bytes("catalogue.json")
-    assert data == payload
+        assert _SshFetcher("host.example.com", "/srv/repo", user="alice").fetch_bytes("catalogue.json") == payload
 
 
-def test_ssh_fetcher_identity_file_passed():
-    """An explicit identity file should appear in the ssh command arguments."""
+def test_ssh_fetcher_identity_file_in_command():
     result = MagicMock()
     result.returncode = 0
     result.stdout = b"data"
     with patch("subprocess.run", return_value=result) as mock_run:
-        fetcher = _SshFetcher(
-            "myhost.example.com",
-            "/srv/repo",
-            user="alice",
+        _SshFetcher(
+            "host.example.com", "/srv/repo", user="alice",
             identity="/home/alice/.ssh/cellar_ed25519",
-        )
-        fetcher.fetch_bytes("catalogue.json")
+        ).fetch_bytes("catalogue.json")
     cmd = mock_run.call_args[0][0]
     assert "-i" in cmd
     assert "/home/alice/.ssh/cellar_ed25519" in cmd
 
 
 def test_repo_ssh_uri_creates_ssh_fetcher():
-    """Passing an ssh:// URI to Repo should create an _SshFetcher."""
     from cellar.backend.repo import _SshFetcher as SF
     repo = Repo("ssh://bob@builds.example.com/srv/cellar-repo")
     assert isinstance(repo._fetcher, SF)

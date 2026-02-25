@@ -1,20 +1,70 @@
-[
-  {
-    "id": "example-app",
-    "name": "Example App",
-    "category": "Productivity",
-    "summary": "A sample Windows app managed by Bottles",
-    "icon": "apps/example-app/icon.png",
-    "version": "1.0",
-    "manifest": "apps/example-app/manifest.json"
-  },
-  {
-    "id": "paint-clone",
-    "name": "Paint Clone",
-    "category": "Graphics",
-    "summary": "A classic bitmap paint program",
-    "icon": "apps/paint-clone/icon.png",
-    "version": "2.3",
-    "manifest": "apps/paint-clone/manifest.json"
-  }
-]
+{
+  "cellar_version": 1,
+  "generated_at": "2026-02-25T12:00:00Z",
+  "apps": [
+    {
+      "id": "example-app",
+      "name": "Example App",
+      "version": "1.0",
+      "category": "Productivity",
+      "tags": ["Productivity", "Office"],
+      "summary": "A sample Windows app managed by Bottles.",
+      "description": "A longer description of Example App for use in tests. It does not really do much, but it is useful for verifying that the catalogue is parsed correctly.",
+      "developer": "Example Corp",
+      "publisher": "Example Corp",
+      "release_year": 2022,
+      "content_rating": "PEGI 3",
+      "languages": ["English", "German"],
+      "website": "https://example.com",
+      "store_links": {
+        "gog": "https://www.gog.com/game/example"
+      },
+      "icon": "apps/example-app/icon.png",
+      "cover": "apps/example-app/cover.png",
+      "hero": "apps/example-app/hero.png",
+      "screenshots": [
+        "apps/example-app/screenshots/01.png",
+        "apps/example-app/screenshots/02.png"
+      ],
+      "archive": "apps/example-app/example-app-1.0.tar.gz",
+      "archive_size": 104857600,
+      "archive_sha256": "deadbeef1234567890abcdef1234567890abcdef1234567890abcdef12345678",
+      "install_size_estimate": 524288000,
+      "built_with": {
+        "runner": "proton-ge-9-1",
+        "dxvk": "2.3",
+        "vkd3d": "2.11"
+      },
+      "update_strategy": "safe",
+      "entry_point": "Program Files/ExampleApp/example.exe",
+      "changelog": "Initial release."
+    },
+    {
+      "id": "paint-clone",
+      "name": "Paint Clone",
+      "version": "2.1",
+      "category": "Graphics",
+      "tags": ["Graphics", "Drawing", "Creative"],
+      "summary": "A classic bitmap paint program.",
+      "description": "A basic painting tool for quick sketches and pixel art. Lightweight and fast.",
+      "developer": "Artsy Dev",
+      "publisher": "Artsy Dev",
+      "release_year": 2020,
+      "languages": ["English"],
+      "icon": "apps/paint-clone/icon.png",
+      "cover": "apps/paint-clone/cover.png",
+      "screenshots": [
+        "apps/paint-clone/screenshots/01.png"
+      ],
+      "archive": "apps/paint-clone/paint-clone-2.1.tar.gz",
+      "archive_size": 20971520,
+      "archive_sha256": "cafebabe1234567890abcdef1234567890abcdef1234567890abcdef12345678",
+      "built_with": {
+        "runner": "caffe-8.21",
+        "dxvk": "2.1"
+      },
+      "update_strategy": "full",
+      "entry_point": "Program Files/PaintClone/paint.exe"
+    }
+  ]
+}

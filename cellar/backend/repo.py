@@ -1,13 +1,28 @@
-"""Catalogue and manifest fetching/parsing.
+"""Catalogue fetching and repo management.
 
 Supported URI schemes
 ---------------------
 - Bare local path or ``file://`` → reads directly from the filesystem
-- ``http://`` / ``https://``     → fetches via urllib (no extra deps)
+- ``http://`` / ``https://``     → fetches via urllib (no extra deps); **read-only**
 - ``ssh://[user@]host[:port]/path`` → streams files through the system ssh client;
-  key auth is handled by the user's SSH agent / ``~/.ssh/config``;
-  an explicit identity file can be passed via ``ssh_identity=``
+  key auth handled by SSH agent / ``~/.ssh/config``;
+  explicit identity file via ``ssh_identity=``
 - ``smb://`` / ``nfs://``        → delegates to GVFS through GIO
+
+HTTP(S) repos are always read-only — the client cannot initialise or modify
+them.  All other transports support write operations (phase 9).
+
+catalogue.json format
+---------------------
+The repo root must contain a ``catalogue.json`` in the following shape::
+
+    {
+      "cellar_version": 1,
+      "generated_at": "<ISO-8601 timestamp>",
+      "apps": [ { ...AppEntry fields... }, ... ]
+    }
+
+A bare JSON array is also accepted for backwards compatibility.
 """
 
 from __future__ import annotations
@@ -22,9 +37,10 @@ from typing import Iterator, Protocol, runtime_checkable
 from urllib.parse import urlparse
 
 from cellar.models.app_entry import AppEntry
-from cellar.models.manifest import Manifest
 
 log = logging.getLogger(__name__)
+
+CATALOGUE_VERSION = 1
 
 
 class RepoError(Exception):
@@ -63,7 +79,7 @@ class _LocalFetcher:
 
 
 class _HttpFetcher:
-    """Serves files from an HTTP or HTTPS server."""
+    """Serves files from an HTTP or HTTPS server (read-only)."""
 
     def __init__(self, base_url: str) -> None:
         self._base = base_url.rstrip("/") + "/"
@@ -108,10 +124,6 @@ class _SshFetcher:
         self._port = port
         self._identity = identity
 
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
     def _dest(self) -> str:
         return f"{self._user}@{self._host}" if self._user else self._host
 
@@ -123,10 +135,6 @@ class _SshFetcher:
             args += ["-i", self._identity]
         args.append(self._dest())
         return args
-
-    # ------------------------------------------------------------------
-    # _Fetcher interface
-    # ------------------------------------------------------------------
 
     def fetch_bytes(self, rel_path: str) -> bytes:
         remote = f"{self._root}/{rel_path.lstrip('/')}"
@@ -240,6 +248,10 @@ class Repo:
     *uri* can be any of the supported schemes listed at the top of this module.
     For ``ssh://`` repos, an explicit identity file path can be passed via
     *ssh_identity*; otherwise the system SSH agent / ``~/.ssh/config`` is used.
+
+    HTTP(S) repos are **read-only** — ``is_writable`` returns ``False`` and
+    write operations will raise ``RepoError``.  All other transports are
+    considered writable.
     """
 
     def __init__(
@@ -254,37 +266,49 @@ class Repo:
         self._fetcher: _Fetcher = _make_fetcher(uri, ssh_identity=ssh_identity)
 
     # ------------------------------------------------------------------
-    # Public API
+    # Properties
+    # ------------------------------------------------------------------
+
+    @property
+    def is_writable(self) -> bool:
+        """``False`` for HTTP(S) repos; ``True`` for all other transports."""
+        return urlparse(self.uri).scheme.lower() not in ("http", "https")
+
+    # ------------------------------------------------------------------
+    # Public API — reading
     # ------------------------------------------------------------------
 
     def fetch_catalogue(self) -> list[AppEntry]:
-        """Load and parse ``catalogue.json``, returning all entries."""
+        """Load and parse ``catalogue.json``, returning all entries.
+
+        Accepts both the current wrapper format
+        ``{"cellar_version": …, "apps": […]}`` and a legacy bare JSON array.
+        """
         raw = self._fetch_json("catalogue.json")
+
+        if isinstance(raw, list):
+            items = raw
+        elif isinstance(raw, dict):
+            items = raw.get("apps", [])
+        else:
+            raise RepoError("catalogue.json has an unexpected top-level type")
+
         entries: list[AppEntry] = []
-        for item in raw:
+        for item in items:
             try:
                 entries.append(AppEntry.from_dict(item))
-            except (KeyError, TypeError) as exc:
+            except (KeyError, TypeError, ValueError) as exc:
                 log.warning(
                     "Skipping malformed catalogue entry %r: %s", item.get("id"), exc
                 )
         log.info("Loaded %d entries from %s", len(entries), self.uri)
         return entries
 
-    def fetch_manifest(self, entry: AppEntry) -> Manifest:
-        """Load and parse the manifest for a specific app entry."""
-        raw = self._fetch_json(entry.manifest)
-        try:
-            return Manifest.from_dict(raw)
-        except (KeyError, TypeError, ValueError) as exc:
-            raise RepoError(f"Malformed manifest for {entry.id!r}: {exc}") from exc
-
-    def fetch_manifest_by_id(self, app_id: str) -> Manifest:
-        """Convenience: load the catalogue, find *app_id*, fetch its manifest."""
-        entries = self.fetch_catalogue()
-        for entry in entries:
+    def fetch_entry_by_id(self, app_id: str) -> AppEntry:
+        """Load the catalogue and return the entry matching *app_id*."""
+        for entry in self.fetch_catalogue():
             if entry.id == app_id:
-                return self.fetch_manifest(entry)
+                return entry
         raise RepoError(f"App {app_id!r} not found in catalogue at {self.uri}")
 
     def resolve_asset_uri(self, repo_relative: str) -> str:
@@ -338,8 +362,7 @@ class RepoManager:
         """Merge catalogues from all enabled repos.
 
         Later entries with the same app ID from different repos win
-        (last-repo-wins policy; may be revisited when multi-repo is
-        fully specified).
+        (last-repo-wins policy).
         """
         seen: dict[str, AppEntry] = {}
         for repo in self._repos:

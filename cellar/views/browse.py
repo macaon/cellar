@@ -17,7 +17,6 @@ from cellar.models.app_entry import AppEntry
 log = logging.getLogger(__name__)
 
 _DEFAULT_CAPSULE_WIDTH = 200
-_ICON_SIZE_MAX = 64
 
 
 # ---------------------------------------------------------------------------
@@ -124,19 +123,28 @@ class AppCard(Gtk.FlowBoxChild):
                     img_area.set_child(pic)
                     cover_shown = True
 
-        # Icon — shown when no cover image is available, centred in img_area.
+        # Icon — shown when no cover image is available.
+        # Pre-scale to cover_width × cover_width with HYPER so _FixedBox
+        # renders it 1:1 (ContentFit.CONTAIN fills the full card width).
         if not cover_shown:
-            icon_size = min(_ICON_SIZE_MAX, cover_width * 2 // 5)
-            icon_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-            icon = _load_icon(
-                resolve_asset(entry.icon) if resolve_asset and entry.icon else "",
-                icon_size,
-            )
-            icon.set_halign(Gtk.Align.CENTER)
-            icon.set_valign(Gtk.Align.CENTER)
-            icon.set_vexpand(True)
-            icon_box.append(icon)
-            img_area.set_child(icon_box)
+            icon_shown = False
+            if resolve_asset and entry.icon:
+                icon_path = resolve_asset(entry.icon)
+                if os.path.isfile(icon_path):
+                    texture = _load_icon_texture(icon_path, cover_width)
+                    if texture is not None:
+                        pic = Gtk.Picture.new_for_paintable(texture)
+                        pic.set_content_fit(Gtk.ContentFit.CONTAIN)
+                        img_area.set_child(pic)
+                        icon_shown = True
+            if not icon_shown:
+                icon = Gtk.Image.new_from_icon_name("application-x-executable")
+                icon.set_pixel_size(cover_width * 2 // 3)
+                icon.set_halign(Gtk.Align.CENTER)
+                icon.set_valign(Gtk.Align.CENTER)
+                icon_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+                icon_box.append(icon)
+                img_area.set_child(icon_box)
 
         # Name label below the image area.
         inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -390,17 +398,24 @@ def _load_cover_texture(path: str, target_w: int, target_h: int):
         return None
 
 
-def _load_icon(path: str, size: int) -> Gtk.Image:
-    """Return a Gtk.Image for *path*, falling back to a generic icon."""
-    if path and os.path.isfile(path):
-        try:
-            from gi.repository import Gdk
-            texture = Gdk.Texture.new_from_filename(path)
-            img = Gtk.Image.new_from_paintable(texture)
-            img.set_pixel_size(size)
-            return img
-        except Exception:
-            pass
-    img = Gtk.Image.new_from_icon_name("application-x-executable")
-    img.set_pixel_size(size)
-    return img
+def _load_icon_texture(path: str, size: int):
+    """HYPER-scale icon to size × size (center-crop if not square).
+
+    Produces a texture at exactly the card width so ``_FixedBox`` renders it
+    1:1 with ``ContentFit.CONTAIN`` — no GTK upscaling, no blur.
+    Returns a ``Gdk.Texture`` or ``None`` on error.
+    """
+    try:
+        from gi.repository import Gdk, GdkPixbuf
+        src = GdkPixbuf.Pixbuf.new_from_file(path)
+        src_w, src_h = src.get_width(), src.get_height()
+        scale = size / min(src_w, src_h)
+        scaled_w = max(int(src_w * scale), size)
+        scaled_h = max(int(src_h * scale), size)
+        scaled = src.scale_simple(scaled_w, scaled_h, GdkPixbuf.InterpType.HYPER)
+        x_off = (scaled_w - size) // 2
+        y_off = (scaled_h - size) // 2
+        cropped = scaled.new_subpixbuf(x_off, y_off, size, size)
+        return Gdk.Texture.new_for_pixbuf(cropped)
+    except Exception:
+        return None

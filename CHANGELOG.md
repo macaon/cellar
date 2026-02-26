@@ -5,6 +5,13 @@ Versioning follows [Semantic Versioning](https://semver.org/) — while the majo
 
 ---
 
+## [0.9.1] — 2026-02-26
+
+### Fixed
+- **`cellar/views/browse.py`**: icon cards now fill the full card width and render sharply. Previously the icon was capped at 64 px (`_ICON_SIZE_MAX`) and displayed as a tiny `Gtk.Image` centred in the much-larger `_FixedBox`, causing visible blur and wasted space. The new `_load_icon_texture` helper HYPER-pre-scales the icon to `cover_width × cover_width` (center-cropping non-square images); the texture is placed in a `Gtk.Picture` with `ContentFit.CONTAIN` inside the `_FixedBox`. Because the texture is already exactly `cover_width` wide and the box is `cover_width × cover_height`, GTK renders it 1:1 with no interpolation pass. The generic themed-icon fallback also scales to `cover_width * 2 // 3`.
+
+---
+
 ## [0.9.0] — 2026-02-26
 
 ### Added

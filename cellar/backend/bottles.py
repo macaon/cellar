@@ -59,47 +59,63 @@ def is_cellar_sandboxed() -> bool:
     return _FLATPAK_INFO.exists()
 
 
-def detect_bottles(override_path: Path | str | None = None) -> BottlesInstall | None:
-    """Detect the active Bottles installation.
+def detect_all_bottles(
+    override_path: Path | str | None = None,
+) -> list[BottlesInstall]:
+    """Return all detected Bottles installations, in preference order.
 
     Parameters
     ----------
     override_path:
         Explicit path to the Bottles *bottles/* directory, e.g. read from
-        ``config.json``.  Skips auto-detection when supplied, but still
-        returns ``None`` if the path does not exist.
+        ``config.json``.  When supplied, only that path is checked (returns
+        a single-item list or an empty list).
 
     Returns
     -------
-    ``BottlesInstall`` if a Bottles installation is found, ``None`` otherwise.
+    A list of ``BottlesInstall`` objects.  Order is: custom override →
+    Flatpak installation → native installation.  An empty list means no
+    Bottles installation was found.
     """
     sandboxed = is_cellar_sandboxed()
 
     if override_path is not None:
         p = Path(override_path).expanduser()
         if p.is_dir():
-            return BottlesInstall(
+            return [BottlesInstall(
                 data_path=p,
                 variant="custom",
                 cli_cmd=_build_cli_cmd(is_flatpak_bottles=False, sandboxed=sandboxed),
-            )
-        return None
+            )]
+        return []
+
+    results: list[BottlesInstall] = []
 
     if _FLATPAK_DATA.is_dir():
-        return BottlesInstall(
+        results.append(BottlesInstall(
             data_path=_FLATPAK_DATA,
             variant="flatpak",
             cli_cmd=_build_cli_cmd(is_flatpak_bottles=True, sandboxed=sandboxed),
-        )
+        ))
 
     if _NATIVE_DATA.is_dir():
-        return BottlesInstall(
+        results.append(BottlesInstall(
             data_path=_NATIVE_DATA,
             variant="native",
             cli_cmd=_build_cli_cmd(is_flatpak_bottles=False, sandboxed=sandboxed),
-        )
+        ))
 
-    return None
+    return results
+
+
+def detect_bottles(override_path: Path | str | None = None) -> BottlesInstall | None:
+    """Detect the first available Bottles installation.
+
+    Convenience wrapper around :func:`detect_all_bottles` that returns the
+    highest-priority installation, or ``None`` if none is found.
+    """
+    results = detect_all_bottles(override_path)
+    return results[0] if results else None
 
 
 def _build_cli_cmd(*, is_flatpak_bottles: bool, sandboxed: bool) -> list[str]:

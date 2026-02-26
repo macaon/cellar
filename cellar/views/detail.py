@@ -41,7 +41,7 @@ class DetailView(Gtk.Box):
         resolve_asset: Callable[[str], str] | None = None,
         is_writable: bool = False,
         on_edit: Callable | None = None,
-        bottles_install=None,
+        bottles_installs: list | None = None,
         is_installed: bool = False,
         on_install_done: Callable | None = None,
     ) -> None:
@@ -50,7 +50,7 @@ class DetailView(Gtk.Box):
         self._resolve = resolve_asset or (lambda rel: rel)
         self._is_writable = is_writable
         self._on_edit = on_edit
-        self._bottles_install = bottles_install
+        self._bottles_installs = bottles_installs or []
         self._is_installed = is_installed
         self._on_install_done = on_install_done
         toolbar = Adw.ToolbarView()
@@ -136,7 +136,7 @@ class DetailView(Gtk.Box):
             btn.add_css_class("success")
             btn.set_sensitive(False)
             btn.set_tooltip_text("")
-        elif self._bottles_install is not None:
+        elif self._bottles_installs:
             btn.set_label("Install")
             btn.add_css_class("suggested-action")
             btn.set_sensitive(True)
@@ -151,7 +151,7 @@ class DetailView(Gtk.Box):
         archive_uri = self._resolve(self._entry.archive) if self._entry.archive else ""
         dialog = InstallProgressDialog(
             entry=self._entry,
-            bottles_install=self._bottles_install,
+            installs=self._bottles_installs,
             archive_uri=archive_uri,
             on_success=self._on_install_success,
         )
@@ -349,36 +349,126 @@ class DetailView(Gtk.Box):
 # Install progress dialog
 # ---------------------------------------------------------------------------
 
+_VARIANT_LABELS = {
+    "flatpak": "Bottles (Flatpak)",
+    "native": "Bottles (Native)",
+    "custom": "Bottles (Custom path)",
+}
+
+
+def _variant_label(variant: str) -> str:
+    return _VARIANT_LABELS.get(variant, "Bottles")
+
+
+def _short_path(path) -> str:
+    """Return path as a string with the home directory replaced by ~."""
+    return str(path).replace(os.path.expanduser("~"), "~", 1)
+
 
 class InstallProgressDialog(Adw.Dialog):
-    """Modal progress dialog shown while an app is being installed into Bottles."""
+    """Two-phase install dialog: confirmation → progress.
+
+    Phase 1 (confirm): shows the detected Bottles installation(s).  If more
+    than one is found the user can choose which to use.  Header has "Cancel"
+    (start) and "Install" (end).
+
+    Phase 2 (progress): background install with a progress bar and a body
+    Cancel button.  The header buttons are hidden so the only affordance is
+    the in-body Cancel.
+    """
 
     def __init__(
         self,
         *,
         entry: AppEntry,
-        bottles_install,
+        installs: list,        # list[BottlesInstall]
         archive_uri: str,
         on_success: Callable[[str], None],
     ) -> None:
-        super().__init__(title=f"Installing {entry.name}", content_width=400)
+        super().__init__(title=f"Install {entry.name}", content_width=420)
         self._entry = entry
-        self._bottles_install = bottles_install
+        self._installs = installs
         self._archive_uri = archive_uri
         self._on_success = on_success
         self._cancel_event = threading.Event()
+        self._selected_install = installs[0] if installs else None
 
         self._build_ui()
-        # Cancel install if the dialog is dismissed any way (Escape, etc.)
         self.connect("closed", lambda _d: self._cancel_event.set())
-        self._start_install()
+
+    # ── UI construction ───────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
         toolbar_view = Adw.ToolbarView()
-        header = Adw.HeaderBar()
-        header.set_show_end_title_buttons(False)
-        toolbar_view.add_top_bar(header)
 
+        self._header = Adw.HeaderBar()
+        self._header.set_show_end_title_buttons(False)
+
+        self._cancel_header_btn = Gtk.Button(label="Cancel")
+        self._cancel_header_btn.connect("clicked", lambda _: self.close())
+        self._header.pack_start(self._cancel_header_btn)
+
+        self._install_header_btn = Gtk.Button(label="Install")
+        self._install_header_btn.add_css_class("suggested-action")
+        self._install_header_btn.connect("clicked", self._on_proceed_clicked)
+        self._header.pack_end(self._install_header_btn)
+
+        toolbar_view.add_top_bar(self._header)
+
+        self._stack = Gtk.Stack()
+        self._stack.add_named(self._build_confirm_page(), "confirm")
+        self._stack.add_named(self._build_progress_page(), "progress")
+        self._stack.set_visible_child_name("confirm")
+
+        toolbar_view.set_content(self._stack)
+        self.set_child(toolbar_view)
+
+    def _build_confirm_page(self) -> Gtk.Widget:
+        scroll = Gtk.ScrolledWindow(
+            hscrollbar_policy=Gtk.PolicyType.NEVER,
+            vscrollbar_policy=Gtk.PolicyType.AUTOMATIC,
+        )
+        scroll.set_propagate_natural_height(True)
+
+        page = Adw.PreferencesPage()
+        scroll.set_child(page)
+
+        if len(self._installs) == 1:
+            group = Adw.PreferencesGroup(title="Bottles Installation")
+            install = self._installs[0]
+            row = Adw.ActionRow(
+                title=_variant_label(install.variant),
+                subtitle=_short_path(install.data_path),
+            )
+            row.add_prefix(Gtk.Image.new_from_icon_name("com.usebottles.bottles"))
+            group.add(row)
+        else:
+            group = Adw.PreferencesGroup(
+                title="Select Bottles Installation",
+                description="Both a Flatpak and a native installation of Bottles were found.",
+            )
+            radio_group: Gtk.CheckButton | None = None
+            for install in self._installs:
+                row = Adw.ActionRow(
+                    title=_variant_label(install.variant),
+                    subtitle=_short_path(install.data_path),
+                )
+                radio = Gtk.CheckButton()
+                radio.set_valign(Gtk.Align.CENTER)
+                if radio_group is None:
+                    radio_group = radio
+                    radio.set_active(True)
+                else:
+                    radio.set_group(radio_group)
+                radio.connect("toggled", self._on_radio_toggled, install)
+                row.add_prefix(radio)
+                row.set_activatable_widget(radio)
+                group.add(row)
+
+        page.add(group)
+        return scroll
+
+    def _build_progress_page(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
         box.set_valign(Gtk.Align.CENTER)
         box.set_margin_top(48)
@@ -395,13 +485,31 @@ class InstallProgressDialog(Adw.Dialog):
         self._progress_bar.set_fraction(0.0)
         box.append(self._progress_bar)
 
-        self._cancel_btn = Gtk.Button(label="Cancel")
-        self._cancel_btn.set_halign(Gtk.Align.CENTER)
-        self._cancel_btn.connect("clicked", self._on_cancel_clicked)
-        box.append(self._cancel_btn)
+        self._cancel_body_btn = Gtk.Button(label="Cancel")
+        self._cancel_body_btn.set_halign(Gtk.Align.CENTER)
+        self._cancel_body_btn.connect("clicked", self._on_cancel_progress_clicked)
+        box.append(self._cancel_body_btn)
 
-        toolbar_view.set_content(box)
-        self.set_child(toolbar_view)
+        return box
+
+    # ── Signal handlers ───────────────────────────────────────────────────
+
+    def _on_radio_toggled(self, btn: Gtk.CheckButton, install) -> None:
+        if btn.get_active():
+            self._selected_install = install
+
+    def _on_proceed_clicked(self, _btn) -> None:
+        self._stack.set_visible_child_name("progress")
+        self._cancel_header_btn.set_visible(False)
+        self._install_header_btn.set_visible(False)
+        self._start_install()
+
+    def _on_cancel_progress_clicked(self, _btn) -> None:
+        self._cancel_event.set()
+        self._phase_label.set_text("Cancelling…")
+        self._cancel_body_btn.set_sensitive(False)
+
+    # ── Install thread ────────────────────────────────────────────────────
 
     def _start_install(self) -> None:
         from cellar.backend.installer import InstallCancelled, install_app
@@ -415,7 +523,7 @@ class InstallProgressDialog(Adw.Dialog):
                 bottle_name = install_app(
                     self._entry,
                     self._archive_uri,
-                    self._bottles_install,
+                    self._selected_install,
                     progress_cb=_progress,
                     cancel_event=self._cancel_event,
                 )
@@ -427,11 +535,6 @@ class InstallProgressDialog(Adw.Dialog):
 
         threading.Thread(target=_run, daemon=True).start()
 
-    def _on_cancel_clicked(self, _btn) -> None:
-        self._cancel_event.set()
-        self._phase_label.set_text("Cancelling…")
-        self._cancel_btn.set_sensitive(False)
-
     def _on_done(self, bottle_name: str) -> None:
         self.close()
         self._on_success(bottle_name)
@@ -440,7 +543,7 @@ class InstallProgressDialog(Adw.Dialog):
         self.close()
 
     def _on_error(self, message: str) -> None:
-        self._cancel_btn.set_sensitive(False)
+        self._cancel_body_btn.set_sensitive(False)
         alert = Adw.AlertDialog(heading="Install Failed", body=message)
         alert.add_response("ok", "OK")
         alert.connect("response", lambda _d, _r: self.close())

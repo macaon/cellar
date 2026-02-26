@@ -121,18 +121,21 @@ class CellarWindow(Adw.ApplicationWindow):
     def _on_app_selected(self, _browse, entry) -> None:
         from cellar.views.detail import DetailView
         from cellar.backend import database
-        from cellar.backend.bottles import detect_bottles
+        from cellar.backend.bottles import detect_all_bottles
         from cellar.backend.config import load_bottles_data_path
 
         resolver = self._first_repo.resolve_asset_uri if self._first_repo else None
         can_write = self._first_repo is not None and self._first_repo.is_writable
 
-        bottles = detect_bottles(load_bottles_data_path())
+        all_bottles = detect_all_bottles(load_bottles_data_path())
 
-        # Reconcile DB against disk: if the bottle directory was deleted from
-        # within Bottles, remove the stale record so we show "Install" again.
+        # Reconcile DB against disk: if the bottle directory no longer exists
+        # in any detected Bottles installation (e.g. deleted from within
+        # Bottles), remove the stale record so we show "Install" again.
         rec = database.get_installed(entry.id)
-        if rec and bottles and not (bottles.data_path / rec["bottle_name"]).is_dir():
+        if rec and all_bottles and not any(
+            (b.data_path / rec["bottle_name"]).is_dir() for b in all_bottles
+        ):
             log.info(
                 "Bottle %r no longer exists on disk; removing stale DB record for %r",
                 rec["bottle_name"], entry.id,
@@ -161,7 +164,7 @@ class CellarWindow(Adw.ApplicationWindow):
             resolve_asset=resolver,
             is_writable=can_write,
             on_edit=_on_edit if can_write else None,
-            bottles_install=bottles,
+            bottles_installs=all_bottles,
             is_installed=is_installed,
             on_install_done=_on_install_done,
         )
@@ -208,7 +211,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="application-x-executable",
-            version="0.7.6",
+            version="0.7.7",
             comments="A GNOME storefront for Bottles-managed Windows apps.",
             license_type=Gtk.License.GPL_3_0,
         )

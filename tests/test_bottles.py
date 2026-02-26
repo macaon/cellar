@@ -211,6 +211,92 @@ def test_detect_override_uses_native_cli_cmd(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# detect_all_bottles — returns every installation
+# ---------------------------------------------------------------------------
+
+def test_detect_all_empty(tmp_path):
+    flatpak_dir, native_dir, info = _patch_paths(tmp_path)
+    with patch.object(b, "_FLATPAK_DATA", flatpak_dir), \
+         patch.object(b, "_NATIVE_DATA", native_dir), \
+         patch.object(b, "_FLATPAK_INFO", info):
+        result = b.detect_all_bottles()
+    assert result == []
+
+
+def test_detect_all_flatpak_only(tmp_path):
+    flatpak_dir, native_dir, info = _patch_paths(tmp_path, flatpak_exists=True)
+    with patch.object(b, "_FLATPAK_DATA", flatpak_dir), \
+         patch.object(b, "_NATIVE_DATA", native_dir), \
+         patch.object(b, "_FLATPAK_INFO", info):
+        result = b.detect_all_bottles()
+    assert len(result) == 1
+    assert result[0].variant == "flatpak"
+
+
+def test_detect_all_native_only(tmp_path):
+    flatpak_dir, native_dir, info = _patch_paths(tmp_path, native_exists=True)
+    with patch.object(b, "_FLATPAK_DATA", flatpak_dir), \
+         patch.object(b, "_NATIVE_DATA", native_dir), \
+         patch.object(b, "_FLATPAK_INFO", info):
+        result = b.detect_all_bottles()
+    assert len(result) == 1
+    assert result[0].variant == "native"
+
+
+def test_detect_all_both_returns_flatpak_first(tmp_path):
+    flatpak_dir, native_dir, info = _patch_paths(
+        tmp_path, flatpak_exists=True, native_exists=True
+    )
+    with patch.object(b, "_FLATPAK_DATA", flatpak_dir), \
+         patch.object(b, "_NATIVE_DATA", native_dir), \
+         patch.object(b, "_FLATPAK_INFO", info):
+        result = b.detect_all_bottles()
+    assert len(result) == 2
+    assert result[0].variant == "flatpak"
+    assert result[1].variant == "native"
+
+
+def test_detect_all_both_correct_cli_cmds(tmp_path):
+    flatpak_dir, native_dir, info = _patch_paths(
+        tmp_path, flatpak_exists=True, native_exists=True
+    )
+    with patch.object(b, "_FLATPAK_DATA", flatpak_dir), \
+         patch.object(b, "_NATIVE_DATA", native_dir), \
+         patch.object(b, "_FLATPAK_INFO", info):
+        result = b.detect_all_bottles()
+    assert result[0].cli_cmd == [
+        "flatpak", "run", "--command=bottles-cli", "com.usebottles.bottles",
+    ]
+    assert result[1].cli_cmd == ["bottles-cli"]
+
+
+def test_detect_all_override_returns_single(tmp_path):
+    override = tmp_path / "custom"
+    override.mkdir()
+    flatpak_dir = tmp_path / "flatpak"
+    flatpak_dir.mkdir()  # also exists — must be ignored
+    info = tmp_path / "no-info"
+    with patch.object(b, "_FLATPAK_DATA", flatpak_dir), \
+         patch.object(b, "_FLATPAK_INFO", info):
+        result = b.detect_all_bottles(override_path=override)
+    assert len(result) == 1
+    assert result[0].variant == "custom"
+
+
+def test_detect_bottles_uses_first_of_detect_all(tmp_path):
+    """detect_bottles() must return the first element of detect_all_bottles()."""
+    flatpak_dir, native_dir, info = _patch_paths(
+        tmp_path, flatpak_exists=True, native_exists=True
+    )
+    with patch.object(b, "_FLATPAK_DATA", flatpak_dir), \
+         patch.object(b, "_NATIVE_DATA", native_dir), \
+         patch.object(b, "_FLATPAK_INFO", info):
+        single = b.detect_bottles()
+        all_ = b.detect_all_bottles()
+    assert single == all_[0]
+
+
+# ---------------------------------------------------------------------------
 # config helpers — load/save bottles_data_path
 # ---------------------------------------------------------------------------
 

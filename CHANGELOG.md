@@ -5,6 +5,19 @@ Versioning follows [Semantic Versioning](https://semver.org/) — while the majo
 
 ---
 
+## [0.7.7] — 2026-02-26
+
+### Added
+- **`cellar/backend/bottles.py`**: `detect_all_bottles(override_path=None) -> list[BottlesInstall]` — returns every detected Bottles installation (Flatpak + native) in preference order; `detect_bottles()` is now a thin wrapper around it
+- **`cellar/views/detail.py`**: `InstallProgressDialog` now has a two-phase flow:
+  - **Confirm page** — shows the detected Bottles installation with its variant label and path; when both Flatpak and native Bottles are present, a radio-button list lets the user choose which to use; header has "Cancel" (start) and "Install" (end)
+  - **Progress page** — existing progress bar + Cancel; header buttons are hidden, install runs with the user-selected `BottlesInstall`
+- `DetailView` constructor param renamed `bottles_install` → `bottles_installs` (now accepts a list)
+- **`cellar/window.py`**: reconciliation now checks all detected installations when testing whether a bottle directory still exists
+- **`tests/test_bottles.py`**: 7 new tests for `detect_all_bottles` (empty, flatpak-only, native-only, both, override exclusivity, CLI commands, consistency with `detect_bottles`)
+
+---
+
 ## [0.7.6] — 2026-02-26
 
 ### Added

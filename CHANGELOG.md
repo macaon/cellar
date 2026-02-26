@@ -5,6 +5,13 @@ Versioning follows [Semantic Versioning](https://semver.org/) — while the majo
 
 ---
 
+## [0.8.2] — 2026-02-26
+
+### Changed
+- **`cellar/backend/config.py`**: removed Large (400 × 600) and Original (600 × 900) capsule size options — anything above Medium is impractically large; default capsule size on a fresh install is now Small (100 × 150) instead of Medium
+
+---
+
 ## [0.8.1] — 2026-02-26
 
 ### Fixed

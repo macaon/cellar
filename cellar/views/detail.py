@@ -46,6 +46,7 @@ class DetailView(Gtk.Box):
         installed_record: dict | None = None,
         on_install_done: Callable | None = None,
         on_remove_done: Callable | None = None,
+        on_update_done: Callable | None = None,
     ) -> None:
         super().__init__()
         self._entry = entry
@@ -57,6 +58,13 @@ class DetailView(Gtk.Box):
         self._installed_record = installed_record
         self._on_install_done = on_install_done
         self._on_remove_done = on_remove_done
+        self._on_update_done = on_update_done
+        self._has_update = (
+            is_installed
+            and installed_record is not None
+            and installed_record.get("installed_version") != entry.version
+            and bool(entry.archive)
+        )
         toolbar = Adw.ToolbarView()
         self.append(toolbar)
         self._build(toolbar)
@@ -70,10 +78,19 @@ class DetailView(Gtk.Box):
 
         # ── Header bar ────────────────────────────────────────────────────
         header = Adw.HeaderBar()
+
+        # Install / Remove button (rightmost).
         self._install_btn = Gtk.Button()
-        self._update_install_button()
         self._install_btn.connect("clicked", self._on_install_clicked)
         header.pack_end(self._install_btn)
+
+        # Update button — visible only when an update is available.
+        self._update_btn = Gtk.Button(label="Update")
+        self._update_btn.add_css_class("suggested-action")
+        self._update_btn.connect("clicked", self._on_update_clicked)
+        header.pack_end(self._update_btn)
+
+        self._update_install_button()
 
         if self._is_writable and self._on_edit:
             edit_btn = Gtk.Button(
@@ -151,6 +168,7 @@ class DetailView(Gtk.Box):
             btn.add_css_class("suggested-action")
             btn.set_sensitive(False)
             btn.set_tooltip_text("Bottles is not installed")
+        self._update_btn.set_visible(self._has_update)
 
     def _on_install_clicked(self, _btn) -> None:
         if self._is_installed:
@@ -185,6 +203,36 @@ class DetailView(Gtk.Box):
             on_confirm=self._on_remove_confirmed,
         )
         dialog.present(self.get_root())
+
+    def _on_update_clicked(self, _btn) -> None:
+        from cellar.views.update_app import UpdateDialog
+
+        bottle_name = (self._installed_record or {}).get("bottle_name", "")
+        bottle_path = None
+        for install in self._bottles_installs:
+            candidate = install.data_path / bottle_name
+            if candidate.is_dir():
+                bottle_path = candidate
+                break
+        if bottle_path is None:
+            log.error("Could not locate bottle directory for %s", self._entry.id)
+            return
+
+        archive_uri = self._resolve(self._entry.archive) if self._entry.archive else ""
+        dialog = UpdateDialog(
+            entry=self._entry,
+            installed_record=self._installed_record or {},
+            bottle_path=bottle_path,
+            archive_uri=archive_uri,
+            on_success=self._on_update_success,
+        )
+        dialog.present(self.get_root())
+
+    def _on_update_success(self) -> None:
+        self._has_update = False
+        self._update_install_button()
+        if self._on_update_done:
+            self._on_update_done()
 
     def _on_remove_confirmed(self) -> None:
         import shutil

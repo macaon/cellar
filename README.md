@@ -185,7 +185,7 @@ cellar/
 3. **Detail view** — full app page from catalogue data ✅
 4. **Bottles backend** — path detection, `bottles-cli` wrapper, install + remove ✅
 5. **Local DB** — track installed apps, wire up Install/Remove button state ✅
-6. **Update logic** — safe rsync strategy, full replacement
+6. **Update logic** — safe rsync overlay (no --delete; AppData/Documents excluded) ✅
 7. **Component update UI** — post-install prompt to upgrade runner/DXVK
 8. **Repo management UI** — add/remove sources, initialise new repos, pull metadata from IGDB/Steam
 9. **Multi-repo support** — settings page

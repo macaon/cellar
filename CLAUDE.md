@@ -289,7 +289,7 @@ Build in this order:
 4. ~~**Detail view** — full app page from catalogue data; `AdwNavigationView` navigation~~ ✅
 5. ~~**Bottles backend** — path detection, `bottles-cli` wrapper, install + remove~~ ✅
 6. ~~**Local DB** — track installed apps, wire up Install/Remove button state~~ ✅
-7. **Update logic** — safe rsync strategy first, full replacement second
+7. ~~**Update logic** — safe rsync overlay (no --delete; AppData/Documents excluded)~~ ✅
 8. **Component update UI** — post-install prompt to upgrade runner/DXVK
 9. **Repo management UI** — add/remove/initialise repos from settings; optional IGDB/Steam metadata fetch on add
 10. **Flatpak packaging**

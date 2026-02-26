@@ -5,6 +5,18 @@ Versioning follows [Semantic Versioning](https://semver.org/) — while the majo
 
 ---
 
+## [0.10.0] — 2026-02-26
+
+### Added
+- **Safe update flow** — when the catalogue version differs from the installed version and an archive is present, an **Update** button (suggested-action) appears in the detail-view header alongside the existing Remove button.
+  - `cellar/backend/updater.py` (previously a stub) now implements `update_app_safe`: optional backup → download → SHA-256 verify → extract → overlay. The overlay applies the new archive over the existing bottle without `--delete`, skipping `drive_c/users/*/AppData/{Roaming,Local,LocalLow}/`, `drive_c/users/*/Documents/`, `user.reg`, and `userdef.reg`. Uses `rsync` when available; falls back to a pure-Python file-copy loop.
+  - `backup_bottle` tars the existing bottle (preserving the top-level directory name) with per-file progress reporting and cancel support.
+  - `cellar/views/update_app.py` — new `UpdateDialog` (two-phase `Adw.Dialog`): confirm page shows current → new version, a backup row (clicking it opens a `Gtk.FileChooserNative` save dialog so the user picks exactly where the backup lands), and a data-safety warning. Progress page shows phase label + progress bar + Cancel.
+  - `cellar/views/detail.py` — `DetailView` gains `on_update_done` parameter; `_has_update` is computed from `installed_record.installed_version` vs `entry.version`; `_update_btn` is added to the header and hidden when not applicable.
+  - `cellar/window.py` — `_on_update_done` callback updates the DB record with the new version and shows a success toast.
+
+---
+
 ## [0.9.1] — 2026-02-26
 
 ### Fixed

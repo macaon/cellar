@@ -5,6 +5,19 @@ Versioning follows [Semantic Versioning](https://semver.org/) — while the majo
 
 ---
 
+## [0.7.3] — 2026-02-26
+
+### Added
+- **`cellar/backend/bottles.py`**: Bottles installation detection
+  - `BottlesInstall` dataclass — `data_path`, `variant` (`"flatpak"` / `"native"` / `"custom"`), `cli_cmd`
+  - `is_cellar_sandboxed()` — checks `/.flatpak-info` to detect Flatpak sandbox
+  - `detect_bottles(override_path=None)` — checks config override → Flatpak data path → native data path; returns `None` if Bottles is not found
+  - `_build_cli_cmd(is_flatpak_bottles, sandboxed)` — resolves the correct base command for all four combinations (native/Flatpak Bottles × unsandboxed/sandboxed Cellar); Flatpak Bottles uses `flatpak run --command=bottles-cli com.usebottles.bottles`; sandboxed Cellar prefixes with `flatpak-spawn --host`
+- **`cellar/backend/config.py`**: `load_bottles_data_path()` / `save_bottles_data_path(path)` — persist the user's Bottles data directory override in `config.json`; `None` removes the key (auto-detection resumes)
+- **`tests/test_bottles.py`**: 22 new tests covering sandbox detection, all four CLI-command combinations, detection priority (Flatpak preferred over native), override path (valid/missing/string/bypasses auto-detect), and config round-trips
+
+---
+
 ## [0.7.2] — 2026-02-25
 
 ### Added

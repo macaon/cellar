@@ -80,3 +80,25 @@ def save_repos(repos: list[dict]) -> None:
     cfg = _load()
     cfg["repos"] = repos
     _save(cfg)
+
+
+# ---------------------------------------------------------------------------
+# Bottles data path helpers
+# ---------------------------------------------------------------------------
+
+def load_bottles_data_path() -> str | None:
+    """Return the user-overridden Bottles data path, or None if unset."""
+    return _load().get("bottles_data_path")
+
+
+def save_bottles_data_path(path: str | None) -> None:
+    """Persist the Bottles data path override.
+
+    Pass ``None`` to clear the override (auto-detection will be used).
+    """
+    cfg = _load()
+    if path is None:
+        cfg.pop("bottles_data_path", None)
+    else:
+        cfg["bottles_data_path"] = path
+    _save(cfg)

@@ -113,17 +113,18 @@ class AppCard(Gtk.FlowBoxChild):
         img_area = _FixedBox(cover_width, cover_height)
         card.append(img_area)
 
-        # Cover image — loaded at full resolution; GTK's renderer scales it
-        # to the allocated area at display pixel density (HiDPI-correct).
+        # Cover image — HYPER-downscaled to exactly cover_width × cover_height
+        # so that _FixedBox can render it 1:1 with no GTK scaling at all.
         cover_shown = False
         if resolve_asset and entry.cover:
             cover_path = resolve_asset(entry.cover)
             if os.path.isfile(cover_path):
-                pic = Gtk.Picture.new_for_filename(cover_path)
-                pic.set_content_fit(Gtk.ContentFit.COVER)
-                pic.set_can_shrink(True)
-                img_area.set_child(pic)
-                cover_shown = True
+                texture = _load_cover_texture(cover_path, cover_width, cover_height)
+                if texture is not None:
+                    pic = Gtk.Picture.new_for_paintable(texture)
+                    pic.set_content_fit(Gtk.ContentFit.FILL)
+                    img_area.set_child(pic)
+                    cover_shown = True
 
         # Icon — shown when no cover image is available, centred in img_area.
         if not cover_shown:
@@ -367,6 +368,29 @@ class BrowseView(Gtk.Box):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _load_cover_texture(path: str, target_w: int, target_h: int):
+    """Scale-to-cover and center-crop to exactly target_w × target_h using HYPER.
+
+    The resulting texture has pixel dimensions equal to the target, so
+    ``_FixedBox`` renders it 1:1 — no GTK scaling pass, no blur.
+    Returns a ``Gdk.Texture`` or ``None`` on error.
+    """
+    try:
+        from gi.repository import Gdk, GdkPixbuf
+        src = GdkPixbuf.Pixbuf.new_from_file(path)
+        src_w, src_h = src.get_width(), src.get_height()
+        scale = max(target_w / src_w, target_h / src_h)
+        scaled_w = max(int(src_w * scale), target_w)
+        scaled_h = max(int(src_h * scale), target_h)
+        scaled = src.scale_simple(scaled_w, scaled_h, GdkPixbuf.InterpType.HYPER)
+        x_off = (scaled_w - target_w) // 2
+        y_off = (scaled_h - target_h) // 2
+        cropped = scaled.new_subpixbuf(x_off, y_off, target_w, target_h)
+        return Gdk.Texture.new_for_pixbuf(cropped)
+    except Exception:
+        return None
+
 
 def _load_icon(path: str, size: int) -> Gtk.Image:
     """Return a Gtk.Image for *path*, falling back to a generic icon."""

@@ -5,6 +5,13 @@ Versioning follows [Semantic Versioning](https://semver.org/) — while the majo
 
 ---
 
+## [0.8.7] — 2026-02-26
+
+### Fixed
+- **`cellar/views/browse.py`**: combine `_FixedBox` (exact allocation) with HYPER pre-scaling (quality downscaling) for truly sharp cover art on 1× displays. The texture is pre-scaled to exactly `cover_width × cover_height` with `GdkPixbuf.InterpType.HYPER`; `_FixedBox` guarantees the picture is allocated exactly that size; `ContentFit.FILL` renders it 1:1 with no GTK scaling pass at all.
+
+---
+
 ## [0.8.6] — 2026-02-26
 
 ### Fixed

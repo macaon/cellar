@@ -83,6 +83,40 @@ def save_repos(repos: list[dict]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Capsule size helpers
+# ---------------------------------------------------------------------------
+
+# Width → height is always width * 3 // 2  (2:3 portrait ratio, SteamGridDB spec)
+CAPSULE_SIZES: dict[str, int] = {
+    "small":    100,
+    "medium":   200,
+    "large":    400,
+    "original": 600,
+}
+_DEFAULT_CAPSULE_SIZE = "medium"
+
+CAPSULE_SIZE_LABELS: dict[str, str] = {
+    "small":    "Small (100 × 150)",
+    "medium":   "Medium (200 × 300)",
+    "large":    "Large (400 × 600)",
+    "original": "Original (600 × 900)",
+}
+
+
+def load_capsule_size() -> str:
+    """Return the stored capsule size key, defaulting to 'medium'."""
+    key = _load().get("capsule_size", _DEFAULT_CAPSULE_SIZE)
+    return key if key in CAPSULE_SIZES else _DEFAULT_CAPSULE_SIZE
+
+
+def save_capsule_size(size: str) -> None:
+    """Persist the capsule size key."""
+    cfg = _load()
+    cfg["capsule_size"] = size
+    _save(cfg)
+
+
+# ---------------------------------------------------------------------------
 # Bottles data path helpers
 # ---------------------------------------------------------------------------
 

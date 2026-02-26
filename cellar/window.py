@@ -104,8 +104,13 @@ class CellarWindow(Adw.ApplicationWindow):
         try:
             entries = manager.fetch_all_catalogues()
             if entries:
+                from cellar.backend.config import CAPSULE_SIZES, load_capsule_size
                 resolver = self._first_repo.resolve_asset_uri if self._first_repo else None
-                self._browse.load_entries(entries, resolve_asset=resolver)
+                self._browse.load_entries(
+                    entries,
+                    resolve_asset=resolver,
+                    capsule_width=CAPSULE_SIZES[load_capsule_size()],
+                )
             else:
                 self._browse.show_error(
                     "Empty Catalogue",
@@ -205,14 +210,17 @@ class CellarWindow(Adw.ApplicationWindow):
     def _on_preferences_activated(self, _action, _param) -> None:
         from cellar.views.settings import SettingsDialog
 
-        dialog = SettingsDialog(on_repos_changed=self._load_catalogue)
+        dialog = SettingsDialog(
+            on_repos_changed=self._load_catalogue,
+            on_capsule_size_changed=self._browse.set_capsule_width,
+        )
         dialog.present(self)
 
     def _on_about_activated(self, _action, _param) -> None:
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="application-x-executable",
-            version="0.7.9",
+            version="0.8.0",
             comments="A GNOME storefront for Bottles-managed Windows apps.",
             license_type=Gtk.License.GPL_3_0,
         )

@@ -5,6 +5,18 @@ Versioning follows [Semantic Versioning](https://semver.org/) — while the majo
 
 ---
 
+## [0.8.0] — 2026-02-26
+
+### Added
+- **Capsule size preference** — Preferences → General → "Capsule Size" combo row lets the user choose between Small (100 × 150), Medium (200 × 300), Large (400 × 600), and Original (600 × 900); persisted in `config.json`; grid rebuilds live without a network fetch when the setting changes
+- **Enforced 2:3 portrait ratio** — `AppCard` now takes `cover_width` and derives `cover_height = cover_width * 3 // 2`; any image (including wide ones) is cropped uniformly via `Gtk.ContentFit.COVER`, so all capsules are the same shape regardless of source dimensions
+- **`cellar/backend/config.py`**: `CAPSULE_SIZES`, `CAPSULE_SIZE_LABELS`, `load_capsule_size()`, `save_capsule_size()`
+- **`cellar/views/browse.py`**: `BrowseView` now stores the entry list, resolver, and capsule width; `set_capsule_width(width)` rebuilds from stored state without re-fetching; `load_entries()` accepts an optional `capsule_width` argument
+- **`cellar/views/settings.py`**: new "Appearance" preferences group; `on_capsule_size_changed` callback wired directly to `BrowseView.set_capsule_width`
+- **`cellar/window.py`**: passes `capsule_width` from config to `load_entries()`; passes `set_capsule_width` as the live-update callback to `SettingsDialog`
+
+---
+
 ## [0.7.9] — 2026-02-26
 
 ### Added

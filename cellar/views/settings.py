@@ -15,7 +15,11 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gtk
 
-from cellar.backend.config import load_repos, save_repos
+from cellar.backend.config import (
+    CAPSULE_SIZES, CAPSULE_SIZE_LABELS,
+    load_capsule_size, save_capsule_size,
+    load_repos, save_repos,
+)
 
 log = logging.getLogger(__name__)
 
@@ -27,9 +31,16 @@ class SettingsDialog(Adw.PreferencesDialog):
     management; more groups will be added as later phases land.
     """
 
-    def __init__(self, *, on_repos_changed: Callable[[], None] | None = None, **kwargs):
+    def __init__(
+        self,
+        *,
+        on_repos_changed: Callable[[], None] | None = None,
+        on_capsule_size_changed: Callable[[int], None] | None = None,
+        **kwargs,
+    ):
         super().__init__(title="Preferences", **kwargs)
         self._on_repos_changed = on_repos_changed
+        self._on_capsule_size_changed = on_capsule_size_changed
         self._repo_rows: list[Adw.ActionRow] = []
 
         # ── Page: General ─────────────────────────────────────────────────
@@ -38,6 +49,27 @@ class SettingsDialog(Adw.PreferencesDialog):
             icon_name="preferences-other-symbolic",
         )
         self.add(page)
+
+        # ── Group: Appearance ─────────────────────────────────────────────
+        appearance_group = Adw.PreferencesGroup(title="Appearance")
+        page.add(appearance_group)
+
+        _size_keys = list(CAPSULE_SIZES.keys())        # ordered: small…original
+        _size_labels = [CAPSULE_SIZE_LABELS[k] for k in _size_keys]
+        current_key = load_capsule_size()
+
+        capsule_row = Adw.ComboRow(title="Capsule Size")
+        capsule_row.set_subtitle("Width of cover art in the browse grid")
+        model = Gtk.StringList()
+        for label in _size_labels:
+            model.append(label)
+        capsule_row.set_model(model)
+        capsule_row.set_selected(_size_keys.index(current_key))
+        capsule_row.connect(
+            "notify::selected",
+            lambda row, _p, keys=_size_keys: self._on_capsule_changed(row, keys),
+        )
+        appearance_group.add(capsule_row)
 
         # ── Group: Repositories ───────────────────────────────────────────
         self._repo_group = Adw.PreferencesGroup(
@@ -220,6 +252,12 @@ class SettingsDialog(Adw.PreferencesDialog):
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    def _on_capsule_changed(self, row: Adw.ComboRow, keys: list[str]) -> None:
+        key = keys[row.get_selected()]
+        save_capsule_size(key)
+        if self._on_capsule_size_changed:
+            self._on_capsule_size_changed(CAPSULE_SIZES[key])
 
     def _commit_add(self, uri: str) -> None:
         """Persist the new repo and refresh both the list and the main window."""

@@ -16,9 +16,8 @@ from cellar.models.app_entry import AppEntry
 
 log = logging.getLogger(__name__)
 
-_ICON_SIZE = 64
-_CARD_WIDTH = 160   # minimum card width in pixels
-_COVER_HEIGHT = 200  # fixed height of the cover image strip
+_DEFAULT_CAPSULE_WIDTH = 200
+_ICON_SIZE_MAX = 64
 
 
 # ---------------------------------------------------------------------------
@@ -33,9 +32,12 @@ class AppCard(Gtk.FlowBoxChild):
         entry: AppEntry,
         *,
         resolve_asset: Callable[[str], str] | None = None,
+        cover_width: int = _DEFAULT_CAPSULE_WIDTH,
     ) -> None:
         super().__init__()
         self.entry = entry
+
+        cover_height = cover_width * 3 // 2   # enforce 2:3 portrait ratio
 
         self.set_margin_start(6)
         self.set_margin_end(6)
@@ -45,9 +47,9 @@ class AppCard(Gtk.FlowBoxChild):
         # Outer box carries the .card style for the rounded-rect surface.
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         card.add_css_class("card")
-        card.set_size_request(_CARD_WIDTH, -1)
+        card.set_size_request(cover_width, -1)
 
-        # Cover image — shown at the top of the card when available.
+        # Cover image — fills the card at the enforced 2:3 aspect ratio.
         cover_shown = False
         if resolve_asset and entry.cover:
             cover_path = resolve_asset(entry.cover)
@@ -55,22 +57,23 @@ class AppCard(Gtk.FlowBoxChild):
                 pic = Gtk.Picture.new_for_filename(cover_path)
                 pic.set_content_fit(Gtk.ContentFit.COVER)
                 pic.set_can_shrink(True)
-                pic.set_size_request(-1, _COVER_HEIGHT)
+                pic.set_size_request(cover_width, cover_height)
                 card.append(pic)
                 cover_shown = True
 
         inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        inner.set_margin_start(14)
-        inner.set_margin_end(14)
-        inner.set_margin_top(12 if cover_shown else 18)
-        inner.set_margin_bottom(18)
+        inner.set_margin_start(10)
+        inner.set_margin_end(10)
+        inner.set_margin_top(10 if cover_shown else 18)
+        inner.set_margin_bottom(10)
         card.append(inner)
 
         # Icon — shown when no cover image is available.
         if not cover_shown:
+            icon_size = min(_ICON_SIZE_MAX, cover_width * 2 // 5)
             icon = _load_icon(
                 resolve_asset(entry.icon) if resolve_asset and entry.icon else "",
-                _ICON_SIZE,
+                icon_size,
             )
             icon.set_halign(Gtk.Align.CENTER)
             inner.append(icon)
@@ -80,10 +83,10 @@ class AppCard(Gtk.FlowBoxChild):
         name_lbl.add_css_class("title-4")
         name_lbl.set_halign(Gtk.Align.CENTER)
         name_lbl.set_ellipsize(Pango.EllipsizeMode.END)
-        name_lbl.set_max_width_chars(18)
+        name_lbl.set_max_width_chars(max(10, cover_width // 10))
         inner.append(name_lbl)
 
-        # Summary — shown only when no cover (cover cards use the full height).
+        # Summary — shown only when no cover.
         if not cover_shown:
             summary_lbl = Gtk.Label(label=entry.summary)
             summary_lbl.add_css_class("dim-label")
@@ -94,7 +97,7 @@ class AppCard(Gtk.FlowBoxChild):
             summary_lbl.set_ellipsize(Pango.EllipsizeMode.END)
             summary_lbl.set_halign(Gtk.Align.CENTER)
             summary_lbl.set_justify(Gtk.Justification.CENTER)
-            summary_lbl.set_max_width_chars(20)
+            summary_lbl.set_max_width_chars(max(10, cover_width // 10))
             inner.append(summary_lbl)
 
         self.set_child(card)
@@ -129,6 +132,11 @@ class BrowseView(Gtk.Box):
         self._active_category: str | None = None
         self._search_text: str = ""
         self._first_category_button: Gtk.ToggleButton | None = None
+
+        # Stored so cards can be rebuilt when capsule size changes.
+        self._entries: list[AppEntry] = []
+        self._resolve_asset: Callable[[str], str] | None = None
+        self._capsule_width: int = _DEFAULT_CAPSULE_WIDTH
 
         # ── Category strip ────────────────────────────────────────────────
         self._cat_scroll = Gtk.ScrolledWindow()
@@ -187,16 +195,34 @@ class BrowseView(Gtk.Box):
         self,
         entries: list[AppEntry],
         resolve_asset: Callable[[str], str] | None = None,
+        capsule_width: int | None = None,
     ) -> None:
         """Populate the grid from a list of catalogue entries."""
+        self._entries = entries
+        self._resolve_asset = resolve_asset
+        if capsule_width is not None:
+            self._capsule_width = capsule_width
+        self._rebuild_cards()
+
+    def set_capsule_width(self, width: int) -> None:
+        """Update the capsule size and rebuild cards from the stored entry list."""
+        self._capsule_width = width
+        if self._entries:
+            self._rebuild_cards()
+
+    def _rebuild_cards(self) -> None:
+        """Rebuild all cards from the stored entry/resolver/size state."""
         self._clear()
 
-        if not entries:
+        if not self._entries:
             self._show_status("Empty Catalogue", "The repository contains no apps.")
             return
 
+        # Update the flow box minimum child width to match the capsule.
+        self._flow_box.set_min_children_per_line(2)
+
         # Build category toggle buttons.
-        categories = sorted({e.category for e in entries})
+        categories = sorted({e.category for e in self._entries})
         all_btn = self._make_category_button("All", None, active=True)
         self._cat_box.append(all_btn)
         self._first_category_button = all_btn
@@ -207,8 +233,12 @@ class BrowseView(Gtk.Box):
             self._cat_box.append(btn)
 
         # Add cards sorted alphabetically.
-        for entry in sorted(entries, key=lambda e: e.name.lower()):
-            card = AppCard(entry, resolve_asset=resolve_asset)
+        for entry in sorted(self._entries, key=lambda e: e.name.lower()):
+            card = AppCard(
+                entry,
+                resolve_asset=self._resolve_asset,
+                cover_width=self._capsule_width,
+            )
             self._cards.append(card)
             self._flow_box.append(card)
 
@@ -218,6 +248,8 @@ class BrowseView(Gtk.Box):
 
     def show_error(self, title: str, description: str) -> None:
         """Display a full-page error / info message."""
+        self._entries = []
+        self._resolve_asset = None
         self._cat_scroll.set_visible(False)
         self._sep.set_visible(False)
         self._show_status(title, description)

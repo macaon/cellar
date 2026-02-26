@@ -245,30 +245,34 @@ cellar/
     main.py                  # GApplication entry point
     window.py                # Main AdwApplicationWindow
     views/
-      browse.py              # Grid browse view
-      detail.py              # App detail page
-      installed.py           # Installed apps view
-      updates.py             # Available updates view
-      settings.py            # Settings dialog
+      browse.py              # Grid browse view ✅
+      detail.py              # App detail page (Install/Update/Remove) ✅
+      add_app.py             # Add-app-to-catalogue dialog ✅
+      edit_app.py            # Edit/delete catalogue entry dialog ✅
+      update_app.py          # Safe update dialog (backup + rsync overlay) ✅
+      settings.py            # Settings / repo management dialog ✅
+      installed.py           # Installed apps view (stub)
+      updates.py             # Available updates view (stub)
     backend/
-      repo.py                # Catalogue fetching, manifest parsing
-      installer.py           # Download, extract, import to Bottles
-      updater.py             # rsync-based update logic
-      bottles.py             # bottles-cli wrapper, path detection
-      database.py            # SQLite installed/repo tracking
+      repo.py                # Catalogue fetching, all transport backends ✅
+      packager.py            # import_to_repo / update_in_repo / remove_from_repo ✅
+      installer.py           # Download, verify, extract, import to Bottles ✅
+      updater.py             # Safe rsync overlay update + backup_bottle ✅
+      bottles.py             # bottles-cli wrapper, path detection ✅
+      database.py            # SQLite installed/repo tracking ✅
+      config.py              # JSON config persistence (repos, capsule size) ✅
     models/
       app_entry.py           # Unified AppEntry + BuiltWith dataclasses ✅
     utils/
-      gio_io.py              # GIO-based file/network helpers
-      checksum.py            # SHA256 verification
+      gio_io.py              # GIO-based file/network helpers ✅
+      paths.py               # UI file path resolution ✅
+      checksum.py            # SHA-256 utility ✅
   data/
     io.github.cellar.gschema.xml
     io.github.cellar.desktop
     io.github.cellar.metainfo.xml
     ui/
       window.ui
-      app_card.ui
-      detail_view.ui
   po/                        # i18n (set up but don't need to fill out)
   flatpak/
     io.github.cellar.json    # Flatpak manifest

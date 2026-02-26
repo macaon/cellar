@@ -10,8 +10,9 @@ The primary use case is a private family or home-lab server: the person who
 manages the repo adds and packages apps; everyone else browses and installs via
 a read-only HTTP URL (or directly over SMB/NFS/SSH if they have access).
 
-> **Status: early development** — browse, detail view, install, and remove are
-> working; update flows and Flatpak packaging are not yet implemented.
+> **Status: early development** — browse, detail view, install, remove, and safe
+> update are working; component-upgrade prompts and Flatpak packaging are not yet
+> implemented.
 
 ---
 
@@ -146,34 +147,37 @@ transports only).
 ```
 cellar/
   cellar/
-    main.py          GApplication entry point
-    window.py        Main AdwApplicationWindow
+    main.py              GApplication entry point
+    window.py            Main AdwApplicationWindow
     views/
-      browse.py      Grid browse view (app cards, category filter, search) ✅
-      detail.py      App detail page ✅
-      installed.py   Installed apps view (phase 5)
-      updates.py     Available updates view (phase 6)
-      settings.py    Settings / repo management (phase 9)
+      browse.py          Grid browse view (app cards, category filter, search) ✅
+      detail.py          App detail page (Install / Update / Remove) ✅
+      add_app.py         Add-app-to-catalogue dialog ✅
+      edit_app.py        Edit / delete catalogue entry dialog ✅
+      update_app.py      Safe update dialog (backup + rsync overlay) ✅
+      settings.py        Settings / repo management dialog ✅
+      installed.py       Installed apps view (stub)
+      updates.py         Available updates view (stub)
     backend/
-      repo.py        Catalogue fetching, all transport backends ✅
-      installer.py   Download, extract, import to Bottles ✅
-      updater.py     rsync-based update logic (phase 6)
-      bottles.py     bottles-cli wrapper, path detection ✅
-      database.py    SQLite installed/repo tracking ✅
+      repo.py            Catalogue fetching, all transport backends ✅
+      packager.py        import_to_repo / update_in_repo / remove_from_repo ✅
+      installer.py       Download, verify, extract, import to Bottles ✅
+      updater.py         Safe rsync overlay update + backup ✅
+      bottles.py         bottles-cli wrapper, path detection ✅
+      database.py        SQLite installed/repo tracking ✅
+      config.py          JSON config persistence (repos, capsule size) ✅
     models/
-      app_entry.py   Unified app/game dataclass (AppEntry + BuiltWith) ✅
+      app_entry.py       Unified app/game dataclass (AppEntry + BuiltWith) ✅
     utils/
-      paths.py       UI file path resolution (source tree + installed) ✅
-      gio_io.py      GIO file helpers ✅
-      checksum.py    SHA-256 verification (phase 4)
+      paths.py           UI file path resolution (source tree + installed) ✅
+      gio_io.py          GIO file helpers ✅
+      checksum.py        SHA-256 utility ✅
   data/
     ui/
-      window.ui      Main window template
-      app_card.ui    App card template
-      detail_view.ui Detail view template
+      window.ui          Main window template
   tests/
-    fixtures/        Sample catalogue.json for local testing
-    test_repo.py     Backend unit tests (42 tests)
+    fixtures/            Sample catalogue.json for local testing
+    test_repo.py         Backend unit tests
 ```
 
 ---

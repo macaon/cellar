@@ -5,6 +5,16 @@ Versioning follows [Semantic Versioning](https://semver.org/) — while the majo
 
 ---
 
+## [0.9.0] — 2026-02-26
+
+### Added
+- **Remove/uninstall button in detail view**: when Cellar detects that an app's bottle is present on disk, the header bar now shows a "Remove" button (destructive style) instead of the inert "Installed" badge.
+  - Clicking "Remove" opens an `Adw.AlertDialog` that names the bottle directory and warns that all data inside the prefix (saved games, registry, configuration) will be permanently deleted.
+  - On confirmation: the bottle directory is deleted with `shutil.rmtree`, the database record is removed via `database.remove_installed`, the button reverts to "Install", and a toast confirms the removal.
+  - `DetailView` gains two new optional constructor parameters: `installed_record` (the dict from `database.get_installed`) and `on_remove_done` (callback invoked after a successful removal).
+
+---
+
 ## [0.8.8] — 2026-02-26
 
 ### Fixed

@@ -287,8 +287,8 @@ Build in this order:
 2. ~~**Browse UI** — grid of app cards, category filter, search~~ ✅
 3. ~~**Network repo support** — HTTP/HTTPS, SSH, SMB, NFS transports; unified `AppEntry` model; fat `catalogue.json` format~~ ✅
 4. ~~**Detail view** — full app page from catalogue data; `AdwNavigationView` navigation~~ ✅
-5. **Bottles backend** — path detection, `bottles-cli` wrapper, basic install (extract + copy)
-6. **Local DB** — track installed apps, wire up Install button state
+5. ~~**Bottles backend** — path detection, `bottles-cli` wrapper, install + remove~~ ✅
+6. ~~**Local DB** — track installed apps, wire up Install/Remove button state~~ ✅
 7. **Update logic** — safe rsync strategy first, full replacement second
 8. **Component update UI** — post-install prompt to upgrade runner/DXVK
 9. **Repo management UI** — add/remove/initialise repos from settings; optional IGDB/Steam metadata fetch on add

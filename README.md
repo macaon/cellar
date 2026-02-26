@@ -10,8 +10,8 @@ The primary use case is a private family or home-lab server: the person who
 manages the repo adds and packages apps; everyone else browses and installs via
 a read-only HTTP URL (or directly over SMB/NFS/SSH if they have access).
 
-> **Status: early development** — the browse UI and repo backend are working;
-> install/update flows are not yet implemented.
+> **Status: early development** — browse, detail view, install, and remove are
+> working; update flows and Flatpak packaging are not yet implemented.
 
 ---
 
@@ -156,10 +156,10 @@ cellar/
       settings.py    Settings / repo management (phase 9)
     backend/
       repo.py        Catalogue fetching, all transport backends ✅
-      installer.py   Download, extract, import to Bottles (phase 4)
+      installer.py   Download, extract, import to Bottles ✅
       updater.py     rsync-based update logic (phase 6)
-      bottles.py     bottles-cli wrapper, path detection (phase 4)
-      database.py    SQLite installed/repo tracking (phase 5)
+      bottles.py     bottles-cli wrapper, path detection ✅
+      database.py    SQLite installed/repo tracking ✅
     models/
       app_entry.py   Unified app/game dataclass (AppEntry + BuiltWith) ✅
     utils/
@@ -183,8 +183,8 @@ cellar/
 1. **Repo backend** — catalogue parsing, all transport backends ✅
 2. **Browse UI** — app card grid, category filter, search ✅
 3. **Detail view** — full app page from catalogue data ✅
-4. **Bottles backend** — path detection, `bottles-cli` wrapper, basic install
-5. **Local DB** — track installed apps, wire up Install button state
+4. **Bottles backend** — path detection, `bottles-cli` wrapper, install + remove ✅
+5. **Local DB** — track installed apps, wire up Install/Remove button state ✅
 6. **Update logic** — safe rsync strategy, full replacement
 7. **Component update UI** — post-install prompt to upgrade runner/DXVK
 8. **Repo management UI** — add/remove sources, initialise new repos, pull metadata from IGDB/Steam

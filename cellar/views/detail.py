@@ -43,7 +43,9 @@ class DetailView(Gtk.Box):
         on_edit: Callable | None = None,
         bottles_installs: list | None = None,
         is_installed: bool = False,
+        installed_record: dict | None = None,
         on_install_done: Callable | None = None,
+        on_remove_done: Callable | None = None,
     ) -> None:
         super().__init__()
         self._entry = entry
@@ -52,7 +54,9 @@ class DetailView(Gtk.Box):
         self._on_edit = on_edit
         self._bottles_installs = bottles_installs or []
         self._is_installed = is_installed
+        self._installed_record = installed_record
         self._on_install_done = on_install_done
+        self._on_remove_done = on_remove_done
         toolbar = Adw.ToolbarView()
         self.append(toolbar)
         self._build(toolbar)
@@ -130,11 +134,12 @@ class DetailView(Gtk.Box):
 
     def _update_install_button(self) -> None:
         btn = self._install_btn
+        for cls in ("suggested-action", "success", "destructive-action"):
+            btn.remove_css_class(cls)
         if self._is_installed:
-            btn.set_label("Installed")
-            btn.remove_css_class("suggested-action")
-            btn.add_css_class("success")
-            btn.set_sensitive(False)
+            btn.set_label("Remove")
+            btn.add_css_class("destructive-action")
+            btn.set_sensitive(True)
             btn.set_tooltip_text("")
         elif self._bottles_installs:
             btn.set_label("Install")
@@ -148,6 +153,9 @@ class DetailView(Gtk.Box):
             btn.set_tooltip_text("Bottles is not installed")
 
     def _on_install_clicked(self, _btn) -> None:
+        if self._is_installed:
+            self._on_remove_clicked()
+            return
         archive_uri = self._resolve(self._entry.archive) if self._entry.archive else ""
         dialog = InstallProgressDialog(
             entry=self._entry,
@@ -162,6 +170,42 @@ class DetailView(Gtk.Box):
         self._update_install_button()
         if self._on_install_done:
             self._on_install_done(bottle_name)
+
+    def _on_remove_clicked(self) -> None:
+        bottle_name = (self._installed_record or {}).get("bottle_name", "")
+        bottle_path = None
+        for install in self._bottles_installs:
+            candidate = install.data_path / bottle_name
+            if candidate.is_dir():
+                bottle_path = candidate
+                break
+        dialog = RemoveDialog(
+            entry=self._entry,
+            bottle_path=bottle_path,
+            on_confirm=self._on_remove_confirmed,
+        )
+        dialog.present(self.get_root())
+
+    def _on_remove_confirmed(self) -> None:
+        import shutil
+        from cellar.backend import database
+
+        bottle_name = (self._installed_record or {}).get("bottle_name", "")
+        for install in self._bottles_installs:
+            candidate = install.data_path / bottle_name
+            if candidate.is_dir():
+                try:
+                    shutil.rmtree(candidate)
+                except Exception as exc:
+                    log.error("Failed to remove bottle %s: %s", candidate, exc)
+                break
+
+        database.remove_installed(self._entry.id)
+        self._is_installed = False
+        self._installed_record = None
+        self._update_install_button()
+        if self._on_remove_done:
+            self._on_remove_done()
 
     # ------------------------------------------------------------------
     # Section builders
@@ -548,6 +592,43 @@ class InstallProgressDialog(Adw.Dialog):
         alert.add_response("ok", "OK")
         alert.connect("response", lambda _d, _r: self.close())
         alert.present(self)
+
+
+# ---------------------------------------------------------------------------
+# Remove confirmation dialog
+# ---------------------------------------------------------------------------
+
+
+class RemoveDialog(Adw.AlertDialog):
+    """Confirmation dialog shown before removing an installed bottle."""
+
+    def __init__(
+        self,
+        *,
+        entry: AppEntry,
+        bottle_path,          # pathlib.Path | None
+        on_confirm: Callable,
+    ) -> None:
+        path_str = _short_path(bottle_path) if bottle_path else "unknown location"
+        super().__init__(
+            heading=f"Remove {entry.name}?",
+            body=(
+                f"The bottle at {path_str} will be permanently deleted. "
+                "Any data stored inside the prefix — saved games, configuration "
+                "files, and registry changes — will be lost."
+            ),
+        )
+        self._on_confirm = on_confirm
+        self.add_response("cancel", "Cancel")
+        self.add_response("remove", "Remove")
+        self.set_response_appearance("remove", Adw.ResponseAppearance.DESTRUCTIVE)
+        self.set_default_response("cancel")
+        self.set_close_response("cancel")
+        self.connect("response", self._on_response)
+
+    def _on_response(self, _dialog, response: str) -> None:
+        if response == "remove":
+            self._on_confirm()
 
 
 # ---------------------------------------------------------------------------

@@ -165,6 +165,9 @@ class CellarWindow(Adw.ApplicationWindow):
             database.mark_installed(entry.id, bottle_name, entry.version, repo_uri)
             self._show_toast(f"{entry.name} installed successfully")
 
+        def _on_remove_done() -> None:
+            self._show_toast(f"{entry.name} removed")
+
         detail = DetailView(
             entry,
             resolve_asset=resolver,
@@ -172,7 +175,9 @@ class CellarWindow(Adw.ApplicationWindow):
             on_edit=_on_edit if can_write else None,
             bottles_installs=all_bottles,
             is_installed=is_installed,
+            installed_record=rec,
             on_install_done=_on_install_done,
+            on_remove_done=_on_remove_done,
         )
         page = Adw.NavigationPage(title=entry.name, child=detail)
         self.nav_view.push(page)
@@ -220,7 +225,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="application-x-executable",
-            version="0.8.8",
+            version="0.9.0",
             comments="A GNOME storefront for Bottles-managed Windows apps.",
             license_type=Gtk.License.GPL_3_0,
         )

@@ -5,6 +5,16 @@ Versioning follows [Semantic Versioning](https://semver.org/) — while the majo
 
 ---
 
+## [0.8.6] — 2026-02-26
+
+### Fixed
+- **Image sharpness (HiDPI root cause)**: on displays with a 2× (or fractional) scale factor, pre-scaled software textures get upscaled by GTK after the fact, making images blurry regardless of the scaling algorithm used. The fix is to let GTK's own renderer handle image scaling so it operates at native display pixel density.
+  - `cellar/views/browse.py`: new `_FixedBox` custom widget (`Gtk.Widget` subclass) overrides `do_measure` to always report `cover_width × cover_height` as its natural size, preventing the child image's pixel dimensions from leaking into `FlowBox` layout. The cover `Gtk.Picture` is loaded with `new_for_filename()` (full resolution) and GTK scales it to the allocated area at physical pixel density.
+  - `cellar/views/detail.py`: screenshots reverted to `Gtk.Picture.new_for_filename()` (full resolution, GTK-managed scaling); the previous HYPER pre-scaling was actually worse on HiDPI because it created textures at logical pixel dimensions that GTK then upscaled.
+  - `cellar/utils/image.py` removed (no longer needed).
+
+---
+
 ## [0.8.5] — 2026-02-26
 
 ### Fixed

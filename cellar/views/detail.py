@@ -256,14 +256,8 @@ class DetailView(Gtk.Box):
         carousel = Adw.Carousel(allow_scroll_wheel=True, reveal_duration=200)
         wrapper.append(carousel)
 
-        from cellar.utils.image import load_fit_texture
-
         for path in local_paths:
-            texture = load_fit_texture(path, 300)
-            if texture is not None:
-                pic = Gtk.Picture.new_for_paintable(texture)
-            else:
-                pic = Gtk.Picture.new_for_filename(path)
+            pic = Gtk.Picture.new_for_filename(path)
             pic.set_content_fit(Gtk.ContentFit.CONTAIN)
             pic.set_can_shrink(True)
             pic.set_size_request(-1, 300)

@@ -21,6 +21,63 @@ _ICON_SIZE_MAX = 64
 
 
 # ---------------------------------------------------------------------------
+# _FixedBox — single-child container with a hard-coded natural size
+# ---------------------------------------------------------------------------
+
+class _FixedBox(Gtk.Widget):
+    """Single-child container that always reports a fixed natural size.
+
+    ``Gtk.Box`` propagates its children's natural sizes upward.  A full-
+    resolution ``Gtk.Picture`` loaded with ``new_for_filename()`` has a
+    natural size equal to the image's pixel dimensions, which would cause
+    ``FlowBox`` to allocate cards at the image size rather than the capsule
+    size.
+
+    This widget solves the problem: ``do_measure`` always returns
+    ``(width, height)`` so the FlowBox sees the correct capsule dimensions,
+    while the child (``Gtk.Picture``) is allocated the full area and GTK's
+    own renderer scales the image at display resolution — giving correct
+    HiDPI sharpness without any software pre-scaling.
+    """
+
+    __gtype_name__ = "CellarFixedBox"
+
+    def __init__(self, width: int, height: int) -> None:
+        super().__init__()
+        self._w = width
+        self._h = height
+        self._child: Gtk.Widget | None = None
+        self.set_overflow(Gtk.Overflow.HIDDEN)
+
+    def set_child(self, child: Gtk.Widget | None) -> None:
+        if self._child is not None:
+            self._child.unparent()
+        self._child = child
+        if child is not None:
+            child.set_parent(self)
+
+    # GTK virtual methods ──────────────────────────────────────────────────
+
+    def do_measure(self, orientation, for_size):
+        size = self._w if orientation == Gtk.Orientation.HORIZONTAL else self._h
+        return size, size, -1, -1
+
+    def do_size_allocate(self, width: int, height: int, baseline: int) -> None:
+        if self._child is not None:
+            self._child.allocate(width, height, baseline, None)
+
+    def do_snapshot(self, snapshot) -> None:
+        if self._child is not None:
+            self.snapshot_child(self._child, snapshot)
+
+    def do_dispose(self) -> None:
+        if self._child is not None:
+            self._child.unparent()
+            self._child = None
+        super().do_dispose()
+
+
+# ---------------------------------------------------------------------------
 # AppCard
 # ---------------------------------------------------------------------------
 
@@ -51,39 +108,36 @@ class AppCard(Gtk.FlowBoxChild):
         card.add_css_class("card")
         card.set_overflow(Gtk.Overflow.HIDDEN)
 
-        # Fixed-size image area — both cover and no-cover cards use the same
-        # box so FlowBox sees identical natural sizes for all children.
-        img_area = Gtk.Box()
-        img_area.set_size_request(cover_width, cover_height)
-        img_area.set_overflow(Gtk.Overflow.HIDDEN)
+        # _FixedBox reports exactly cover_width × cover_height as its natural
+        # size so FlowBox layout is unaffected by the child's image dimensions.
+        img_area = _FixedBox(cover_width, cover_height)
         card.append(img_area)
 
-        # Cover image — pre-scaled to exact pixel dimensions so Gtk.Picture
-        # reports a natural size equal to the target rather than the source.
+        # Cover image — loaded at full resolution; GTK's renderer scales it
+        # to the allocated area at display pixel density (HiDPI-correct).
         cover_shown = False
         if resolve_asset and entry.cover:
             cover_path = resolve_asset(entry.cover)
             if os.path.isfile(cover_path):
-                texture = _load_cover_texture(cover_path, cover_width, cover_height)
-                if texture is not None:
-                    pic = Gtk.Picture.new_for_paintable(texture)
-                    pic.set_hexpand(True)
-                    pic.set_vexpand(True)
-                    img_area.append(pic)
-                    cover_shown = True
+                pic = Gtk.Picture.new_for_filename(cover_path)
+                pic.set_content_fit(Gtk.ContentFit.COVER)
+                pic.set_can_shrink(True)
+                img_area.set_child(pic)
+                cover_shown = True
 
         # Icon — shown when no cover image is available, centred in img_area.
         if not cover_shown:
             icon_size = min(_ICON_SIZE_MAX, cover_width * 2 // 5)
+            icon_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
             icon = _load_icon(
                 resolve_asset(entry.icon) if resolve_asset and entry.icon else "",
                 icon_size,
             )
             icon.set_halign(Gtk.Align.CENTER)
             icon.set_valign(Gtk.Align.CENTER)
-            icon.set_hexpand(True)
             icon.set_vexpand(True)
-            img_area.append(icon)
+            icon_box.append(icon)
+            img_area.set_child(icon_box)
 
         # Name label below the image area.
         inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -313,11 +367,6 @@ class BrowseView(Gtk.Box):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-def _load_cover_texture(path: str, target_w: int, target_h: int):
-    from cellar.utils.image import load_cover_texture
-    return load_cover_texture(path, target_w, target_h)
-
 
 def _load_icon(path: str, size: int) -> Gtk.Image:
     """Return a Gtk.Image for *path*, falling back to a generic icon."""

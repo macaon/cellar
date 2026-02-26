@@ -376,7 +376,7 @@ class EditAppDialog(Adw.Dialog):
 
         # Screenshots — resolve relative paths to absolute local paths
         try:
-            repo_root = self._repo.local_path()
+            repo_root = self._repo.writable_path()
             self._screenshot_paths = [str(repo_root / rel) for rel in e.screenshots]
         except Exception:
             self._screenshot_paths = []
@@ -639,7 +639,7 @@ class EditAppDialog(Adw.Dialog):
         self._progress_bar.set_fraction(0.0)
         self._progress_label.set_text("Saving changes…")
 
-        repo_root = self._repo.local_path()
+        repo_root = self._repo.writable_path()
 
         def _run():
             from cellar.backend.packager import CancelledError, update_in_repo
@@ -735,7 +735,7 @@ class EditAppDialog(Adw.Dialog):
         self._stack.set_visible_child_name("spinner")
         self._spinner_label.set_text("Deleting entry…")
 
-        repo_root = self._repo.local_path()
+        repo_root = self._repo.writable_path()
 
         def _run():
             from cellar.backend.packager import CancelledError, remove_from_repo

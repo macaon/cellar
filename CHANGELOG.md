@@ -5,6 +5,17 @@ Versioning follows [Semantic Versioning](https://semver.org/) — while the majo
 
 ---
 
+## [0.11.4] — 2026-02-26
+
+### Fixed
+- **`cellar/views/add_app.py`** and **`cellar/views/edit_app.py`**: "Add to Catalogue" and all edit/delete operations crashed with `RepoError: local_path() is only available for local repos` when the active repository was an SMB or NFS share.
+
+### Added
+- **`cellar/backend/repo.py`**: `Repo.writable_path(rel_path="")` — like `local_path()` but also works for SMB/NFS repos. GVFS exposes every mounted network share through `gvfsd-fuse` at `/run/user/<uid>/gvfs/`; `Gio.File.get_path()` returns that FUSE path transparently once the share is mounted. `packager.py` then operates on it via ordinary `pathlib.Path` with no GIO-specific changes. Raises `RepoError` for HTTP/SSH repos or when `gvfsd-fuse` is unavailable.
+- All four `local_path()` call sites in `add_app.py` and `edit_app.py` updated to `writable_path()`.
+
+---
+
 ## [0.11.3] — 2026-02-26
 
 ### Fixed

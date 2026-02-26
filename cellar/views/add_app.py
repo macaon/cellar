@@ -446,7 +446,7 @@ class AddAppDialog(Adw.Dialog):
         self._progress_bar.set_fraction(0.0)
         self._progress_label.set_text("Copying archive…")
 
-        repo_root = self._repo.local_path()
+        repo_root = self._repo.writable_path()
 
         def _run():
             from cellar.backend.packager import CancelledError, import_to_repo

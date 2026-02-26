@@ -417,6 +417,48 @@ class Repo:
             raise RepoError("local_path() is only available for local repos")
         return self._fetcher._root / rel_path.lstrip("/")
 
+    def writable_path(self, rel_path: str = "") -> Path:
+        """Return a writable local filesystem path to the repo root (or a sub-path).
+
+        For local repos this is identical to :meth:`local_path`.
+
+        For SMB/NFS repos the share must already be mounted.  GVFS exposes
+        every mounted network share through ``gvfsd-fuse`` under
+        ``/run/user/<uid>/gvfs/``; ``Gio.File.get_path()`` returns that FUSE
+        path transparently.  ``packager.py`` can then use ordinary
+        :class:`pathlib.Path` operations on it without any GIO-specific code.
+
+        Raises :exc:`RepoError` for HTTP/SSH repos or when GVFS FUSE is
+        unavailable (non-GNOME systems without gvfsd-fuse).
+        """
+        if isinstance(self._fetcher, _LocalFetcher):
+            return self._fetcher._root / rel_path.lstrip("/")
+
+        if isinstance(self._fetcher, _GioFetcher):
+            try:
+                import gi
+                gi.require_version("Gio", "2.0")
+                from gi.repository import Gio
+            except (ImportError, ValueError) as exc:
+                raise RepoError("GIO is unavailable") from exc
+
+            gfile = Gio.File.new_for_uri(
+                self._fetcher._base.rstrip("/") + "/" + rel_path.lstrip("/")
+                if rel_path else self._fetcher._base
+            )
+            fuse_path = gfile.get_path()
+            if fuse_path:
+                return Path(fuse_path)
+            raise RepoError(
+                "GVFS FUSE mount is not available for this share. "
+                "Ensure gvfsd-fuse is running (standard on GNOME)."
+            )
+
+        scheme = urlparse(self.uri).scheme.lower()
+        raise RepoError(
+            f"{scheme!r} repositories do not support local write operations"
+        )
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------

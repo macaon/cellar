@@ -5,6 +5,25 @@ Versioning follows [Semantic Versioning](https://semver.org/) — while the majo
 
 ---
 
+## [0.7.5] — 2026-02-26
+
+### Added
+- **`cellar/backend/installer.py`**: archive download, verification, extraction, and bottle import
+  - `install_app(entry, archive_uri, bottles_install, *, progress_cb, cancel_event)` — full install pipeline; returns the `bottle_name` used; reports `(phase, fraction)` progress
+  - `_acquire_archive()` — local archives (bare path or `file://`) used in-place; HTTP(S) streamed in 1 MB chunks with cancel support and partial-file cleanup; other schemes raise `InstallError`
+  - `_verify_sha256()` — skipped when `archive_sha256` is empty
+  - `_extract_archive()` — uses `filter="data"` on Python 3.12+ for safe extraction
+  - `_find_bottle_dir()` — identifies single top-level bottle directory; resolves ambiguity by `bottle.yml` presence
+  - `_safe_bottle_name()` — derives a non-colliding bottle name from the app ID (appends `-2`, `-3` … on collision)
+  - `InstallError` / `InstallCancelled` exceptions; partial `copytree` destination cleaned up on failure
+- **`cellar/backend/database.py`**: SQLite installed-app tracking
+  - `mark_installed(app_id, bottle_name, version, repo_source)` — upsert; preserves `installed_at` on re-install
+  - `get_installed(app_id)` / `is_installed(app_id)` / `remove_installed(app_id)` / `get_all_installed()`
+  - Schema created on first use via `_ensure_schema()`; database at `~/.local/share/cellar/cellar.db`
+- **`tests/test_installer.py`** / **`tests/test_database.py`**: 36 new tests; total 117 passing
+
+---
+
 ## [0.7.4] — 2026-02-26
 
 ### Added

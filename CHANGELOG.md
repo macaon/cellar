@@ -5,6 +5,16 @@ Versioning follows [Semantic Versioning](https://semver.org/) — while the majo
 
 ---
 
+## [0.8.5] — 2026-02-26
+
+### Fixed
+- **Image quality**: replace `GL_LINEAR` / `GdkPixbuf.BILINEAR` scaling with `GdkPixbuf.HYPER` (high-quality Gaussian/bicubic resampling) for cover art and screenshots. At the large downscale ratios typical of these images (4–6×) the difference is significant.
+  - New `cellar/utils/image.py`: `load_cover_texture(path, w, h)` (scale-to-cover + center-crop) and `load_fit_texture(path, target_h)` (scale to height preserving aspect ratio)
+  - `cellar/views/browse.py`: cover thumbnails now use `load_cover_texture` (HYPER)
+  - `cellar/views/detail.py`: screenshot carousel now uses `load_fit_texture` (HYPER) instead of full-resolution `Gtk.Picture.new_for_filename()`; falls back to filename loading on error
+
+---
+
 ## [0.8.4] — 2026-02-26
 
 ### Fixed

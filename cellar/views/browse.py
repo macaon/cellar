@@ -315,26 +315,8 @@ class BrowseView(Gtk.Box):
 # ---------------------------------------------------------------------------
 
 def _load_cover_texture(path: str, target_w: int, target_h: int):
-    """Load *path*, scale-to-cover, and center-crop to exactly target_w × target_h.
-
-    Returns a ``Gdk.Texture`` whose intrinsic pixel dimensions equal the target,
-    so that ``Gtk.Picture`` reports a natural size matching the capsule rather
-    than the source image dimensions.  Returns ``None`` on any error.
-    """
-    try:
-        from gi.repository import Gdk, GdkPixbuf
-        src = GdkPixbuf.Pixbuf.new_from_file(path)
-        src_w, src_h = src.get_width(), src.get_height()
-        scale = max(target_w / src_w, target_h / src_h)
-        scaled_w = max(int(src_w * scale), target_w)
-        scaled_h = max(int(src_h * scale), target_h)
-        scaled = src.scale_simple(scaled_w, scaled_h, GdkPixbuf.InterpType.BILINEAR)
-        x_off = (scaled_w - target_w) // 2
-        y_off = (scaled_h - target_h) // 2
-        cropped = scaled.new_subpixbuf(x_off, y_off, target_w, target_h)
-        return Gdk.Texture.new_for_pixbuf(cropped)
-    except Exception:
-        return None
+    from cellar.utils.image import load_cover_texture
+    return load_cover_texture(path, target_w, target_h)
 
 
 def _load_icon(path: str, size: int) -> Gtk.Image:

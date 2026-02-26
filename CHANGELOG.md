@@ -5,6 +5,16 @@ Versioning follows [Semantic Versioning](https://semver.org/) — while the majo
 
 ---
 
+## [0.11.3] — 2026-02-26
+
+### Fixed
+- **`cellar/views/settings.py`**: GVFS mount failures (e.g. "Failed to mount Windows share: No such file or directory") contain the phrase "no such file", causing `_looks_like_missing` to return `True` and incorrectly triggering the "Initialise repository?" dialog. The heuristic now short-circuits to `False` when the error string contains "mount", so genuine connectivity failures reach the "Could Not Connect" alert instead.
+
+### Changed
+- **`cellar/views/settings.py`**: the "No Catalogue Found" init dialog body now varies by URI scheme — for remote repositories (SMB, NFS, SSH) it adds a note that the directory will be created on the server if it does not already exist, making the intent of the Initialise action clear.
+
+---
+
 ## [0.11.2] — 2026-02-26
 
 ### Added

@@ -196,13 +196,18 @@ class SettingsDialog(Adw.PreferencesDialog):
         entry_row.set_text("")
 
     def _ask_init(self, uri: str) -> None:
-        dialog = Adw.AlertDialog(
-            heading="No Catalogue Found",
-            body=(
+        if _is_local_uri(uri):
+            body = (
                 "No catalogue.json was found at this location. "
                 "Initialise a new empty repository here?"
-            ),
-        )
+            )
+        else:
+            body = (
+                "No catalogue.json was found at this location. "
+                "Initialise a new empty repository here?\n\n"
+                "The directory will be created on the server if it does not exist yet."
+            )
+        dialog = Adw.AlertDialog(heading="No Catalogue Found", body=body)
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("init", "Initialise")
         dialog.set_response_appearance("init", Adw.ResponseAppearance.SUGGESTED)
@@ -373,6 +378,12 @@ def _is_local_uri(uri: str) -> bool:
 
 
 def _looks_like_missing(err: str) -> bool:
-    """Heuristic: does this look like a missing file rather than an auth/network error?"""
+    """Heuristic: does this look like a missing file rather than an auth/network error?
+
+    Mount failures (e.g. "Failed to mount Windows share: No such file or
+    directory") also contain "no such file", so explicitly exclude them.
+    """
     low = err.lower()
+    if "mount" in low:
+        return False
     return any(kw in low for kw in ("not found", "does not exist", "no such file"))

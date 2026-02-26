@@ -162,7 +162,11 @@ class SettingsDialog(Adw.PreferencesDialog):
         # Validate scheme / create fetcher.
         # Pass a MountOperation so that SMB/NFS shares can be mounted (and
         # credential dialogs shown) when the user first adds them.
-        mount_op = Gtk.MountOperation(parent=self)
+        # Adw.PreferencesDialog is not a GtkWindow, so walk up to the root.
+        root = self.get_root()
+        mount_op = Gtk.MountOperation(
+            parent=root if isinstance(root, Gtk.Window) else None
+        )
         try:
             repo = Repo(uri, mount_op=mount_op)
         except RepoError as exc:

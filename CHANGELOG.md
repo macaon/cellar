@@ -5,6 +5,13 @@ Versioning follows [Semantic Versioning](https://semver.org/) — while the majo
 
 ---
 
+## [0.8.8] — 2026-02-26
+
+### Fixed
+- **`cellar/views/browse.py`**: eliminate "Finalizing CellarFixedBox but it still has children left" GTK warning. `_FixedBox` previously stored `self._child` as a Python-level strong reference, which could interfere with GTK's C-level reference counting and prevent `do_dispose` from properly unparenting the child before finalization. All child access is now via `get_first_child()` (GTK's own child list), removing the Python reference entirely.
+
+---
+
 ## [0.8.7] — 2026-02-26
 
 ### Fixed

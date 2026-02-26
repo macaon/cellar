@@ -27,17 +27,11 @@ _ICON_SIZE_MAX = 64
 class _FixedBox(Gtk.Widget):
     """Single-child container that always reports a fixed natural size.
 
-    ``Gtk.Box`` propagates its children's natural sizes upward.  A full-
-    resolution ``Gtk.Picture`` loaded with ``new_for_filename()`` has a
-    natural size equal to the image's pixel dimensions, which would cause
-    ``FlowBox`` to allocate cards at the image size rather than the capsule
-    size.
-
-    This widget solves the problem: ``do_measure`` always returns
-    ``(width, height)`` so the FlowBox sees the correct capsule dimensions,
-    while the child (``Gtk.Picture``) is allocated the full area and GTK's
-    own renderer scales the image at display resolution — giving correct
-    HiDPI sharpness without any software pre-scaling.
+    ``Gtk.Box`` propagates its children's natural sizes upward, which would
+    let the image's pixel dimensions leak into ``FlowBox`` layout.  This
+    widget always reports ``(width, height)`` from ``do_measure`` so the
+    FlowBox sees the correct capsule dimensions regardless of the child's
+    natural size.  The child is always allocated the full area.
     """
 
     __gtype_name__ = "CellarFixedBox"
@@ -46,13 +40,15 @@ class _FixedBox(Gtk.Widget):
         super().__init__()
         self._w = width
         self._h = height
-        self._child: Gtk.Widget | None = None
         self.set_overflow(Gtk.Overflow.HIDDEN)
 
     def set_child(self, child: Gtk.Widget | None) -> None:
-        if self._child is not None:
-            self._child.unparent()
-        self._child = child
+        # Unparent through GTK's own child list — avoids a Python-level strong
+        # reference that can interfere with GTK's reference counting and cause
+        # "still has children" warnings at finalization time.
+        old = self.get_first_child()
+        if old is not None:
+            old.unparent()
         if child is not None:
             child.set_parent(self)
 
@@ -63,17 +59,19 @@ class _FixedBox(Gtk.Widget):
         return size, size, -1, -1
 
     def do_size_allocate(self, width: int, height: int, baseline: int) -> None:
-        if self._child is not None:
-            self._child.allocate(width, height, baseline, None)
+        child = self.get_first_child()
+        if child is not None:
+            child.allocate(width, height, baseline, None)
 
     def do_snapshot(self, snapshot) -> None:
-        if self._child is not None:
-            self.snapshot_child(self._child, snapshot)
+        child = self.get_first_child()
+        if child is not None:
+            self.snapshot_child(child, snapshot)
 
     def do_dispose(self) -> None:
-        if self._child is not None:
-            self._child.unparent()
-            self._child = None
+        child = self.get_first_child()
+        if child is not None:
+            child.unparent()
         super().do_dispose()
 
 

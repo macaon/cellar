@@ -5,6 +5,13 @@ Versioning follows [Semantic Versioning](https://semver.org/) — while the majo
 
 ---
 
+## [0.10.1] — 2026-02-26
+
+### Fixed
+- **`cellar/backend/updater.py`**: remove invalid `--no-delete` rsync flag. rsync preserves destination-only files by default; `--delete` is the opt-in to remove them. `--no-delete` does not exist and caused rsync to exit with code 1.
+
+---
+
 ## [0.10.0] — 2026-02-26
 
 ### Added

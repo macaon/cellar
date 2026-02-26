@@ -5,6 +5,18 @@ Versioning follows [Semantic Versioning](https://semver.org/) — while the majo
 
 ---
 
+## [0.7.9] — 2026-02-26
+
+### Added
+- **`cellar/views/browse.py`**: cover image now shown in the browse grid
+  - `AppCard` accepts an optional `resolve_asset` callable; when `entry.cover` resolves to an existing local file the portrait image is shown at the top of the card (`Gtk.ContentFit.COVER`, fixed 200 px height)
+  - When no cover is available the card falls back to the app icon (now properly loaded from disk via `Gdk.Texture`, with a generic `application-x-executable` fallback) followed by name and summary text
+  - Summary text is hidden for cover-art cards to keep the layout compact
+  - `BrowseView.load_entries()` accepts an optional `resolve_asset` parameter and forwards it to every `AppCard`
+- **`cellar/window.py`**: passes `_first_repo.resolve_asset_uri` to `load_entries()` so images are resolved from the active repository
+
+---
+
 ## [0.7.8] — 2026-02-26
 
 ### Fixed

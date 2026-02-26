@@ -104,7 +104,8 @@ class CellarWindow(Adw.ApplicationWindow):
         try:
             entries = manager.fetch_all_catalogues()
             if entries:
-                self._browse.load_entries(entries)
+                resolver = self._first_repo.resolve_asset_uri if self._first_repo else None
+                self._browse.load_entries(entries, resolve_asset=resolver)
             else:
                 self._browse.show_error(
                     "Empty Catalogue",
@@ -211,7 +212,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="application-x-executable",
-            version="0.7.8",
+            version="0.7.9",
             comments="A GNOME storefront for Bottles-managed Windows apps.",
             license_type=Gtk.License.GPL_3_0,
         )

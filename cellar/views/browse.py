@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import os
+from typing import Callable
 
 import gi
 
@@ -15,7 +17,8 @@ from cellar.models.app_entry import AppEntry
 log = logging.getLogger(__name__)
 
 _ICON_SIZE = 64
-_CARD_WIDTH = 160  # minimum card width in pixels
+_CARD_WIDTH = 160   # minimum card width in pixels
+_COVER_HEIGHT = 200  # fixed height of the cover image strip
 
 
 # ---------------------------------------------------------------------------
@@ -25,7 +28,12 @@ _CARD_WIDTH = 160  # minimum card width in pixels
 class AppCard(Gtk.FlowBoxChild):
     """A single app tile in the browse grid."""
 
-    def __init__(self, entry: AppEntry) -> None:
+    def __init__(
+        self,
+        entry: AppEntry,
+        *,
+        resolve_asset: Callable[[str], str] | None = None,
+    ) -> None:
         super().__init__()
         self.entry = entry
 
@@ -39,18 +47,33 @@ class AppCard(Gtk.FlowBoxChild):
         card.add_css_class("card")
         card.set_size_request(_CARD_WIDTH, -1)
 
+        # Cover image — shown at the top of the card when available.
+        cover_shown = False
+        if resolve_asset and entry.cover:
+            cover_path = resolve_asset(entry.cover)
+            if os.path.isfile(cover_path):
+                pic = Gtk.Picture.new_for_filename(cover_path)
+                pic.set_content_fit(Gtk.ContentFit.COVER)
+                pic.set_can_shrink(True)
+                pic.set_size_request(-1, _COVER_HEIGHT)
+                card.append(pic)
+                cover_shown = True
+
         inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         inner.set_margin_start(14)
         inner.set_margin_end(14)
-        inner.set_margin_top(18)
+        inner.set_margin_top(12 if cover_shown else 18)
         inner.set_margin_bottom(18)
         card.append(inner)
 
-        # Icon — generic fallback until real icon loading is wired up (phase 7).
-        icon = Gtk.Image.new_from_icon_name("application-x-executable")
-        icon.set_pixel_size(_ICON_SIZE)
-        icon.set_halign(Gtk.Align.CENTER)
-        inner.append(icon)
+        # Icon — shown when no cover image is available.
+        if not cover_shown:
+            icon = _load_icon(
+                resolve_asset(entry.icon) if resolve_asset and entry.icon else "",
+                _ICON_SIZE,
+            )
+            icon.set_halign(Gtk.Align.CENTER)
+            inner.append(icon)
 
         # App name.
         name_lbl = Gtk.Label(label=entry.name)
@@ -60,18 +83,19 @@ class AppCard(Gtk.FlowBoxChild):
         name_lbl.set_max_width_chars(18)
         inner.append(name_lbl)
 
-        # One-line summary.
-        summary_lbl = Gtk.Label(label=entry.summary)
-        summary_lbl.add_css_class("dim-label")
-        summary_lbl.add_css_class("caption")
-        summary_lbl.set_wrap(True)
-        summary_lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
-        summary_lbl.set_lines(2)
-        summary_lbl.set_ellipsize(Pango.EllipsizeMode.END)
-        summary_lbl.set_halign(Gtk.Align.CENTER)
-        summary_lbl.set_justify(Gtk.Justification.CENTER)
-        summary_lbl.set_max_width_chars(20)
-        inner.append(summary_lbl)
+        # Summary — shown only when no cover (cover cards use the full height).
+        if not cover_shown:
+            summary_lbl = Gtk.Label(label=entry.summary)
+            summary_lbl.add_css_class("dim-label")
+            summary_lbl.add_css_class("caption")
+            summary_lbl.set_wrap(True)
+            summary_lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            summary_lbl.set_lines(2)
+            summary_lbl.set_ellipsize(Pango.EllipsizeMode.END)
+            summary_lbl.set_halign(Gtk.Align.CENTER)
+            summary_lbl.set_justify(Gtk.Justification.CENTER)
+            summary_lbl.set_max_width_chars(20)
+            inner.append(summary_lbl)
 
         self.set_child(card)
 
@@ -159,7 +183,11 @@ class BrowseView(Gtk.Box):
 
     # ── Public API ────────────────────────────────────────────────────────
 
-    def load_entries(self, entries: list[AppEntry]) -> None:
+    def load_entries(
+        self,
+        entries: list[AppEntry],
+        resolve_asset: Callable[[str], str] | None = None,
+    ) -> None:
         """Populate the grid from a list of catalogue entries."""
         self._clear()
 
@@ -180,7 +208,7 @@ class BrowseView(Gtk.Box):
 
         # Add cards sorted alphabetically.
         for entry in sorted(entries, key=lambda e: e.name.lower()):
-            card = AppCard(entry)
+            card = AppCard(entry, resolve_asset=resolve_asset)
             self._cards.append(card)
             self._flow_box.append(card)
 
@@ -248,3 +276,23 @@ class BrowseView(Gtk.Box):
     def _on_card_activated(self, _flow_box: Gtk.FlowBox, child: AppCard) -> None:
         log.debug("App selected: %s", child.entry.id)
         self.emit("app-selected", child.entry)
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _load_icon(path: str, size: int) -> Gtk.Image:
+    """Return a Gtk.Image for *path*, falling back to a generic icon."""
+    if path and os.path.isfile(path):
+        try:
+            from gi.repository import Gdk
+            texture = Gdk.Texture.new_from_filename(path)
+            img = Gtk.Image.new_from_paintable(texture)
+            img.set_pixel_size(size)
+            return img
+        except Exception:
+            pass
+    img = Gtk.Image.new_from_icon_name("application-x-executable")
+    img.set_pixel_size(size)
+    return img

@@ -3,8 +3,9 @@ the bottles_data_path config helpers (cellar/backend/config.py)."""
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -245,3 +246,165 @@ def test_save_bottles_data_path_preserves_repos(tmp_path):
         cfg.save_bottles_data_path("/bottles")
         assert cfg.load_repos() == [{"uri": "file:///some/repo"}]
         assert cfg.load_bottles_data_path() == "/bottles"
+
+
+# ---------------------------------------------------------------------------
+# _parse_bottle_list
+# ---------------------------------------------------------------------------
+
+def test_parse_bottle_list_typical_output():
+    output = "Found 3 bottles:\n- MyGame\n- WorkApp\n- Testing\n"
+    assert b._parse_bottle_list(output) == ["MyGame", "WorkApp", "Testing"]
+
+
+def test_parse_bottle_list_empty_output():
+    assert b._parse_bottle_list("") == []
+
+
+def test_parse_bottle_list_ignores_header_line():
+    output = "Found 1 bottles:\n- OnlyOne\n"
+    assert b._parse_bottle_list(output) == ["OnlyOne"]
+
+
+def test_parse_bottle_list_handles_extra_whitespace():
+    output = "Found 2 bottles:\n  - Padded Name  \n  - Another  \n"
+    assert b._parse_bottle_list(output) == ["Padded Name", "Another"]
+
+
+def test_parse_bottle_list_no_dashes_returns_empty():
+    # Output with no "- " lines (unexpected format) returns empty list gracefully
+    assert b._parse_bottle_list("Nothing here\nNo bottles\n") == []
+
+
+# ---------------------------------------------------------------------------
+# _run helper
+# ---------------------------------------------------------------------------
+
+def _fake_install() -> b.BottlesInstall:
+    return b.BottlesInstall(
+        data_path=Path("/fake/bottles"),
+        variant="native",
+        cli_cmd=["bottles-cli"],
+    )
+
+
+def _completed(stdout="", stderr="", returncode=0):
+    return subprocess.CompletedProcess(
+        args=[], returncode=returncode, stdout=stdout, stderr=stderr
+    )
+
+
+def test_run_assembles_correct_command():
+    install = _fake_install()
+    with patch("cellar.backend.bottles.subprocess.run", return_value=_completed()) as mock_run:
+        b._run(install, ["list", "bottles"])
+    mock_run.assert_called_once()
+    cmd = mock_run.call_args[0][0]
+    assert cmd == ["bottles-cli", "list", "bottles"]
+
+
+def test_run_raises_on_file_not_found():
+    install = _fake_install()
+    with patch("cellar.backend.bottles.subprocess.run", side_effect=FileNotFoundError):
+        with pytest.raises(b.BottlesError, match="not found"):
+            b._run(install, ["list", "bottles"])
+
+
+def test_run_raises_on_timeout():
+    install = _fake_install()
+    with patch(
+        "cellar.backend.bottles.subprocess.run",
+        side_effect=subprocess.TimeoutExpired(cmd=[], timeout=60),
+    ):
+        with pytest.raises(b.BottlesError, match="timed out"):
+            b._run(install, ["list", "bottles"])
+
+
+def test_run_raises_on_nonzero_exit_with_stderr():
+    install = _fake_install()
+    with patch(
+        "cellar.backend.bottles.subprocess.run",
+        return_value=_completed(stderr="Bottle not found", returncode=1),
+    ):
+        with pytest.raises(b.BottlesError, match="Bottle not found"):
+            b._run(install, ["list", "bottles"])
+
+
+def test_run_raises_on_nonzero_exit_no_stderr():
+    install = _fake_install()
+    with patch(
+        "cellar.backend.bottles.subprocess.run",
+        return_value=_completed(returncode=2),
+    ):
+        with pytest.raises(b.BottlesError, match="exited with code 2"):
+            b._run(install, ["list", "bottles"])
+
+
+# ---------------------------------------------------------------------------
+# list_bottles
+# ---------------------------------------------------------------------------
+
+def test_list_bottles_returns_names():
+    install = _fake_install()
+    output = "Found 2 bottles:\n- GameOne\n- GameTwo\n"
+    with patch("cellar.backend.bottles.subprocess.run", return_value=_completed(stdout=output)):
+        result = b.list_bottles(install)
+    assert result == ["GameOne", "GameTwo"]
+
+
+def test_list_bottles_empty_when_no_bottles():
+    install = _fake_install()
+    with patch("cellar.backend.bottles.subprocess.run", return_value=_completed(stdout="")):
+        result = b.list_bottles(install)
+    assert result == []
+
+
+def test_list_bottles_uses_correct_subcommand():
+    install = _fake_install()
+    with patch("cellar.backend.bottles.subprocess.run", return_value=_completed()) as mock_run:
+        b.list_bottles(install)
+    cmd = mock_run.call_args[0][0]
+    assert cmd == ["bottles-cli", "list", "bottles"]
+
+
+# ---------------------------------------------------------------------------
+# edit_bottle
+# ---------------------------------------------------------------------------
+
+def test_edit_bottle_assembles_correct_command():
+    install = _fake_install()
+    with patch("cellar.backend.bottles.subprocess.run", return_value=_completed()) as mock_run:
+        b.edit_bottle(install, "MyGame", "Runner", "proton-ge-9-1")
+    cmd = mock_run.call_args[0][0]
+    assert cmd == ["bottles-cli", "edit", "-b", "MyGame", "-k", "Runner", "-v", "proton-ge-9-1"]
+
+
+def test_edit_bottle_dxvk():
+    install = _fake_install()
+    with patch("cellar.backend.bottles.subprocess.run", return_value=_completed()) as mock_run:
+        b.edit_bottle(install, "MyGame", "DXVK", "2.3")
+    cmd = mock_run.call_args[0][0]
+    assert cmd == ["bottles-cli", "edit", "-b", "MyGame", "-k", "DXVK", "-v", "2.3"]
+
+
+def test_edit_bottle_raises_on_failure():
+    install = _fake_install()
+    with patch(
+        "cellar.backend.bottles.subprocess.run",
+        return_value=_completed(stderr="Unknown bottle", returncode=1),
+    ):
+        with pytest.raises(b.BottlesError, match="Unknown bottle"):
+            b.edit_bottle(install, "Nonexistent", "Runner", "proton-ge-9-1")
+
+
+def test_edit_bottle_with_flatpak_cli_cmd():
+    install = b.BottlesInstall(
+        data_path=Path("/fake/bottles"),
+        variant="flatpak",
+        cli_cmd=["flatpak", "run", "--command=bottles-cli", "com.usebottles.bottles"],
+    )
+    with patch("cellar.backend.bottles.subprocess.run", return_value=_completed()) as mock_run:
+        b.edit_bottle(install, "MyGame", "DXVK", "2.3")
+    cmd = mock_run.call_args[0][0]
+    assert cmd[:4] == ["flatpak", "run", "--command=bottles-cli", "com.usebottles.bottles"]
+    assert cmd[4:] == ["edit", "-b", "MyGame", "-k", "DXVK", "-v", "2.3"]

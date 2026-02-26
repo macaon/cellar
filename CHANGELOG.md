@@ -5,6 +5,19 @@ Versioning follows [Semantic Versioning](https://semver.org/) — while the majo
 
 ---
 
+## [0.7.4] — 2026-02-26
+
+### Added
+- **`cellar/backend/bottles.py`**: bottles-cli subprocess wrapper
+  - `BottlesError` — single exception class for all CLI failures (not found, timeout, non-zero exit)
+  - `list_bottles(install)` — calls `bottles-cli list bottles`, parses the `"Found N bottles:\n- Name\n"` output; returns `[]` when no bottles are installed
+  - `edit_bottle(install, bottle_name, key, value)` — calls `bottles-cli edit -b … -k … -v …`; common keys: `Runner`, `DXVK`, `VKD3D`
+  - `_run(install, args, *, timeout=60)` — shared helper; raises `BottlesError` with the stderr message on non-zero exit, or descriptive messages for `FileNotFoundError` / `TimeoutExpired`
+  - `_parse_bottle_list(output)` — parses the confirmed bottles-cli text format; ignores header and non-`"- "` lines
+- **`tests/test_bottles.py`**: 17 additional tests for the CLI wrapper (parser edge cases, `_run` error paths, `list_bottles`, `edit_bottle` command assembly for both native and Flatpak `cli_cmd`)
+
+---
+
 ## [0.7.3] — 2026-02-26
 
 ### Added

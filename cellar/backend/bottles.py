@@ -29,6 +29,7 @@ Callers extend it with subcommand and flags::
 
 from __future__ import annotations
 
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -38,6 +39,10 @@ _NATIVE_DATA = Path.home() / ".local/share/bottles/bottles"
 _FLATPAK_INFO = Path("/.flatpak-info")
 
 _BOTTLES_FLATPAK_ID = "com.usebottles.bottles"
+
+
+class BottlesError(Exception):
+    """Raised when a bottles-cli call fails or the executable is not found."""
 
 
 @dataclass
@@ -118,3 +123,94 @@ def _build_cli_cmd(*, is_flatpak_bottles: bool, sandboxed: bool) -> list[str]:
     if sandboxed:
         return ["flatpak-spawn", "--host"] + inner
     return inner
+
+
+# ---------------------------------------------------------------------------
+# bottles-cli wrapper
+# ---------------------------------------------------------------------------
+
+def list_bottles(install: BottlesInstall) -> list[str]:
+    """Return the names of all bottles in this Bottles installation.
+
+    Calls ``bottles-cli list bottles`` and parses the output.
+    Returns an empty list when no bottles are found.
+    Raises ``BottlesError`` on any subprocess failure.
+    """
+    result = _run(install, ["list", "bottles"])
+    return _parse_bottle_list(result.stdout)
+
+
+def edit_bottle(
+    install: BottlesInstall,
+    bottle_name: str,
+    key: str,
+    value: str,
+) -> None:
+    """Update a Wine component key in *bottle_name*.
+
+    Calls ``bottles-cli edit -b <name> -k <key> -v <value>``.
+
+    Common keys and example values::
+
+        "Runner"  → "proton-ge-9-1"
+        "DXVK"    → "2.3"
+        "VKD3D"   → "2.11"
+
+    Raises ``BottlesError`` on any subprocess failure.
+    """
+    _run(install, ["edit", "-b", bottle_name, "-k", key, "-v", value])
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+def _run(
+    install: BottlesInstall,
+    args: list[str],
+    *,
+    timeout: int = 60,
+) -> subprocess.CompletedProcess:
+    """Run ``install.cli_cmd + args`` and return the completed process.
+
+    Raises ``BottlesError`` if the executable is not found, the process
+    times out, or it exits with a non-zero return code.
+    """
+    cmd = install.cli_cmd + args
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except FileNotFoundError:
+        raise BottlesError(f"bottles-cli not found ({cmd[0]!r} is not on PATH)")
+    except subprocess.TimeoutExpired:
+        raise BottlesError(f"bottles-cli timed out after {timeout}s")
+    if result.returncode != 0:
+        msg = result.stderr.strip() or f"bottles-cli exited with code {result.returncode}"
+        raise BottlesError(msg)
+    return result
+
+
+def _parse_bottle_list(output: str) -> list[str]:
+    """Extract bottle names from ``bottles-cli list bottles`` text output.
+
+    The command prints::
+
+        Found 3 bottles:
+        - MyBottle
+        - AnotherBottle
+
+    or nothing at all when no bottles are installed.
+    Lines not starting with ``"- "`` (after stripping) are ignored.
+    """
+    names = []
+    for line in output.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("- "):
+            name = stripped[2:].strip()
+            if name:
+                names.append(name)
+    return names

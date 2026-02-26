@@ -5,6 +5,16 @@ Versioning follows [Semantic Versioning](https://semver.org/) — while the majo
 
 ---
 
+## [0.8.1] — 2026-02-26
+
+### Fixed
+- **`cellar/views/browse.py`**: capsule size preference is now strictly enforced for all cards
+  - Replaced `Gtk.Picture.new_for_filename()` + `set_size_request()` with a `_load_cover_texture()` helper that uses `GdkPixbuf` to scale-to-cover and center-crop images to exactly `cover_width × cover_height` before creating a `Gdk.Texture`. Because the texture's intrinsic pixel dimensions equal the target, `Gtk.Picture` reports the correct natural size to `FlowBox` and no longer expands to the source image's full resolution.
+  - Both cover and no-cover cards now share a fixed-size `img_area` box (`set_size_request(cover_width, cover_height)` + `set_overflow(HIDDEN)`), so all cards are identical in height regardless of whether a cover image is present.
+  - Summary text removed from cards (it is already shown in the detail view).
+
+---
+
 ## [0.8.0] — 2026-02-26
 
 ### Added

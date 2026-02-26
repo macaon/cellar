@@ -47,28 +47,29 @@ class AppCard(Gtk.FlowBoxChild):
         # Outer box carries the .card style for the rounded-rect surface.
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         card.add_css_class("card")
-        card.set_size_request(cover_width, -1)
 
-        # Cover image — fills the card at the enforced 2:3 aspect ratio.
+        # Fixed-size image area — both cover and no-cover cards use the same
+        # box so FlowBox sees identical natural sizes for all children.
+        img_area = Gtk.Box()
+        img_area.set_size_request(cover_width, cover_height)
+        img_area.set_overflow(Gtk.Overflow.HIDDEN)
+        card.append(img_area)
+
+        # Cover image — pre-scaled to exact pixel dimensions so Gtk.Picture
+        # reports a natural size equal to the target rather than the source.
         cover_shown = False
         if resolve_asset and entry.cover:
             cover_path = resolve_asset(entry.cover)
             if os.path.isfile(cover_path):
-                pic = Gtk.Picture.new_for_filename(cover_path)
-                pic.set_content_fit(Gtk.ContentFit.COVER)
-                pic.set_can_shrink(True)
-                pic.set_size_request(cover_width, cover_height)
-                card.append(pic)
-                cover_shown = True
+                texture = _load_cover_texture(cover_path, cover_width, cover_height)
+                if texture is not None:
+                    pic = Gtk.Picture.new_for_paintable(texture)
+                    pic.set_hexpand(True)
+                    pic.set_vexpand(True)
+                    img_area.append(pic)
+                    cover_shown = True
 
-        inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        inner.set_margin_start(10)
-        inner.set_margin_end(10)
-        inner.set_margin_top(10 if cover_shown else 18)
-        inner.set_margin_bottom(10)
-        card.append(inner)
-
-        # Icon — shown when no cover image is available.
+        # Icon — shown when no cover image is available, centred in img_area.
         if not cover_shown:
             icon_size = min(_ICON_SIZE_MAX, cover_width * 2 // 5)
             icon = _load_icon(
@@ -76,29 +77,25 @@ class AppCard(Gtk.FlowBoxChild):
                 icon_size,
             )
             icon.set_halign(Gtk.Align.CENTER)
-            inner.append(icon)
+            icon.set_valign(Gtk.Align.CENTER)
+            icon.set_hexpand(True)
+            icon.set_vexpand(True)
+            img_area.append(icon)
 
-        # App name.
+        # Name label below the image area.
+        inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        inner.set_margin_start(10)
+        inner.set_margin_end(10)
+        inner.set_margin_top(8)
+        inner.set_margin_bottom(8)
+        card.append(inner)
+
         name_lbl = Gtk.Label(label=entry.name)
         name_lbl.add_css_class("title-4")
         name_lbl.set_halign(Gtk.Align.CENTER)
         name_lbl.set_ellipsize(Pango.EllipsizeMode.END)
         name_lbl.set_max_width_chars(max(10, cover_width // 10))
         inner.append(name_lbl)
-
-        # Summary — shown only when no cover.
-        if not cover_shown:
-            summary_lbl = Gtk.Label(label=entry.summary)
-            summary_lbl.add_css_class("dim-label")
-            summary_lbl.add_css_class("caption")
-            summary_lbl.set_wrap(True)
-            summary_lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            summary_lbl.set_lines(2)
-            summary_lbl.set_ellipsize(Pango.EllipsizeMode.END)
-            summary_lbl.set_halign(Gtk.Align.CENTER)
-            summary_lbl.set_justify(Gtk.Justification.CENTER)
-            summary_lbl.set_max_width_chars(max(10, cover_width // 10))
-            inner.append(summary_lbl)
 
         self.set_child(card)
 
@@ -313,6 +310,29 @@ class BrowseView(Gtk.Box):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _load_cover_texture(path: str, target_w: int, target_h: int):
+    """Load *path*, scale-to-cover, and center-crop to exactly target_w × target_h.
+
+    Returns a ``Gdk.Texture`` whose intrinsic pixel dimensions equal the target,
+    so that ``Gtk.Picture`` reports a natural size matching the capsule rather
+    than the source image dimensions.  Returns ``None`` on any error.
+    """
+    try:
+        from gi.repository import Gdk, GdkPixbuf
+        src = GdkPixbuf.Pixbuf.new_from_file(path)
+        src_w, src_h = src.get_width(), src.get_height()
+        scale = max(target_w / src_w, target_h / src_h)
+        scaled_w = max(int(src_w * scale), target_w)
+        scaled_h = max(int(src_h * scale), target_h)
+        scaled = src.scale_simple(scaled_w, scaled_h, GdkPixbuf.InterpType.BILINEAR)
+        x_off = (scaled_w - target_w) // 2
+        y_off = (scaled_h - target_h) // 2
+        cropped = scaled.new_subpixbuf(x_off, y_off, target_w, target_h)
+        return Gdk.Texture.new_for_pixbuf(cropped)
+    except Exception:
+        return None
+
 
 def _load_icon(path: str, size: int) -> Gtk.Image:
     """Return a Gtk.Image for *path*, falling back to a generic icon."""

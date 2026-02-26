@@ -5,6 +5,17 @@ Versioning follows [Semantic Versioning](https://semver.org/) — while the majo
 
 ---
 
+## [0.11.5] — 2026-02-26
+
+### Fixed
+- **`cellar/backend/installer.py`**: installing an app from an SMB or NFS repository raised "Downloading from 'smb' repos is not yet supported". `_acquire_archive` now handles `smb://` and `nfs://` URIs:
+  1. **FUSE path (primary)**: calls `Gio.File.get_path()` on the URI — the share is already mounted from the catalogue fetch, so `gvfsd-fuse` returns a local filesystem path and the archive is used in-place with no copy (same behaviour as a local repo).
+  2. **GIO InputStream (fallback)**: if `gvfsd-fuse` is unavailable, streams the archive to a temp file via `Gio.File.read()` + `read_bytes()` in 1 MB chunks with cancel support. GIO synchronous I/O is thread-safe and designed for background threads.
+- `updater.py` reuses `_acquire_archive` from `installer.py`, so the update flow gains SMB/NFS support automatically.
+- The unsupported-scheme error message updated to list SMB and NFS as supported.
+
+---
+
 ## [0.11.4] — 2026-02-26
 
 ### Fixed

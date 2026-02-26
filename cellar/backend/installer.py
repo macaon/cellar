@@ -152,7 +152,9 @@ def _acquire_archive(
     """Return a local path to the archive.
 
     - Local (bare path or ``file://``) → returned as-is; no copy.
-    - HTTP(S) → streamed to *dest*.
+    - HTTP(S) → streamed to *dest* in 1 MB chunks.
+    - SMB/NFS → GVFS FUSE path used in-place when ``gvfsd-fuse`` is running
+      (standard on GNOME); otherwise streamed via a GIO ``InputStream``.
     - Other schemes → ``InstallError``.
     """
     parsed = urlparse(uri)
@@ -171,9 +173,32 @@ def _acquire_archive(
         )
         return dest
 
+    if scheme in ("smb", "nfs"):
+        # Prefer the GVFS FUSE mount path — the share is already mounted from
+        # the catalogue fetch, so get_path() returns the local FUSE path and we
+        # can read the archive in-place without any copy.
+        try:
+            import gi
+            gi.require_version("Gio", "2.0")
+            from gi.repository import Gio
+            fuse_path = Gio.File.new_for_uri(uri).get_path()
+            if fuse_path:
+                return Path(fuse_path)
+        except (ImportError, ValueError):
+            pass
+        # FUSE not available — stream via a GIO InputStream instead.
+        _gio_stream(
+            uri,
+            dest,
+            expected_size=expected_size,
+            progress_cb=progress_cb,
+            cancel_event=cancel_event,
+        )
+        return dest
+
     raise InstallError(
         f"Downloading from {scheme!r} repos is not yet supported. "
-        "Use a local or HTTP(S) repo, or copy the archive to a local path first."
+        "Use a local, HTTP(S), SMB, or NFS repo."
     )
 
 
@@ -213,6 +238,63 @@ def _http_stream(
     except OSError as exc:
         dest.unlink(missing_ok=True)
         raise InstallError(f"Could not write archive to disk: {exc}") from exc
+
+
+def _gio_stream(
+    uri: str,
+    dest: Path,
+    *,
+    expected_size: int,
+    progress_cb: Callable[[float], None] | None,
+    cancel_event: threading.Event | None,
+) -> None:
+    """Stream *uri* to *dest* via a GIO InputStream (SMB/NFS without FUSE).
+
+    GIO synchronous I/O is thread-safe and designed to be called from
+    background threads.
+    """
+    try:
+        import gi
+        gi.require_version("Gio", "2.0")
+        from gi.repository import Gio, GLib
+    except (ImportError, ValueError) as exc:
+        raise InstallError("GIO is unavailable; cannot stream from SMB/NFS") from exc
+
+    gfile = Gio.File.new_for_uri(uri)
+    try:
+        stream = gfile.read(None)
+    except GLib.Error as exc:
+        raise InstallError(f"Could not open {uri}: {exc.message}") from exc
+
+    chunk = 1 * 1024 * 1024
+    downloaded = 0
+    try:
+        with open(dest, "wb") as fh:
+            while True:
+                if cancel_event and cancel_event.is_set():
+                    raise InstallCancelled("Download cancelled")
+                buf = stream.read_bytes(chunk, None)
+                data = buf.get_data()
+                if not data:
+                    break
+                fh.write(data)
+                downloaded += len(data)
+                if progress_cb and expected_size > 0:
+                    progress_cb(min(downloaded / expected_size, 1.0))
+    except InstallCancelled:
+        dest.unlink(missing_ok=True)
+        raise
+    except GLib.Error as exc:
+        dest.unlink(missing_ok=True)
+        raise InstallError(f"GIO read error: {exc.message}") from exc
+    except OSError as exc:
+        dest.unlink(missing_ok=True)
+        raise InstallError(f"Could not write archive to disk: {exc}") from exc
+    finally:
+        try:
+            stream.close(None)
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------

@@ -5,6 +5,25 @@ Versioning follows [Semantic Versioning](https://semver.org/) — while the majo
 
 ---
 
+## [0.7.6] — 2026-02-26
+
+### Added
+- **`cellar/views/detail.py`**: Install button is now fully wired up
+  - `DetailView` accepts `bottles_install`, `is_installed`, and `on_install_done` constructor params
+  - Button shows **"Install"** (active, suggested-action) when Bottles is detected and the app is not yet installed
+  - Button shows **"Installed"** (success style, insensitive) when already installed
+  - Button is insensitive with tooltip "Bottles is not installed" when Bottles is not detected
+  - Clicking Install opens the new `InstallProgressDialog` with a progress bar and Cancel button
+  - On success, the button transitions to "Installed" and the `on_install_done` callback is invoked
+- **`InstallProgressDialog`** (new class in `detail.py`): modal progress dialog for the install flow
+  - Runs `install_app()` on a background thread; reports `(phase, fraction)` progress via `GLib.idle_add`
+  - Cancel button (or any dialog dismissal) sets the cancel event for clean abort
+  - Shows an `AdwAlertDialog` on error; closes quietly on cancellation
+- **`cellar/window.py`**: `_on_app_selected` now detects Bottles, checks the DB, and passes both to `DetailView`
+  - `_on_install_done` callback writes the DB record via `database.mark_installed` and shows an `AdwToast`
+
+---
+
 ## [0.7.5] — 2026-02-26
 
 ### Added

@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from typing import Callable
 
 import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gio, Gtk, Pango
+from gi.repository import Adw, GLib, Gio, Gtk, Pango
 
 from cellar.models.app_entry import AppEntry
 
@@ -40,12 +41,18 @@ class DetailView(Gtk.Box):
         resolve_asset: Callable[[str], str] | None = None,
         is_writable: bool = False,
         on_edit: Callable | None = None,
+        bottles_install=None,
+        is_installed: bool = False,
+        on_install_done: Callable | None = None,
     ) -> None:
         super().__init__()
         self._entry = entry
         self._resolve = resolve_asset or (lambda rel: rel)
         self._is_writable = is_writable
         self._on_edit = on_edit
+        self._bottles_install = bottles_install
+        self._is_installed = is_installed
+        self._on_install_done = on_install_done
         toolbar = Adw.ToolbarView()
         self.append(toolbar)
         self._build(toolbar)
@@ -59,11 +66,10 @@ class DetailView(Gtk.Box):
 
         # ── Header bar ────────────────────────────────────────────────────
         header = Adw.HeaderBar()
-        install_btn = Gtk.Button(label="Install")
-        install_btn.add_css_class("suggested-action")
-        install_btn.set_sensitive(False)
-        install_btn.set_tooltip_text("Installer not yet available")
-        header.pack_end(install_btn)
+        self._install_btn = Gtk.Button()
+        self._update_install_button()
+        self._install_btn.connect("clicked", self._on_install_clicked)
+        header.pack_end(self._install_btn)
 
         if self._is_writable and self._on_edit:
             edit_btn = Gtk.Button(
@@ -117,6 +123,45 @@ class DetailView(Gtk.Box):
 
         if e.changelog:
             body.append(self._make_changelog_group())
+
+    # ------------------------------------------------------------------
+    # Install helpers
+    # ------------------------------------------------------------------
+
+    def _update_install_button(self) -> None:
+        btn = self._install_btn
+        if self._is_installed:
+            btn.set_label("Installed")
+            btn.remove_css_class("suggested-action")
+            btn.add_css_class("success")
+            btn.set_sensitive(False)
+            btn.set_tooltip_text("")
+        elif self._bottles_install is not None:
+            btn.set_label("Install")
+            btn.add_css_class("suggested-action")
+            btn.set_sensitive(True)
+            btn.set_tooltip_text("")
+        else:
+            btn.set_label("Install")
+            btn.add_css_class("suggested-action")
+            btn.set_sensitive(False)
+            btn.set_tooltip_text("Bottles is not installed")
+
+    def _on_install_clicked(self, _btn) -> None:
+        archive_uri = self._resolve(self._entry.archive) if self._entry.archive else ""
+        dialog = InstallProgressDialog(
+            entry=self._entry,
+            bottles_install=self._bottles_install,
+            archive_uri=archive_uri,
+            on_success=self._on_install_success,
+        )
+        dialog.present(self.get_root())
+
+    def _on_install_success(self, bottle_name: str) -> None:
+        self._is_installed = True
+        self._update_install_button()
+        if self._on_install_done:
+            self._on_install_done(bottle_name)
 
     # ------------------------------------------------------------------
     # Section builders
@@ -298,6 +343,108 @@ class DetailView(Gtk.Box):
         img = Gtk.Image.new_from_icon_name("application-x-executable")
         img.set_pixel_size(size)
         return img
+
+
+# ---------------------------------------------------------------------------
+# Install progress dialog
+# ---------------------------------------------------------------------------
+
+
+class InstallProgressDialog(Adw.Dialog):
+    """Modal progress dialog shown while an app is being installed into Bottles."""
+
+    def __init__(
+        self,
+        *,
+        entry: AppEntry,
+        bottles_install,
+        archive_uri: str,
+        on_success: Callable[[str], None],
+    ) -> None:
+        super().__init__(title=f"Installing {entry.name}", content_width=400)
+        self._entry = entry
+        self._bottles_install = bottles_install
+        self._archive_uri = archive_uri
+        self._on_success = on_success
+        self._cancel_event = threading.Event()
+
+        self._build_ui()
+        # Cancel install if the dialog is dismissed any way (Escape, etc.)
+        self.connect("closed", lambda _d: self._cancel_event.set())
+        self._start_install()
+
+    def _build_ui(self) -> None:
+        toolbar_view = Adw.ToolbarView()
+        header = Adw.HeaderBar()
+        header.set_show_end_title_buttons(False)
+        toolbar_view.add_top_bar(header)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
+        box.set_valign(Gtk.Align.CENTER)
+        box.set_margin_top(48)
+        box.set_margin_bottom(48)
+        box.set_margin_start(24)
+        box.set_margin_end(24)
+
+        self._phase_label = Gtk.Label(label="Preparing…")
+        self._phase_label.add_css_class("dim-label")
+        box.append(self._phase_label)
+
+        self._progress_bar = Gtk.ProgressBar()
+        self._progress_bar.set_show_text(True)
+        self._progress_bar.set_fraction(0.0)
+        box.append(self._progress_bar)
+
+        self._cancel_btn = Gtk.Button(label="Cancel")
+        self._cancel_btn.set_halign(Gtk.Align.CENTER)
+        self._cancel_btn.connect("clicked", self._on_cancel_clicked)
+        box.append(self._cancel_btn)
+
+        toolbar_view.set_content(box)
+        self.set_child(toolbar_view)
+
+    def _start_install(self) -> None:
+        from cellar.backend.installer import InstallCancelled, install_app
+
+        def _progress(phase: str, fraction: float) -> None:
+            GLib.idle_add(self._phase_label.set_text, phase)
+            GLib.idle_add(self._progress_bar.set_fraction, fraction)
+
+        def _run() -> None:
+            try:
+                bottle_name = install_app(
+                    self._entry,
+                    self._archive_uri,
+                    self._bottles_install,
+                    progress_cb=_progress,
+                    cancel_event=self._cancel_event,
+                )
+                GLib.idle_add(self._on_done, bottle_name)
+            except InstallCancelled:
+                GLib.idle_add(self._on_cancelled)
+            except Exception as exc:  # noqa: BLE001
+                GLib.idle_add(self._on_error, str(exc))
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _on_cancel_clicked(self, _btn) -> None:
+        self._cancel_event.set()
+        self._phase_label.set_text("Cancelling…")
+        self._cancel_btn.set_sensitive(False)
+
+    def _on_done(self, bottle_name: str) -> None:
+        self.close()
+        self._on_success(bottle_name)
+
+    def _on_cancelled(self) -> None:
+        self.close()
+
+    def _on_error(self, message: str) -> None:
+        self._cancel_btn.set_sensitive(False)
+        alert = Adw.AlertDialog(heading="Install Failed", body=message)
+        alert.add_response("ok", "OK")
+        alert.connect("response", lambda _d, _r: self.close())
+        alert.present(self)
 
 
 # ---------------------------------------------------------------------------

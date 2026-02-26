@@ -120,9 +120,15 @@ class CellarWindow(Adw.ApplicationWindow):
 
     def _on_app_selected(self, _browse, entry) -> None:
         from cellar.views.detail import DetailView
+        from cellar.backend import database
+        from cellar.backend.bottles import detect_bottles
+        from cellar.backend.config import load_bottles_data_path
 
         resolver = self._first_repo.resolve_asset_uri if self._first_repo else None
         can_write = self._first_repo is not None and self._first_repo.is_writable
+
+        bottles = detect_bottles(load_bottles_data_path())
+        is_installed = database.is_installed(entry.id)
 
         def _on_edit(selected_entry):
             from cellar.views.edit_app import EditAppDialog
@@ -134,11 +140,19 @@ class CellarWindow(Adw.ApplicationWindow):
                 on_deleted=self._on_entry_deleted,
             ).present(self)
 
+        def _on_install_done(bottle_name: str) -> None:
+            repo_uri = str(self._first_repo.uri) if self._first_repo else ""
+            database.mark_installed(entry.id, bottle_name, entry.version, repo_uri)
+            self._show_toast(f"{entry.name} installed successfully")
+
         detail = DetailView(
             entry,
             resolve_asset=resolver,
             is_writable=can_write,
             on_edit=_on_edit if can_write else None,
+            bottles_install=bottles,
+            is_installed=is_installed,
+            on_install_done=_on_install_done,
         )
         page = Adw.NavigationPage(title=entry.name, child=detail)
         self.nav_view.push(page)
@@ -183,7 +197,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="application-x-executable",
-            version="0.7.5",
+            version="0.7.6",
             comments="A GNOME storefront for Bottles-managed Windows apps.",
             license_type=Gtk.License.GPL_3_0,
         )

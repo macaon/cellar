@@ -5,6 +5,13 @@ Versioning follows [Semantic Versioning](https://semver.org/) — while the majo
 
 ---
 
+## [0.8.3] — 2026-02-26
+
+### Changed
+- **`cellar/backend/config.py`**: capsule size options renamed from Small/Medium to **Compact/Standard** to avoid implying a truncated scale
+
+---
+
 ## [0.8.2] — 2026-02-26
 
 ### Changed

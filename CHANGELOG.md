@@ -5,37 +5,24 @@ Versioning follows [Semantic Versioning](https://semver.org/) — while the majo
 
 ---
 
+## [0.11.7] — 2026-02-26
+
+### Removed
+- **Pre-install component selection UI** (v0.11.6) — reverted. DXVK and VKD3D
+  are bundled inside the bottle prefix rather than installed to the Bottles
+  components directory, so the directory scan reliably returned empty lists.
+  Runner detection also proved unreliable in practice. Bottles itself warns about
+  missing or mismatched runners when the user tries to launch an app, which is
+  sufficient. The `InstalledComponents` dataclass, `list_installed_components()`,
+  and `launch_bottles()` additions from v0.11.6 are removed; `InstallProgressDialog`
+  returns to its v0.11.5 state.
+
+---
+
 ## [0.11.6] — 2026-02-26
 
 ### Added
-- **Pre-install component selection UI** (`cellar/views/detail.py`): the Install
-  confirmation dialog now shows a "Wine Components" group when the catalogue entry
-  declares `built_with` metadata.
-  - An `AdwComboRow` is shown for each component (Runner always; DXVK and VKD3D
-    when specified in the archive metadata).
-  - Available versions are populated by scanning the Bottles data directory
-    (`<bottles-data>/components/{runners,dxvk,vkd3d}`).
-  - If the archive's required version is missing from the local install, the row
-    subtitle warns the user and prompts them to select an alternative or download
-    the missing version.
-  - **"Open Bottles"** button launches the Bottles GUI so the user can download
-    missing components without leaving Cellar.
-  - **"Rescan"** button refreshes the component lists after downloading, with no
-    need to close and reopen the dialog.
-  - When multiple Bottles installs are detected, switching the radio selection
-    automatically rescans the newly selected install.
-  - After the bottle is copied, the selected component versions are applied via
-    `bottles-cli edit` in the background thread. Failures are logged as warnings
-    and do not abort the installation.
-- **`cellar/backend/bottles.py`**:
-  - `InstalledComponents` dataclass — holds `runners`, `dxvk`, `vkd3d` version
-    lists for a given Bottles installation.
-  - `list_installed_components(install)` — scans the Bottles components directory
-    and returns an `InstalledComponents` instance. Missing subdirectories yield
-    empty lists; no exception is raised.
-  - `launch_bottles(install)` — opens the Bottles GUI (`flatpak run` for Flatpak
-    installs; handles Cellar-in-sandbox by prepending `flatpak-spawn --host`).
-    Raises `BottlesError` if the launcher is not found.
+- Pre-install component selection UI (subsequently removed in v0.11.7).
 
 ---
 

@@ -174,19 +174,12 @@ class DetailView(Gtk.Box):
         if self._is_installed:
             self._on_remove_clicked()
             return
-        from cellar.backend.bottles import list_installed_components
-        components = (
-            list_installed_components(self._bottles_installs[0])
-            if self._bottles_installs
-            else None
-        )
         archive_uri = self._resolve(self._entry.archive) if self._entry.archive else ""
         dialog = InstallProgressDialog(
             entry=self._entry,
             installs=self._bottles_installs,
             archive_uri=archive_uri,
             on_success=self._on_install_success,
-            components=components,
         )
         dialog.present(self.get_root())
 
@@ -483,7 +476,6 @@ class InstallProgressDialog(Adw.Dialog):
         installs: list,        # list[BottlesInstall]
         archive_uri: str,
         on_success: Callable[[str], None],
-        components=None,       # InstalledComponents | None
     ) -> None:
         super().__init__(title=f"Install {entry.name}", content_width=420)
         self._entry = entry
@@ -492,14 +484,6 @@ class InstallProgressDialog(Adw.Dialog):
         self._on_success = on_success
         self._cancel_event = threading.Event()
         self._selected_install = installs[0] if installs else None
-        self._components = components
-        self._pending_edits: dict[str, str] = {}
-        self._runner_row: Adw.ComboRow | None = None
-        self._dxvk_row: Adw.ComboRow | None = None
-        self._vkd3d_row: Adw.ComboRow | None = None
-        self._runner_versions: list[str] = []
-        self._dxvk_versions: list[str] = []
-        self._vkd3d_versions: list[str] = []
 
         self._build_ui()
         self.connect("closed", lambda _d: self._cancel_event.set())
@@ -574,11 +558,6 @@ class InstallProgressDialog(Adw.Dialog):
                 group.add(row)
 
         page.add(group)
-
-        comp_group = self._build_component_group()
-        if comp_group is not None:
-            page.add(comp_group)
-
         return scroll
 
     def _build_progress_page(self) -> Gtk.Widget:
@@ -610,25 +589,8 @@ class InstallProgressDialog(Adw.Dialog):
     def _on_radio_toggled(self, btn: Gtk.CheckButton, install) -> None:
         if btn.get_active():
             self._selected_install = install
-            self._on_rescan_clicked(None)
 
     def _on_proceed_clicked(self, _btn) -> None:
-        # Capture component selections before switching to the progress page.
-        bw = self._entry.built_with
-        if bw:
-            if self._runner_row and self._runner_versions:
-                idx = self._runner_row.get_selected()
-                if idx != Gtk.INVALID_LIST_POSITION:
-                    self._pending_edits["Runner"] = self._runner_versions[idx]
-            if self._dxvk_row and self._dxvk_versions:
-                idx = self._dxvk_row.get_selected()
-                if idx != Gtk.INVALID_LIST_POSITION:
-                    self._pending_edits["DXVK"] = self._dxvk_versions[idx]
-            if self._vkd3d_row and self._vkd3d_versions:
-                idx = self._vkd3d_row.get_selected()
-                if idx != Gtk.INVALID_LIST_POSITION:
-                    self._pending_edits["VKD3D"] = self._vkd3d_versions[idx]
-
         self._stack.set_visible_child_name("progress")
         self._cancel_header_btn.set_visible(False)
         self._install_header_btn.set_visible(False)
@@ -642,7 +604,6 @@ class InstallProgressDialog(Adw.Dialog):
     # ── Install thread ────────────────────────────────────────────────────
 
     def _start_install(self) -> None:
-        from cellar.backend.bottles import BottlesError, edit_bottle
         from cellar.backend.installer import InstallCancelled, install_app
 
         def _progress(phase: str, fraction: float) -> None:
@@ -658,11 +619,6 @@ class InstallProgressDialog(Adw.Dialog):
                     progress_cb=_progress,
                     cancel_event=self._cancel_event,
                 )
-                for key, value in self._pending_edits.items():
-                    try:
-                        edit_bottle(self._selected_install, bottle_name, key, value)
-                    except BottlesError as exc:
-                        log.warning("Could not set %s=%s: %s", key, value, exc)
                 GLib.idle_add(self._on_done, bottle_name)
             except InstallCancelled:
                 GLib.idle_add(self._on_cancelled)
@@ -670,121 +626,6 @@ class InstallProgressDialog(Adw.Dialog):
                 GLib.idle_add(self._on_error, str(exc))
 
         threading.Thread(target=_run, daemon=True).start()
-
-    # ── Component selection helpers ────────────────────────────────────────
-
-    def _build_component_group(self) -> Adw.PreferencesGroup | None:
-        """Build the Wine Components group for the confirm page.
-
-        Returns ``None`` when there is no ``built_with`` metadata or no
-        components scan was performed (``self._components`` is ``None``).
-        """
-        bw = self._entry.built_with
-        if bw is None or self._components is None:
-            return None
-
-        group = Adw.PreferencesGroup(
-            title="Wine Components",
-            margin_start=12,
-            margin_end=12,
-            margin_top=6,
-            margin_bottom=6,
-        )
-
-        hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        open_btn = Gtk.Button(label="Open Bottles")
-        open_btn.add_css_class("flat")
-        open_btn.connect("clicked", self._on_open_bottles_clicked)
-        hbox.append(open_btn)
-
-        rescan_btn = Gtk.Button(icon_name="view-refresh-symbolic")
-        rescan_btn.add_css_class("flat")
-        rescan_btn.set_tooltip_text("Rescan installed components")
-        rescan_btn.connect("clicked", self._on_rescan_clicked)
-        hbox.append(rescan_btn)
-
-        group.set_header_suffix(hbox)
-
-        # Runner — always shown.
-        self._runner_versions = list(self._components.runners)
-        runner_row = Adw.ComboRow(title="Runner")
-        self._update_combo_row(runner_row, self._runner_versions, bw.runner)
-        self._runner_row = runner_row
-        group.add(runner_row)
-
-        # DXVK — only if the archive specifies one.
-        if bw.dxvk:
-            self._dxvk_versions = list(self._components.dxvk)
-            dxvk_row = Adw.ComboRow(title="DXVK")
-            self._update_combo_row(dxvk_row, self._dxvk_versions, bw.dxvk)
-            self._dxvk_row = dxvk_row
-            group.add(dxvk_row)
-
-        # VKD3D — only if the archive specifies one.
-        if bw.vkd3d:
-            self._vkd3d_versions = list(self._components.vkd3d)
-            vkd3d_row = Adw.ComboRow(title="VKD3D")
-            self._update_combo_row(vkd3d_row, self._vkd3d_versions, bw.vkd3d)
-            self._vkd3d_row = vkd3d_row
-            group.add(vkd3d_row)
-
-        return group
-
-    def _update_combo_row(
-        self,
-        row: Adw.ComboRow,
-        versions: list[str],
-        required: str,
-    ) -> None:
-        """Populate *row* with *versions* and pre-select *required* if present."""
-        if not versions:
-            row.set_model(Gtk.StringList.new(["(none installed)"]))
-            row.set_sensitive(False)
-            row.set_subtitle(
-                f"Archive: {required} — not installed, select an alternative or open Bottles"
-            )
-        else:
-            row.set_model(Gtk.StringList.new(versions))
-            row.set_sensitive(True)
-            if required in versions:
-                row.set_selected(versions.index(required))
-                row.set_subtitle(f"Archive: {required}")
-            else:
-                row.set_selected(0)
-                row.set_subtitle(
-                    f"Archive: {required} — not installed, select an alternative or open Bottles"
-                )
-
-    def _on_rescan_clicked(self, _btn) -> None:
-        """Re-scan the selected Bottles install and refresh all combo rows."""
-        if self._selected_install is None:
-            return
-        from cellar.backend.bottles import list_installed_components
-        self._components = list_installed_components(self._selected_install)
-        bw = self._entry.built_with
-        if bw is None:
-            return
-        if self._runner_row is not None:
-            self._runner_versions = list(self._components.runners)
-            self._update_combo_row(self._runner_row, self._runner_versions, bw.runner)
-        if self._dxvk_row is not None and bw.dxvk:
-            self._dxvk_versions = list(self._components.dxvk)
-            self._update_combo_row(self._dxvk_row, self._dxvk_versions, bw.dxvk)
-        if self._vkd3d_row is not None and bw.vkd3d:
-            self._vkd3d_versions = list(self._components.vkd3d)
-            self._update_combo_row(self._vkd3d_row, self._vkd3d_versions, bw.vkd3d)
-
-    def _on_open_bottles_clicked(self, _btn) -> None:
-        """Launch the Bottles GUI so the user can download missing components."""
-        if self._selected_install is None:
-            return
-        from cellar.backend.bottles import BottlesError, launch_bottles
-        try:
-            launch_bottles(self._selected_install)
-        except BottlesError as exc:
-            alert = Adw.AlertDialog(heading="Could not launch Bottles", body=str(exc))
-            alert.add_response("ok", "OK")
-            alert.present(self)
 
     def _on_done(self, bottle_name: str) -> None:
         self.close()

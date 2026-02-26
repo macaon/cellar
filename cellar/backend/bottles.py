@@ -62,15 +62,6 @@ class BottlesInstall:
     cli_cmd: list[str]   # base command list for bottles-cli invocation
 
 
-@dataclass
-class InstalledComponents:
-    """Component versions installed in a Bottles data directory."""
-
-    runners: list[str]
-    dxvk: list[str]
-    vkd3d: list[str]
-
-
 def is_cellar_sandboxed() -> bool:
     """Return True if Cellar is running inside a Flatpak sandbox."""
     return _FLATPAK_INFO.exists()
@@ -133,49 +124,6 @@ def detect_bottles(override_path: Path | str | None = None) -> BottlesInstall | 
     """
     results = detect_all_bottles(override_path)
     return results[0] if results else None
-
-
-def list_installed_components(install: BottlesInstall) -> InstalledComponents:
-    """Scan the Bottles components directory for installed runners, DXVK, and VKD3D.
-
-    Looks in ``<bottles-data-path>/../components/{runners,dxvk,vkd3d}`` and
-    returns subdirectory names sorted alphabetically.  Missing subdirectories
-    yield empty lists — no exception is raised.
-    """
-    base = install.data_path.parent / "components"
-
-    def _scan(sub: str) -> list[str]:
-        p = base / sub
-        return sorted(d.name for d in p.iterdir() if d.is_dir()) if p.is_dir() else []
-
-    return InstalledComponents(
-        runners=_scan("runners"),
-        dxvk=_scan("dxvk"),
-        vkd3d=_scan("vkd3d"),
-    )
-
-
-def launch_bottles(install: BottlesInstall) -> None:
-    """Launch the Bottles GUI application.
-
-    Uses ``flatpak run`` for the Flatpak variant of Bottles; prepends
-    ``flatpak-spawn --host`` if Cellar itself is running inside a Flatpak
-    sandbox.
-
-    Raises ``BottlesError`` if the launcher executable is not found.
-    """
-    if install.variant == "flatpak":
-        cmd = (
-            ["flatpak-spawn", "--host", "flatpak", "run", _BOTTLES_FLATPAK_ID]
-            if is_cellar_sandboxed()
-            else ["flatpak", "run", _BOTTLES_FLATPAK_ID]
-        )
-    else:
-        cmd = ["bottles"]
-    try:
-        subprocess.Popen(cmd, close_fds=True)
-    except FileNotFoundError as exc:
-        raise BottlesError("Could not launch Bottles: command not found") from exc
 
 
 def _build_cli_cmd(*, is_flatpak_bottles: bool, sandboxed: bool) -> list[str]:

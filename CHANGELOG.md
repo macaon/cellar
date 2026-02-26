@@ -5,6 +5,13 @@ Versioning follows [Semantic Versioning](https://semver.org/) — while the majo
 
 ---
 
+## [0.11.1] — 2026-02-26
+
+### Fixed
+- **`cellar/views/settings.py`**: `Gtk.MountOperation(parent=self)` raised `TypeError` because `Adw.PreferencesDialog` is not a `GtkWindow`. Fixed by using `self.get_root()` to walk up the widget tree to the enclosing window; falls back to `None` if the root is not a `GtkWindow` (mount dialog still works, just unparented).
+
+---
+
 ## [0.11.0] — 2026-02-26
 
 ### Added

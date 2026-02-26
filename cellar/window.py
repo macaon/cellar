@@ -128,7 +128,18 @@ class CellarWindow(Adw.ApplicationWindow):
         can_write = self._first_repo is not None and self._first_repo.is_writable
 
         bottles = detect_bottles(load_bottles_data_path())
-        is_installed = database.is_installed(entry.id)
+
+        # Reconcile DB against disk: if the bottle directory was deleted from
+        # within Bottles, remove the stale record so we show "Install" again.
+        rec = database.get_installed(entry.id)
+        if rec and bottles and not (bottles.data_path / rec["bottle_name"]).is_dir():
+            log.info(
+                "Bottle %r no longer exists on disk; removing stale DB record for %r",
+                rec["bottle_name"], entry.id,
+            )
+            database.remove_installed(entry.id)
+            rec = None
+        is_installed = rec is not None
 
         def _on_edit(selected_entry):
             from cellar.views.edit_app import EditAppDialog

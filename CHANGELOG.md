@@ -5,6 +5,15 @@ Versioning follows [Semantic Versioning](https://semver.org/) — while the majo
 
 ---
 
+## [0.7.8] — 2026-02-26
+
+### Fixed
+- **`cellar/backend/bottles.py`**: native Bottles detection now requires `bottles-cli` to be on `$PATH` (via `shutil.which`) in addition to the data directory existing. Previously, a stale or unrelated `~/.local/share/bottles/bottles/` directory would cause Cellar to falsely report a native Bottles installation.
+- Updated module docstring to explain the stricter native detection criteria.
+- **`tests/test_bottles.py`**: all native-detection tests now mock `shutil.which`; added `test_detect_native_ignored_when_no_binary` and `test_detect_all_native_ignored_without_binary` (126 passing).
+
+---
+
 ## [0.7.7] — 2026-02-26
 
 ### Added

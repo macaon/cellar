@@ -82,7 +82,8 @@ def test_detect_prefers_flatpak_over_native(tmp_path):
     )
     with patch.object(b, "_FLATPAK_DATA", flatpak_dir), \
          patch.object(b, "_NATIVE_DATA", native_dir), \
-         patch.object(b, "_FLATPAK_INFO", info):
+         patch.object(b, "_FLATPAK_INFO", info), \
+         patch("shutil.which", return_value="/usr/bin/bottles-cli"):
         result = b.detect_bottles()
     assert result is not None
     assert result.variant == "flatpak"
@@ -93,11 +94,23 @@ def test_detect_falls_back_to_native(tmp_path):
     flatpak_dir, native_dir, info = _patch_paths(tmp_path, native_exists=True)
     with patch.object(b, "_FLATPAK_DATA", flatpak_dir), \
          patch.object(b, "_NATIVE_DATA", native_dir), \
-         patch.object(b, "_FLATPAK_INFO", info):
+         patch.object(b, "_FLATPAK_INFO", info), \
+         patch("shutil.which", return_value="/usr/bin/bottles-cli"):
         result = b.detect_bottles()
     assert result is not None
     assert result.variant == "native"
     assert result.data_path == native_dir
+
+
+def test_detect_native_ignored_when_no_binary(tmp_path):
+    """Native data dir alone is not enough — bottles-cli must be on PATH."""
+    flatpak_dir, native_dir, info = _patch_paths(tmp_path, native_exists=True)
+    with patch.object(b, "_FLATPAK_DATA", flatpak_dir), \
+         patch.object(b, "_NATIVE_DATA", native_dir), \
+         patch.object(b, "_FLATPAK_INFO", info), \
+         patch("shutil.which", return_value=None):
+        result = b.detect_bottles()
+    assert result is None
 
 
 def test_detect_returns_none_when_neither_present(tmp_path):
@@ -124,7 +137,8 @@ def test_detect_native_bottles_sets_bare_cli(tmp_path):
     flatpak_dir, native_dir, info = _patch_paths(tmp_path, native_exists=True)
     with patch.object(b, "_FLATPAK_DATA", flatpak_dir), \
          patch.object(b, "_NATIVE_DATA", native_dir), \
-         patch.object(b, "_FLATPAK_INFO", info):
+         patch.object(b, "_FLATPAK_INFO", info), \
+         patch("shutil.which", return_value="/usr/bin/bottles-cli"):
         result = b.detect_bottles()
     assert result.cli_cmd == ["bottles-cli"]
 
@@ -135,7 +149,8 @@ def test_detect_sandboxed_cellar_prefixes_flatpak_spawn(tmp_path):
     )
     with patch.object(b, "_FLATPAK_DATA", flatpak_dir), \
          patch.object(b, "_NATIVE_DATA", native_dir), \
-         patch.object(b, "_FLATPAK_INFO", info):
+         patch.object(b, "_FLATPAK_INFO", info), \
+         patch("shutil.which", return_value="/usr/bin/bottles-cli"):
         result = b.detect_bottles()
     assert result.cli_cmd[:2] == ["flatpak-spawn", "--host"]
 
@@ -237,10 +252,22 @@ def test_detect_all_native_only(tmp_path):
     flatpak_dir, native_dir, info = _patch_paths(tmp_path, native_exists=True)
     with patch.object(b, "_FLATPAK_DATA", flatpak_dir), \
          patch.object(b, "_NATIVE_DATA", native_dir), \
-         patch.object(b, "_FLATPAK_INFO", info):
+         patch.object(b, "_FLATPAK_INFO", info), \
+         patch("shutil.which", return_value="/usr/bin/bottles-cli"):
         result = b.detect_all_bottles()
     assert len(result) == 1
     assert result[0].variant == "native"
+
+
+def test_detect_all_native_ignored_without_binary(tmp_path):
+    """detect_all_bottles must not return native when bottles-cli is absent."""
+    flatpak_dir, native_dir, info = _patch_paths(tmp_path, native_exists=True)
+    with patch.object(b, "_FLATPAK_DATA", flatpak_dir), \
+         patch.object(b, "_NATIVE_DATA", native_dir), \
+         patch.object(b, "_FLATPAK_INFO", info), \
+         patch("shutil.which", return_value=None):
+        result = b.detect_all_bottles()
+    assert result == []
 
 
 def test_detect_all_both_returns_flatpak_first(tmp_path):
@@ -249,7 +276,8 @@ def test_detect_all_both_returns_flatpak_first(tmp_path):
     )
     with patch.object(b, "_FLATPAK_DATA", flatpak_dir), \
          patch.object(b, "_NATIVE_DATA", native_dir), \
-         patch.object(b, "_FLATPAK_INFO", info):
+         patch.object(b, "_FLATPAK_INFO", info), \
+         patch("shutil.which", return_value="/usr/bin/bottles-cli"):
         result = b.detect_all_bottles()
     assert len(result) == 2
     assert result[0].variant == "flatpak"
@@ -262,7 +290,8 @@ def test_detect_all_both_correct_cli_cmds(tmp_path):
     )
     with patch.object(b, "_FLATPAK_DATA", flatpak_dir), \
          patch.object(b, "_NATIVE_DATA", native_dir), \
-         patch.object(b, "_FLATPAK_INFO", info):
+         patch.object(b, "_FLATPAK_INFO", info), \
+         patch("shutil.which", return_value="/usr/bin/bottles-cli"):
         result = b.detect_all_bottles()
     assert result[0].cli_cmd == [
         "flatpak", "run", "--command=bottles-cli", "com.usebottles.bottles",
@@ -290,7 +319,8 @@ def test_detect_bottles_uses_first_of_detect_all(tmp_path):
     )
     with patch.object(b, "_FLATPAK_DATA", flatpak_dir), \
          patch.object(b, "_NATIVE_DATA", native_dir), \
-         patch.object(b, "_FLATPAK_INFO", info):
+         patch.object(b, "_FLATPAK_INFO", info), \
+         patch("shutil.which", return_value="/usr/bin/bottles-cli"):
         single = b.detect_bottles()
         all_ = b.detect_all_bottles()
     assert single == all_[0]

@@ -1,12 +1,19 @@
 """Bottles installation detection and bottles-cli wrapper.
 
-Detection order for the Bottles data directory
------------------------------------------------
+Detection order
+---------------
 1. ``bottles_data_path`` override from ``config.json``  (variant = ``"custom"``)
-2. ``~/.var/app/com.usebottles.bottles/data/bottles/bottles/``  (variant = ``"flatpak"``)
-3. ``~/.local/share/bottles/bottles/``                 (variant = ``"native"``)
+2. Flatpak Bottles — data dir ``~/.var/app/com.usebottles.bottles/data/bottles/bottles/``
+   must exist.  (variant = ``"flatpak"``)
+3. Native Bottles — ``bottles-cli`` must be on ``$PATH`` **and** the data dir
+   ``~/.local/share/bottles/bottles/`` must exist.  (variant = ``"native"``)
 
-If none of the above directories exist, ``detect_bottles()`` returns ``None``.
+The Flatpak variant only checks the data directory (Flatpak always creates it on
+first launch and it cannot be confused with another application).  The native
+variant additionally requires the binary because ``~/.local/share/bottles/bottles/``
+can be left behind by a previous install or created by other tooling.
+
+If none of the conditions match, ``detect_all_bottles()`` returns an empty list.
 
 bottles-cli invocation
 ----------------------
@@ -29,6 +36,7 @@ Callers extend it with subcommand and flags::
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -98,7 +106,7 @@ def detect_all_bottles(
             cli_cmd=_build_cli_cmd(is_flatpak_bottles=True, sandboxed=sandboxed),
         ))
 
-    if _NATIVE_DATA.is_dir():
+    if _NATIVE_DATA.is_dir() and shutil.which("bottles-cli"):
         results.append(BottlesInstall(
             data_path=_NATIVE_DATA,
             variant="native",

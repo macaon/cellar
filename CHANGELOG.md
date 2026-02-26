@@ -5,6 +5,14 @@ Versioning follows [Semantic Versioning](https://semver.org/) — while the majo
 
 ---
 
+## [0.8.4] — 2026-02-26
+
+### Fixed
+- **`cellar/views/browse.py`**: cover images no longer bleed outside the card's rounded corners — `Overflow.HIDDEN` is now set on the card box itself (which owns the `.card` border-radius) rather than only on the inner `img_area`
+- **`cellar/views/browse.py`**: capsule title text reduced from `title-4` to `heading` for better proportion at both capsule sizes
+
+---
+
 ## [0.8.3] — 2026-02-26
 
 ### Changed

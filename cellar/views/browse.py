@@ -45,8 +45,11 @@ class AppCard(Gtk.FlowBoxChild):
         self.set_margin_bottom(6)
 
         # Outer box carries the .card style for the rounded-rect surface.
+        # Overflow must be hidden here so children are clipped to the card's
+        # border-radius (the rounded corners are on this box, not img_area).
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         card.add_css_class("card")
+        card.set_overflow(Gtk.Overflow.HIDDEN)
 
         # Fixed-size image area — both cover and no-cover cards use the same
         # box so FlowBox sees identical natural sizes for all children.
@@ -91,7 +94,7 @@ class AppCard(Gtk.FlowBoxChild):
         card.append(inner)
 
         name_lbl = Gtk.Label(label=entry.name)
-        name_lbl.add_css_class("title-4")
+        name_lbl.add_css_class("heading")
         name_lbl.set_halign(Gtk.Align.CENTER)
         name_lbl.set_ellipsize(Pango.EllipsizeMode.END)
         name_lbl.set_max_width_chars(max(10, cover_width // 10))

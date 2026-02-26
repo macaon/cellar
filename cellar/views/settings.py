@@ -213,35 +213,110 @@ class SettingsDialog(Adw.PreferencesDialog):
         if response != "init":
             return
 
-        if not _is_local_uri(uri):
-            self._alert(
-                "Not Yet Supported",
-                "Initialising repositories over SSH, SMB, or NFS is not yet "
-                "supported.\n\nCreate a catalogue.json at the remote location "
-                "manually, then add it here.",
-            )
-            return
+        scheme = urlparse(uri).scheme.lower()
 
+        if _is_local_uri(uri):
+            self._init_local_repo(uri)
+        elif scheme in ("smb", "nfs"):
+            self._init_gio_repo(uri)
+        elif scheme == "ssh":
+            self._init_ssh_repo(uri)
+        else:
+            self._alert(
+                "Not Supported",
+                f"Initialising {scheme!r} repositories is not supported.",
+            )
+
+    def _init_local_repo(self, uri: str) -> None:
         parsed = urlparse(uri)
         target = Path(parsed.path if parsed.path else uri).expanduser()
         try:
             target.mkdir(parents=True, exist_ok=True)
-            catalogue = {
-                "cellar_version": 1,
-                "generated_at": datetime.now(timezone.utc).strftime(
-                    "%Y-%m-%dT%H:%M:%SZ"
-                ),
-                "apps": [],
-            }
             (target / "catalogue.json").write_text(
-                json.dumps(catalogue, indent=2, ensure_ascii=False),
+                json.dumps(_empty_catalogue(), indent=2, ensure_ascii=False),
                 encoding="utf-8",
             )
             log.info("Initialised new repo at %s", target)
         except OSError as exc:
             self._alert("Could Not Initialise", str(exc))
             return
+        self._commit_add(uri)
+        self._add_row.set_text("")
 
+    def _init_gio_repo(self, uri: str) -> None:
+        """Create an empty catalogue.json at an SMB or NFS URI via GIO."""
+        from cellar.utils.gio_io import gio_makedirs, gio_write_bytes
+
+        root = self.get_root()
+        mount_op = Gtk.MountOperation(
+            parent=root if isinstance(root, Gtk.Window) else None
+        )
+        data = json.dumps(_empty_catalogue(), indent=2, ensure_ascii=False).encode()
+        catalogue_uri = uri.rstrip("/") + "/catalogue.json"
+        try:
+            gio_makedirs(uri, mount_op=mount_op)
+            gio_write_bytes(catalogue_uri, data, mount_op=mount_op)
+            log.info("Initialised new GIO repo at %s", uri)
+        except OSError as exc:
+            self._alert("Could Not Initialise", str(exc))
+            return
+        self._commit_add(uri)
+        self._add_row.set_text("")
+
+    def _init_ssh_repo(self, uri: str) -> None:
+        """Create an empty catalogue.json at an SSH URI via subprocess."""
+        import shlex
+        import subprocess
+
+        parsed = urlparse(uri)
+        if not parsed.hostname:
+            self._alert("Invalid URI", f"No hostname in SSH URI: {uri!r}")
+            return
+
+        dest = f"{parsed.username}@{parsed.hostname}" if parsed.username else parsed.hostname
+        base_args = [
+            "ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
+        ]
+        if parsed.port:
+            base_args += ["-p", str(parsed.port)]
+        base_args.append(dest)
+
+        path = parsed.path or "/"
+
+        # Create directory tree on the remote.
+        try:
+            result = subprocess.run(
+                base_args + ["mkdir", "-p", path],
+                capture_output=True, timeout=30, check=False,
+            )
+        except FileNotFoundError:
+            self._alert("Could Not Initialise", "ssh not found; install an OpenSSH client.")
+            return
+        except subprocess.TimeoutExpired:
+            self._alert("Could Not Initialise", "SSH connection timed out.")
+            return
+        if result.returncode != 0:
+            stderr = result.stderr.decode(errors="replace").strip()
+            self._alert("Could Not Initialise", f"Could not create directory: {stderr or 'SSH error'}")
+            return
+
+        # Write catalogue.json via stdin.
+        cat_path = path.rstrip("/") + "/catalogue.json"
+        data = json.dumps(_empty_catalogue(), indent=2, ensure_ascii=False).encode()
+        try:
+            result = subprocess.run(
+                base_args + [f"cat > {shlex.quote(cat_path)}"],
+                input=data, capture_output=True, timeout=30, check=False,
+            )
+        except subprocess.TimeoutExpired:
+            self._alert("Could Not Initialise", "SSH connection timed out while writing.")
+            return
+        if result.returncode != 0:
+            stderr = result.stderr.decode(errors="replace").strip()
+            self._alert("Could Not Initialise", f"Could not write catalogue.json: {stderr or 'SSH error'}")
+            return
+
+        log.info("Initialised new SSH repo at %s", uri)
         self._commit_add(uri)
         self._add_row.set_text("")
 
@@ -284,6 +359,14 @@ class SettingsDialog(Adw.PreferencesDialog):
 # ---------------------------------------------------------------------------
 # Module-level helpers
 # ---------------------------------------------------------------------------
+
+def _empty_catalogue() -> dict:
+    return {
+        "cellar_version": 1,
+        "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "apps": [],
+    }
+
 
 def _is_local_uri(uri: str) -> bool:
     return urlparse(uri).scheme.lower() in ("", "file")

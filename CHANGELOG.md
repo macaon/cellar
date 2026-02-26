@@ -5,6 +5,21 @@ Versioning follows [Semantic Versioning](https://semver.org/) — while the majo
 
 ---
 
+## [0.11.2] — 2026-02-26
+
+### Added
+- **Remote repo initialisation** — the "Initialise repository here?" dialog now works for SMB, NFS, and SSH locations, not just local paths.
+  - **SMB / NFS** (`_init_gio_repo`): uses two new GIO write helpers — `gio_makedirs(uri)` creates the directory tree via `Gio.File.make_directory_with_parents()`, and `gio_write_bytes(uri, data)` writes the file via `Gio.File.replace()`. Both apply the same mount-and-retry logic as the read path (nested `GLib.MainLoop`, `Gtk.MountOperation` for credential prompts, `ALREADY_MOUNTED` silently ignored).
+  - **SSH** (`_init_ssh_repo`): two sequential `subprocess` calls — `ssh … mkdir -p <path>` to create the directory, then `ssh … cat > <catalogue_path>` with the JSON piped to stdin. Uses `BatchMode=yes` consistent with the SSH fetcher (key-based auth required). Clear error dialogs for missing `ssh` binary, timeouts, and non-zero exits.
+  - `_on_init_response` now dispatches on URI scheme (local / smb / nfs / ssh) instead of the local-or-bail pattern.
+  - `_empty_catalogue()` module-level helper extracted from the duplicated inline dict.
+- **`cellar/utils/gio_io.py`**: two new public functions:
+  - `gio_makedirs(uri, *, mount_op=None)` — `mkdir -p` over GIO; `EXISTS` is not an error; mounts first if `NOT_MOUNTED`.
+  - `gio_write_bytes(uri, data, *, mount_op=None)` — create-or-replace write over GIO; mounts first if `NOT_MOUNTED`.
+  - `_ensure_mounted(gfile, mount_op)` — internal helper factored out of `_GioFetcher` to avoid duplication; shared by both new write helpers.
+
+---
+
 ## [0.11.1] — 2026-02-26
 
 ### Fixed

@@ -301,7 +301,7 @@ def _overlay_rsync(
     cancel_event: threading.Event | None,
 ) -> None:
     """Run rsync overlay with user-data exclusions."""
-    cmd = ["rsync", "-a", "--no-delete"]
+    cmd = ["rsync", "-a"]  # no --delete: destination-only files are left untouched
     for pattern in _RSYNC_EXCLUDES:
         cmd += ["--exclude", pattern]
     # Trailing slash on src copies contents, not the directory itself.

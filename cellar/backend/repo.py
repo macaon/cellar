@@ -168,9 +168,21 @@ class _GioFetcher:
 
     GIO is imported lazily so that the rest of the backend can be used
     (and tested) without a display or GObject environment.
+
+    *mount_op* should be a ``Gtk.MountOperation`` (or any ``Gio.MountOperation``
+    subclass) created by the UI layer with the parent window set.  When the
+    share is not yet mounted, the fetcher will attempt to mount it via GIO and
+    block using a nested GLib main loop so that any credential dialog shown by
+    the mount operation can be interacted with.  Credentials entered this way
+    are stored in the GNOME Keyring automatically when the user ticks
+    "Remember Password".
+
+    If *mount_op* is ``None`` a bare ``Gio.MountOperation`` is used instead —
+    this works for shares that are already mounted or need no credentials, but
+    will not show a password prompt.
     """
 
-    def __init__(self, base_uri: str) -> None:
+    def __init__(self, base_uri: str, *, mount_op: object | None = None) -> None:
         try:
             import gi
             gi.require_version("Gio", "2.0")
@@ -182,15 +194,80 @@ class _GioFetcher:
         self._Gio = Gio
         self._GLib = GLib
         self._base = base_uri.rstrip("/")
+        self._mount_op = mount_op  # Gio.MountOperation (or Gtk.MountOperation subclass)
+
+    # ------------------------------------------------------------------
+    # Mount helpers
+    # ------------------------------------------------------------------
+
+    def _ensure_mounted(self, gfile: object) -> None:
+        """Mount the enclosing GVFS volume, blocking via a nested GLib loop.
+
+        Uses *self._mount_op* to present credential prompts.  Raises
+        ``RepoError`` on failure.  ``ALREADY_MOUNTED`` is silently ignored.
+        """
+        main_loop = self._GLib.MainLoop()
+        _err: list = [None]
+
+        def _on_mounted(src, result, _):
+            try:
+                src.mount_enclosing_volume_finish(result)
+            except self._GLib.Error as exc:
+                if not exc.matches(
+                    self._Gio.io_error_quark(),
+                    self._Gio.IOErrorEnum.ALREADY_MOUNTED,
+                ):
+                    _err[0] = exc
+            finally:
+                main_loop.quit()
+
+        mount_op = self._mount_op or self._Gio.MountOperation()
+        gfile.mount_enclosing_volume(
+            self._Gio.MountMountFlags.NONE,
+            mount_op,
+            None,       # cancellable
+            _on_mounted,
+            None,       # user_data
+        )
+        main_loop.run()  # spins nested loop; GTK events (dialogs) are processed
+
+        if _err[0] is not None:
+            exc = _err[0]
+            # FAILED_HANDLED means the user cancelled an auth dialog — GIO has
+            # already shown any error UI, so give a terse message.
+            if exc.matches(
+                self._Gio.io_error_quark(),
+                self._Gio.IOErrorEnum.FAILED_HANDLED,
+            ):
+                raise RepoError("Authentication cancelled by user")
+            raise RepoError(f"Could not mount {self._base}: {exc.message}")
+
+    # ------------------------------------------------------------------
+    # _Fetcher interface
+    # ------------------------------------------------------------------
 
     def fetch_bytes(self, rel_path: str) -> bytes:
         uri = f"{self._base}/{rel_path.lstrip('/')}"
         gfile = self._Gio.File.new_for_uri(uri)
         try:
             _ok, contents, _etag = gfile.load_contents(None)
+            return bytes(contents)
         except self._GLib.Error as exc:
+            if exc.matches(
+                self._Gio.io_error_quark(),
+                self._Gio.IOErrorEnum.NOT_MOUNTED,
+            ):
+                # The GVFS backend exists but the share hasn't been mounted
+                # yet.  Attempt a mount (may prompt for credentials) then retry.
+                self._ensure_mounted(gfile)
+                try:
+                    _ok, contents, _etag = gfile.load_contents(None)
+                    return bytes(contents)
+                except self._GLib.Error as exc2:
+                    raise RepoError(
+                        f"GIO could not read {uri}: {exc2.message}"
+                    ) from exc2
             raise RepoError(f"GIO could not read {uri}: {exc.message}") from exc
-        return bytes(contents)
 
     def resolve_uri(self, rel_path: str) -> str:
         return f"{self._base}/{rel_path.lstrip('/')}"
@@ -203,7 +280,12 @@ class _GioFetcher:
 _SUPPORTED_SCHEMES = "local path, file://, http(s)://, ssh://, smb://, nfs://"
 
 
-def _make_fetcher(uri: str, *, ssh_identity: str | None = None) -> _Fetcher:
+def _make_fetcher(
+    uri: str,
+    *,
+    ssh_identity: str | None = None,
+    mount_op: object | None = None,
+) -> _Fetcher:
     """Return the appropriate fetcher for *uri*."""
     parsed = urlparse(uri)
     scheme = parsed.scheme.lower()
@@ -231,7 +313,7 @@ def _make_fetcher(uri: str, *, ssh_identity: str | None = None) -> _Fetcher:
         )
 
     if scheme in ("smb", "nfs"):
-        return _GioFetcher(uri)
+        return _GioFetcher(uri, mount_op=mount_op)
 
     raise RepoError(
         f"Unsupported URI scheme {scheme!r}. Supported: {_SUPPORTED_SCHEMES}"
@@ -260,10 +342,13 @@ class Repo:
         name: str = "",
         *,
         ssh_identity: str | None = None,
+        mount_op: object | None = None,
     ) -> None:
         self.uri = uri
         self.name = name or uri
-        self._fetcher: _Fetcher = _make_fetcher(uri, ssh_identity=ssh_identity)
+        self._fetcher: _Fetcher = _make_fetcher(
+            uri, ssh_identity=ssh_identity, mount_op=mount_op
+        )
 
     # ------------------------------------------------------------------
     # Properties

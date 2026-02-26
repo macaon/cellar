@@ -5,6 +5,18 @@ Versioning follows [Semantic Versioning](https://semver.org/) — while the majo
 
 ---
 
+## [0.11.0] — 2026-02-26
+
+### Added
+- **SMB/NFS auto-mount with credential prompt** — `smb://` and `nfs://` repositories now work when the share is not yet mounted by GVFS.
+  - `_GioFetcher.fetch_bytes` catches `Gio.IOErrorEnum.NOT_MOUNTED` and calls `Gio.File.mount_enclosing_volume()` before retrying. Mounting blocks via a nested `GLib.MainLoop`, which keeps GTK event processing alive so any credential dialog can be displayed and interacted with.
+  - `_GioFetcher._ensure_mounted()` — new helper that drives the async mount callback and translates GLib errors into `RepoError`. `ALREADY_MOUNTED` is silently ignored; `FAILED_HANDLED` (user cancelled the dialog) surfaces as "Authentication cancelled by user".
+  - `_GioFetcher`, `_make_fetcher`, and `Repo.__init__` now accept an optional `mount_op` object (`Gio.MountOperation` or any subclass). The UI layer passes a `Gtk.MountOperation(parent=window)`, which renders GNOME's standard credential dialog (username, password, domain, workgroup) and — when the user ticks "Remember Password" — stores the credential in the GNOME Keyring via libsecret. Subsequent mounts retrieve the saved credential automatically with no prompt.
+  - `cellar/window.py`: a single `Gtk.MountOperation(parent=self)` is created per catalogue-load pass and forwarded to every `Repo()` constructed in that pass.
+  - `cellar/views/settings.py`: `Gtk.MountOperation(parent=self)` is passed to the `Repo` created during the "Add repository" validation step, so credential prompts appear immediately when the user first enters an SMB/NFS URI.
+
+---
+
 ## [0.10.1] — 2026-02-26
 
 ### Fixed

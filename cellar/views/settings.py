@@ -160,8 +160,11 @@ class SettingsDialog(Adw.PreferencesDialog):
                 return
 
         # Validate scheme / create fetcher.
+        # Pass a MountOperation so that SMB/NFS shares can be mounted (and
+        # credential dialogs shown) when the user first adds them.
+        mount_op = Gtk.MountOperation(parent=self)
         try:
-            repo = Repo(uri)
+            repo = Repo(uri, mount_op=mount_op)
         except RepoError as exc:
             self._alert("Invalid Repository", str(exc))
             return

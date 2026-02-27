@@ -7,8 +7,8 @@ All notable changes to Cellar are documented here.
 ## [0.11.17] — 2026-02-27
 
 ### Added
-- **Detail view — version chip**: the app version is now shown as a `v{version}`
-  tag chip in the header, alongside the category and content-rating chips.
+- **Detail view — version in byline**: the app version is now appended to the
+  "Developer · Publisher · Year" byline using the same `·` separator.
 - **Detail view — conditional Details group**: the "Details" preferences group
   is now hidden entirely when none of its fields (developer, publisher, release
   year, languages, content rating, tags, website, store links) are populated,

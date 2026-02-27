@@ -1,36 +1,10 @@
 # Changelog
 
 All notable changes to Cellar are documented here.
-Versioning follows [Pride Versioning](https://pridever.org/) — format is **PROUD.DEFAULT.SHAME**.
-
-| Component | Increments when… |
-|-----------|-----------------|
-| PROUD | Something to be genuinely proud of ships |
-| DEFAULT | Normal, okay work |
-| SHAME | Fixing something too embarrassing to admit |
-
-A PROUD bump resets DEFAULT and SHAME to 0. A DEFAULT bump resets SHAME to 0.
-
-The project used SemVer (0.x.x) until v0.10.0 shipped the safe update flow — the first release where Cellar could install, update, *and* remove an app end-to-end. That became **1.0.0 (PROUD)**. The table below maps old SemVer tags to their PrideVer equivalents for entries from that point forward; pre-1.0.0 entries keep their original numbers.
-
-| PrideVer | SemVer | Classification |
-|----------|--------|----------------|
-| **1.4.1** | — | SHAME |
-| 1.4.0 | 0.11.8 | DEFAULT |
-| 1.3.3 | 0.11.7 | SHAME |
-| 1.3.2 | 0.11.6 | SHAME |
-| 1.3.1 | 0.11.5 | SHAME |
-| 1.3.0 | 0.11.4 | DEFAULT |
-| 1.2.1 | 0.11.3 | SHAME |
-| 1.2.0 | 0.11.2 | DEFAULT |
-| 1.1.1 | 0.11.1 | SHAME |
-| 1.1.0 | 0.11.0 | DEFAULT |
-| 1.0.1 | 0.10.1 | SHAME |
-| **1.0.0** | 0.10.0 | **PROUD** |
 
 ---
 
-## [1.4.1] — 2026-02-27 *(shame)*
+## [0.11.9] — 2026-02-27
 
 ### Removed
 - `"Other"` from `BASE_CATEGORIES` — a lazy catch-all that discouraged proper categorisation.
@@ -39,7 +13,7 @@ The project used SemVer (0.x.x) until v0.10.0 shipped the safe update flow — t
 
 ---
 
-## [1.4.0] — 2026-02-27 *(default)*
+## [0.11.8] — 2026-02-27
 
 ### Added
 - **Custom categories** in the Add App and Edit App dialogs.
@@ -60,7 +34,7 @@ The project used SemVer (0.x.x) until v0.10.0 shipped the safe update flow — t
 
 ---
 
-## [1.3.3] — 2026-02-26 *(shame)*
+## [0.11.7] — 2026-02-26
 
 ### Removed
 - **Pre-install component selection UI** (v0.11.6) — reverted. DXVK and VKD3D
@@ -74,14 +48,14 @@ The project used SemVer (0.x.x) until v0.10.0 shipped the safe update flow — t
 
 ---
 
-## [1.3.2] — 2026-02-26 *(shame)*
+## [0.11.6] — 2026-02-26
 
 ### Added
 - Pre-install component selection UI (subsequently removed in v0.11.7).
 
 ---
 
-## [1.3.1] — 2026-02-26 *(shame)*
+## [0.11.5] — 2026-02-26
 
 ### Fixed
 - **`cellar/backend/installer.py`**: installing an app from an SMB or NFS repository raised "Downloading from 'smb' repos is not yet supported". `_acquire_archive` now handles `smb://` and `nfs://` URIs:
@@ -92,7 +66,7 @@ The project used SemVer (0.x.x) until v0.10.0 shipped the safe update flow — t
 
 ---
 
-## [1.3.0] — 2026-02-26 *(default)*
+## [0.11.4] — 2026-02-26
 
 ### Fixed
 - **`cellar/views/add_app.py`** and **`cellar/views/edit_app.py`**: "Add to Catalogue" and all edit/delete operations crashed with `RepoError: local_path() is only available for local repos` when the active repository was an SMB or NFS share.
@@ -103,7 +77,7 @@ The project used SemVer (0.x.x) until v0.10.0 shipped the safe update flow — t
 
 ---
 
-## [1.2.1] — 2026-02-26 *(shame)*
+## [0.11.3] — 2026-02-26
 
 ### Fixed
 - **`cellar/views/settings.py`**: GVFS mount failures (e.g. "Failed to mount Windows share: No such file or directory") contain the phrase "no such file", causing `_looks_like_missing` to return `True` and incorrectly triggering the "Initialise repository?" dialog. The heuristic now short-circuits to `False` when the error string contains "mount", so genuine connectivity failures reach the "Could Not Connect" alert instead.
@@ -113,7 +87,7 @@ The project used SemVer (0.x.x) until v0.10.0 shipped the safe update flow — t
 
 ---
 
-## [1.2.0] — 2026-02-26 *(default)*
+## [0.11.2] — 2026-02-26
 
 ### Added
 - **Remote repo initialisation** — the "Initialise repository here?" dialog now works for SMB, NFS, and SSH locations, not just local paths.
@@ -128,14 +102,14 @@ The project used SemVer (0.x.x) until v0.10.0 shipped the safe update flow — t
 
 ---
 
-## [1.1.1] — 2026-02-26 *(shame)*
+## [0.11.1] — 2026-02-26
 
 ### Fixed
 - **`cellar/views/settings.py`**: `Gtk.MountOperation(parent=self)` raised `TypeError` because `Adw.PreferencesDialog` is not a `GtkWindow`. Fixed by using `self.get_root()` to walk up the widget tree to the enclosing window; falls back to `None` if the root is not a `GtkWindow` (mount dialog still works, just unparented).
 
 ---
 
-## [1.1.0] — 2026-02-26 *(default)*
+## [0.11.0] — 2026-02-26
 
 ### Added
 - **SMB/NFS auto-mount with credential prompt** — `smb://` and `nfs://` repositories now work when the share is not yet mounted by GVFS.
@@ -147,14 +121,14 @@ The project used SemVer (0.x.x) until v0.10.0 shipped the safe update flow — t
 
 ---
 
-## [1.0.1] — 2026-02-26 *(shame)*
+## [0.10.1] — 2026-02-26
 
 ### Fixed
 - **`cellar/backend/updater.py`**: remove invalid `--no-delete` rsync flag. rsync preserves destination-only files by default; `--delete` is the opt-in to remove them. `--no-delete` does not exist and caused rsync to exit with code 1.
 
 ---
 
-## [1.0.0] — 2026-02-26 *(proud)*
+## [0.10.0] — 2026-02-26
 
 ### Added
 - **Safe update flow** — when the catalogue version differs from the installed version and an archive is present, an **Update** button (suggested-action) appears in the detail-view header alongside the existing Remove button.

@@ -4,6 +4,17 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.11.16] — 2026-02-27
+
+### Fixed
+- **`cellar/window.py`**: after saving an edited catalogue entry the nav stack
+  now pops back to the browse grid automatically, so the updated icon (or any
+  other change) is visible immediately without manually pressing Back.
+  Previously `on_done` was wired directly to `_load_catalogue`, which rebuilt
+  the grid in the background while leaving the user on the detail page.
+
+---
+
 ## [0.11.15] — 2026-02-27
 
 ### Added

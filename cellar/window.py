@@ -167,10 +167,14 @@ class CellarWindow(Adw.ApplicationWindow):
         def _on_edit(selected_entry):
             from cellar.views.edit_app import EditAppDialog
 
+            def _on_edit_done():
+                self.nav_view.pop()
+                self._load_catalogue()
+
             EditAppDialog(
                 entry=selected_entry,
                 repo=self._first_repo,
-                on_done=self._load_catalogue,
+                on_done=_on_edit_done,
                 on_deleted=self._on_entry_deleted,
             ).present(self)
 
@@ -245,7 +249,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="application-x-executable",
-            version="0.11.15",
+            version="0.11.16",
             comments="A GNOME storefront for Bottles-managed Windows apps.",
             license_type=Gtk.License.GPL_3_0,
         )

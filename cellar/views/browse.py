@@ -142,9 +142,7 @@ class AppCard(Gtk.FlowBoxChild):
                 icon.set_pixel_size(cover_width * 2 // 3)
                 icon.set_halign(Gtk.Align.CENTER)
                 icon.set_valign(Gtk.Align.CENTER)
-                icon_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-                icon_box.append(icon)
-                img_area.set_child(icon_box)
+                img_area.set_child(icon)
 
         # Name label below the image area.
         inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)

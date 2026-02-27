@@ -4,6 +4,17 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.11.18] — 2026-02-27
+
+### Changed
+- **Header bar**: search toggle button moved to the far left (start side), matching
+  the GNOME Software layout.
+- **Search bar**: entry is no longer full-width; constrained to ~40 characters
+  (`max-width-chars=40`) and centred by `GtkSearchBar`, giving a narrower,
+  more focused look consistent with GNOME Software.
+
+---
+
 ## [0.11.17] — 2026-02-27
 
 ### Added

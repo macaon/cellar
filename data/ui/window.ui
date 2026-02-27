@@ -16,6 +16,12 @@
               <object class="AdwToolbarView">
                 <child type="top">
                   <object class="AdwHeaderBar">
+                    <child type="start">
+                      <object class="GtkToggleButton" id="search_button">
+                        <property name="icon-name">system-search-symbolic</property>
+                        <property name="tooltip-text" translatable="yes">Search (Ctrl+F)</property>
+                      </object>
+                    </child>
                     <child type="end">
                       <object class="GtkMenuButton" id="menu_button">
                         <property name="icon-name">open-menu-symbolic</property>
@@ -36,12 +42,6 @@
                         <property name="visible">false</property>
                       </object>
                     </child>
-                    <child type="end">
-                      <object class="GtkToggleButton" id="search_button">
-                        <property name="icon-name">system-search-symbolic</property>
-                        <property name="tooltip-text" translatable="yes">Search (Ctrl+F)</property>
-                      </object>
-                    </child>
                   </object>
                 </child>
                 <child type="top">
@@ -49,8 +49,7 @@
                     <child>
                       <object class="GtkSearchEntry" id="search_entry">
                         <property name="placeholder-text" translatable="yes">Search apps…</property>
-                        <property name="hexpand">True</property>
-                        <property name="max-width-chars">50</property>
+                        <property name="max-width-chars">40</property>
                       </object>
                     </child>
                   </object>

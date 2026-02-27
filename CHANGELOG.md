@@ -4,6 +4,18 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.11.22] — 2026-02-27
+
+### Fixed
+- **App cards stay fixed size on resize**: `GtkFlowBox` was set to
+  `homogeneous=True`, causing GTK to divide the full row width equally among
+  columns and stretch cards as the window widened. Switching to
+  `homogeneous=False` lets each card keep its natural width (as reported by
+  `_FixedBox`). `halign=CENTER` on the FlowBox centres packed rows so partial
+  rows don't pin to the left edge.
+
+---
+
 ## [0.11.21] — 2026-02-27
 
 ### Fixed

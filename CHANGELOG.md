@@ -4,6 +4,15 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.11.26] — 2026-02-27
+
+### Changed
+- **Two-line summary in app cards**: summary label now wraps to a second
+  line (word/char wrap) and ellipsises only if the text exceeds two lines,
+  matching GNOME Software's card layout.
+
+---
+
 ## [0.11.25] — 2026-02-27
 
 ### Fixed

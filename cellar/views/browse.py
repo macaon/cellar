@@ -166,6 +166,9 @@ class AppCard(Gtk.FlowBoxChild):
             summary_lbl = Gtk.Label(label=entry.summary)
             summary_lbl.add_css_class("dim-label")
             summary_lbl.set_halign(Gtk.Align.START)
+            summary_lbl.set_wrap(True)
+            summary_lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            summary_lbl.set_lines(2)
             summary_lbl.set_ellipsize(Pango.EllipsizeMode.END)
             text_box.append(summary_lbl)
 

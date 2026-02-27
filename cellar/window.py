@@ -146,10 +146,8 @@ class CellarWindow(Adw.ApplicationWindow):
         try:
             entries = manager.fetch_all_catalogues()
             if entries:
-                from cellar.backend.config import CAPSULE_SIZES, load_capsule_size
                 from cellar.backend import database
                 resolver = self._first_repo.resolve_asset_uri if self._first_repo else None
-                capsule_width = CAPSULE_SIZES[load_capsule_size()]
 
                 installed_entries = []
                 update_entries = []
@@ -160,15 +158,9 @@ class CellarWindow(Adw.ApplicationWindow):
                         if rec.get("installed_version") != e.version and bool(e.archive):
                             update_entries.append(e)
 
-                self._browse_explore.load_entries(
-                    entries, resolve_asset=resolver, capsule_width=capsule_width
-                )
-                self._browse_installed.load_entries(
-                    installed_entries, resolve_asset=resolver, capsule_width=capsule_width
-                )
-                self._browse_updates.load_entries(
-                    update_entries, resolve_asset=resolver, capsule_width=capsule_width
-                )
+                self._browse_explore.load_entries(entries, resolve_asset=resolver)
+                self._browse_installed.load_entries(installed_entries, resolve_asset=resolver)
+                self._browse_updates.load_entries(update_entries, resolve_asset=resolver)
                 self.updates_page.set_badge_number(len(update_entries))
             else:
                 self._browse_explore.show_error(
@@ -290,22 +282,14 @@ class CellarWindow(Adw.ApplicationWindow):
     def _on_preferences_activated(self, _action, _param) -> None:
         from cellar.views.settings import SettingsDialog
 
-        def _set_capsule_width(width: int) -> None:
-            self._browse_explore.set_capsule_width(width)
-            self._browse_installed.set_capsule_width(width)
-            self._browse_updates.set_capsule_width(width)
-
-        dialog = SettingsDialog(
-            on_repos_changed=self._load_catalogue,
-            on_capsule_size_changed=_set_capsule_width,
-        )
+        dialog = SettingsDialog(on_repos_changed=self._load_catalogue)
         dialog.present(self)
 
     def _on_about_activated(self, _action, _param) -> None:
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="application-x-executable",
-            version="0.11.23",
+            version="0.11.24",
             comments="A GNOME storefront for Bottles-managed Windows apps.",
             license_type=Gtk.License.GPL_3_0,
         )

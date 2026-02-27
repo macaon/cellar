@@ -16,7 +16,12 @@ from cellar.models.app_entry import AppEntry
 
 log = logging.getLogger(__name__)
 
-_DEFAULT_CAPSULE_WIDTH = 200
+# Fixed card dimensions (GNOME Software-style horizontal cards).
+# _IMG_WIDTH × _CARD_HEIGHT is an exact 2:3 cover thumbnail (Steam capsule ratio).
+_CARD_WIDTH  = 300
+_CARD_HEIGHT = 96
+_IMG_WIDTH   = 64   # = _CARD_HEIGHT * 2 // 3
+_ICON_SIZE   = 48   # standard GNOME icon size, centred in the image column
 
 
 # ---------------------------------------------------------------------------
@@ -79,100 +84,96 @@ class _FixedBox(Gtk.Widget):
 # ---------------------------------------------------------------------------
 
 class AppCard(Gtk.FlowBoxChild):
-    """A single app tile in the browse grid."""
+    """A single app row in the browse grid.
+
+    Horizontal layout matching GNOME Software's style:
+      [64×96 cover/icon] [name (bold) / summary (dim)]
+
+    The left column shows a 2:3 cover thumbnail when one is available,
+    falling back to the app icon (48 px, centred) or a generic icon.
+    """
 
     def __init__(
         self,
         entry: AppEntry,
         *,
         resolve_asset: Callable[[str], str] | None = None,
-        cover_width: int = _DEFAULT_CAPSULE_WIDTH,
     ) -> None:
         super().__init__()
         self.entry = entry
-        self._cover_width = cover_width
-
-        cover_height = cover_width * 3 // 2   # 2:3 portrait ratio (Steam capsule spec)
 
         self.set_margin_start(6)
         self.set_margin_end(6)
         self.set_margin_top(6)
         self.set_margin_bottom(6)
 
-        # Outer box carries the .card style for the rounded-rect surface.
-        # Overflow must be hidden here so children are clipped to the card's
-        # border-radius (the rounded corners are on this box, not img_area).
-        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        # Outer card — horizontal box with .card styling.
+        card = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         card.add_css_class("card")
         card.set_overflow(Gtk.Overflow.HIDDEN)
 
-        # _FixedBox reports exactly cover_width × cover_height as its natural
-        # size so FlowBox layout is unaffected by the child's image dimensions.
-        img_area = _FixedBox(cover_width, cover_height)
+        # ── Left: image column ────────────────────────────────────────────
+        img_area = _FixedBox(_IMG_WIDTH, _CARD_HEIGHT)
         card.append(img_area)
 
-        # Cover image — HYPER-downscaled to exactly cover_width × cover_height
-        # so that _FixedBox can render it 1:1 with no GTK scaling at all.
+        # Cover thumbnail (scaled/cropped to exact 64×96).
         cover_shown = False
         if resolve_asset and entry.cover:
             cover_path = resolve_asset(entry.cover)
             if os.path.isfile(cover_path):
-                texture = _load_cover_texture(cover_path, cover_width, cover_height)
+                texture = _load_cover_texture(cover_path, _IMG_WIDTH, _CARD_HEIGHT)
                 if texture is not None:
                     pic = Gtk.Picture.new_for_paintable(texture)
                     pic.set_content_fit(Gtk.ContentFit.FILL)
                     img_area.set_child(pic)
                     cover_shown = True
 
-        # Icon — shown when no cover image is available.
-        # Pre-scale to cover_width × cover_width with HYPER so _FixedBox
-        # renders it 1:1 (ContentFit.CONTAIN fills the full card width).
+        # App icon (48 px, centred in the 64×96 column) when no cover.
         if not cover_shown:
             icon_shown = False
             if resolve_asset and entry.icon:
                 icon_path = resolve_asset(entry.icon)
                 if os.path.isfile(icon_path):
-                    icon_size = cover_width * 2 // 3
-                    texture = _load_icon_texture(icon_path, icon_size)
+                    texture = _load_icon_texture(icon_path, _ICON_SIZE)
                     if texture is not None:
                         pic = Gtk.Picture.new_for_paintable(texture)
-                        # SCALE_DOWN: never enlarge beyond the texture's natural
-                        # size, so the icon floats centred with visible padding
-                        # on all sides rather than filling the full card width.
                         pic.set_content_fit(Gtk.ContentFit.SCALE_DOWN)
                         img_area.set_child(pic)
                         icon_shown = True
             if not icon_shown:
                 icon = Gtk.Image.new_from_icon_name("application-x-executable")
-                icon.set_pixel_size(cover_width * 2 // 3)
+                icon.set_pixel_size(_ICON_SIZE)
                 icon.set_halign(Gtk.Align.CENTER)
                 icon.set_valign(Gtk.Align.CENTER)
                 img_area.set_child(icon)
 
-        # Name label below the image area.
-        inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        inner.set_margin_start(10)
-        inner.set_margin_end(10)
-        inner.set_margin_top(8)
-        inner.set_margin_bottom(8)
-        card.append(inner)
+        # ── Right: text column ────────────────────────────────────────────
+        text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        text_box.set_valign(Gtk.Align.CENTER)
+        text_box.set_hexpand(True)
+        text_box.set_margin_start(12)
+        text_box.set_margin_end(12)
+        card.append(text_box)
 
         name_lbl = Gtk.Label(label=entry.name)
         name_lbl.add_css_class("heading")
-        name_lbl.set_halign(Gtk.Align.CENTER)
+        name_lbl.set_halign(Gtk.Align.START)
         name_lbl.set_ellipsize(Pango.EllipsizeMode.END)
-        name_lbl.set_max_width_chars(max(10, cover_width // 10))
-        inner.append(name_lbl)
+        text_box.append(name_lbl)
+
+        if entry.summary:
+            summary_lbl = Gtk.Label(label=entry.summary)
+            summary_lbl.add_css_class("dim-label")
+            summary_lbl.set_halign(Gtk.Align.START)
+            summary_lbl.set_ellipsize(Pango.EllipsizeMode.END)
+            text_box.append(summary_lbl)
 
         self.set_child(card)
 
-    # GTK virtual method — report a fixed natural width so FlowBox never
-    # stretches this child wider than the cover image area, regardless of
-    # how wide the name label's natural width happens to be.
     def do_measure(self, orientation, for_size):
         if orientation == Gtk.Orientation.HORIZONTAL:
-            return self._cover_width, self._cover_width, -1, -1
-        return super().do_measure(orientation, for_size)
+            return _CARD_WIDTH, _CARD_WIDTH, -1, -1
+        return _CARD_HEIGHT, _CARD_HEIGHT, -1, -1
 
     def matches(self, category: str | None, search: str) -> bool:
         """Return True if this card should be visible given the current filter."""
@@ -212,10 +213,9 @@ class BrowseView(Gtk.Box):
         self._search_text: str = ""
         self._first_category_button: Gtk.ToggleButton | None = None
 
-        # Stored so cards can be rebuilt when capsule size changes.
+        # Stored so cards can be rebuilt on catalogue reload.
         self._entries: list[AppEntry] = []
         self._resolve_asset: Callable[[str], str] | None = None
-        self._capsule_width: int = _DEFAULT_CAPSULE_WIDTH
 
         # ── Category strip ────────────────────────────────────────────────
         self._cat_scroll = Gtk.ScrolledWindow()
@@ -271,31 +271,19 @@ class BrowseView(Gtk.Box):
         self,
         entries: list[AppEntry],
         resolve_asset: Callable[[str], str] | None = None,
-        capsule_width: int | None = None,
     ) -> None:
         """Populate the grid from a list of catalogue entries."""
         self._entries = entries
         self._resolve_asset = resolve_asset
-        if capsule_width is not None:
-            self._capsule_width = capsule_width
         self._rebuild_cards()
 
-    def set_capsule_width(self, width: int) -> None:
-        """Update the capsule size and rebuild cards from the stored entry list."""
-        self._capsule_width = width
-        if self._entries:
-            self._rebuild_cards()
-
     def _rebuild_cards(self) -> None:
-        """Rebuild all cards from the stored entry/resolver/size state."""
+        """Rebuild all cards from the stored entry/resolver state."""
         self._clear()
 
         if not self._entries:
             self._show_status(self._empty_title, self._empty_description)
             return
-
-        # Update the flow box minimum child width to match the capsule.
-        self._flow_box.set_min_children_per_line(2)
 
         # Build category toggle buttons.
         categories = sorted({e.category for e in self._entries})
@@ -310,11 +298,7 @@ class BrowseView(Gtk.Box):
 
         # Add cards sorted alphabetically.
         for entry in sorted(self._entries, key=lambda e: e.name.lower()):
-            card = AppCard(
-                entry,
-                resolve_asset=self._resolve_asset,
-                cover_width=self._capsule_width,
-            )
+            card = AppCard(entry, resolve_asset=self._resolve_asset)
             self._cards.append(card)
             self._flow_box.append(card)
 

@@ -4,6 +4,22 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.11.24] — 2026-02-27
+
+### Changed
+- **GNOME Software-style horizontal cards**: replaced the portrait capsule
+  grid with fixed 300 × 96 px horizontal cards. Each card shows a 64 × 96
+  cover thumbnail (exact 2:3 Steam ratio) on the left when available,
+  falling back to a 48 px app icon centred in the column. The right side
+  shows the app name (bold) and summary (dimmed), both single-line with
+  ellipsis. Cards are strictly uniform — `do_measure` returns exactly
+  300 × 96 for every card regardless of content.
+- **Capsule size preference removed**: cards are now fixed-size, so the
+  Appearance section (and the underlying config helpers) are no longer
+  needed and have been removed from Settings and `config.py`.
+
+---
+
 ## [0.11.23] — 2026-02-27
 
 ### Fixed

@@ -83,39 +83,6 @@ def save_repos(repos: list[dict]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Capsule size helpers
-# ---------------------------------------------------------------------------
-
-# Width → height is always width * 3 // 2  (2:3 portrait ratio, Steam capsule spec)
-# Widths are clean fractions of Steam's source size (600 × 900 px).
-CAPSULE_SIZES: dict[str, int] = {
-    "small":    150,   # ¼ of 600
-    "medium":   200,   # ⅓ of 600
-    "large":    300,   # ½ of 600
-}
-_DEFAULT_CAPSULE_SIZE = "medium"
-
-CAPSULE_SIZE_LABELS: dict[str, str] = {
-    "small":  "Small (150 × 225)",
-    "medium": "Medium (200 × 300)",
-    "large":  "Large (300 × 450)",
-}
-
-
-def load_capsule_size() -> str:
-    """Return the stored capsule size key, defaulting to 'compact'."""
-    key = _load().get("capsule_size", _DEFAULT_CAPSULE_SIZE)
-    return key if key in CAPSULE_SIZES else _DEFAULT_CAPSULE_SIZE
-
-
-def save_capsule_size(size: str) -> None:
-    """Persist the capsule size key."""
-    cfg = _load()
-    cfg["capsule_size"] = size
-    _save(cfg)
-
-
-# ---------------------------------------------------------------------------
 # Bottles data path helpers
 # ---------------------------------------------------------------------------
 

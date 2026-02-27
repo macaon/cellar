@@ -398,9 +398,12 @@ class AddAppDialog(Adw.Dialog):
             select_multiple=multi,
         )
         img_filter = Gtk.FileFilter()
-        img_filter.set_name("Images (PNG, JPG)")
+        img_filter.set_name("Images (PNG, JPG, ICO, SVG)")
         img_filter.add_mime_type("image/png")
         img_filter.add_mime_type("image/jpeg")
+        img_filter.add_mime_type("image/x-icon")
+        img_filter.add_mime_type("image/vnd.microsoft.icon")
+        img_filter.add_mime_type("image/svg+xml")
         chooser.add_filter(img_filter)
         chooser.connect("response", callback, chooser)
         chooser.show()

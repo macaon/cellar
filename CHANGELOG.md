@@ -4,6 +4,14 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.11.15] — 2026-02-27
+
+### Added
+- ICO and SVG accepted in all image pickers (Add App and Edit App dialogs).
+  GdkPixbuf handles ICO natively and SVG via librsvg (standard on GNOME).
+
+---
+
 ## [0.11.14] — 2026-02-27
 
 ### Added

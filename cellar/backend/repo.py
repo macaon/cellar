@@ -270,7 +270,18 @@ class _GioFetcher:
             raise RepoError(f"GIO could not read {uri}: {exc.message}") from exc
 
     def resolve_uri(self, rel_path: str) -> str:
-        return f"{self._base}/{rel_path.lstrip('/')}"
+        uri = f"{self._base}/{rel_path.lstrip('/')}"
+        # Prefer the GVFS FUSE path — a plain filesystem path that GdkPixbuf,
+        # os.path.isfile, and tarfile can use without any GIO calls.  The share
+        # is already mounted at this point (we fetched the catalogue through it),
+        # so get_path() returns the gvfsd-fuse path immediately.
+        try:
+            fuse_path = self._Gio.File.new_for_uri(uri).get_path()
+            if fuse_path:
+                return fuse_path
+        except Exception:
+            pass
+        return uri
 
 
 # ---------------------------------------------------------------------------

@@ -34,20 +34,21 @@ class AddAppDialog(Adw.Dialog):
         self,
         *,
         archive_path: str,
-        repo,           # cellar.backend.repo.Repo
+        repos,          # list[cellar.backend.repo.Repo] — all writable repos
         on_done,        # callable()
     ) -> None:
         super().__init__(title="Add App to Catalogue", content_width=560)
 
         self._archive_path = archive_path
-        self._repo = repo
+        self._repos = repos
+        self._repo = repos[0]
         self._on_done = on_done
         self._cancel_event = threading.Event()
 
         # Category list: base categories + any custom ones stored in the repo
         from cellar.backend.packager import BASE_CATEGORIES
         try:
-            self._categories: list[str] = repo.fetch_categories()
+            self._categories: list[str] = self._repo.fetch_categories()
         except Exception:
             self._categories = list(BASE_CATEGORIES)
 
@@ -105,6 +106,18 @@ class AddAppDialog(Adw.Dialog):
 
         # ── Archive ───────────────────────────────────────────────────────
         archive_group = Adw.PreferencesGroup(title="Archive")
+
+        # Repository selector — only shown when more than one writable repo
+        # is configured, so single-repo users see no extra clutter.
+        if len(self._repos) > 1:
+            self._repo_row = Adw.ComboRow(title="Repository")
+            repo_model = Gtk.StringList()
+            for r in self._repos:
+                repo_model.append(r.name)
+            self._repo_row.set_model(repo_model)
+            self._repo_row.connect("notify::selected", self._on_repo_changed)
+            archive_group.add(self._repo_row)
+
         self._archive_row = Adw.ActionRow(
             title="File",
             subtitle=Path(self._archive_path).name,
@@ -329,6 +342,11 @@ class AddAppDialog(Adw.Dialog):
         GLib.idle_add(_apply)
 
     # ── Signal handlers — form fields ─────────────────────────────────────
+
+    def _on_repo_changed(self, row, _param) -> None:
+        idx = row.get_selected()
+        if 0 <= idx < len(self._repos):
+            self._repo = self._repos[idx]
 
     def _on_name_changed(self, _entry) -> None:
         name = self._name_entry.get_text().strip()

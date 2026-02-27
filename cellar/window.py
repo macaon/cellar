@@ -36,6 +36,9 @@ class CellarWindow(Adw.ApplicationWindow):
         # The first successfully loaded Repo — used to resolve asset URIs in
         # the detail view.  Updated on every catalogue reload.
         self._first_repo = None
+        # All writable repos from the last catalogue load — passed to AddAppDialog
+        # so the user can choose which one to add a package to.
+        self._writable_repos: list = []
 
         self.search_bar.set_key_capture_widget(self)
         self.add_button.connect("clicked", self._on_add_app_clicked)
@@ -76,6 +79,7 @@ class CellarWindow(Adw.ApplicationWindow):
 
         manager = RepoManager()
         self._first_repo = None
+        self._writable_repos = []
 
         env_uri = os.environ.get("CELLAR_REPO", "")
         if env_uri:
@@ -90,6 +94,7 @@ class CellarWindow(Adw.ApplicationWindow):
             try:
                 r = Repo(
                     cfg["uri"],
+                    cfg.get("name", ""),
                     ssh_identity=cfg.get("ssh_identity"),
                     mount_op=mount_op,
                 )
@@ -98,8 +103,8 @@ class CellarWindow(Adw.ApplicationWindow):
             except RepoError as exc:
                 log.warning("Configured repo %r invalid: %s", cfg["uri"], exc)
 
-        can_add = self._first_repo is not None and self._first_repo.is_writable
-        self.add_button.set_visible(can_add)
+        self._writable_repos = [r for r in manager if r.is_writable]
+        self.add_button.set_visible(bool(self._writable_repos))
 
         if not list(manager):
             self._browse.show_error(
@@ -222,7 +227,7 @@ class CellarWindow(Adw.ApplicationWindow):
 
         dialog = AddAppDialog(
             archive_path=archive_path,
-            repo=self._first_repo,
+            repos=self._writable_repos,
             on_done=self._load_catalogue,
         )
         dialog.present(self)
@@ -240,7 +245,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="application-x-executable",
-            version="0.11.13",
+            version="0.11.14",
             comments="A GNOME storefront for Bottles-managed Windows apps.",
             license_type=Gtk.License.GPL_3_0,
         )

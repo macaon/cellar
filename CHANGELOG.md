@@ -4,6 +4,33 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.11.14] — 2026-02-27
+
+### Added
+- **Multi-repo support for Add App**: when more than one writable repository is
+  configured, the Add App form now shows a "Repository" combo row so the user
+  can choose which repo to add the package to. Single-repo setups are unchanged.
+  `AddAppDialog` now accepts `repos` (list) instead of a single `repo`.
+  `window.py` collects all writable repos after each catalogue reload and passes
+  them through; repo names from config are now forwarded to `Repo()` so the
+  combo shows human-readable labels when available.
+
+### Fixed
+- **Images (icon, cover, screenshots) not displayed for SMB/NFS repos**:
+  `_GioFetcher.resolve_uri` was returning the raw `smb://` URI, which
+  `os.path.isfile()` and `GdkPixbuf` cannot use directly. It now calls
+  `Gio.File.get_path()` first to get the GVFS FUSE path (a regular filesystem
+  path under `/run/user/…/gvfs/`), which works transparently since the share is
+  already mounted from the catalogue fetch.
+- **Uploaded app icons too wide in capsule view**: icon PNGs were scaled to the
+  full card width (`cover_width × cover_width`) and displayed with
+  `ContentFit.CONTAIN`, filling the entire card. Now scaled to
+  `cover_width × 2 // 3` and displayed with `ContentFit.SCALE_DOWN` (never
+  enlarged beyond natural size), so the icon floats centred with padding on all
+  sides — matching the existing fallback icon behaviour.
+
+---
+
 ## [0.11.13] — 2026-02-27
 
 ### Added

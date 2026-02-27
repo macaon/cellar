@@ -131,10 +131,14 @@ class AppCard(Gtk.FlowBoxChild):
             if resolve_asset and entry.icon:
                 icon_path = resolve_asset(entry.icon)
                 if os.path.isfile(icon_path):
-                    texture = _load_icon_texture(icon_path, cover_width)
+                    icon_size = cover_width * 2 // 3
+                    texture = _load_icon_texture(icon_path, icon_size)
                     if texture is not None:
                         pic = Gtk.Picture.new_for_paintable(texture)
-                        pic.set_content_fit(Gtk.ContentFit.CONTAIN)
+                        # SCALE_DOWN: never enlarge beyond the texture's natural
+                        # size, so the icon floats centred with visible padding
+                        # on all sides rather than filling the full card width.
+                        pic.set_content_fit(Gtk.ContentFit.SCALE_DOWN)
                         img_area.set_child(pic)
                         icon_shown = True
             if not icon_shown:

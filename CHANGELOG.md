@@ -4,6 +4,26 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.11.13] — 2026-02-27
+
+### Added
+- **`cellar/views/add_app.py`**: "Reading archive…" progress bar shown while
+  `bottle.yml` is scanned from the backup. The dialog now opens on a scan page
+  (progress bar, 0 → 100%) and transitions to the metadata form automatically
+  when the read completes.
+
+### Fixed
+- **`cellar/backend/packager.py`**: `read_bottle_yml` previously called
+  `tf.getmembers()`, which reads every member in the archive before searching —
+  causing the full multi-GB stream to be decompressed even though `bottle.yml`
+  is typically one of the first entries. Switched to iterating `tf` directly so
+  the scan stops as soon as `bottle.yml` is found.
+- `read_bottle_yml` now accepts an optional `progress_cb(fraction)` and uses a
+  `_ProgressFileObj` wrapper to track compressed bytes read, giving an accurate
+  fraction even when the file is found early.
+
+---
+
 ## [0.11.12] — 2026-02-27
 
 ### Fixed

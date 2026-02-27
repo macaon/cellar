@@ -31,21 +31,63 @@ BASE_CATEGORIES: list[str] = ["Games", "Productivity", "Graphics", "Utility"]
 # bottle.yml extraction
 # ---------------------------------------------------------------------------
 
-def read_bottle_yml(archive_path: str) -> dict:
+class _ProgressFileObj:
+    """Wraps a binary file, calling *cb(fraction)* after each read chunk.
+
+    Used to track how far through the compressed stream tarfile has read,
+    so callers can show a progress bar while scanning for ``bottle.yml``.
+    """
+    __slots__ = ("_f", "_size", "_cb")
+
+    def __init__(self, f, size: int, cb):
+        self._f = f
+        self._size = size
+        self._cb = cb
+
+    def read(self, n=-1):
+        data = self._f.read(n)
+        if self._cb and self._size > 0:
+            self._cb(min(self._f.tell() / self._size, 1.0))
+        return data
+
+    def seek(self, *args): return self._f.seek(*args)
+    def tell(self): return self._f.tell()
+    def readable(self): return True
+    def writable(self): return False
+    def seekable(self): return True
+
+    @property
+    def name(self): return getattr(self._f, "name", "")
+
+
+def read_bottle_yml(archive_path: str, *, progress_cb=None) -> dict:
     """Extract and return top-level scalar fields from ``bottle.yml``.
 
     Searches for ``bottle.yml`` at any depth inside the ``.tar.gz``.
     Uses a simple line-by-line parser — no PyYAML dependency.
+    Iterates members one at a time so it stops as soon as the file is
+    found — no need to read the whole archive.
+
+    *progress_cb*, if given, is called with a float in ``[0, 1]``
+    representing how far through the compressed stream has been read.
 
     Returns an empty dict if the file is not found or cannot be read.
     """
     try:
-        with tarfile.open(archive_path, "r:gz") as tf:
-            for member in tf.getmembers():
-                if member.name == "bottle.yml" or member.name.endswith("/bottle.yml"):
-                    f = tf.extractfile(member)
-                    if f:
-                        return _parse_top_level(f.read())
+        with open(archive_path, "rb") as raw:
+            if progress_cb:
+                file_size = Path(archive_path).stat().st_size
+                fileobj = _ProgressFileObj(raw, file_size, progress_cb)
+            else:
+                fileobj = raw
+            with tarfile.open(fileobj=fileobj, mode="r:gz") as tf:
+                for member in tf:
+                    if member.name == "bottle.yml" or member.name.endswith("/bottle.yml"):
+                        f = tf.extractfile(member)
+                        if f:
+                            if progress_cb:
+                                progress_cb(1.0)
+                            return _parse_top_level(f.read())
     except (tarfile.TarError, OSError):
         pass
     return {}

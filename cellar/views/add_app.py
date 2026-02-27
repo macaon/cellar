@@ -85,11 +85,12 @@ class AddAppDialog(Adw.Dialog):
 
         toolbar_view.add_top_bar(header)
 
-        # Stack: form vs progress
+        # Stack: scan → form → progress
         self._stack = Gtk.Stack()
+        self._stack.add_named(self._build_scan_page(), "scan")
         self._stack.add_named(self._build_form(), "form")
         self._stack.add_named(self._build_progress(), "progress")
-        self._stack.set_visible_child_name("form")
+        self._stack.set_visible_child_name("scan")
 
         toolbar_view.set_content(self._stack)
         self.set_child(toolbar_view)
@@ -248,6 +249,25 @@ class AddAppDialog(Adw.Dialog):
         row.add_suffix(btn)
         return row
 
+    def _build_scan_page(self) -> Gtk.Widget:
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
+        box.set_valign(Gtk.Align.CENTER)
+        box.set_margin_top(48)
+        box.set_margin_bottom(48)
+        box.set_margin_start(24)
+        box.set_margin_end(24)
+
+        label = Gtk.Label(label="Reading archive…")
+        label.add_css_class("dim-label")
+
+        self._scan_bar = Gtk.ProgressBar()
+        self._scan_bar.set_show_text(True)
+        self._scan_bar.set_fraction(0.0)
+
+        box.append(label)
+        box.append(self._scan_bar)
+        return box
+
     def _build_progress(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
         box.set_valign(Gtk.Align.CENTER)
@@ -275,30 +295,38 @@ class AddAppDialog(Adw.Dialog):
     # ── Pre-fill ──────────────────────────────────────────────────────────
 
     def _prefill(self) -> None:
-        """Read bottle.yml in a background thread and apply results on the main thread."""
+        """Read bottle.yml in a background thread, show progress, then reveal the form."""
         from cellar.backend.packager import read_bottle_yml
 
-        yml = read_bottle_yml(self._archive_path)
+        def _on_progress(fraction: float) -> None:
+            GLib.idle_add(self._scan_bar.set_fraction, fraction)
 
-        name = yml.get("Name", "")
-        if name:
-            GLib.idle_add(self._name_entry.set_text, name)
+        yml = read_bottle_yml(self._archive_path, progress_cb=_on_progress)
 
-        runner = yml.get("Runner", "")
-        if runner:
-            GLib.idle_add(self._runner_row.set_subtitle, runner)
+        def _apply() -> None:
+            name = yml.get("Name", "")
+            if name:
+                self._name_entry.set_text(name)
 
-        dxvk = yml.get("DXVK", "")
-        if dxvk:
-            GLib.idle_add(self._dxvk_row.set_subtitle, dxvk)
+            runner = yml.get("Runner", "")
+            if runner:
+                self._runner_row.set_subtitle(runner)
 
-        vkd3d = yml.get("VKD3D", "")
-        if vkd3d:
-            GLib.idle_add(self._vkd3d_row.set_subtitle, vkd3d)
+            dxvk = yml.get("DXVK", "")
+            if dxvk:
+                self._dxvk_row.set_subtitle(dxvk)
 
-        env = yml.get("Environment", "")
-        if env.lower() == "game" and "Games" in self._categories:
-            GLib.idle_add(self._category_row.set_selected, self._categories.index("Games"))
+            vkd3d = yml.get("VKD3D", "")
+            if vkd3d:
+                self._vkd3d_row.set_subtitle(vkd3d)
+
+            env = yml.get("Environment", "")
+            if env.lower() == "game" and "Games" in self._categories:
+                self._category_row.set_selected(self._categories.index("Games"))
+
+            self._stack.set_visible_child_name("form")
+
+        GLib.idle_add(_apply)
 
     # ── Signal handlers — form fields ─────────────────────────────────────
 

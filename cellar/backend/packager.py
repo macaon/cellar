@@ -146,13 +146,13 @@ def import_to_repo(
         if src and getattr(entry, key):
             dest = repo_root / getattr(entry, key)
             dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dest)
+            shutil.copyfile(src, dest)
 
     # ── Screenshots ───────────────────────────────────────────────────────
     ss_dir = app_dir / "screenshots"
     for i, src in enumerate(images.get("screenshots", []), 1):
         ss_dir.mkdir(exist_ok=True)
-        shutil.copy2(src, ss_dir / f"{i:02d}{Path(src).suffix}")
+        shutil.copyfile(src, ss_dir / f"{i:02d}{Path(src).suffix}")
 
     # ── catalogue.json ────────────────────────────────────────────────────
     _upsert_catalogue(repo_root, entry)
@@ -220,7 +220,7 @@ def update_in_repo(
         if src and getattr(new_entry, key):
             dest = repo_root / getattr(new_entry, key)
             dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dest)
+            shutil.copyfile(src, dest)
 
     # ── Screenshots ───────────────────────────────────────────────────────
     # None = keep existing, [] = clear all, [...] = replace
@@ -232,7 +232,7 @@ def update_in_repo(
         if new_screenshots:
             ss_dir.mkdir(parents=True, exist_ok=True)
             for i, src in enumerate(new_screenshots, 1):
-                shutil.copy2(src, ss_dir / f"{i:02d}{Path(src).suffix}")
+                shutil.copyfile(src, ss_dir / f"{i:02d}{Path(src).suffix}")
 
     # ── catalogue.json ────────────────────────────────────────────────────
     _upsert_catalogue(repo_root, new_entry)

@@ -4,6 +4,18 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.11.11] — 2026-02-27
+
+### Fixed
+- **`cellar/backend/packager.py`**: importing or editing an app in an SMB/NFS
+  repo failed with `[Errno 95] Operation not supported` when copying images
+  (icon, cover, hero, screenshots) to the GVFS FUSE mount. `shutil.copy2`
+  copies file metadata including timestamps via `copystat`/`utimes`, which
+  GVFS FUSE does not support. Replaced all four call sites with
+  `shutil.copyfile`, which copies only the file content.
+
+---
+
 ## [0.11.10] — 2026-02-27
 
 ### Fixed

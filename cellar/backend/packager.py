@@ -24,7 +24,7 @@ from typing import Callable
 #: Built-in categories always present in every repo.  Custom user-defined
 #: categories are stored in the ``categories`` key of ``catalogue.json`` and
 #: merged with this list at read time.
-BASE_CATEGORIES: list[str] = ["Games", "Productivity", "Graphics", "Utility", "Other"]
+BASE_CATEGORIES: list[str] = ["Games", "Productivity", "Graphics", "Utility"]
 
 
 # ---------------------------------------------------------------------------

@@ -16,6 +16,12 @@
               <object class="AdwToolbarView">
                 <child type="top">
                   <object class="AdwHeaderBar">
+                    <property name="title-widget">
+                      <object class="AdwViewSwitcher">
+                        <property name="stack">view_stack</property>
+                        <property name="policy">wide</property>
+                      </object>
+                    </property>
                     <child type="start">
                       <object class="GtkToggleButton" id="search_button">
                         <property name="icon-name">system-search-symbolic</property>
@@ -57,8 +63,43 @@
                 <property name="content">
                   <object class="AdwToastOverlay" id="toast_overlay">
                     <property name="child">
-                      <object class="GtkBox" id="main_content">
-                        <property name="orientation">vertical</property>
+                      <object class="AdwViewStack" id="view_stack">
+                        <child>
+                          <object class="AdwViewStackPage">
+                            <property name="name">explore</property>
+                            <property name="title" translatable="yes">Explore</property>
+                            <property name="icon-name">compass-symbolic</property>
+                            <property name="child">
+                              <object class="GtkBox" id="explore_box">
+                                <property name="orientation">vertical</property>
+                              </object>
+                            </property>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="AdwViewStackPage">
+                            <property name="name">installed</property>
+                            <property name="title" translatable="yes">Installed</property>
+                            <property name="icon-name">emblem-default-symbolic</property>
+                            <property name="child">
+                              <object class="GtkBox" id="installed_box">
+                                <property name="orientation">vertical</property>
+                              </object>
+                            </property>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="AdwViewStackPage" id="updates_page">
+                            <property name="name">updates</property>
+                            <property name="title" translatable="yes">Updates</property>
+                            <property name="icon-name">software-update-available-symbolic</property>
+                            <property name="child">
+                              <object class="GtkBox" id="updates_box">
+                                <property name="orientation">vertical</property>
+                              </object>
+                            </property>
+                          </object>
+                        </child>
                       </object>
                     </property>
                   </object>

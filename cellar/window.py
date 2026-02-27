@@ -28,7 +28,10 @@ class CellarWindow(Adw.ApplicationWindow):
     refresh_button: Gtk.Button = Gtk.Template.Child()
     menu_button: Gtk.MenuButton = Gtk.Template.Child()
     toast_overlay: Adw.ToastOverlay = Gtk.Template.Child()
-    main_content: Gtk.Box = Gtk.Template.Child()
+    explore_box: Gtk.Box = Gtk.Template.Child()
+    installed_box: Gtk.Box = Gtk.Template.Child()
+    updates_box: Gtk.Box = Gtk.Template.Child()
+    updates_page: Adw.ViewStackPage = Gtk.Template.Child()
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
@@ -59,10 +62,32 @@ class CellarWindow(Adw.ApplicationWindow):
 
         from cellar.views.browse import BrowseView
 
-        self._browse = BrowseView()
-        self._browse.set_vexpand(True)
-        self._browse.connect("app-selected", self._on_app_selected)
-        self.main_content.append(self._browse)
+        self._browse_explore = BrowseView(
+            empty_title="No Repository Configured",
+            empty_description=(
+                "Open Preferences (the menu in the top-right corner) "
+                "to add a repository source."
+            ),
+        )
+        self._browse_explore.set_vexpand(True)
+        self._browse_explore.connect("app-selected", self._on_app_selected)
+        self.explore_box.append(self._browse_explore)
+
+        self._browse_installed = BrowseView(
+            empty_title="Nothing Installed",
+            empty_description="Apps you install will appear here.",
+        )
+        self._browse_installed.set_vexpand(True)
+        self._browse_installed.connect("app-selected", self._on_app_selected)
+        self.installed_box.append(self._browse_installed)
+
+        self._browse_updates = BrowseView(
+            empty_title="Up to Date",
+            empty_description="All installed apps are up to date.",
+        )
+        self._browse_updates.set_vexpand(True)
+        self._browse_updates.connect("app-selected", self._on_app_selected)
+        self.updates_box.append(self._browse_updates)
 
         self.connect("realize", lambda _w: self._load_catalogue())
 
@@ -107,11 +132,14 @@ class CellarWindow(Adw.ApplicationWindow):
         self.add_button.set_visible(bool(self._writable_repos))
 
         if not list(manager):
-            self._browse.show_error(
+            self._browse_explore.show_error(
                 "No Repository Configured",
                 "Open Preferences (the menu in the top-right corner) "
                 "to add a repository source.",
             )
+            self._browse_installed.load_entries([])
+            self._browse_updates.load_entries([])
+            self.updates_page.set_badge_number(0)
             return
 
         self.refresh_button.set_sensitive(False)
@@ -119,20 +147,43 @@ class CellarWindow(Adw.ApplicationWindow):
             entries = manager.fetch_all_catalogues()
             if entries:
                 from cellar.backend.config import CAPSULE_SIZES, load_capsule_size
+                from cellar.backend import database
                 resolver = self._first_repo.resolve_asset_uri if self._first_repo else None
-                self._browse.load_entries(
-                    entries,
-                    resolve_asset=resolver,
-                    capsule_width=CAPSULE_SIZES[load_capsule_size()],
+                capsule_width = CAPSULE_SIZES[load_capsule_size()]
+
+                installed_entries = []
+                update_entries = []
+                for e in entries:
+                    rec = database.get_installed(e.id)
+                    if rec is not None:
+                        installed_entries.append(e)
+                        if rec.get("installed_version") != e.version and bool(e.archive):
+                            update_entries.append(e)
+
+                self._browse_explore.load_entries(
+                    entries, resolve_asset=resolver, capsule_width=capsule_width
                 )
+                self._browse_installed.load_entries(
+                    installed_entries, resolve_asset=resolver, capsule_width=capsule_width
+                )
+                self._browse_updates.load_entries(
+                    update_entries, resolve_asset=resolver, capsule_width=capsule_width
+                )
+                self.updates_page.set_badge_number(len(update_entries))
             else:
-                self._browse.show_error(
+                self._browse_explore.show_error(
                     "Empty Catalogue",
                     "No apps found in any configured repository.",
                 )
+                self._browse_installed.load_entries([])
+                self._browse_updates.load_entries([])
+                self.updates_page.set_badge_number(0)
         except Exception as exc:
             log.error("Failed to load catalogue: %s", exc)
-            self._browse.show_error("Could Not Load Repository", str(exc))
+            self._browse_explore.show_error("Could Not Load Repository", str(exc))
+            self._browse_installed.load_entries([])
+            self._browse_updates.load_entries([])
+            self.updates_page.set_badge_number(0)
         finally:
             self.refresh_button.set_sensitive(True)
 
@@ -239,9 +290,14 @@ class CellarWindow(Adw.ApplicationWindow):
     def _on_preferences_activated(self, _action, _param) -> None:
         from cellar.views.settings import SettingsDialog
 
+        def _set_capsule_width(width: int) -> None:
+            self._browse_explore.set_capsule_width(width)
+            self._browse_installed.set_capsule_width(width)
+            self._browse_updates.set_capsule_width(width)
+
         dialog = SettingsDialog(
             on_repos_changed=self._load_catalogue,
-            on_capsule_size_changed=self._browse.set_capsule_width,
+            on_capsule_size_changed=_set_capsule_width,
         )
         dialog.present(self)
 
@@ -249,7 +305,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="application-x-executable",
-            version="0.11.18",
+            version="0.11.19",
             comments="A GNOME storefront for Bottles-managed Windows apps.",
             license_type=Gtk.License.GPL_3_0,
         )
@@ -265,7 +321,10 @@ class CellarWindow(Adw.ApplicationWindow):
         self.search_button.set_active(bar.get_search_mode())
 
     def _on_search_changed(self, entry: Gtk.SearchEntry) -> None:
-        self._browse.set_search_text(entry.get_text())
+        text = entry.get_text()
+        self._browse_explore.set_search_text(text)
+        self._browse_installed.set_search_text(text)
+        self._browse_updates.set_search_text(text)
 
     def _on_refresh_clicked(self, _button: Gtk.Button) -> None:
         self._load_catalogue()

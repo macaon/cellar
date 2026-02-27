@@ -188,9 +188,16 @@ class BrowseView(Gtk.Box):
         "app-selected": (GObject.SignalFlags.RUN_FIRST, None, (object,)),
     }
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        empty_title: str = "Empty Catalogue",
+        empty_description: str = "The repository contains no apps.",
+    ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
 
+        self._empty_title = empty_title
+        self._empty_description = empty_description
         self._cards: list[AppCard] = []
         self._active_category: str | None = None
         self._search_text: str = ""
@@ -214,10 +221,6 @@ class BrowseView(Gtk.Box):
         self._cat_box.set_margin_bottom(8)
         self._cat_scroll.set_child(self._cat_box)
         self.append(self._cat_scroll)
-
-        self._sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
-        self._sep.set_visible(False)
-        self.append(self._sep)
 
         # ── Content stack (grid / status page) ───────────────────────────
         self._stack = Gtk.Stack()
@@ -249,8 +252,8 @@ class BrowseView(Gtk.Box):
         self._status.set_icon_name("system-software-install-symbolic")
         self._stack.add_named(self._status, "status")
 
-        # Start on the status page with a neutral message.
-        self._show_status("No Repository", "Configure a repository to browse apps.")
+        # Start on the status page until a catalogue is loaded.
+        self._show_status(self._empty_title, self._empty_description)
 
     # ── Public API ────────────────────────────────────────────────────────
 
@@ -278,7 +281,7 @@ class BrowseView(Gtk.Box):
         self._clear()
 
         if not self._entries:
-            self._show_status("Empty Catalogue", "The repository contains no apps.")
+            self._show_status(self._empty_title, self._empty_description)
             return
 
         # Update the flow box minimum child width to match the capsule.
@@ -306,7 +309,6 @@ class BrowseView(Gtk.Box):
             self._flow_box.append(card)
 
         self._cat_scroll.set_visible(True)
-        self._sep.set_visible(True)
         self._apply_filter()
 
     def show_error(self, title: str, description: str) -> None:
@@ -314,7 +316,6 @@ class BrowseView(Gtk.Box):
         self._entries = []
         self._resolve_asset = None
         self._cat_scroll.set_visible(False)
-        self._sep.set_visible(False)
         self._show_status(title, description)
 
     def set_search_text(self, text: str) -> None:

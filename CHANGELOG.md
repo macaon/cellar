@@ -4,6 +4,23 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.11.19] — 2026-02-27
+
+### Added
+- **Explore / Installed / Updates view switcher**: the window title is replaced
+  by an `AdwViewSwitcher` with three tabs, matching the GNOME Software layout.
+  - **Explore** shows the full catalogue with the category strip and search.
+  - **Installed** shows only apps that are recorded in the local database.
+  - **Updates** shows apps whose installed version differs from the catalogue
+    version; the tab displays a badge with the pending update count.
+  - Search and capsule-size changes apply across all three views.
+
+### Removed
+- **Category-strip separator**: the thin horizontal rule between the category
+  pills and the app grid has been removed; margins provide sufficient spacing.
+
+---
+
 ## [0.11.18] — 2026-02-27
 
 ### Changed

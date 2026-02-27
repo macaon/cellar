@@ -4,6 +4,18 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.11.21] — 2026-02-27
+
+### Fixed
+- **View switcher icons**: bundle the three GNOME Software symbolic SVGs
+  (`software-explore-symbolic`, `software-installed-symbolic`,
+  `software-updates-symbolic`) under `data/icons/hicolor/symbolic/apps/` and
+  register the search path with GTK's icon theme at startup, so the icons
+  display correctly without GNOME Software being installed. Icons are CC0-1.0
+  (GNOME Foundation) with `fill="currentColor"` for proper theme recolouring.
+
+---
+
 ## [0.11.20] — 2026-02-27
 
 ### Changed

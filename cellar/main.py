@@ -17,7 +17,14 @@ class CellarApplication(Adw.Application):
         )
 
     def do_activate(self):
+        from gi.repository import Gdk, Gtk
+
+        from cellar.utils.paths import icons_dir
         from cellar.window import CellarWindow
+
+        display = Gdk.Display.get_default()
+        if display:
+            Gtk.IconTheme.get_for_display(display).add_search_path(icons_dir())
 
         win = self.props.active_window
         if not win:

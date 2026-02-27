@@ -4,6 +4,17 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.11.20] — 2026-02-27
+
+### Changed
+- **View switcher icons**: use GNOME Software's own icon set —
+  `software-explore-symbolic`, `software-installed-symbolic`,
+  `software-updates-symbolic` — matching the upstream visual style exactly.
+  These icons ship with GNOME Software (GPL-2.0+, compatible with our
+  GPL-3.0+) and will fall back gracefully on systems where they are absent.
+
+---
+
 ## [0.11.19] — 2026-02-27
 
 ### Added

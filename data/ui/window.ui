@@ -68,7 +68,7 @@
                           <object class="AdwViewStackPage">
                             <property name="name">explore</property>
                             <property name="title" translatable="yes">Explore</property>
-                            <property name="icon-name">compass-symbolic</property>
+                            <property name="icon-name">software-explore-symbolic</property>
                             <property name="child">
                               <object class="GtkBox" id="explore_box">
                                 <property name="orientation">vertical</property>
@@ -80,7 +80,7 @@
                           <object class="AdwViewStackPage">
                             <property name="name">installed</property>
                             <property name="title" translatable="yes">Installed</property>
-                            <property name="icon-name">emblem-default-symbolic</property>
+                            <property name="icon-name">software-installed-symbolic</property>
                             <property name="child">
                               <object class="GtkBox" id="installed_box">
                                 <property name="orientation">vertical</property>
@@ -92,7 +92,7 @@
                           <object class="AdwViewStackPage" id="updates_page">
                             <property name="name">updates</property>
                             <property name="title" translatable="yes">Updates</property>
-                            <property name="icon-name">software-update-available-symbolic</property>
+                            <property name="icon-name">software-updates-symbolic</property>
                             <property name="child">
                               <object class="GtkBox" id="updates_box">
                                 <property name="orientation">vertical</property>

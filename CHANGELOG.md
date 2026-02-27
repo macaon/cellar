@@ -4,6 +4,18 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.11.12] — 2026-02-27
+
+### Fixed
+- **`cellar/views/add_app.py`**: opening the Add App dialog on a large archive
+  froze the UI long enough to trigger the GNOME "force quit?" timeout dialog.
+  `_prefill()` called `read_bottle_yml()` synchronously in `__init__`, blocking
+  the main thread while the entire gzip stream was seeked to find `bottle.yml`.
+  It now runs on a daemon background thread (matching the pattern already used
+  in `edit_app.py`), with all UI updates posted back via `GLib.idle_add`.
+
+---
+
 ## [0.11.11] — 2026-02-27
 
 ### Fixed

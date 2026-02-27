@@ -61,7 +61,7 @@ class AddAppDialog(Adw.Dialog):
         self._id_user_edited = False
 
         self._build_ui()
-        self._prefill()
+        threading.Thread(target=self._prefill, daemon=True).start()
 
     # ── UI construction ───────────────────────────────────────────────────
 
@@ -275,29 +275,30 @@ class AddAppDialog(Adw.Dialog):
     # ── Pre-fill ──────────────────────────────────────────────────────────
 
     def _prefill(self) -> None:
+        """Read bottle.yml in a background thread and apply results on the main thread."""
         from cellar.backend.packager import read_bottle_yml
 
         yml = read_bottle_yml(self._archive_path)
 
         name = yml.get("Name", "")
         if name:
-            self._name_entry.set_text(name)
+            GLib.idle_add(self._name_entry.set_text, name)
 
         runner = yml.get("Runner", "")
         if runner:
-            self._runner_row.set_subtitle(runner)
+            GLib.idle_add(self._runner_row.set_subtitle, runner)
 
         dxvk = yml.get("DXVK", "")
         if dxvk:
-            self._dxvk_row.set_subtitle(dxvk)
+            GLib.idle_add(self._dxvk_row.set_subtitle, dxvk)
 
         vkd3d = yml.get("VKD3D", "")
         if vkd3d:
-            self._vkd3d_row.set_subtitle(vkd3d)
+            GLib.idle_add(self._vkd3d_row.set_subtitle, vkd3d)
 
         env = yml.get("Environment", "")
         if env.lower() == "game" and "Games" in self._categories:
-            self._category_row.set_selected(self._categories.index("Games"))
+            GLib.idle_add(self._category_row.set_selected, self._categories.index("Games"))
 
     # ── Signal handlers — form fields ─────────────────────────────────────
 

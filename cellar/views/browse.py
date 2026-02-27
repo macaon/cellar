@@ -90,8 +90,9 @@ class AppCard(Gtk.FlowBoxChild):
     ) -> None:
         super().__init__()
         self.entry = entry
+        self._cover_width = cover_width
 
-        cover_height = cover_width * 3 // 2   # enforce 2:3 portrait ratio
+        cover_height = cover_width * 3 // 2   # 2:3 portrait ratio (Steam capsule spec)
 
         self.set_margin_start(6)
         self.set_margin_end(6)
@@ -164,6 +165,14 @@ class AppCard(Gtk.FlowBoxChild):
         inner.append(name_lbl)
 
         self.set_child(card)
+
+    # GTK virtual method — report a fixed natural width so FlowBox never
+    # stretches this child wider than the cover image area, regardless of
+    # how wide the name label's natural width happens to be.
+    def do_measure(self, orientation, for_size):
+        if orientation == Gtk.Orientation.HORIZONTAL:
+            return self._cover_width, self._cover_width, -1, -1
+        return super().do_measure(orientation, for_size)
 
     def matches(self, category: str | None, search: str) -> bool:
         """Return True if this card should be visible given the current filter."""

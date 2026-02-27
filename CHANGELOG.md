@@ -4,6 +4,24 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.11.23] — 2026-02-27
+
+### Fixed
+- **Cards always the same width**: `AppCard` now overrides `do_measure` to
+  report exactly `cover_width` for the horizontal dimension, the same pattern
+  used by `_FixedBox` for the image area. Previously a label whose natural
+  pixel width exceeded `cover_width` (possible at larger font sizes) would
+  silently widen its card, producing an uneven grid.
+
+### Changed
+- **Capsule sizes rescaled to Steam spec**: sizes are now clean fractions of
+  Steam's 600 × 900 capsule (2:3 portrait ratio) —
+  Small 150 × 225 (¼), Medium 200 × 300 (⅓, new default), Large 300 × 450 (½).
+  The old "compact / standard" keys are replaced by "small / medium / large".
+  Icon sizes and spacing scale proportionally (`cover_width × ⅔`).
+
+---
+
 ## [0.11.22] — 2026-02-27
 
 ### Fixed

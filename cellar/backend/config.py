@@ -86,16 +86,19 @@ def save_repos(repos: list[dict]) -> None:
 # Capsule size helpers
 # ---------------------------------------------------------------------------
 
-# Width → height is always width * 3 // 2  (2:3 portrait ratio, SteamGridDB spec)
+# Width → height is always width * 3 // 2  (2:3 portrait ratio, Steam capsule spec)
+# Widths are clean fractions of Steam's source size (600 × 900 px).
 CAPSULE_SIZES: dict[str, int] = {
-    "compact":  100,
-    "standard": 200,
+    "small":    150,   # ¼ of 600
+    "medium":   200,   # ⅓ of 600
+    "large":    300,   # ½ of 600
 }
-_DEFAULT_CAPSULE_SIZE = "compact"
+_DEFAULT_CAPSULE_SIZE = "medium"
 
 CAPSULE_SIZE_LABELS: dict[str, str] = {
-    "compact":  "Compact (100 × 150)",
-    "standard": "Standard (200 × 300)",
+    "small":  "Small (150 × 225)",
+    "medium": "Medium (200 × 300)",
+    "large":  "Large (300 × 450)",
 }
 
 

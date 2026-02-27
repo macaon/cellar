@@ -4,6 +4,20 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.11.10] — 2026-02-27
+
+### Fixed
+- **`cellar/backend/installer.py`**: progress bar jumped immediately to 55% and
+  then stalled for the entire extraction phase. `_extract_archive` now iterates
+  tar members one at a time and reports progress proportional to uncompressed
+  bytes extracted, filling the 55–70% band smoothly. Previously it called
+  `tarfile.extractall()` as a single blocking call with no feedback. The
+  immediate jump was also caused by the download step being instant for
+  local/SMB/NFS repos (file used in-place), so the first visible update was
+  the hardcoded 55% at extraction start.
+
+---
+
 ## [0.11.9] — 2026-02-27
 
 ### Removed

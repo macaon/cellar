@@ -298,7 +298,7 @@ class DetailView(Gtk.Box):
         name_lbl.set_wrap(True)
         meta.append(name_lbl)
 
-        # "Developer · Publisher · Year" byline.
+        # "Developer · Publisher · Year · Version" byline.
         byline_parts: list[str] = []
         if e.developer:
             byline_parts.append(e.developer)
@@ -306,6 +306,8 @@ class DetailView(Gtk.Box):
             byline_parts.append(e.publisher)
         if e.release_year:
             byline_parts.append(str(e.release_year))
+        if e.version:
+            byline_parts.append(e.version)
         if byline_parts:
             byline = Gtk.Label(label=" · ".join(byline_parts))
             byline.add_css_class("dim-label")
@@ -313,13 +315,9 @@ class DetailView(Gtk.Box):
             byline.set_wrap(True)
             meta.append(byline)
 
-        # Version + category + content-rating chips.
+        # Category + content-rating chips.
         chips = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         chips.set_margin_top(4)
-        if e.version:
-            lbl = Gtk.Label(label=f"v{e.version}")
-            lbl.add_css_class("tag")
-            chips.append(lbl)
         for text in filter(None, [e.category, e.content_rating]):
             lbl = Gtk.Label(label=text)
             lbl.add_css_class("tag")

@@ -132,7 +132,9 @@ class DetailView(Gtk.Box):
         if screenshots:
             body.append(screenshots)
 
-        body.append(self._make_details_group())
+        details = self._make_details_group()
+        if details is not None:
+            body.append(details)
 
         if e.built_with:
             body.append(self._make_components_group())
@@ -311,9 +313,13 @@ class DetailView(Gtk.Box):
             byline.set_wrap(True)
             meta.append(byline)
 
-        # Category + content-rating chips.
+        # Version + category + content-rating chips.
         chips = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         chips.set_margin_top(4)
+        if e.version:
+            lbl = Gtk.Label(label=f"v{e.version}")
+            lbl.add_css_class("tag")
+            chips.append(lbl)
         for text in filter(None, [e.category, e.content_rating]):
             lbl = Gtk.Label(label=text)
             lbl.add_css_class("tag")
@@ -359,8 +365,20 @@ class DetailView(Gtk.Box):
         wrapper.append(dots)
         return wrapper
 
-    def _make_details_group(self) -> Gtk.Widget:
+    def _make_details_group(self) -> Adw.PreferencesGroup | None:
         e = self._entry
+        has_any = bool(
+            e.developer
+            or (e.publisher and e.publisher != e.developer)
+            or e.release_year
+            or e.languages
+            or e.content_rating
+            or e.tags
+            or e.website
+            or e.store_links
+        )
+        if not has_any:
+            return None
         group = _group("Details")
         if e.developer:
             group.add(_info_row("Developer", e.developer))

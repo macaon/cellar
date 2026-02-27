@@ -400,6 +400,26 @@ class Repo:
         """Return a URI/path string for a repo-relative asset (icon, screenshot…)."""
         return self._fetcher.resolve_uri(repo_relative)
 
+    def fetch_categories(self) -> list[str]:
+        """Return the ordered category list for this repo.
+
+        The result is :data:`~cellar.backend.packager.BASE_CATEGORIES` plus any
+        custom categories stored in the top-level ``categories`` key of
+        ``catalogue.json``, with duplicates removed while preserving order.
+
+        Falls back to :data:`~cellar.backend.packager.BASE_CATEGORIES` alone if
+        the catalogue cannot be read or contains no ``categories`` key.
+        """
+        from cellar.backend.packager import BASE_CATEGORIES
+        try:
+            raw = self._fetch_json("catalogue.json")
+            stored: list[str] = raw.get("categories", []) if isinstance(raw, dict) else []
+        except RepoError:
+            stored = []
+        seen: set[str] = set(BASE_CATEGORIES)
+        custom = [c for c in stored if c not in seen]
+        return BASE_CATEGORIES + custom
+
     def iter_categories(self) -> Iterator[str]:
         """Yield the distinct categories present in the catalogue."""
         seen: set[str] = set()

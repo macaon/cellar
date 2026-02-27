@@ -5,6 +5,27 @@ Versioning follows [Semantic Versioning](https://semver.org/) — while the majo
 
 ---
 
+## [0.11.8] — 2026-02-27
+
+### Added
+- **Custom categories** in the Add App and Edit App dialogs.
+  - The "Category" combo shows built-in categories (`Games`, `Productivity`,
+    `Graphics`, `Utility`, `Other`) plus any custom ones stored in the repo,
+    then a **"Custom…"** sentinel at the end.
+  - Selecting "Custom…" reveals an `AdwEntryRow` below the combo and moves
+    focus to it automatically.
+  - On save, a custom category that isn't built-in is appended to a top-level
+    `categories` array in `catalogue.json`; it appears as a first-class item
+    in the combo on the next open.
+  - Save/Add button requires both Name and a non-empty Category.
+- **`cellar/backend/packager.py`**: `BASE_CATEGORIES` constant;
+  `add_catalogue_category(repo_root, category)`; catalogue r/w helpers now
+  preserve the top-level `categories` key on every rewrite.
+- **`cellar/backend/repo.py`**: `Repo.fetch_categories()` returns
+  `BASE_CATEGORIES` merged with stored custom categories, base-first.
+
+---
+
 ## [0.11.7] — 2026-02-26
 
 ### Removed

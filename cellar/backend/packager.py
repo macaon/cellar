@@ -18,6 +18,16 @@ from typing import Callable
 
 
 # ---------------------------------------------------------------------------
+# Category constants
+# ---------------------------------------------------------------------------
+
+#: Built-in categories always present in every repo.  Custom user-defined
+#: categories are stored in the ``categories`` key of ``catalogue.json`` and
+#: merged with this list at read time.
+BASE_CATEGORIES: list[str] = ["Games", "Productivity", "Graphics", "Utility", "Other"]
+
+
+# ---------------------------------------------------------------------------
 # bottle.yml extraction
 # ---------------------------------------------------------------------------
 
@@ -268,14 +278,17 @@ def remove_from_repo(
 def _upsert_catalogue(repo_root: Path, entry) -> None:
     """Replace or append *entry* in ``catalogue.json``."""
     cat_path = repo_root / "catalogue.json"
+    categories: list[str] | None = None
     if cat_path.exists():
         raw = json.loads(cat_path.read_text())
         apps = raw.get("apps", raw) if isinstance(raw, dict) else raw
+        if isinstance(raw, dict):
+            categories = raw.get("categories")
     else:
         apps = []
     apps = [a for a in apps if a.get("id") != entry.id]
     apps.append(entry.to_dict())
-    _write_catalogue(cat_path, apps)
+    _write_catalogue(cat_path, apps, categories)
 
 
 def _remove_from_catalogue(repo_root: Path, app_id: str) -> None:
@@ -285,22 +298,49 @@ def _remove_from_catalogue(repo_root: Path, app_id: str) -> None:
         return
     raw = json.loads(cat_path.read_text())
     apps = raw.get("apps", raw) if isinstance(raw, dict) else raw
+    categories = raw.get("categories") if isinstance(raw, dict) else None
     apps = [a for a in apps if a.get("id") != app_id]
-    _write_catalogue(cat_path, apps)
+    _write_catalogue(cat_path, apps, categories)
 
 
-def _write_catalogue(cat_path: Path, apps: list) -> None:
-    cat_path.write_text(
-        json.dumps(
-            {
-                "cellar_version": 1,
-                "generated_at": datetime.now(timezone.utc).isoformat(),
-                "apps": apps,
-            },
-            indent=2,
-            ensure_ascii=False,
-        )
-    )
+def _write_catalogue(
+    cat_path: Path,
+    apps: list,
+    categories: list[str] | None = None,
+) -> None:
+    data: dict = {
+        "cellar_version": 1,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "apps": apps,
+    }
+    if categories is not None:
+        data["categories"] = categories
+    cat_path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+
+
+def add_catalogue_category(repo_root: Path, category: str) -> None:
+    """Append *category* to the top-level ``categories`` list in ``catalogue.json``.
+
+    Does nothing if the category is already in :data:`BASE_CATEGORIES` or
+    already present in the stored list.  Creates the ``categories`` key if it
+    does not exist yet.
+    """
+    if category in BASE_CATEGORIES:
+        return
+    cat_path = repo_root / "catalogue.json"
+    if cat_path.exists():
+        raw = json.loads(cat_path.read_text())
+    else:
+        raw = {"cellar_version": 1, "apps": []}
+    if not isinstance(raw, dict):
+        return
+    stored: list[str] = raw.get("categories") or []
+    if category in stored:
+        return
+    stored.append(category)
+    raw["categories"] = stored
+    raw["generated_at"] = datetime.now(timezone.utc).isoformat()
+    cat_path.write_text(json.dumps(raw, indent=2, ensure_ascii=False))
 
 
 class CancelledError(Exception):

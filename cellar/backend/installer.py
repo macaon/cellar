@@ -115,7 +115,10 @@ def install_app(
         _report(progress_cb, "Extracting", 0.55)
         extract_dir = tmp / "extracted"
         extract_dir.mkdir()
-        _extract_archive(archive_path, extract_dir, cancel_event)
+        _extract_archive(
+            archive_path, extract_dir, cancel_event,
+            progress_cb=lambda f: _report(progress_cb, "Extracting", 0.55 + f * 0.15),
+        )
 
         # ── Step 4: Identify bottle directory ─────────────────────────
         bottle_src = _find_bottle_dir(extract_dir)
@@ -324,18 +327,29 @@ def _extract_archive(
     archive_path: Path,
     dest: Path,
     cancel_event: threading.Event | None,
+    progress_cb: Callable[[float], None] | None = None,
 ) -> None:
-    """Extract *archive_path* into *dest*.
+    """Extract *archive_path* into *dest*, reporting per-member progress.
 
     Uses ``filter='data'`` on Python 3.12+ to strip unsafe tar entries.
+    Progress is reported as a fraction of total uncompressed bytes extracted.
     """
     _check_cancel(cancel_event)
+    use_filter = sys.version_info >= (3, 12)
     try:
         with tarfile.open(archive_path, "r:gz") as tf:
-            if sys.version_info >= (3, 12):
-                tf.extractall(dest, filter="data")
-            else:
-                tf.extractall(dest)  # noqa: S202
+            members = tf.getmembers()
+            total = sum(m.size for m in members) or 1
+            done = 0
+            for member in members:
+                _check_cancel(cancel_event)
+                if use_filter:
+                    tf.extract(member, dest, filter="data")
+                else:
+                    tf.extract(member, dest)  # noqa: S202
+                done += member.size
+                if progress_cb:
+                    progress_cb(done / total)
     except tarfile.TarError as exc:
         raise InstallError(f"Failed to extract archive: {exc}") from exc
 

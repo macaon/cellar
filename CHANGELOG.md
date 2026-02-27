@@ -4,6 +4,19 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.11.25] — 2026-02-27
+
+### Fixed
+- **Uniform card width**: the `do_measure` override on `AppCard`
+  (`Gtk.FlowBoxChild`) was silently ignored by PyGObject because the subclass
+  lacked a `__gtype_name__`; card widths were still content-driven. Fixed by
+  wrapping the card `Gtk.Box` in a `_FixedBox(_CARD_WIDTH, _CARD_HEIGHT)`
+  (which *does* have `__gtype_name__ = "CellarFixedBox"` and a working
+  `do_measure`). All cards are now strictly 300 × 96 px and long titles
+  are ellipsised at the correct point.
+
+---
+
 ## [0.11.24] — 2026-02-27
 
 ### Changed

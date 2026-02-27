@@ -114,6 +114,7 @@ class AppCard(Gtk.FlowBoxChild):
 
         # ── Left: image column ────────────────────────────────────────────
         img_area = _FixedBox(_IMG_WIDTH, _CARD_HEIGHT)
+        img_area.set_margin_start(12)   # 12 px left padding (GNOME Software standard)
         card.append(img_area)
 
         # Cover thumbnail (scaled/cropped to exact 64×96).
@@ -168,12 +169,9 @@ class AppCard(Gtk.FlowBoxChild):
             summary_lbl.set_ellipsize(Pango.EllipsizeMode.END)
             text_box.append(summary_lbl)
 
-        self.set_child(card)
-
-    def do_measure(self, orientation, for_size):
-        if orientation == Gtk.Orientation.HORIZONTAL:
-            return _CARD_WIDTH, _CARD_WIDTH, -1, -1
-        return _CARD_HEIGHT, _CARD_HEIGHT, -1, -1
+        fixed = _FixedBox(_CARD_WIDTH, _CARD_HEIGHT)
+        fixed.set_child(card)
+        self.set_child(fixed)
 
     def matches(self, category: str | None, search: str) -> bool:
         """Return True if this card should be visible given the current filter."""

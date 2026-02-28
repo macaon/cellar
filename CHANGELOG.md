@@ -4,6 +4,18 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.12.9] — 2026-02-28
+
+### Fixed
+- **"Missing Authority Key Identifier" with valid home CA certs** — Python 3.10+
+  with OpenSSL 3.x sets `X509_V_FLAG_X509_STRICT` in the default SSL context,
+  making the AKI certificate extension mandatory. Many home/self-signed CAs omit
+  it; curl and browsers don't enforce it. Cellar now clears this flag when using
+  a user-supplied CA cert so full chain validation (hostname, expiry, trust
+  anchor) still runs, but the AKI requirement is relaxed.
+
+---
+
 ## [0.12.8] — 2026-02-28
 
 ### Changed

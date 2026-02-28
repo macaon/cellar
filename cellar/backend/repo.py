@@ -94,6 +94,13 @@ class _HttpFetcher:
         if ca_cert:
             # Load the user-supplied CA bundle and verify normally against it.
             ctx = ssl.create_default_context(cafile=ca_cert)
+            # Python 3.10+ with OpenSSL 3.x sets X509_V_FLAG_X509_STRICT by
+            # default, which makes the Authority Key Identifier extension
+            # mandatory.  Many home/self-signed CAs omit it, causing
+            # "Missing Authority Key Identifier" failures even with a valid
+            # chain.  curl and browsers don't enforce this.  Clear the flag so
+            # full chain validation (hostname, expiry, trust anchor) still runs.
+            ctx.verify_flags &= ~ssl.VERIFY_X509_STRICT
             self._ssl_ctx = ctx
         elif not ssl_verify:
             ctx = ssl.create_default_context()

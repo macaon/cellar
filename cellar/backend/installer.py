@@ -322,7 +322,11 @@ def _smb_stream(
     cmd = args + ["-c", f'get "{remote_path}" "{dest}"']
     try:
         proc = subprocess.Popen(
-            cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, env=env
+            cmd,
+            stdin=subprocess.DEVNULL,   # never block on password prompt
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
         )
     except FileNotFoundError:
         raise InstallError(
@@ -341,10 +345,10 @@ def _smb_stream(
 
         if proc.returncode != 0:
             stderr = proc.stderr.read().decode(errors="replace").strip()
+            stdout = proc.stdout.read().decode(errors="replace").strip()
+            detail = stderr or stdout or "unknown error"
             dest.unlink(missing_ok=True)
-            raise InstallError(
-                f"smbclient download failed: {stderr or 'unknown error'}"
-            )
+            raise InstallError(f"smbclient download failed: {detail}")
         if progress_cb:
             progress_cb(1.0)
     except InstallCancelled:

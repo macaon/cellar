@@ -4,22 +4,38 @@ All notable changes to Cellar are documented here.
 
 ---
 
-## [0.12.19] — 2026-02-28
+## [0.12.20] — 2026-02-28
 
 ### Changed
-- **SMB transport now uses `smbclient` instead of GVFS/GIO** — SMB shares are
-  read directly via the `smbclient` subprocess (samba-client package) without
-  ever creating a GVFS mount point. This eliminates the user-visible mount entry
-  that previously appeared in the Files app sidebar when browsing an SMB repo.
-  Image assets are cached locally (same path as HTTP images). SMB repos are now
-  read-only (matching HTTP), since write operations require a mount. The
-  `_GioFetcher` class and `utils/gio_io.py` have been removed, simplifying the
-  codebase.
+- **SMB reads no longer create a GVFS mount** — The previous `_GioFetcher`
+  called `mount_enclosing_volume()` on every catalogue load, leaving a
+  persistent mount entry in the Files app sidebar (reported by testers).
+  Catalogue fetches, image assets, and archive downloads now use `smbclient`
+  directly (samba-client package), which never creates a mount point.
+  Write operations (add / edit / remove app via the packager) still use GIO
+  to obtain a GVFS FUSE path, but the mount is created lazily — only when
+  a write operation is actually triggered, not during browsing.
 - **NFS support dropped** — NFS always requires a kernel-level mount (no
-  smbclient equivalent), so it has been removed. Anyone using an NFS share can
-  expose it via Samba, HTTP, or SSH instead.
-- **`mount_op` / `Gtk.MountOperation` removed** — no longer needed now that
-  GVFS is not used; `Repo.__init__` no longer accepts a `mount_op` parameter.
+  smbclient equivalent). Anyone using NFS can expose the share via Samba,
+  HTTP, or SSH instead.
+- **`_GioFetcher` and `utils/gio_io.py` removed** — GIO is now only used in
+  the thin `_smb_writable_path()` helper (for write operations) and is no
+  longer part of the regular read path.
+- **`mount_op` / `Gtk.MountOperation` removed** from `Repo.__init__` and
+  `window.py` — not needed for the smbclient read path.
+- **SMB authentication** — embed credentials in the URI:
+  `smb://user:password@host/share`. The password travels via the `PASSWD`
+  environment variable so it does not appear in `ps` output. When no password
+  is given, a null/guest session is attempted (`--no-pass`).
+
+### Fixed
+- **smbclient never hangs waiting for a password** — `stdin` is now
+  `DEVNULL` on all smbclient subprocess calls; previously, if the share
+  required a password, the app would block indefinitely on the terminal
+  password prompt.
+- **SMB error messages now include smbclient stdout** — smbclient sometimes
+  writes errors to stdout rather than stderr; both are now included in the
+  reported error so the root cause is always visible.
 
 ---
 

@@ -103,14 +103,16 @@ All fields except `id`, `name`, `version`, and `category` are optional; unset fi
 | Local path / `file://` | Yes | |
 | `http://` / `https://` | **No** | Read-only; optional bearer token auth |
 | `ssh://[user@]host[:port]/path` | Yes | Uses system `ssh` client; key auth via agent or `ssh_identity=` |
-| `smb://[user[:pass]@]host/share[/path]` | **No** | Uses `smbclient` (samba-client package); no GVFS mount created |
+| `smb://[user[:pass]@]host/share[/path]` | Yes | **Reads** via `smbclient` (no GVFS mount during browsing); **writes** via GIO/GVFS on demand (mount appears only during add/edit/remove) |
 
-NFS is not supported. SMB was previously read/write via GIO/GVFS; it was
-switched to `smbclient` to eliminate GVFS mount points appearing in the Files
-sidebar, and GIO was removed from the codebase entirely (`_GioFetcher` /
-`utils/gio_io.py` deleted). SMB is now read-only.
+NFS is not supported. The previous `_GioFetcher` (which mounted the SMB
+share on every catalogue load, causing a persistent Files sidebar entry) has
+been replaced by `_SmbclientFetcher` for reads. Write operations in
+`packager.py` still need a local `Path`, so `writable_path()` uses
+`_smb_writable_path()` which mounts via GIO only when called. SMB passwords
+should be embedded in the URI (`smb://user:pass@host/share`).
 
-If the client reaches a location with no `catalogue.json`, it offers to initialise a new repo (local and SSH only). HTTP/SMB repos show an error instead.
+If the client reaches a location with no `catalogue.json`, it offers to initialise a new repo (local, SSH, and SMB). HTTP repos show an error instead.
 
 ### HTTP(S) bearer token authentication
 

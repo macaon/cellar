@@ -211,13 +211,14 @@ class _SmbclientFetcher:
     appearing in the Files app sidebar.
 
     Credentials may be embedded in the URI
-    (``smb://user:pass@host/share``).  Anonymous/guest access is used when
-    no credentials are present.  The password, if provided, is passed via
-    the ``PASSWD`` environment variable so it does not appear in ``ps``
-    output.
+    (``smb://user:pass@host/share``).  When a username is given without a
+    password, a null/anonymous session is attempted (``--no-pass``); the
+    share must allow guest read access for this to succeed.  The password,
+    if provided, is passed via the ``PASSWD`` environment variable so it
+    does not appear in ``ps`` output.
 
-    SMB repos are **read-only** — archive publishing requires a local or
-    SSH repo.
+    ``stdin`` is always redirected to ``/dev/null`` so that smbclient
+    never hangs waiting for an interactive password prompt.
     """
 
     def __init__(self, uri: str) -> None:
@@ -247,7 +248,10 @@ class _SmbclientFetcher:
             args += ["-p", str(self._port)]
         if self._user:
             args += ["-U", self._user]
-        else:
+        # Always suppress the interactive password prompt.  When a password
+        # is supplied it travels via the PASSWD env var; without one we try
+        # a null/guest session.
+        if not self._password:
             args.append("--no-pass")
         return args
 
@@ -268,8 +272,9 @@ class _SmbclientFetcher:
             try:
                 result = subprocess.run(
                     cmd,
+                    stdin=subprocess.DEVNULL,   # never block on password prompt
                     capture_output=True,
-                    timeout=60,
+                    timeout=30,
                     check=False,
                     env=self._env(),
                 )
@@ -282,10 +287,14 @@ class _SmbclientFetcher:
                     f"smbclient timed out fetching {rel_path}"
                 ) from exc
             if result.returncode != 0:
+                # smbclient sometimes writes errors to stdout, sometimes stderr.
                 stderr = result.stderr.decode(errors="replace").strip()
+                stdout = result.stdout.decode(errors="replace").strip()
+                detail = stderr or stdout or "unknown error"
                 raise RepoError(
-                    f"smbclient fetch failed for {rel_path}: "
-                    f"{stderr or 'unknown error'}"
+                    f"smbclient fetch failed for {rel_path}: {detail}\n"
+                    "Tip: if the share requires a password, embed credentials "
+                    "in the URI: smb://user:password@host/share"
                 )
             return Path(tmp_path).read_bytes()
         finally:
@@ -351,6 +360,69 @@ def _make_fetcher(
 
 
 # ---------------------------------------------------------------------------
+# SMB write helper
+# ---------------------------------------------------------------------------
+
+def _smb_writable_path(uri: str, rel_path: str = "") -> Path:
+    """Return a writable GVFS FUSE path for an SMB URI.
+
+    Mounts the share via GIO on demand (credentials from GNOME Keyring if
+    available, or a bare Gio.MountOperation otherwise).  This is intentionally
+    called only for write operations — browsing uses :class:`_SmbclientFetcher`
+    which never creates a mount point.
+
+    Raises :exc:`RepoError` on failure.
+    """
+    try:
+        import gi
+        gi.require_version("Gio", "2.0")
+        from gi.repository import Gio, GLib
+    except (ImportError, ValueError) as exc:
+        raise RepoError("GIO is unavailable; cannot write to smb:// repo") from exc
+
+    target = uri.rstrip("/") + ("/" + rel_path.lstrip("/") if rel_path else "")
+    gfile = Gio.File.new_for_uri(target)
+
+    # Try to get the FUSE path immediately (share already mounted).
+    fuse_path = gfile.get_path()
+    if fuse_path:
+        return Path(fuse_path)
+
+    # Share not mounted yet — attempt to mount it.
+    main_loop = GLib.MainLoop()
+    _err: list = [None]
+
+    def _on_mounted(src, result, _user_data):
+        try:
+            src.mount_enclosing_volume_finish(result)
+        except GLib.Error as exc:
+            if not exc.matches(Gio.io_error_quark(), Gio.IOErrorEnum.ALREADY_MOUNTED):
+                _err[0] = exc
+        finally:
+            main_loop.quit()
+
+    mount_op = Gio.MountOperation()
+    gfile.mount_enclosing_volume(
+        Gio.MountMountFlags.NONE, mount_op, None, _on_mounted, None
+    )
+    main_loop.run()
+
+    if _err[0] is not None:
+        exc = _err[0]
+        if exc.matches(Gio.io_error_quark(), Gio.IOErrorEnum.FAILED_HANDLED):
+            raise RepoError("Authentication cancelled")
+        raise RepoError(f"Could not mount {uri}: {exc.message}")
+
+    fuse_path = Gio.File.new_for_uri(target).get_path()
+    if fuse_path:
+        return Path(fuse_path)
+    raise RepoError(
+        "GVFS FUSE mount is not available for this share. "
+        "Ensure gvfsd-fuse is running (standard on GNOME)."
+    )
+
+
+# ---------------------------------------------------------------------------
 # Repo
 # ---------------------------------------------------------------------------
 
@@ -399,8 +471,8 @@ class Repo:
 
     @property
     def is_writable(self) -> bool:
-        """``True`` for local and SSH repos; ``False`` for HTTP(S) and SMB."""
-        return urlparse(self.uri).scheme.lower() not in ("http", "https", "smb")
+        """``False`` for HTTP(S) repos; ``True`` for local, SSH, and SMB."""
+        return urlparse(self.uri).scheme.lower() not in ("http", "https")
 
     # ------------------------------------------------------------------
     # Public API — reading
@@ -522,13 +594,23 @@ class Repo:
     def writable_path(self, rel_path: str = "") -> Path:
         """Return a writable local filesystem path to the repo root (or a sub-path).
 
-        Only available for local (bare path or ``file://``) and SSH repos.
-        SSH repos expose a writable path via the packager's SSH helpers.
+        For local repos this is identical to :meth:`local_path`.
 
-        Raises :exc:`RepoError` for HTTP(S) and SMB repos.
+        For SMB repos the share is mounted on demand via GIO/GVFS.  Unlike
+        the old read path (which mounted on every catalogue load, creating a
+        persistent Files sidebar entry), this method is only called by the
+        packager during explicit write operations (add / edit / remove app).
+        The GVFS FUSE path is returned so that ``packager.py`` can use
+        ordinary :class:`pathlib.Path` operations.
+
+        Raises :exc:`RepoError` for HTTP repos or when GVFS FUSE is
+        unavailable.
         """
         if isinstance(self._fetcher, _LocalFetcher):
             return self._fetcher._root / rel_path.lstrip("/")
+
+        if isinstance(self._fetcher, _SmbclientFetcher):
+            return _smb_writable_path(self.uri, rel_path)
 
         scheme = urlparse(self.uri).scheme.lower()
         raise RepoError(

@@ -143,11 +143,16 @@ All app fields except `id`, `name`, `version`, and `category` are optional.
 | `file://` | `file:///mnt/nas/cellar` | Yes | |
 | `http://` / `https://` | `https://cellar.home.arpa/repo` | No | |
 | `ssh://` | `ssh://alice@nas.home.arpa/srv/cellar` | Yes | Key auth via agent or `~/.ssh/config` |
-| `smb://` | `smb://nas.home.arpa/cellar` | No | Requires `smbclient` (samba-client package); credentials optional via `smb://user:pass@host/share` |
+| `smb://` | `smb://nas.home.arpa/cellar` | Yes | Requires `smbclient` (samba-client package); credentials via `smb://user:pass@host/share` |
 
-HTTP(S) and SMB repos are read-only. If you point Cellar at a writable local
-or SSH location with no `catalogue.json`, it will offer to initialise a new
-repository.
+HTTP(S) repos are read-only. If you point Cellar at a writable location with
+no `catalogue.json`, it will offer to initialise a new repository.
+
+> **SMB authentication note:** Cellar reads SMB repos directly via
+> `smbclient` (no GVFS mount is created during browsing). Embed credentials
+> in the URI if the share requires them: `smb://user:password@host/share`.
+> Write operations (add / edit / remove app) use a GVFS mount which may
+> briefly appear in the Files sidebar.
 
 ### Restricting HTTP(S) access with a bearer token
 

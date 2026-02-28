@@ -187,6 +187,7 @@ class DetailView(Gtk.Box):
 
     def _on_install_success(self, bottle_name: str) -> None:
         self._is_installed = True
+        self._installed_record = {"bottle_name": bottle_name}
         self._update_install_button()
         if self._on_install_done:
             self._on_install_done(bottle_name)

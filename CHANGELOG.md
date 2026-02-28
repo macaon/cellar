@@ -4,6 +4,17 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.12.4] — 2026-02-28
+
+### Fixed
+- **Remove broken after install in same session** — `_installed_record` was
+  never populated after a successful install, so clicking Remove without
+  navigating away always found an empty `bottle_name` and refused to delete.
+  Now `_on_install_success` sets `_installed_record = {"bottle_name": …}`
+  immediately.
+
+---
+
 ## [0.12.3] — 2026-02-28
 
 ### Changed

@@ -74,9 +74,9 @@ class AddAppDialog(Adw.Dialog):
         header = Adw.HeaderBar()
         header.set_show_end_title_buttons(False)
 
-        cancel_btn = Gtk.Button(label="Cancel")
-        cancel_btn.connect("clicked", self._on_cancel_clicked)
-        header.pack_start(cancel_btn)
+        self._cancel_btn = Gtk.Button(label="Cancel")
+        self._cancel_btn.connect("clicked", self._on_cancel_clicked)
+        header.pack_start(self._cancel_btn)
 
         self._add_btn = Gtk.Button(label="Add to Catalogue")
         self._add_btn.add_css_class("suggested-action")
@@ -282,22 +282,23 @@ class AddAppDialog(Adw.Dialog):
         return box
 
     def _build_progress(self) -> Gtk.Widget:
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         box.set_valign(Gtk.Align.CENTER)
-        box.set_margin_top(48)
-        box.set_margin_bottom(48)
+        box.set_margin_top(18)
+        box.set_margin_bottom(18)
         box.set_margin_start(24)
         box.set_margin_end(24)
+
+        self._progress_label = Gtk.Label(label="Copying archive…", xalign=0)
+        self._progress_label.add_css_class("dim-label")
 
         self._progress_bar = Gtk.ProgressBar()
         self._progress_bar.set_show_text(True)
         self._progress_bar.set_fraction(0.0)
 
-        self._progress_label = Gtk.Label(label="Copying archive…")
-        self._progress_label.add_css_class("dim-label")
-
         self._cancel_progress_btn = Gtk.Button(label="Cancel")
         self._cancel_progress_btn.set_halign(Gtk.Align.CENTER)
+        self._cancel_progress_btn.set_margin_top(6)
         self._cancel_progress_btn.connect("clicked", self._on_cancel_progress_clicked)
 
         box.append(self._progress_label)
@@ -520,6 +521,8 @@ class AddAppDialog(Adw.Dialog):
 
         self._cancel_event.clear()
         self.set_content_width(360)
+        self._cancel_btn.set_visible(False)
+        self._add_btn.set_visible(False)
         self._stack.set_visible_child_name("progress")
         self._progress_bar.set_fraction(0.0)
         self._progress_label.set_text("Copying archive…")
@@ -582,11 +585,15 @@ class AddAppDialog(Adw.Dialog):
 
     def _on_import_cancelled(self) -> None:
         self.set_content_width(560)
+        self._cancel_btn.set_visible(True)
+        self._add_btn.set_visible(True)
         self._stack.set_visible_child_name("form")
         self._cancel_progress_btn.set_sensitive(True)
 
     def _on_import_error(self, message: str) -> None:
         self.set_content_width(560)
+        self._cancel_btn.set_visible(True)
+        self._add_btn.set_visible(True)
         self._stack.set_visible_child_name("form")
         self._cancel_progress_btn.set_sensitive(True)
         alert = Adw.AlertDialog(

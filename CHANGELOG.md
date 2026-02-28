@@ -4,6 +4,21 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.12.13] — 2026-02-28
+
+### Changed
+- **Bearer token UX reworked** — token setup is now discoverable without
+  triggering a 401 first.  The Repositories group gains a permanent
+  "Access token (optional)" field below the URI row, with a generate button
+  (↻) that fills it and copies to clipboard. A new **Access Control** group
+  explains the concept and has a **Generate** button that shows the token in
+  a dialog for copying to your web server config. Works for both HTTP and
+  HTTPS repos. 401 responses now show clear inline alerts: "enter the token
+  below and try again" (no token) or "token rejected, check your config"
+  (wrong token) — no more mid-flow dialogs.
+
+---
+
 ## [0.12.12] — 2026-02-28
 
 ### Added

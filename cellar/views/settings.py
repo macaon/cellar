@@ -55,7 +55,7 @@ class SettingsDialog(Adw.PreferencesDialog):
         )
         page.add(self._repo_group)
 
-        # Entry row for adding a new repo — always sits at the bottom.
+        # URI entry row — the Add button triggers the full add flow.
         self._add_row = Adw.EntryRow(title="Repository URI")
         add_btn = Gtk.Button(
             icon_name="list-add-symbolic",
@@ -67,6 +67,43 @@ class SettingsDialog(Adw.PreferencesDialog):
         self._add_row.add_suffix(add_btn)
         self._add_row.connect("entry-activated", self._on_add_activated)
 
+        # Optional token row — sits below the URI row, always visible.
+        self._add_token_row = Adw.EntryRow(title="Access token (optional)")
+        token_gen_btn = Gtk.Button(
+            icon_name="view-refresh-symbolic",
+            valign=Gtk.Align.CENTER,
+            has_frame=False,
+            tooltip_text="Generate a random token",
+        )
+        token_gen_btn.connect("clicked", self._on_fill_token)
+        self._add_token_row.add_suffix(token_gen_btn)
+
+        # ── Group: Access Control ─────────────────────────────────────────
+        access_group = Adw.PreferencesGroup(
+            title="Access Control",
+            description=(
+                "Restrict access to an HTTP(S) repository you host by "
+                "requiring a bearer token. Generate one here, add it to "
+                "your web server, then share the URL and token with anyone "
+                "who should have access. See the README for nginx and Caddy "
+                "configuration examples."
+            ),
+        )
+        page.add(access_group)
+
+        gen_row = Adw.ActionRow(
+            title="Generate access token",
+            subtitle="Creates a random token to use in your web server config",
+        )
+        gen_btn = Gtk.Button(
+            label="Generate",
+            valign=Gtk.Align.CENTER,
+        )
+        gen_btn.add_css_class("suggested-action")
+        gen_btn.connect("clicked", self._on_generate_token)
+        gen_row.add_suffix(gen_btn)
+        access_group.add(gen_row)
+
         self._rebuild_repo_rows()
 
     # ------------------------------------------------------------------
@@ -75,9 +112,9 @@ class SettingsDialog(Adw.PreferencesDialog):
 
     def _rebuild_repo_rows(self) -> None:
         """Sync the visible rows with the on-disk repo list."""
-        # Pull add_row out of the group (it might not be there yet on first call).
-        if self._add_row.get_parent() is not None:
-            self._repo_group.remove(self._add_row)
+        for w in (self._add_row, self._add_token_row):
+            if w.get_parent() is not None:
+                self._repo_group.remove(w)
 
         for row in self._repo_rows:
             self._repo_group.remove(row)
@@ -88,8 +125,9 @@ class SettingsDialog(Adw.PreferencesDialog):
             self._repo_rows.append(row)
             self._repo_group.add(row)
 
-        # Add-row is always last.
+        # Add rows are always last.
         self._repo_group.add(self._add_row)
+        self._repo_group.add(self._add_token_row)
 
     def _make_repo_row(self, repo_cfg: dict) -> Adw.PreferencesRow:
         uri = repo_cfg["uri"]
@@ -168,6 +206,8 @@ class SettingsDialog(Adw.PreferencesDialog):
         if not uri:
             return
 
+        token = self._add_token_row.get_text().strip() or None
+
         # Duplicate check.
         if any(r["uri"] == uri for r in load_repos()):
             self._alert("Already Added", "This repository is already in the list.")
@@ -192,7 +232,7 @@ class SettingsDialog(Adw.PreferencesDialog):
             parent=root if isinstance(root, Gtk.Window) else None
         )
         try:
-            repo = Repo(uri, mount_op=mount_op, ssl_verify=True)
+            repo = Repo(uri, mount_op=mount_op, ssl_verify=True, token=token)
         except RepoError as exc:
             self._alert("Invalid Repository", str(exc))
             return
@@ -214,15 +254,27 @@ class SettingsDialog(Adw.PreferencesDialog):
                         "already exist on the server.",
                     )
             elif _looks_like_auth_error(err):
-                self._ask_token(uri, entry_row)
+                if token:
+                    self._alert(
+                        "Authentication Failed",
+                        "The token was rejected. Check that it matches your "
+                        "web server configuration.",
+                    )
+                else:
+                    self._alert(
+                        "Authentication Required",
+                        "This repository requires a bearer token. "
+                        "Enter it in the Access token field and try again.",
+                    )
             elif _looks_like_ssl_error(err):
                 self._ask_ssl_options(uri, entry_row)
             else:
                 self._alert("Could Not Connect", err)
             return
 
-        self._commit_add(uri)
+        self._commit_add(uri, token=token)
         entry_row.set_text("")
+        self._add_token_row.set_text("")
 
     def _ask_init(self, uri: str) -> None:
         if _is_local_uri(uri):
@@ -453,40 +505,40 @@ class SettingsDialog(Adw.PreferencesDialog):
         self._commit_add(uri, ca_cert=dest.name)
         entry_row.set_text("")
 
-    def _ask_token(self, uri: str, entry_row: Adw.EntryRow) -> None:
-        """Show a dialog prompting for a bearer token after a 401 response."""
-        box, token_entry = self._make_token_box()
-        dialog = Adw.AlertDialog(
-            heading="Authentication Required",
-            body=(
-                f"The repository at {uri} requires a bearer token.\n\n"
-                "Paste the token you received, or generate a new one and "
-                "configure your web server to require it (see README for an "
-                "nginx example)."
-            ),
-            extra_child=box,
-        )
-        dialog.add_response("cancel", "Cancel")
-        dialog.add_response("save", "Save")
-        dialog.set_response_appearance("save", Adw.ResponseAppearance.SUGGESTED)
-        dialog.connect("response", self._on_ask_token_response, uri, entry_row, token_entry)
-        dialog.present(self)
+    def _on_fill_token(self, _btn: Gtk.Button) -> None:
+        """Generate a random token and fill the token add-row with it."""
+        import secrets
+        token = secrets.token_hex(32)
+        self._add_token_row.set_text(token)
+        self._add_token_row.get_clipboard().set(token)
 
-    def _on_ask_token_response(
-        self,
-        _dialog,
-        response: str,
-        uri: str,
-        entry_row: Adw.EntryRow,
-        token_entry,
-    ) -> None:
-        if response != "save":
-            return
-        token = token_entry.get_text().strip()
-        if not token:
-            return
-        self._commit_add(uri, token=token)
-        entry_row.set_text("")
+    def _on_generate_token(self, _btn: Gtk.Button) -> None:
+        """Generate a token and display it in a dialog for copying."""
+        import secrets
+        token = secrets.token_hex(32)
+        label = Gtk.Label(
+            label=token,
+            wrap=True,
+            wrap_mode=2,        # WORD_CHAR
+            selectable=True,
+            xalign=0,
+            css_classes=["monospace"],
+            margin_top=8,
+        )
+        dialog = Adw.AlertDialog(
+            heading="Generated Token",
+            body=(
+                "Add this token to your web server configuration, then share "
+                "it with anyone who should have access to your repository."
+            ),
+            extra_child=label,
+        )
+        dialog.add_response("copy", "Copy to Clipboard")
+        dialog.add_response("ok", "Done")
+        dialog.set_default_response("copy")
+        dialog.set_response_appearance("copy", Adw.ResponseAppearance.SUGGESTED)
+        dialog.connect("response", lambda _d, r: self.get_clipboard().set(token) if r == "copy" else None)
+        dialog.present(self)
 
     def _on_change_token(self, _btn: Gtk.Button, uri: str) -> None:
         """Show a dialog to replace the bearer token for an existing repo."""

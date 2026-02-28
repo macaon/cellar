@@ -43,6 +43,10 @@ log = logging.getLogger(__name__)
 
 CATALOGUE_VERSION = 1
 
+# Sent as the User-Agent on all outbound HTTP(S) requests.  A generic browser-
+# like string avoids CDN / WAF bot-protection rules that block Python-urllib.
+_USER_AGENT = "Mozilla/5.0 (compatible; Cellar/1.0)"
+
 
 class RepoError(Exception):
     """Raised when a repo operation fails."""
@@ -112,7 +116,7 @@ class _HttpFetcher:
 
     def fetch_bytes(self, rel_path: str) -> bytes:
         url = self._base + rel_path.lstrip("/")
-        req = urllib.request.Request(url)  # noqa: S310
+        req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})  # noqa: S310
         if self._token:
             req.add_header("Authorization", f"Bearer {self._token}")
         try:

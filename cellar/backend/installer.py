@@ -275,7 +275,8 @@ def _http_stream(
     """Stream *url* to *dest* in 1 MB chunks."""
     chunk = 1 * 1024 * 1024
     downloaded = 0
-    req = urllib.request.Request(url)  # noqa: S310
+    from cellar.backend.repo import _USER_AGENT
+    req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})  # noqa: S310
     if token:
         req.add_header("Authorization", f"Bearer {token}")
     try:

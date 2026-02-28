@@ -4,6 +4,17 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.12.16] — 2026-02-28
+
+### Fixed
+- **Cloudflare (and other CDN/WAF) blocking HTTP requests with 403** —
+  Python's default `User-Agent: Python-urllib/3.x` is blocked by Cloudflare's
+  bot protection before the request ever reaches the origin server, causing a
+  silent 403. All outbound HTTP(S) requests (catalogue fetches and archive
+  downloads) now send `User-Agent: Mozilla/5.0 (compatible; Cellar/1.0)`.
+
+---
+
 ## [0.12.15] — 2026-02-28
 
 ### Fixed

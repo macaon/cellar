@@ -521,6 +521,7 @@ class AddAppDialog(Adw.Dialog):
 
         self._cancel_event.clear()
         self.set_content_width(360)
+        self.set_content_height(200)
         self._cancel_btn.set_visible(False)
         self._add_btn.set_visible(False)
         self._stack.set_visible_child_name("progress")
@@ -585,6 +586,7 @@ class AddAppDialog(Adw.Dialog):
 
     def _on_import_cancelled(self) -> None:
         self.set_content_width(560)
+        self.set_content_height(-1)
         self._cancel_btn.set_visible(True)
         self._add_btn.set_visible(True)
         self._stack.set_visible_child_name("form")
@@ -592,6 +594,7 @@ class AddAppDialog(Adw.Dialog):
 
     def _on_import_error(self, message: str) -> None:
         self.set_content_width(560)
+        self.set_content_height(-1)
         self._cancel_btn.set_visible(True)
         self._add_btn.set_visible(True)
         self._stack.set_visible_child_name("form")

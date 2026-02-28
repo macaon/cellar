@@ -4,6 +4,14 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.11.28] — 2026-02-28
+
+### Changed
+- **Blue updates badge**: the Updates tab badge now uses `@accent_bg_color`
+  (GNOME's blue accent) instead of the default grey, matching GNOME Software.
+
+---
+
 ## [0.11.27] — 2026-02-28
 
 ### Fixed

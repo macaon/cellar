@@ -26,6 +26,17 @@ class CellarApplication(Adw.Application):
         if display:
             Gtk.IconTheme.get_for_display(display).add_search_path(icons_dir())
 
+            css = Gtk.CssProvider()
+            css.load_from_string(
+                "viewswitcher .badge {"
+                "  background-color: @accent_bg_color;"
+                "  color: @accent_fg_color;"
+                "}"
+            )
+            Gtk.StyleContext.add_provider_for_display(
+                display, css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+            )
+
         win = self.props.active_window
         if not win:
             win = CellarWindow(application=self)

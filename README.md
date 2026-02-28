@@ -4,7 +4,7 @@ A GNOME desktop application that acts as a software storefront for
 [Bottles](https://usebottles.com/)-managed Windows applications. Think GNOME
 Software, but the "packages" are Bottles full backups stored on a network share
 or web server. Browse a catalogue, click Install, and Cellar handles downloading
-the backup, importing it into Bottles, and updating Wine components as needed.
+the backup and importing it into Bottles.
 
 The primary use case is a private family or home-lab server: the person who
 manages the repo adds and packages apps; everyone else browses and installs via
@@ -242,28 +242,28 @@ cellar/
     main.py              GApplication entry point
     window.py            Main AdwApplicationWindow
     views/
-      browse.py          Grid browse view (app cards, category filter, search) ✅
-      detail.py          App detail page (Install / Update / Remove) ✅
-      add_app.py         Add-app-to-catalogue dialog ✅
-      edit_app.py        Edit / delete catalogue entry dialog ✅
-      update_app.py      Safe update dialog (backup + rsync overlay) ✅
-      settings.py        Settings / repo management dialog ✅
-      installed.py       Installed apps view (stub)
-      updates.py         Available updates view (stub)
+      browse.py          Grid browse view (app cards, category filter, search)
+      detail.py          App detail page (Install / Update / Remove)
+      add_app.py         Add-app-to-catalogue dialog
+      edit_app.py        Edit / delete catalogue entry dialog
+      update_app.py      Safe update dialog (backup + rsync overlay)
+      settings.py        Settings / repo management dialog
+      installed.py       Stub
+      updates.py         Stub
     backend/
-      repo.py            Catalogue fetching, all transport backends ✅
-      packager.py        import_to_repo / update_in_repo / remove_from_repo ✅
-      installer.py       Download, verify, extract, import to Bottles ✅
-      updater.py         Safe rsync overlay update + backup ✅
-      bottles.py         bottles-cli wrapper, path detection ✅
-      database.py        SQLite installed/repo tracking ✅
-      config.py          JSON config persistence (repos) ✅
+      repo.py            Catalogue fetching, all transport backends
+      packager.py        import_to_repo / update_in_repo / remove_from_repo
+      installer.py       Download, verify, extract, import to Bottles
+      updater.py         Safe rsync overlay update + backup
+      bottles.py         Bottles path detection
+      database.py        SQLite installed/repo tracking
+      config.py          JSON config persistence (repos)
     models/
-      app_entry.py       Unified app/game dataclass (AppEntry + BuiltWith) ✅
+      app_entry.py       AppEntry + BuiltWith dataclasses
     utils/
-      paths.py           UI + icons path resolution (source tree + installed) ✅
-      gio_io.py          GIO file helpers ✅
-      checksum.py        SHA-256 utility ✅
+      paths.py           UI + icons path resolution (source tree + installed)
+      gio_io.py          GIO file helpers
+      checksum.py        SHA-256 utility
   data/
     icons/
       hicolor/symbolic/apps/   Bundled tab icons (CC0-1.0)
@@ -271,7 +271,10 @@ cellar/
       window.ui          Main window template
   tests/
     fixtures/            Sample catalogue.json for local testing
-    test_repo.py         Backend unit tests
+    test_repo.py
+    test_bottles.py
+    test_database.py
+    test_installer.py
 ```
 
 ---
@@ -281,12 +284,11 @@ cellar/
 1. **Repo backend** — catalogue parsing, all transport backends ✅
 2. **Browse UI** — GNOME Software-style horizontal cards, category filter, search, Explore/Installed/Updates view switcher ✅
 3. **Detail view** — full app page from catalogue data ✅
-4. **Bottles backend** — path detection, `bottles-cli` wrapper, install + remove ✅
+4. **Bottles backend** — path detection, install + remove ✅
 5. **Local DB** — track installed apps, wire up Install/Remove button state ✅
 6. **Update logic** — safe rsync overlay (no --delete; AppData/Documents excluded) ✅
 7. **HTTP(S) auth** — bearer token generation, storage, and per-request injection; image asset caching ✅
-8. **Component update UI** — post-install prompt to upgrade runner/DXVK
-9. **Flatpak packaging**
+8. **Flatpak packaging**
 
 ---
 

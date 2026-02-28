@@ -2,7 +2,7 @@
 
 ## What this project is
 
-A GNOME desktop application that acts as a software storefront for Wine/Bottles-managed Windows applications. Think GNOME Software, but the "packages" are Bottles full backups stored on a network share (SMB, NFS, or HTTP). The user browses a catalogue, clicks Install, and the app handles downloading the backup, importing it into Bottles, and updating Wine components as needed.
+A GNOME desktop application that acts as a software storefront for Wine/Bottles-managed Windows applications. Think GNOME Software, but the "packages" are Bottles full backups stored on a network share (SMB, NFS, or HTTP). The user browses a catalogue, clicks Install, and the app handles downloading the backup and importing it into Bottles. Component version management (runner, DXVK, VKD3D) is left to Bottles itself.
 
 The project is called **Cellar**.
 
@@ -138,10 +138,7 @@ Check both at startup and let the user override in settings if needed.
 1. Download archive to a temp directory, verify SHA256
 2. Extract archive to a temp location
 3. Copy/move extracted bottle directory to the Bottles data path with a sanitised name derived from the app ID
-4. Read `bottle.yml` from the extracted archive to get the component versions it was built with
-5. Compare against manifest's `built_with` — if newer runners/DXVK are available in the user's Bottles install, offer to upgrade
-6. Call `bottles-cli edit -b <BottleName> -k Runner -v <runner>` (and equivalents for DXVK/VKD3D) if the user accepts
-7. Record the installation in the local SQLite database
+4. Record the installation in the local SQLite database
 
 ### Update flow — safe strategy (default)
 
@@ -158,9 +155,7 @@ Used when `update_strategy: "safe"`. Preserves user data inside the bottle.
      /tmp/new-backup/ \
      <bottles-data-path>/<BottleName>/
    ```
-4. Merge component versions from new `bottle.yml` into existing one (update runner/dxvk/vkd3d keys only)
-5. Run component update via `bottles-cli edit` if needed
-6. Update local DB record with new version
+4. Update local DB record with new version
 
 ### Update flow — full strategy
 
@@ -170,23 +165,7 @@ Used when `update_strategy: "full"`, or user opts in manually.
 2. Remove existing bottle directory
 3. Follow normal install flow
 
-### bottles-cli reference commands
-
-```bash
-# List installed bottles
-bottles-cli list bottles
-
-# Edit a bottle's runner
-bottles-cli edit -b "BottleName" -k Runner -v "proton-ge-9-1"
-
-# Edit DXVK version
-bottles-cli edit -b "BottleName" -k DXVK -v "2.3"
-
-# Run a program inside a bottle (for post-install smoke test if desired)
-bottles-cli run -b "BottleName" -e "explorer.exe"
-```
-
-`bottles-cli` is a subprocess call. Handle its absence gracefully (show a setup warning if Bottles isn't detected).
+`bottles-cli` is used only for detecting installed Bottles instances (`bottles-cli list bottles`). Component version management is left to Bottles. Handle its absence gracefully (show a setup warning if Bottles isn't detected).
 
 ---
 
@@ -256,43 +235,43 @@ Model the layout on GNOME Software. Use libadwaita components throughout.
 ```
 cellar/
   cellar/
-    __init__.py
     main.py                  # GApplication entry point
     window.py                # Main AdwApplicationWindow
     views/
-      browse.py              # Grid browse view ✅
-      detail.py              # App detail page (Install/Update/Remove) ✅
-      add_app.py             # Add-app-to-catalogue dialog ✅
-      edit_app.py            # Edit/delete catalogue entry dialog ✅
-      update_app.py          # Safe update dialog (backup + rsync overlay) ✅
-      settings.py            # Settings / repo management dialog ✅
-      installed.py           # Installed apps view (stub)
-      updates.py             # Available updates view (stub)
+      browse.py              # Grid browse view
+      detail.py              # App detail page (Install/Update/Remove)
+      add_app.py             # Add-app-to-catalogue dialog
+      edit_app.py            # Edit/delete catalogue entry dialog
+      update_app.py          # Safe update dialog (backup + rsync overlay)
+      settings.py            # Settings / repo management dialog
+      installed.py           # Stub
+      updates.py             # Stub
     backend/
-      repo.py                # Catalogue fetching, all transport backends ✅
-      packager.py            # import_to_repo / update_in_repo / remove_from_repo ✅
-      installer.py           # Download, verify, extract, import to Bottles ✅
-      updater.py             # Safe rsync overlay update + backup_bottle ✅
-      bottles.py             # bottles-cli wrapper, path detection ✅
-      database.py            # SQLite installed/repo tracking ✅
-      config.py              # JSON config persistence (repos) ✅
+      repo.py                # Catalogue fetching, all transport backends
+      packager.py            # import_to_repo / update_in_repo / remove_from_repo
+      installer.py           # Download, verify, extract, import to Bottles
+      updater.py             # Safe rsync overlay update + backup_bottle
+      bottles.py             # Bottles path detection
+      database.py            # SQLite installed/repo tracking
+      config.py              # JSON config persistence (repos)
     models/
-      app_entry.py           # Unified AppEntry + BuiltWith dataclasses ✅
+      app_entry.py           # AppEntry + BuiltWith dataclasses
     utils/
-      gio_io.py              # GIO-based file/network helpers ✅
-      paths.py               # UI + icons path resolution (ui_file, icons_dir) ✅
-      checksum.py            # SHA-256 utility ✅
+      gio_io.py              # GIO-based file/network helpers
+      paths.py               # UI + icons path resolution (ui_file, icons_dir)
+      checksum.py            # SHA-256 utility
   data/
-    io.github.cellar.gschema.xml
-    io.github.cellar.desktop
-    io.github.cellar.metainfo.xml
     icons/
       hicolor/symbolic/apps/ # Bundled tab icons (CC0-1.0, fill=currentColor)
     ui/
       window.ui
-  po/                        # i18n (set up but don't need to fill out)
-  flatpak/
-    io.github.cellar.json    # Flatpak manifest
+  po/                        # i18n (skeleton only)
+  tests/
+    fixtures/                # Sample catalogue.json for local testing
+    test_repo.py
+    test_bottles.py
+    test_database.py
+    test_installer.py
   pyproject.toml
   meson.build
   CLAUDE.md                  # this file
@@ -306,12 +285,11 @@ cellar/
 2. ~~**Browse UI** — grid of app cards, category filter, search~~ ✅
 3. ~~**Network repo support** — HTTP/HTTPS, SSH, SMB, NFS transports; unified `AppEntry` model; fat `catalogue.json` format~~ ✅
 4. ~~**Detail view** — full app page from catalogue data; `AdwNavigationView` navigation~~ ✅
-5. ~~**Bottles backend** — path detection, `bottles-cli` wrapper, install + remove~~ ✅
+5. ~~**Bottles backend** — path detection, install + remove~~ ✅
 6. ~~**Local DB** — track installed apps, wire up Install/Remove button state~~ ✅
 7. ~~**Update logic** — safe rsync overlay (no --delete; AppData/Documents excluded)~~ ✅
 8. ~~**HTTP(S) auth** — bearer token generation, per-request injection, image asset caching~~ ✅
-9. **Component update UI** — post-install prompt to upgrade runner/DXVK
-10. **Flatpak packaging**
+9. **Flatpak packaging**
 
 ---
 

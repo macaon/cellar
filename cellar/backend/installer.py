@@ -91,6 +91,7 @@ def install_app(
         The bottle directory name used (e.g. ``"my-app"`` or ``"my-app-2"``).
     """
     _check_cancel(cancel_event)
+    _report(progress_cb, "Downloading", 0.0)
 
     with tempfile.TemporaryDirectory(prefix="cellar-install-") as tmp_str:
         tmp = Path(tmp_str)
@@ -164,6 +165,8 @@ def _acquire_archive(
     scheme = parsed.scheme.lower()
 
     if scheme in ("", "file"):
+        if progress_cb:
+            progress_cb(1.0)
         return Path(parsed.path if scheme == "file" else uri)
 
     if scheme in ("http", "https"):
@@ -186,6 +189,8 @@ def _acquire_archive(
             from gi.repository import Gio
             fuse_path = Gio.File.new_for_uri(uri).get_path()
             if fuse_path:
+                if progress_cb:
+                    progress_cb(1.0)
                 return Path(fuse_path)
         except (ImportError, ValueError):
             pass

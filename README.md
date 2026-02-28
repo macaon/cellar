@@ -163,6 +163,11 @@ at any time via Settings → expand the repo row → **Change…**.
 
 ```nginx
 # /etc/nginx/sites-available/cellar
+#
+# Important: use 'root' not 'alias' here. Combining 'alias' with 'if'
+# inside a location block is a known nginx gotcha that causes 403 errors
+# even when the auth check passes.
+
 map $http_authorization $cellar_auth_ok {
     "Bearer YOUR_TOKEN_HERE"  1;
     default                   0;
@@ -175,23 +180,26 @@ server {
     ssl_certificate     /etc/ssl/certs/cellar.crt;
     ssl_certificate_key /etc/ssl/private/cellar.key;
 
+    # Repo files live at /srv/cellar/repo/ on disk.
+    # With 'root /srv/cellar', a request for /repo/catalogue.json
+    # is served from /srv/cellar/repo/catalogue.json.
     location /repo/ {
         if ($cellar_auth_ok = 0) {
             return 401 "Unauthorized\n";
         }
 
-        alias /srv/cellar/repo/;
+        root /srv/cellar;
         autoindex off;
 
-        # Optional: allow the client to know the content length for
-        # progress bars during archive downloads.
+        # Lets the client know file sizes for download progress bars.
         add_header Accept-Ranges bytes;
     }
 }
 ```
 
-Replace `YOUR_TOKEN_HERE` with your generated token and adjust the `alias`
-path to point at your repo directory. Reload nginx after editing:
+Replace `YOUR_TOKEN_HERE` with your generated token. Adjust `root` and the
+`location` path so that `root` + `location` = the directory on disk containing
+`catalogue.json`. Reload nginx after editing:
 
 ```bash
 sudo nginx -t && sudo systemctl reload nginx

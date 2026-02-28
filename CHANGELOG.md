@@ -4,6 +4,20 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.12.14] — 2026-02-28
+
+### Fixed
+- **Generate button removed from the "Access token" input field** — token
+  generation belongs in the Access Control section only; the input field is
+  for pasting a token received from a repo owner.
+- **403 Forbidden now shows a clear error** instead of the generic "Could Not
+  Connect" message, with a hint to check the token and server configuration.
+- **nginx example in README corrected** — using `alias` together with `if`
+  inside a location block is a known nginx bug that returns 403 even when
+  auth passes. The example now uses `root` instead, which works correctly.
+
+---
+
 ## [0.12.13] — 2026-02-28
 
 ### Changed

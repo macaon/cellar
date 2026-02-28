@@ -69,14 +69,6 @@ class SettingsDialog(Adw.PreferencesDialog):
 
         # Optional token row — sits below the URI row, always visible.
         self._add_token_row = Adw.EntryRow(title="Access token (optional)")
-        token_gen_btn = Gtk.Button(
-            icon_name="view-refresh-symbolic",
-            valign=Gtk.Align.CENTER,
-            has_frame=False,
-            tooltip_text="Generate a random token",
-        )
-        token_gen_btn.connect("clicked", self._on_fill_token)
-        self._add_token_row.add_suffix(token_gen_btn)
 
         # ── Group: Access Control ─────────────────────────────────────────
         access_group = Adw.PreferencesGroup(
@@ -266,6 +258,16 @@ class SettingsDialog(Adw.PreferencesDialog):
                         "This repository requires a bearer token. "
                         "Enter it in the Access token field and try again.",
                     )
+            elif _looks_like_forbidden_error(err):
+                self._alert(
+                    "Access Denied",
+                    "The server returned 403 Forbidden. "
+                    "If this repository uses bearer token authentication, "
+                    "check that the token is correct.\n\n"
+                    "If you manage the server, verify the web server "
+                    "configuration — see the README for a working nginx "
+                    "example.",
+                )
             elif _looks_like_ssl_error(err):
                 self._ask_ssl_options(uri, entry_row)
             else:
@@ -505,13 +507,6 @@ class SettingsDialog(Adw.PreferencesDialog):
         self._commit_add(uri, ca_cert=dest.name)
         entry_row.set_text("")
 
-    def _on_fill_token(self, _btn: Gtk.Button) -> None:
-        """Generate a random token and fill the token add-row with it."""
-        import secrets
-        token = secrets.token_hex(32)
-        self._add_token_row.set_text(token)
-        self._add_token_row.get_clipboard().set(token)
-
     def _on_generate_token(self, _btn: Gtk.Button) -> None:
         """Generate a token and display it in a dialog for copying."""
         import secrets
@@ -661,3 +656,8 @@ def _looks_like_ssl_error(err: str) -> bool:
 def _looks_like_auth_error(err: str) -> bool:
     """Heuristic: does this look like a 401 Unauthorized response?"""
     return "HTTP 401" in err
+
+
+def _looks_like_forbidden_error(err: str) -> bool:
+    """Heuristic: does this look like a 403 Forbidden response?"""
+    return "HTTP 403" in err

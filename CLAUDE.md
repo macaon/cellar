@@ -1,10 +1,10 @@
-# Bottles Repository App — Project Brief
+# Cellar — Project Brief
 
 ## What this project is
 
 A GNOME desktop application that acts as a software storefront for Wine/Bottles-managed Windows applications. Think GNOME Software, but the "packages" are Bottles full backups stored on a network share (SMB, NFS, or HTTP). The user browses a catalogue, clicks Install, and the app handles downloading the backup, importing it into Bottles, and updating Wine components as needed.
 
-The project is tentatively called **Cellar** (working title — rename freely).
+The project is called **Cellar**.
 
 ---
 
@@ -32,7 +32,7 @@ repo/
   catalogue.json          ← single source of truth; fetched on launch/refresh
   apps/
     appname/
-      icon.png            ← square icon (browse grid)
+      icon.png            ← square icon (browse grid); must be PNG
       cover.png           ← portrait cover (detail view)
       hero.png            ← wide banner (detail view header)
       screenshots/
@@ -51,6 +51,7 @@ A fat JSON file containing every app's full metadata. All asset paths are relati
 {
   "cellar_version": 1,
   "generated_at": "2026-02-25T12:00:00Z",
+  "categories": ["Games", "Productivity", "Graphics", "Utility", "My Custom Category"],
   "apps": [
     {
       "id": "appname",
@@ -91,6 +92,8 @@ A fat JSON file containing every app's full metadata. All asset paths are relati
 
 `update_strategy` is either `"safe"` (rsync overlay, preserves user data) or `"full"` (complete replacement, warn user).
 
+The top-level `categories` array is optional. It defines custom categories beyond the built-in ones (`BASE_CATEGORIES` in `packager.py`: Games, Productivity, Graphics, Utility). Custom categories are merged with the base list and appear in the category filter strip and the Add/Edit app dialogs. The `"Custom…"` sentinel in the combo reveals an `AdwEntryRow` for typing a new category.
+
 All fields except `id`, `name`, `version`, and `category` are optional; unset fields default to empty strings / empty collections / `None`.
 
 ### Supported URI schemes
@@ -98,12 +101,22 @@ All fields except `id`, `name`, `version`, and `category` are optional; unset fi
 | Scheme | Writable | Notes |
 |---|---|---|
 | Local path / `file://` | Yes | |
-| `http://` / `https://` | **No** | Read-only; intended for family/shared access |
+| `http://` / `https://` | **No** | Read-only; optional bearer token auth |
 | `ssh://[user@]host[:port]/path` | Yes | Uses system `ssh` client; key auth via agent or `ssh_identity=` |
 | `smb://` | Yes | Via GIO/GVFS |
 | `nfs://` | Yes | Via GIO/GVFS |
 
 If the client reaches a location with no `catalogue.json`, it offers to initialise a new repo (writable transports only). HTTP repos show an error instead.
+
+### HTTP(S) bearer token authentication
+
+HTTP(S) repos support an optional bearer token for access control. The token is:
+- Generated via Settings → Access Control → Generate (`secrets.token_hex(32)`, 64 hex chars)
+- Stored per-repo in `~/.local/share/cellar/config.json`
+- Sent as `Authorization: Bearer <token>` on every HTTP request (catalogue fetch, image download, archive download)
+- Configurable at add-time via the "Access token (optional)" `Adw.EntryRow` in Settings
+
+Image assets on HTTP(S) repos are downloaded to a per-session `tempfile.TemporaryDirectory` cache in `Repo._fetch_to_cache` and returned as local paths. This is necessary because `GdkPixbuf` cannot pass auth headers when given an `http://` URL, and `os.path.isfile()` returns `False` for URLs. Archives are still returned as URLs since the installer's own download code handles auth.
 
 ---
 
@@ -132,7 +145,7 @@ Check both at startup and let the user override in settings if needed.
 
 ### Update flow — safe strategy (default)
 
-Used when `manifest.json` sets `update_strategy: "safe"`. Preserves user data inside the bottle.
+Used when `update_strategy: "safe"`. Preserves user data inside the bottle.
 
 1. Download and verify new archive
 2. Extract to temp directory
@@ -151,7 +164,7 @@ Used when `manifest.json` sets `update_strategy: "safe"`. Preserves user data in
 
 ### Update flow — full strategy
 
-Used when `manifest.json` sets `update_strategy: "full"`, or user opts in manually.
+Used when `update_strategy: "full"`, or user opts in manually.
 
 1. Warn user that in-bottle changes will be lost
 2. Remove existing bottle directory
@@ -200,7 +213,7 @@ CREATE TABLE repos (
 );
 ```
 
-Multiple repos should be supported from the start, even if the UI only exposes one initially.
+Multiple repos are supported; the UI merges them (last-repo-wins on ID collision).
 
 ---
 
@@ -219,22 +232,22 @@ Model the layout on GNOME Software. Use libadwaita components throughout.
 
 ### App detail view
 
-- Large icon + name + category badge
-- Description
-- Screenshots carousel (`AdwCarousel`)
-- "Install" / "Update" / "Remove" button (context-sensitive)
-- Component info section: runner, DXVK, VKD3D versions
-- Changelog (for updates)
+- Hero banner (full width) + large icon + name + category badge
+- Description, component info (runner, DXVK, VKD3D), changelog
+- Screenshots carousel (`AdwCarousel`) with navigation arrows and fullscreen viewer
+- Context-sensitive action button: **Install** / **Update** / **Remove**
+- Edit button (pencil icon) for writable repos
 
 ### Install/update progress
 
-Use `AdwToastOverlay` for non-blocking progress notifications for small operations. For downloads, show an inline progress bar in the detail view or a separate `AdwDialog` with cancel support.
+`AdwDialog` with a cancel button, inline progress bar (download phase + install phase), and status label. On completion, `AdwToastOverlay` shows a non-blocking confirmation toast.
 
 ### Settings
 
-- Repo management (add/remove/enable sources)
-- Bottles data directory override
-- Default update strategy preference
+`Adw.PreferencesDialog` with one page:
+
+- **Repositories** group: `Adw.EntryRow` for URI + `Adw.EntryRow` for optional bearer token; add button triggers validation and saves. Existing repos shown as `Adw.ExpanderRow` rows with remove button; HTTP repos with a token show a masked indicator and a **Change…** button.
+- **Access Control** group: **Generate** button creates a 64-character random token, shows it in a dialog, and copies it to the clipboard. Intended for configuring a web server; the generated token is not automatically associated with any repo.
 
 ---
 
@@ -289,8 +302,6 @@ cellar/
 
 ## Development priorities
 
-Build in this order:
-
 1. ~~**Repo backend** — local catalogue parsing~~ ✅
 2. ~~**Browse UI** — grid of app cards, category filter, search~~ ✅
 3. ~~**Network repo support** — HTTP/HTTPS, SSH, SMB, NFS transports; unified `AppEntry` model; fat `catalogue.json` format~~ ✅
@@ -298,8 +309,8 @@ Build in this order:
 5. ~~**Bottles backend** — path detection, `bottles-cli` wrapper, install + remove~~ ✅
 6. ~~**Local DB** — track installed apps, wire up Install/Remove button state~~ ✅
 7. ~~**Update logic** — safe rsync overlay (no --delete; AppData/Documents excluded)~~ ✅
-8. **Component update UI** — post-install prompt to upgrade runner/DXVK
-9. **Repo management UI** — add/remove/initialise repos from settings; optional IGDB/Steam metadata fetch on add
+8. ~~**HTTP(S) auth** — bearer token generation, per-request injection, image asset caching~~ ✅
+9. **Component update UI** — post-install prompt to upgrade runner/DXVK
 10. **Flatpak packaging**
 
 ---
@@ -324,6 +335,10 @@ UI files are resolved by `cellar/utils/paths.py` — it checks the source tree (
 - **Archive size:** These archives can be multi-gigabyte. All download and extract operations must be async (use `GLib.Thread` or `asyncio` with GLib main loop integration). Never block the UI thread.
 - **bottles-cli not found:** Show a clear setup prompt rather than crashing. Detect both Flatpak and native installs.
 - **Repo unreachable:** Gracefully show cached catalogue if the repo is offline. Don't prevent app launch.
+- **HTTP User-Agent:** Python's default `User-Agent: Python-urllib/3.x` is blocked by Cloudflare and other CDN/WAF bot-protection rules. All outbound HTTP requests use `User-Agent: Mozilla/5.0 (compatible; Cellar/1.0)` (the `_USER_AGENT` constant in `repo.py`).
+- **nginx `^~` and image assets:** A plain `location /cellar/ { root /; }` block will lose to any `location ~* \.(jpg|png|...)$` regex block in the same server config (regex locations have higher priority than prefix locations in nginx). Use `location ^~ /cellar/` so the prefix match wins and images are served correctly.
+- **GdkPixbuf and HTTP:** `GdkPixbuf.new_from_file` cannot pass auth headers, and `os.path.isfile()` returns `False` for HTTP URLs. For HTTP(S) repos, `Repo.resolve_asset_uri` downloads image assets to a per-session temp cache and returns local paths. Archives still return URLs (handled by the installer).
+- **Icon format:** Only PNG icons are reliably supported by GdkPixbuf. `.ico` files should be converted to `.png` before adding to the repo.
 
 ---
 

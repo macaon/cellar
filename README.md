@@ -67,13 +67,17 @@ repo/
   catalogue.json          ← master index, fetched on launch/refresh
   apps/
     appname/
-      icon.png            ← square icon (browse grid)
-      cover.png           ← portrait cover (detail view)
+      icon.png            ← square icon (browse grid); must be PNG
+      cover.png           ← portrait cover (2:3 ratio, browse grid + detail)
       hero.png            ← wide banner (detail view header)
       screenshots/
         01.png
       appname-1.0.tar.gz  ← Bottles full backup archive
 ```
+
+> **Icon format:** use PNG. `.ico` files are not reliably supported by GdkPixbuf
+> and will be silently ignored. Convert with `convert icon.ico[0] icon.png`
+> (ImageMagick) if needed.
 
 ### `catalogue.json`
 
@@ -84,6 +88,7 @@ per-app manifest files. All paths inside are relative to the repo root.
 {
   "cellar_version": 1,
   "generated_at": "2026-02-25T12:00:00Z",
+  "categories": ["Games", "Productivity", "Graphics", "Utility", "My Category"],
   "apps": [
     {
       "id": "appname",
@@ -126,6 +131,13 @@ per-app manifest files. All paths inside are relative to the repo root.
 `update_strategy` is `"safe"` (rsync overlay, preserves user data in the
 bottle) or `"full"` (complete replacement, warns the user first).
 
+The top-level `categories` array is optional. It defines custom categories
+beyond the built-in ones (Games, Productivity, Graphics, Utility). Any
+categories listed here appear in the category filter strip and in the Add/Edit
+app dialogs.
+
+All app fields except `id`, `name`, `version`, and `category` are optional.
+
 ### Supported repo URI schemes
 
 | Scheme | Example | Writable |
@@ -137,27 +149,28 @@ bottle) or `"full"` (complete replacement, warns the user first).
 | `smb://` | `smb://nas.home.arpa/cellar` | Yes |
 | `nfs://` | `nfs://nas.home.arpa/export/cellar` | Yes |
 
-HTTP(S) repos are always read-only. If you point Cellar at a location with no
-`catalogue.json`, it will offer to initialise a new repository (writable
-transports only).
+HTTP(S) repos are always read-only. If you point Cellar at a writable location
+with no `catalogue.json`, it will offer to initialise a new repository.
 
-### Restricting HTTPS access with a bearer token
+### Restricting HTTP(S) access with a bearer token
 
-Cellar supports per-repo bearer token authentication for HTTPS repos. This lets
-you share a repo URL with specific people without making it publicly accessible.
+Cellar supports per-repo bearer token authentication for HTTP(S) repos. This
+lets you share a repo URL with specific people without making it publicly
+accessible.
 
 **Setting up the token**
 
-1. In Cellar → Preferences, add the repo URL. If the server returns 401 you
-   will be prompted for a token automatically.
-2. Click **Generate** to create a 64-character random token, which is copied to
-   your clipboard. Paste it into your web server config (see below), then click
-   **Save**.
-3. Share the URL and token with friends. They paste the token into the same
-   prompt when adding the repo.
+1. Open Cellar → Preferences → **Access Control** → **Generate**. A
+   64-character random token is shown and copied to your clipboard. Paste it
+   into your web server config (see nginx/Caddy examples below).
+2. When adding the repo in **Repositories**, enter the URL in the URI field and
+   paste the token into the **Access token (optional)** field directly below it.
+3. Share the URL and token with friends — they add the repo the same way.
 
-The token is stored in `~/.local/share/cellar/config.json`. You can change it
-at any time via Settings → expand the repo row → **Change…**.
+To update an existing repo's token: open Preferences, expand the repo row,
+click **Change…**.
+
+Tokens are stored in `~/.local/share/cellar/config.json`.
 
 **nginx example**
 
@@ -175,11 +188,17 @@ server {
     ssl_certificate     /etc/ssl/certs/cellar.crt;
     ssl_certificate_key /etc/ssl/private/cellar.key;
 
-    # The repo directory on disk is /cellar/.
-    # nginx's 'root' is prepended to the full request URI, so
-    # 'root /' means /cellar/catalogue.json is served from /cellar/catalogue.json.
-    # Do NOT use 'alias' here — alias + if in the same location causes 403.
-    location /cellar/ {
+    # The ^~ modifier is critical: it stops nginx from checking regex location
+    # blocks when this prefix matches. Without it, a catch-all image-caching
+    # block (e.g. "location ~* \.(jpg|png|...)$", common in PHP/WordPress
+    # setups) intercepts image asset requests before this block runs, serving
+    # them from the wrong root and causing 404 errors for all cover art and icons.
+    #
+    # 'root' is prepended to the full request URI:
+    #   root / + /cellar/catalogue.json  →  /cellar/catalogue.json on disk
+    # Adjust if your repo lives elsewhere:
+    #   repo at /srv/data/cellar/ with location /cellar/  →  root /srv/data
+    location ^~ /cellar/ {
         if ($cellar_auth_ok = 0) {
             return 401 "Unauthorized\n";
         }
@@ -187,15 +206,12 @@ server {
         root /;
         autoindex off;
         add_header Accept-Ranges bytes;
+        expires 5d;
     }
 }
 ```
 
-Replace `YOUR_TOKEN_HERE` with your generated token. The key rule: `root` is
-prepended to the full URI, so `root /` + `/cellar/catalogue.json` =
-`/cellar/catalogue.json` on disk. If your repo is somewhere else, adjust
-accordingly — e.g. repo at `/srv/data/cellar/` with location `/cellar/` →
-`root /srv/data`. Reload nginx after editing:
+Replace `YOUR_TOKEN_HERE` with your generated token. Reload nginx after editing:
 
 ```bash
 sudo nginx -t && sudo systemctl reload nginx
@@ -205,12 +221,12 @@ sudo nginx -t && sudo systemctl reload nginx
 
 ```caddy
 cellar.example.com {
-    handle /repo/* {
+    handle /cellar/* {
         @unauth not header Authorization "Bearer YOUR_TOKEN_HERE"
         respond @unauth "Unauthorized" 401
 
         file_server {
-            root /srv/cellar
+            root /
         }
     }
 }
@@ -268,8 +284,8 @@ cellar/
 4. **Bottles backend** — path detection, `bottles-cli` wrapper, install + remove ✅
 5. **Local DB** — track installed apps, wire up Install/Remove button state ✅
 6. **Update logic** — safe rsync overlay (no --delete; AppData/Documents excluded) ✅
-7. **Component update UI** — post-install prompt to upgrade runner/DXVK
-8. **Repo management UI** — add/remove sources, initialise new repos
+7. **HTTP(S) auth** — bearer token generation, storage, and per-request injection; image asset caching ✅
+8. **Component update UI** — post-install prompt to upgrade runner/DXVK
 9. **Flatpak packaging**
 
 ---

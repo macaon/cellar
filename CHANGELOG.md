@@ -4,6 +4,24 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.12.6] — 2026-02-28
+
+### Fixed
+- **HTTP repo add showed "No Catalogue Found" for all errors** — any failure
+  on a non-writable repo (SSL error, auth failure, network timeout) was
+  swallowed and shown as the generic read-only message instead of the real
+  error. Now only 404-style errors show "No Catalogue Found"; everything else
+  shows "Could Not Connect" with the actual message.
+
+### Added
+- **SSL certificate bypass for HTTPS repos** — when adding an HTTPS repo fails
+  with an SSL/certificate error (common for self-signed or private-CA certs on
+  home servers), a dialog now offers "Add Without Verification" which saves
+  `ssl_verify: false` to `config.json` for that repo. All subsequent fetches
+  and downloads skip certificate validation for that repo only.
+
+---
+
 ## [0.12.5] — 2026-02-28
 
 ### Fixed

@@ -141,7 +141,7 @@ class SettingsDialog(Adw.PreferencesDialog):
             parent=root if isinstance(root, Gtk.Window) else None
         )
         try:
-            repo = Repo(uri, mount_op=mount_op)
+            repo = Repo(uri, mount_op=mount_op, ssl_verify=True)
         except RepoError as exc:
             self._alert("Invalid Repository", str(exc))
             return
@@ -152,15 +152,18 @@ class SettingsDialog(Adw.PreferencesDialog):
             repo.fetch_catalogue()
         except RepoError as exc:
             err = str(exc)
-            if _looks_like_missing(err) and repo.is_writable:
-                self._ask_init(uri)
-            elif not repo.is_writable:
-                self._alert(
-                    "No Catalogue Found",
-                    f"No catalogue.json was found at:\n\n{uri}\n\n"
-                    "HTTP repositories are read-only — the catalogue must "
-                    "already exist on the server.",
-                )
+            if _looks_like_missing(err):
+                if repo.is_writable:
+                    self._ask_init(uri)
+                else:
+                    self._alert(
+                        "No Catalogue Found",
+                        f"No catalogue.json was found at:\n\n{uri}\n\n"
+                        "HTTP repositories are read-only — the catalogue must "
+                        "already exist on the server.",
+                    )
+            elif _looks_like_ssl_error(err):
+                self._ask_skip_ssl(uri, entry_row)
             else:
                 self._alert("Could Not Connect", err)
             return
@@ -313,10 +316,37 @@ class SettingsDialog(Adw.PreferencesDialog):
     # Helpers
     # ------------------------------------------------------------------
 
-    def _commit_add(self, uri: str) -> None:
+    def _ask_skip_ssl(self, uri: str, entry_row: Adw.EntryRow) -> None:
+        dialog = Adw.AlertDialog(
+            heading="SSL Certificate Error",
+            body=(
+                f"The server at {uri} presented a certificate that could not be "
+                "verified (e.g. self-signed or private CA).\n\n"
+                "You can add this repository with SSL verification disabled. "
+                "Only do this if you trust the server."
+            ),
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("skip", "Add Without Verification")
+        dialog.set_response_appearance("skip", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.connect("response", self._on_skip_ssl_response, uri, entry_row)
+        dialog.present(self)
+
+    def _on_skip_ssl_response(
+        self, _dialog, response: str, uri: str, entry_row: Adw.EntryRow
+    ) -> None:
+        if response != "skip":
+            return
+        self._commit_add(uri, ssl_verify=False)
+        entry_row.set_text("")
+
+    def _commit_add(self, uri: str, *, ssl_verify: bool = True) -> None:
         """Persist the new repo and refresh both the list and the main window."""
         repos = load_repos()
-        repos.append({"uri": uri, "name": ""})
+        entry: dict = {"uri": uri, "name": ""}
+        if not ssl_verify:
+            entry["ssl_verify"] = False
+        repos.append(entry)
         save_repos(repos)
         self._rebuild_repo_rows()
         if self._on_repos_changed:
@@ -354,3 +384,9 @@ def _looks_like_missing(err: str) -> bool:
     if "mount" in low:
         return False
     return any(kw in low for kw in ("not found", "does not exist", "no such file"))
+
+
+def _looks_like_ssl_error(err: str) -> bool:
+    """Heuristic: does this look like an SSL certificate verification failure?"""
+    low = err.lower()
+    return any(kw in low for kw in ("ssl", "certificate", "cert_verify", "handshake"))

@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import logging
+import ssl
 import subprocess
 import urllib.error
 import urllib.request
@@ -81,13 +82,19 @@ class _LocalFetcher:
 class _HttpFetcher:
     """Serves files from an HTTP or HTTPS server (read-only)."""
 
-    def __init__(self, base_url: str) -> None:
+    def __init__(self, base_url: str, *, ssl_verify: bool = True) -> None:
         self._base = base_url.rstrip("/") + "/"
+        self._ssl_ctx: ssl.SSLContext | None = None
+        if not ssl_verify:
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            self._ssl_ctx = ctx
 
     def fetch_bytes(self, rel_path: str) -> bytes:
         url = self._base + rel_path.lstrip("/")
         try:
-            with urllib.request.urlopen(url, timeout=30) as resp:  # noqa: S310
+            with urllib.request.urlopen(url, timeout=30, context=self._ssl_ctx) as resp:  # noqa: S310
                 return resp.read()
         except urllib.error.HTTPError as exc:
             raise RepoError(f"HTTP {exc.code} fetching {url}: {exc.reason}") from exc
@@ -296,6 +303,7 @@ def _make_fetcher(
     *,
     ssh_identity: str | None = None,
     mount_op: object | None = None,
+    ssl_verify: bool = True,
 ) -> _Fetcher:
     """Return the appropriate fetcher for *uri*."""
     parsed = urlparse(uri)
@@ -310,7 +318,7 @@ def _make_fetcher(
         return _LocalFetcher(root)
 
     if scheme in ("http", "https"):
-        return _HttpFetcher(uri)
+        return _HttpFetcher(uri, ssl_verify=ssl_verify)
 
     if scheme == "ssh":
         if not parsed.hostname:
@@ -354,11 +362,12 @@ class Repo:
         *,
         ssh_identity: str | None = None,
         mount_op: object | None = None,
+        ssl_verify: bool = True,
     ) -> None:
         self.uri = uri
         self.name = name or uri
         self._fetcher: _Fetcher = _make_fetcher(
-            uri, ssh_identity=ssh_identity, mount_op=mount_op
+            uri, ssh_identity=ssh_identity, mount_op=mount_op, ssl_verify=ssl_verify
         )
 
     # ------------------------------------------------------------------

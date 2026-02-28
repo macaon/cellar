@@ -71,7 +71,14 @@ def _save(data: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def load_repos() -> list[dict]:
-    """Return the list of configured repo dicts."""
+    """Return the list of configured repo dicts.
+
+    Each dict may contain:
+      "uri"          – required
+      "name"         – optional display name
+      "ssh_identity" – optional path to SSH key
+      "ssl_verify"   – optional bool (default True); set False for self-signed certs
+    """
     return _load().get("repos", [])
 
 

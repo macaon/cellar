@@ -32,6 +32,9 @@ class CellarApplication(Adw.Application):
                 "  background-color: @accent_bg_color;"
                 "  color: @accent_fg_color;"
                 "}"
+                ".screenshot-nav {"
+                "  transition: opacity 150ms ease-in-out;"
+                "}"
             )
             Gtk.StyleContext.add_provider_for_display(
                 display, css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION

@@ -4,6 +4,24 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.11.29] — 2026-02-28
+
+### Added
+- **Screenshot carousel navigation arrows**: hovering over the screenshot
+  carousel reveals prev/next arrow buttons (`.osd` + `.circular`) that fade
+  in/out with a 150 ms CSS transition. First/last page hides the
+  corresponding arrow.
+- **Fullscreen screenshot dialog**: clicking any screenshot opens an
+  `Adw.Dialog` with a full-size carousel viewer (1000×700), its own
+  navigation arrows, and indicator dots.
+
+### Fixed
+- **Scroll conflict resolved**: set `allow_scroll_wheel=False` on the inline
+  screenshot carousel so the mousewheel scrolls the page instead of advancing
+  screenshots.
+
+---
+
 ## [0.11.28] — 2026-02-28
 
 ### Changed

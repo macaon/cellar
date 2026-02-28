@@ -11,7 +11,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, GLib, Gio, Gtk, Pango
+from gi.repository import Adw, Gdk, GLib, Gio, Gtk, Pango
 
 from cellar.models.app_entry import AppEntry
 
@@ -338,30 +338,105 @@ class DetailView(Gtk.Box):
         return lbl
 
     def _make_screenshots(self) -> Gtk.Widget | None:
-        local_paths = [
+        self._screenshot_paths = [
             self._resolve(s)
             for s in self._entry.screenshots
             if os.path.isfile(self._resolve(s))
         ]
-        if not local_paths:
+        if not self._screenshot_paths:
             return None
 
         wrapper = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         wrapper.set_margin_bottom(12)
 
-        carousel = Adw.Carousel(allow_scroll_wheel=True, reveal_duration=200)
-        wrapper.append(carousel)
+        carousel = Adw.Carousel(allow_scroll_wheel=False, reveal_duration=200)
+        multiple = len(self._screenshot_paths) > 1
 
-        for path in local_paths:
+        pointer_cursor = Gdk.Cursor.new_from_name("pointer")
+
+        for idx, path in enumerate(self._screenshot_paths):
             pic = Gtk.Picture.new_for_filename(path)
             pic.set_content_fit(Gtk.ContentFit.CONTAIN)
             pic.set_can_shrink(True)
             pic.set_size_request(-1, 300)
+            pic.set_cursor(pointer_cursor)
+            click = Gtk.GestureClick()
+            click.connect("released", self._on_screenshot_clicked, idx)
+            pic.add_controller(click)
             carousel.append(pic)
+
+        # Wrap carousel in an overlay with prev/next arrows.
+        overlay = Gtk.Overlay(child=carousel)
+        wrapper.append(overlay)
+
+        if multiple:
+            prev_btn = Gtk.Button(icon_name="go-previous-symbolic")
+            prev_btn.add_css_class("osd")
+            prev_btn.add_css_class("circular")
+            prev_btn.add_css_class("screenshot-nav")
+            prev_btn.set_halign(Gtk.Align.START)
+            prev_btn.set_valign(Gtk.Align.CENTER)
+            prev_btn.set_margin_start(12)
+            prev_btn.set_opacity(0)
+            prev_btn.set_can_target(False)
+            prev_btn.connect("clicked", lambda _b: carousel.scroll_to(
+                carousel.get_nth_page(max(0, round(carousel.get_position()) - 1)),
+                True,
+            ))
+            overlay.add_overlay(prev_btn)
+
+            next_btn = Gtk.Button(icon_name="go-next-symbolic")
+            next_btn.add_css_class("osd")
+            next_btn.add_css_class("circular")
+            next_btn.add_css_class("screenshot-nav")
+            next_btn.set_halign(Gtk.Align.END)
+            next_btn.set_valign(Gtk.Align.CENTER)
+            next_btn.set_margin_end(12)
+            next_btn.set_opacity(0)
+            next_btn.set_can_target(False)
+            next_btn.connect("clicked", lambda _b: carousel.scroll_to(
+                carousel.get_nth_page(min(
+                    carousel.get_n_pages() - 1,
+                    round(carousel.get_position()) + 1,
+                )),
+                True,
+            ))
+            overlay.add_overlay(next_btn)
+
+            def _update_arrow_visibility(*_args) -> None:
+                page = round(carousel.get_position())
+                prev_btn.set_opacity(0 if page == 0 else 1)
+                prev_btn.set_can_target(page != 0)
+                last = carousel.get_n_pages() - 1
+                next_btn.set_opacity(0 if page >= last else 1)
+                next_btn.set_can_target(page < last)
+
+            carousel.connect("page-changed", _update_arrow_visibility)
+
+            # Show/hide arrows on hover.
+            motion = Gtk.EventControllerMotion()
+            motion.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+
+            def _on_enter(*_args) -> None:
+                _update_arrow_visibility()
+
+            def _on_leave(*_args) -> None:
+                prev_btn.set_opacity(0)
+                prev_btn.set_can_target(False)
+                next_btn.set_opacity(0)
+                next_btn.set_can_target(False)
+
+            motion.connect("enter", _on_enter)
+            motion.connect("leave", _on_leave)
+            overlay.add_controller(motion)
 
         dots = Adw.CarouselIndicatorDots(carousel=carousel)
         wrapper.append(dots)
         return wrapper
+
+    def _on_screenshot_clicked(self, _gesture, _n, _x, _y, index: int) -> None:
+        dialog = ScreenshotDialog(self._screenshot_paths, index)
+        dialog.present(self.get_root())
 
     def _make_details_group(self) -> Adw.PreferencesGroup | None:
         e = self._entry
@@ -693,6 +768,94 @@ class RemoveDialog(Adw.AlertDialog):
     def _on_response(self, _dialog, response: str) -> None:
         if response == "remove":
             self._on_confirm()
+
+
+# ---------------------------------------------------------------------------
+# Screenshot fullscreen dialog
+# ---------------------------------------------------------------------------
+
+
+class ScreenshotDialog(Adw.Dialog):
+    """Fullscreen screenshot viewer with its own carousel and arrow navigation."""
+
+    def __init__(self, paths: list[str], start_index: int = 0) -> None:
+        super().__init__(content_width=1000, content_height=700)
+        self._paths = paths
+        self._start_index = start_index
+        self._build_ui()
+
+    def _build_ui(self) -> None:
+        toolbar = Adw.ToolbarView()
+        toolbar.add_top_bar(Adw.HeaderBar())
+
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        toolbar.set_content(body)
+
+        carousel = Adw.Carousel(allow_scroll_wheel=True, reveal_duration=200)
+        for path in self._paths:
+            pic = Gtk.Picture.new_for_filename(path)
+            pic.set_content_fit(Gtk.ContentFit.CONTAIN)
+            pic.set_can_shrink(True)
+            pic.set_vexpand(True)
+            carousel.append(pic)
+
+        overlay = Gtk.Overlay(child=carousel, vexpand=True)
+        body.append(overlay)
+
+        multiple = len(self._paths) > 1
+
+        if multiple:
+            prev_btn = Gtk.Button(icon_name="go-previous-symbolic")
+            prev_btn.add_css_class("osd")
+            prev_btn.add_css_class("circular")
+            prev_btn.set_halign(Gtk.Align.START)
+            prev_btn.set_valign(Gtk.Align.CENTER)
+            prev_btn.set_margin_start(12)
+            prev_btn.connect("clicked", lambda _b: carousel.scroll_to(
+                carousel.get_nth_page(max(0, round(carousel.get_position()) - 1)),
+                True,
+            ))
+            overlay.add_overlay(prev_btn)
+
+            next_btn = Gtk.Button(icon_name="go-next-symbolic")
+            next_btn.add_css_class("osd")
+            next_btn.add_css_class("circular")
+            next_btn.set_halign(Gtk.Align.END)
+            next_btn.set_valign(Gtk.Align.CENTER)
+            next_btn.set_margin_end(12)
+            next_btn.connect("clicked", lambda _b: carousel.scroll_to(
+                carousel.get_nth_page(min(
+                    carousel.get_n_pages() - 1,
+                    round(carousel.get_position()) + 1,
+                )),
+                True,
+            ))
+            overlay.add_overlay(next_btn)
+
+            def _update_arrows(*_args) -> None:
+                page = round(carousel.get_position())
+                prev_btn.set_visible(page > 0)
+                next_btn.set_visible(page < carousel.get_n_pages() - 1)
+
+            carousel.connect("page-changed", _update_arrows)
+
+            dots = Adw.CarouselIndicatorDots(carousel=carousel)
+            body.append(dots)
+
+        # Scroll to the clicked screenshot once the carousel is realized.
+        if self._start_index > 0:
+            def _scroll_to_start(*_args) -> None:
+                carousel.scroll_to(
+                    carousel.get_nth_page(self._start_index), False,
+                )
+
+            carousel.connect("realize", _scroll_to_start)
+
+        if multiple:
+            # Update arrow visibility after initial scroll.
+            carousel.connect("realize", lambda *_: GLib.idle_add(_update_arrows))
+
+        self.set_child(toolbar)
 
 
 # ---------------------------------------------------------------------------

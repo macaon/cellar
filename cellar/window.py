@@ -289,7 +289,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="application-x-executable",
-            version="0.11.28",
+            version="0.11.29",
             comments="A GNOME storefront for Bottles-managed Windows apps.",
             license_type=Gtk.License.GPL_3_0,
         )

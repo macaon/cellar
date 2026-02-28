@@ -383,24 +383,24 @@ def _extract_archive(
     """Extract *archive_path* into *dest*, reporting per-member progress.
 
     Uses ``filter='data'`` on Python 3.12+ to strip unsafe tar entries.
-    Progress is reported as a fraction of total uncompressed bytes extracted.
+    Progress is based on compressed bytes consumed (file position) rather
+    than calling ``getmembers()`` upfront, which would scan the entire
+    archive before extracting anything — unacceptable for large files.
     """
     _check_cancel(cancel_event)
     use_filter = sys.version_info >= (3, 12)
     try:
-        with tarfile.open(archive_path, "r:gz") as tf:
-            members = tf.getmembers()
-            total = sum(m.size for m in members) or 1
-            done = 0
-            for member in members:
-                _check_cancel(cancel_event)
-                if use_filter:
-                    tf.extract(member, dest, filter="data")
-                else:
-                    tf.extract(member, dest)  # noqa: S202
-                done += member.size
-                if progress_cb:
-                    progress_cb(done / total)
+        total = archive_path.stat().st_size or 1
+        with open(archive_path, "rb") as raw:
+            with tarfile.open(fileobj=raw, mode="r:gz") as tf:
+                for member in tf:
+                    _check_cancel(cancel_event)
+                    if use_filter:
+                        tf.extract(member, dest, filter="data")
+                    else:
+                        tf.extract(member, dest)  # noqa: S202
+                    if progress_cb:
+                        progress_cb(min(raw.tell() / total, 1.0))
     except tarfile.TarError as exc:
         raise InstallError(f"Failed to extract archive: {exc}") from exc
 

@@ -4,6 +4,17 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.12.2] — 2026-02-28
+
+### Fixed
+- **Extraction stall at 0%**: `tarfile.getmembers()` was scanning the entire
+  compressed archive before extracting anything, causing the progress bar to
+  sit at "Installing… 0%" for the whole duration of large archives. Now
+  iterates members incrementally and tracks compressed bytes consumed
+  (`raw.tell()`) for smooth progress.
+
+---
+
 ## [0.12.1] — 2026-02-28
 
 ### Fixed

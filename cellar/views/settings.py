@@ -34,7 +34,7 @@ class SettingsDialog(Adw.PreferencesDialog):
         on_repos_changed: Callable[[], None] | None = None,
         **kwargs,
     ):
-        super().__init__(title="Preferences", content_width=560, content_height=-1, **kwargs)
+        super().__init__(title="Preferences", content_width=560, content_height=500, **kwargs)
         self._on_repos_changed = on_repos_changed
         self._repo_rows: list[Adw.PreferencesRow] = []
 

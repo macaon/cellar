@@ -4,6 +4,16 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.12.11] — 2026-02-28
+
+### Fixed
+- **Preferences dialog too small** — `content_height=-1` collapsed the dialog
+  because `Adw.PreferencesDialog` wraps content in a scrolled window whose
+  natural height is near zero. Changed to an explicit `content_height=500` which
+  gives a usable minimum without over-constraining the dialog.
+
+---
+
 ## [0.12.10] — 2026-02-28
 
 ### Changed

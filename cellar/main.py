@@ -28,7 +28,7 @@ class CellarApplication(Adw.Application):
 
             css = Gtk.CssProvider()
             css.load_from_string(
-                "viewswitcher .badge {"
+                "viewswitcher indicator {"
                 "  background-color: @accent_bg_color;"
                 "  color: @accent_fg_color;"
                 "}"

@@ -4,6 +4,20 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.12.1] — 2026-02-28
+
+### Fixed
+- **SMB/NFS download progress**: GVFS FUSE paths were returned as "local",
+  skipping the download phase entirely (bar jumped to 100% then stalled).
+  Now stream-copies through the FUSE mount with real per-chunk progress.
+
+### Changed
+- **Install dialog**: replaced two progress bars with a single bar whose label
+  changes between phases (Downloading → Verifying → Installing). Shrunk the
+  dialog from 420 × ~300 px to 360 × ~200 px.
+
+---
+
 ## [0.12.0] — 2026-02-28
 
 ### Fixed

@@ -181,34 +181,79 @@ def _acquire_archive(
         return dest
 
     if scheme in ("smb", "nfs"):
-        # Prefer the GVFS FUSE mount path — the share is already mounted from
-        # the catalogue fetch, so get_path() returns the local FUSE path and we
-        # can read the archive in-place without any copy.
+        # Try to resolve a GVFS FUSE path so we can stream-copy with progress.
+        # Even though gvfsd-fuse exposes the file as a local path, reading
+        # through it is still network I/O, so we copy to a temp file to get
+        # accurate download progress rather than returning the FUSE path
+        # directly (which would make the download phase appear instant).
+        fuse_path: str | None = None
         try:
             import gi
             gi.require_version("Gio", "2.0")
             from gi.repository import Gio
             fuse_path = Gio.File.new_for_uri(uri).get_path()
-            if fuse_path:
-                if progress_cb:
-                    progress_cb(1.0)
-                return Path(fuse_path)
         except (ImportError, ValueError):
             pass
-        # FUSE not available — stream via a GIO InputStream instead.
-        _gio_stream(
-            uri,
-            dest,
-            expected_size=expected_size,
-            progress_cb=progress_cb,
-            cancel_event=cancel_event,
-        )
+
+        if fuse_path:
+            _file_stream(
+                Path(fuse_path),
+                dest,
+                expected_size=expected_size,
+                progress_cb=progress_cb,
+                cancel_event=cancel_event,
+            )
+        else:
+            # FUSE not available — stream via a GIO InputStream instead.
+            _gio_stream(
+                uri,
+                dest,
+                expected_size=expected_size,
+                progress_cb=progress_cb,
+                cancel_event=cancel_event,
+            )
         return dest
 
     raise InstallError(
         f"Downloading from {scheme!r} repos is not yet supported. "
         "Use a local, HTTP(S), SMB, or NFS repo."
     )
+
+
+def _file_stream(
+    src: Path,
+    dest: Path,
+    *,
+    expected_size: int,
+    progress_cb: Callable[[float], None] | None,
+    cancel_event: threading.Event | None,
+) -> None:
+    """Copy *src* to *dest* in 1 MB chunks with progress.
+
+    Used for GVFS FUSE paths where the file appears local but reads are
+    actually network I/O.
+    """
+    chunk = 1 * 1024 * 1024
+    total = expected_size if expected_size > 0 else src.stat().st_size
+    copied = 0
+    try:
+        with open(src, "rb") as fin, open(dest, "wb") as fout:
+            while True:
+                if cancel_event and cancel_event.is_set():
+                    raise InstallCancelled("Download cancelled")
+                buf = fin.read(chunk)
+                if not buf:
+                    break
+                fout.write(buf)
+                copied += len(buf)
+                if progress_cb and total > 0:
+                    progress_cb(min(copied / total, 1.0))
+    except InstallCancelled:
+        dest.unlink(missing_ok=True)
+        raise
+    except OSError as exc:
+        dest.unlink(missing_ok=True)
+        raise InstallError(f"Could not copy archive to disk: {exc}") from exc
 
 
 def _http_stream(

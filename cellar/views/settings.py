@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Callable
 from urllib.parse import urlparse
 
+
 import gi
 
 gi.require_version("Gtk", "4.0")
@@ -93,9 +94,16 @@ class SettingsDialog(Adw.PreferencesDialog):
     def _make_repo_row(self, repo_cfg: dict) -> Adw.ActionRow:
         uri = repo_cfg["uri"]
         name = repo_cfg.get("name") or ""
+        ca_cert = repo_cfg.get("ca_cert") or ""
+        ssl_verify = repo_cfg.get("ssl_verify", True)
+        subtitle_parts = [uri] if name else []
+        if ca_cert:
+            subtitle_parts.append(f"CA: {Path(ca_cert).name}")
+        elif not ssl_verify:
+            subtitle_parts.append("SSL verification disabled")
         row = Adw.ActionRow(
             title=name or uri,
-            subtitle=uri if name else "",
+            subtitle=" · ".join(subtitle_parts),
         )
         del_btn = Gtk.Button(
             icon_name="user-trash-symbolic",
@@ -163,7 +171,7 @@ class SettingsDialog(Adw.PreferencesDialog):
                         "already exist on the server.",
                     )
             elif _looks_like_ssl_error(err):
-                self._ask_skip_ssl(uri, entry_row)
+                self._ask_ssl_options(uri, entry_row)
             else:
                 self._alert("Could Not Connect", err)
             return
@@ -316,35 +324,91 @@ class SettingsDialog(Adw.PreferencesDialog):
     # Helpers
     # ------------------------------------------------------------------
 
-    def _ask_skip_ssl(self, uri: str, entry_row: Adw.EntryRow) -> None:
+    def _ask_ssl_options(self, uri: str, entry_row: Adw.EntryRow) -> None:
         dialog = Adw.AlertDialog(
             heading="SSL Certificate Error",
             body=(
                 f"The server at {uri} presented a certificate that could not be "
-                "verified (e.g. self-signed or private CA).\n\n"
-                "You can add this repository with SSL verification disabled. "
-                "Only do this if you trust the server."
+                "verified. This is common for self-signed certificates or a "
+                "private certificate authority.\n\n"
+                "You can provide your CA certificate file (.crt / .pem) so Cellar "
+                "can verify the server securely, or disable verification entirely "
+                "(not recommended outside a trusted local network)."
             ),
         )
         dialog.add_response("cancel", "Cancel")
-        dialog.add_response("skip", "Add Without Verification")
+        dialog.add_response("ca_cert", "Add CA Certificate…")
+        dialog.add_response("skip", "Disable Verification")
+        dialog.set_response_appearance("ca_cert", Adw.ResponseAppearance.SUGGESTED)
         dialog.set_response_appearance("skip", Adw.ResponseAppearance.DESTRUCTIVE)
-        dialog.connect("response", self._on_skip_ssl_response, uri, entry_row)
+        dialog.connect("response", self._on_ssl_options_response, uri, entry_row)
         dialog.present(self)
 
-    def _on_skip_ssl_response(
+    def _on_ssl_options_response(
         self, _dialog, response: str, uri: str, entry_row: Adw.EntryRow
     ) -> None:
-        if response != "skip":
+        if response == "ca_cert":
+            self._pick_ca_cert(uri, entry_row)
+        elif response == "skip":
+            self._commit_add(uri, ssl_verify=False)
+            entry_row.set_text("")
+
+    def _pick_ca_cert(self, uri: str, entry_row: Adw.EntryRow) -> None:
+        chooser = Gtk.FileChooserNative(
+            title="Select CA Certificate",
+            transient_for=self.get_root()
+            if isinstance(self.get_root(), Gtk.Window)
+            else None,
+            action=Gtk.FileChooserAction.OPEN,
+        )
+        f = Gtk.FileFilter()
+        f.set_name("Certificate files (*.crt, *.pem, *.cer)")
+        f.add_pattern("*.crt")
+        f.add_pattern("*.pem")
+        f.add_pattern("*.cer")
+        chooser.add_filter(f)
+        chooser.connect("response", self._on_ca_cert_chosen, uri, entry_row, chooser)
+        chooser.show()
+
+    def _on_ca_cert_chosen(
+        self,
+        _chooser,
+        response: int,
+        uri: str,
+        entry_row: Adw.EntryRow,
+        chooser: Gtk.FileChooserNative,
+    ) -> None:
+        if response != Gtk.ResponseType.ACCEPT:
             return
-        self._commit_add(uri, ssl_verify=False)
+        ca_path = chooser.get_file().get_path()
+        if not ca_path:
+            return
+        # Validate: try connecting with this CA cert before saving.
+        from cellar.backend.repo import Repo, RepoError
+        try:
+            Repo(uri, ca_cert=ca_path).fetch_catalogue()
+        except RepoError as exc:
+            err = str(exc)
+            if _looks_like_ssl_error(err):
+                self._alert(
+                    "Certificate Not Accepted",
+                    f"The server still could not be verified using {ca_path}.\n\n{err}",
+                )
+            else:
+                self._alert("Could Not Connect", err)
+            return
+        self._commit_add(uri, ca_cert=ca_path)
         entry_row.set_text("")
 
-    def _commit_add(self, uri: str, *, ssl_verify: bool = True) -> None:
+    def _commit_add(
+        self, uri: str, *, ssl_verify: bool = True, ca_cert: str | None = None
+    ) -> None:
         """Persist the new repo and refresh both the list and the main window."""
         repos = load_repos()
         entry: dict = {"uri": uri, "name": ""}
-        if not ssl_verify:
+        if ca_cert:
+            entry["ca_cert"] = ca_cert
+        elif not ssl_verify:
             entry["ssl_verify"] = False
         repos.append(entry)
         save_repos(repos)

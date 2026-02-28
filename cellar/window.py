@@ -123,6 +123,7 @@ class CellarWindow(Adw.ApplicationWindow):
                     ssh_identity=cfg.get("ssh_identity"),
                     mount_op=mount_op,
                     ssl_verify=cfg.get("ssl_verify", True),
+                    ca_cert=cfg.get("ca_cert") or None,
                 )
                 manager.add(r)
                 self._first_repo = self._first_repo or r
@@ -307,7 +308,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="application-x-executable",
-            version="0.12.6",
+            version="0.12.7",
             comments="A GNOME storefront for Bottles-managed Windows apps.",
             license_type=Gtk.License.GPL_3_0,
         )

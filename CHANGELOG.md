@@ -4,6 +4,20 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.12.7] — 2026-02-28
+
+### Added
+- **CA certificate support for HTTPS repos** — when adding an HTTPS repo fails
+  with an SSL error, the dialog now offers two options: "Add CA Certificate…"
+  (opens a file chooser for `.crt`/`.pem`/`.cer`, validates the connection
+  before saving) and "Disable Verification" (destructive, for networks where
+  you cannot obtain the CA cert). The `ca_cert` path is stored in `config.json`
+  and used for all subsequent fetches and archive downloads from that repo.
+  Repo rows in Settings show the CA filename or "SSL verification disabled" as
+  a subtitle hint when either option is active.
+
+---
+
 ## [0.12.6] — 2026-02-28
 
 ### Fixed

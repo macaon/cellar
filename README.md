@@ -39,7 +39,7 @@ a read-only HTTP URL (or directly over SMB/NFS/SSH if they have access).
 ### Quick start
 
 ```bash
-git clone <repo-url> cellar
+git clone https://github.com/macaon/cellar
 cd cellar
 
 # Run against the bundled test fixtures

@@ -4,6 +4,17 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.12.0] — 2026-02-28
+
+### Fixed
+- **CRITICAL: Remove deleting all bottles** — when the installed record had no
+  `bottle_name` (empty string), `Path(data_path) / ""` resolved to the Bottles
+  data root itself, causing `shutil.rmtree` to wipe every bottle. Now guards
+  against empty `bottle_name` and adds a safety check refusing to delete the
+  data root directory.
+
+---
+
 ## [0.11.31] — 2026-02-28
 
 ### Changed

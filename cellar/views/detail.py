@@ -194,11 +194,12 @@ class DetailView(Gtk.Box):
     def _on_remove_clicked(self) -> None:
         bottle_name = (self._installed_record or {}).get("bottle_name", "")
         bottle_path = None
-        for install in self._bottles_installs:
-            candidate = install.data_path / bottle_name
-            if candidate.is_dir():
-                bottle_path = candidate
-                break
+        if bottle_name:
+            for install in self._bottles_installs:
+                candidate = install.data_path / bottle_name
+                if candidate.is_dir() and candidate != install.data_path:
+                    bottle_path = candidate
+                    break
         dialog = RemoveDialog(
             entry=self._entry,
             bottle_path=bottle_path,
@@ -241,14 +242,21 @@ class DetailView(Gtk.Box):
         from cellar.backend import database
 
         bottle_name = (self._installed_record or {}).get("bottle_name", "")
-        for install in self._bottles_installs:
-            candidate = install.data_path / bottle_name
-            if candidate.is_dir():
-                try:
-                    shutil.rmtree(candidate)
-                except Exception as exc:
-                    log.error("Failed to remove bottle %s: %s", candidate, exc)
-                break
+        if bottle_name:
+            for install in self._bottles_installs:
+                candidate = install.data_path / bottle_name
+                if candidate.is_dir():
+                    # Safety: never delete the Bottles data root itself.
+                    if candidate == install.data_path:
+                        log.error("Refusing to delete Bottles data root %s", candidate)
+                        break
+                    try:
+                        shutil.rmtree(candidate)
+                    except Exception as exc:
+                        log.error("Failed to remove bottle %s: %s", candidate, exc)
+                    break
+        else:
+            log.error("No bottle_name for %s; skipping filesystem removal", self._entry.id)
 
         database.remove_installed(self._entry.id)
         self._is_installed = False

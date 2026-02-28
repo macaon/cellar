@@ -137,22 +137,17 @@ All app fields except `id`, `name`, `version`, and `category` are optional.
 
 ### Supported repo URI schemes
 
-| Scheme | Example | Writable | Notes |
-|---|---|---|---|
-| Local path | `/mnt/nas/cellar` | Yes | |
-| `file://` | `file:///mnt/nas/cellar` | Yes | |
-| `http://` / `https://` | `https://cellar.home.arpa/repo` | No | |
-| `ssh://` | `ssh://alice@nas.home.arpa/srv/cellar` | Yes | Key auth via agent or `~/.ssh/config` |
-| `smb://` | `smb://nas.home.arpa/cellar` | Yes | Requires `smbclient` (samba-client package); credentials via `smb://user:pass@host/share` |
+| Scheme | Example | Writable |
+|---|---|---|
+| Local path | `/mnt/nas/cellar` | Yes |
+| `file://` | `file:///mnt/nas/cellar` | Yes |
+| `http://` / `https://` | `https://cellar.home.arpa/repo` | No |
+| `ssh://` | `ssh://alice@nas.home.arpa/srv/cellar` | Yes |
+| `smb://` | `smb://nas.home.arpa/cellar` | Yes |
+| `nfs://` | `nfs://nas.home.arpa/export/cellar` | Yes |
 
-HTTP(S) repos are read-only. If you point Cellar at a writable location with
-no `catalogue.json`, it will offer to initialise a new repository.
-
-> **SMB authentication note:** Cellar reads SMB repos directly via
-> `smbclient` (no GVFS mount is created during browsing). Embed credentials
-> in the URI if the share requires them: `smb://user:password@host/share`.
-> Write operations (add / edit / remove app) use a GVFS mount which may
-> briefly appear in the Files sidebar.
+HTTP(S) repos are always read-only. If you point Cellar at a writable location
+with no `catalogue.json`, it will offer to initialise a new repository.
 
 ### Restricting HTTP(S) access with a bearer token
 
@@ -299,10 +294,11 @@ cellar/
 |---|---|---|
 | Browse, install, update (HTTP(S) repo) | ✅ | ✅ |
 | Browse, install, update (local / SSH repo) | ✅ | ✅ |
-| SMB repos | ✅ | ✅ Uses `smbclient`; no GVFS required |
+| SMB / NFS repos | ✅ | ❌ Requires GVFS, which is not present on KDE |
+| SMB / NFS credential dialogs | ✅ | ❌ Uses GNOME Keyring; KWallet not supported |
 | Visual integration | ✅ Native | ⚠️ Renders with GNOME/Adwaita styling |
 
-KDE support (adaptive styling) is planned for a future release.
+KDE support (GVFS fallback, KWallet integration, and adaptive styling) is planned for a future release.
 
 ---
 

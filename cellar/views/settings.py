@@ -216,8 +216,15 @@ class SettingsDialog(Adw.PreferencesDialog):
                 return
 
         # Validate scheme / create fetcher.
+        # Pass a MountOperation so that SMB/NFS shares can be mounted (and
+        # credential dialogs shown) when the user first adds them.
+        # Adw.PreferencesDialog is not a GtkWindow, so walk up to the root.
+        root = self.get_root()
+        mount_op = Gtk.MountOperation(
+            parent=root if isinstance(root, Gtk.Window) else None
+        )
         try:
-            repo = Repo(uri, ssl_verify=True, token=token)
+            repo = Repo(uri, mount_op=mount_op, ssl_verify=True, token=token)
         except RepoError as exc:
             self._alert("Invalid Repository", str(exc))
             return
@@ -295,10 +302,11 @@ class SettingsDialog(Adw.PreferencesDialog):
             return
 
         scheme = urlparse(uri).scheme.lower()
+
         if _is_local_uri(uri):
             self._init_local_repo(uri)
-        elif scheme == "smb":
-            self._init_smb_repo(uri)
+        elif scheme in ("smb", "nfs"):
+            self._init_gio_repo(uri)
         elif scheme == "ssh":
             self._init_ssh_repo(uri)
         else:
@@ -323,74 +331,23 @@ class SettingsDialog(Adw.PreferencesDialog):
         self._commit_add(uri)
         self._add_row.set_text("")
 
-    def _init_smb_repo(self, uri: str) -> None:
-        """Create an empty catalogue.json at an SMB URI via smbclient."""
-        import subprocess
-        import tempfile
-        from urllib.parse import urlparse as _urlparse
+    def _init_gio_repo(self, uri: str) -> None:
+        """Create an empty catalogue.json at an SMB or NFS URI via GIO."""
+        from cellar.utils.gio_io import gio_makedirs, gio_write_bytes
 
-        parsed = _urlparse(uri)
-        host = parsed.hostname
-        path_parts = parsed.path.lstrip("/").split("/", 1)
-        if not host or not path_parts or not path_parts[0]:
-            self._alert("Invalid URI", f"Cannot parse SMB URI: {uri!r}")
-            return
-        share = path_parts[0]
-        subpath = path_parts[1].strip("/") if len(path_parts) > 1 else ""
-
-        unc = f"//{host}/{share}"
-        base_args = ["smbclient", unc]
-        if parsed.port:
-            base_args += ["-p", str(parsed.port)]
-        if parsed.username:
-            base_args += ["-U", parsed.username]
-        if not parsed.password:
-            base_args.append("--no-pass")
-        env = None
-        if parsed.password:
-            import os
-            env = {**os.environ, "PASSWD": parsed.password}
-
+        root = self.get_root()
+        mount_op = Gtk.MountOperation(
+            parent=root if isinstance(root, Gtk.Window) else None
+        )
         data = json.dumps(_empty_catalogue(), indent=2, ensure_ascii=False).encode()
-        cat_remote = (subpath + "/catalogue.json").lstrip("/")
-
-        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
-            tmp.write(data)
-            tmp_path = tmp.name
-
+        catalogue_uri = uri.rstrip("/") + "/catalogue.json"
         try:
-            # Create the directory tree, then upload catalogue.json.
-            mkdir_cmd = " ; ".join(
-                f"mkdir {p}"
-                for p in _smb_parent_dirs(subpath)
-            ) or "mkdir ."
-            put_cmd = f'put "{tmp_path}" "{cat_remote}"'
-            cmd = base_args + ["-c", f"{mkdir_cmd} ; {put_cmd}"]
-            result = subprocess.run(
-                cmd,
-                stdin=subprocess.DEVNULL,
-                capture_output=True,
-                timeout=30,
-                check=False,
-                env=env,
-            )
-        except FileNotFoundError:
-            self._alert("Could Not Initialise", "smbclient not found; install samba-client.")
+            gio_makedirs(uri, mount_op=mount_op)
+            gio_write_bytes(catalogue_uri, data, mount_op=mount_op)
+            log.info("Initialised new GIO repo at %s", uri)
+        except OSError as exc:
+            self._alert("Could Not Initialise", str(exc))
             return
-        except subprocess.TimeoutExpired:
-            self._alert("Could Not Initialise", "smbclient timed out.")
-            return
-        finally:
-            import os as _os
-            _os.unlink(tmp_path)
-
-        if result.returncode != 0:
-            stderr = result.stderr.decode(errors="replace").strip()
-            stdout = result.stdout.decode(errors="replace").strip()
-            self._alert("Could Not Initialise", stderr or stdout or "smbclient error")
-            return
-
-        log.info("Initialised new SMB repo at %s", uri)
         self._commit_add(uri)
         self._add_row.set_text("")
 
@@ -704,16 +661,3 @@ def _looks_like_auth_error(err: str) -> bool:
 def _looks_like_forbidden_error(err: str) -> bool:
     """Heuristic: does this look like a 403 Forbidden response?"""
     return "HTTP 403" in err
-
-
-def _smb_parent_dirs(subpath: str) -> list[str]:
-    """Return the ordered set of directories to create for *subpath*.
-
-    E.g. ``"a/b/c"`` → ``["a", "a/b", "a/b/c"]``.
-    Used to build the ``mkdir`` chain in ``_init_smb_repo``.
-    """
-    parts = [p for p in subpath.split("/") if p]
-    dirs = []
-    for i in range(1, len(parts) + 1):
-        dirs.append("/".join(parts[:i]))
-    return dirs

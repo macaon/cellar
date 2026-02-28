@@ -179,7 +179,7 @@ def test_acquire_local_file_uri_returns_original(tmp_path):
 
 def test_acquire_unsupported_scheme_raises(tmp_path):
     dest = tmp_path / "download.tar.gz"
-    with pytest.raises(ins.InstallError, match="not supported"):
+    with pytest.raises(ins.InstallError, match="not yet supported"):
         ins._acquire_archive(
             "ssh://host/path/archive.tar.gz", dest,
             expected_size=0, progress_cb=None, cancel_event=None,
@@ -328,7 +328,7 @@ def test_install_app_progress_reported(tmp_path):
 def test_install_app_unsupported_scheme_raises(tmp_path):
     bottles = _bottles(tmp_path)
     entry = _entry()
-    with pytest.raises(ins.InstallError, match="not supported"):
+    with pytest.raises(ins.InstallError, match="not yet supported"):
         ins.install_app(entry, "ssh://host/path/archive.tar.gz", bottles)
 
 

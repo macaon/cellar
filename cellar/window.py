@@ -97,6 +97,11 @@ class CellarWindow(Adw.ApplicationWindow):
         from cellar.backend.config import load_repos
         from cellar.backend.repo import Repo, RepoError, RepoManager
 
+        # A single MountOperation with this window as parent covers all repos
+        # in this load pass.  Gtk.MountOperation shows credential dialogs and
+        # saves accepted passwords to the GNOME Keyring automatically.
+        mount_op = Gtk.MountOperation(parent=self)
+
         manager = RepoManager()
         self._first_repo = None
         self._writable_repos = []
@@ -104,7 +109,7 @@ class CellarWindow(Adw.ApplicationWindow):
         env_uri = os.environ.get("CELLAR_REPO", "")
         if env_uri:
             try:
-                r = Repo(env_uri)
+                r = Repo(env_uri, mount_op=mount_op)
                 manager.add(r)
                 self._first_repo = self._first_repo or r
             except RepoError as exc:
@@ -124,6 +129,7 @@ class CellarWindow(Adw.ApplicationWindow):
                     cfg["uri"],
                     cfg.get("name", ""),
                     ssh_identity=cfg.get("ssh_identity"),
+                    mount_op=mount_op,
                     ssl_verify=cfg.get("ssl_verify", True),
                     ca_cert=ca_cert_path,
                     token=cfg.get("token") or None,
@@ -312,7 +318,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="application-x-executable",
-            version="0.12.20",
+            version="0.12.21",
             comments="A GNOME storefront for Bottles-managed Windows apps.",
             license_type=Gtk.License.GPL_3_0,
         )

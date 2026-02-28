@@ -4,6 +4,19 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.12.21] — 2026-02-28
+
+### Changed
+- **Reverted SMB/NFS transport changes** — Rolling back v0.12.19 and v0.12.20.
+  The `smbclient`-based fetcher introduced credential-friction, a stdin hang
+  on launch, and ambiguous write-capability detection (the `+` button was
+  always visible for SMB repos regardless of actual permissions). The simpler
+  GIO/GVFS approach from v0.12.18 is restored: `_GioFetcher` handles SMB and
+  NFS reads, `utils/gio_io.py` is back, and `Gtk.MountOperation` / `mount_op`
+  are re-wired through `Repo.__init__` and `window.py`. NFS support returns.
+
+---
+
 ## [0.12.20] — 2026-02-28
 
 ### Changed

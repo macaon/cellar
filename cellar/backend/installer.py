@@ -63,7 +63,8 @@ def install_app(
     archive_uri: str,               # resolved by Repo.resolve_asset_uri(entry.archive)
     bottles_install,                # BottlesInstall from detect_bottles()
     *,
-    progress_cb: Callable[[str, float], None] | None = None,
+    download_cb: Callable[[float], None] | None = None,
+    install_cb: Callable[[float], None] | None = None,
     cancel_event: threading.Event | None = None,
 ) -> str:
     """Download, verify, extract, and import *entry* into Bottles.
@@ -77,10 +78,10 @@ def install_app(
         ``Repo.resolve_asset_uri(entry.archive)``.
     bottles_install:
         Active Bottles installation from ``detect_bottles()``.
-    progress_cb:
-        Optional ``(phase, fraction)`` callback.  *phase* is a human-readable
-        string (``"Downloading"``, ``"Verifying"``, ``"Extracting"``,
-        ``"Installing"``); *fraction* is in ``[0, 1]``.
+    download_cb:
+        Optional ``(fraction)`` callback for the download phase (0 → 1).
+    install_cb:
+        Optional ``(fraction)`` callback for the install phase (0 → 1).
     cancel_event:
         ``threading.Event``; when set the operation is aborted and
         ``InstallCancelled`` is raised.
@@ -91,35 +92,37 @@ def install_app(
         The bottle directory name used (e.g. ``"my-app"`` or ``"my-app-2"``).
     """
     _check_cancel(cancel_event)
-    _report(progress_cb, "Downloading", 0.0)
 
     with tempfile.TemporaryDirectory(prefix="cellar-install-") as tmp_str:
         tmp = Path(tmp_str)
 
         # ── Step 1: Acquire archive ────────────────────────────────────
+        if download_cb:
+            download_cb(0.0)
         archive_path = _acquire_archive(
             archive_uri,
             tmp / "archive.tar.gz",
             expected_size=entry.archive_size,
-            progress_cb=lambda f: _report(progress_cb, "Downloading", f),
+            progress_cb=download_cb,
             cancel_event=cancel_event,
         )
-        _report(progress_cb, "Downloading", 1.0)
+        if download_cb:
+            download_cb(1.0)
 
         # ── Step 2: Verify SHA-256 ─────────────────────────────────────
         if entry.archive_sha256:
             _check_cancel(cancel_event)
-            _report(progress_cb, "Verifying", 0.0)
             _verify_sha256(archive_path, entry.archive_sha256)
 
         # ── Step 3: Extract ────────────────────────────────────────────
         _check_cancel(cancel_event)
-        _report(progress_cb, "Installing", 0.0)
+        if install_cb:
+            install_cb(0.0)
         extract_dir = tmp / "extracted"
         extract_dir.mkdir()
         _extract_archive(
             archive_path, extract_dir, cancel_event,
-            progress_cb=lambda f: _report(progress_cb, "Installing", f * 0.7),
+            progress_cb=install_cb,
         )
 
         # ── Step 4: Identify bottle directory ─────────────────────────
@@ -131,14 +134,14 @@ def install_app(
 
         # ── Step 6: Copy into Bottles ──────────────────────────────────
         _check_cancel(cancel_event)
-        _report(progress_cb, "Installing", 0.7)
         try:
             shutil.copytree(bottle_src, bottle_dest)
         except Exception:
             shutil.rmtree(bottle_dest, ignore_errors=True)
             raise
 
-    _report(progress_cb, "Installing", 1.0)
+    if install_cb:
+        install_cb(1.0)
     return bottle_name
 
 
@@ -462,10 +465,3 @@ def _check_cancel(cancel_event: threading.Event | None) -> None:
         raise InstallCancelled("Installation cancelled")
 
 
-def _report(
-    progress_cb: Callable[[str, float], None] | None,
-    phase: str,
-    fraction: float,
-) -> None:
-    if progress_cb:
-        progress_cb(phase, fraction)

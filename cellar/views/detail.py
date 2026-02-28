@@ -662,14 +662,14 @@ class InstallProgressDialog(Adw.Dialog):
         return scroll
 
     def _build_progress_page(self) -> Gtk.Widget:
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         box.set_valign(Gtk.Align.CENTER)
-        box.set_margin_top(24)
-        box.set_margin_bottom(24)
+        box.set_margin_top(18)
+        box.set_margin_bottom(18)
         box.set_margin_start(24)
         box.set_margin_end(24)
 
-        self._phase_label = Gtk.Label(label="Preparing…", xalign=0)
+        self._phase_label = Gtk.Label(label="Downloading", xalign=0)
         self._phase_label.add_css_class("dim-label")
         box.append(self._phase_label)
 
@@ -708,8 +708,11 @@ class InstallProgressDialog(Adw.Dialog):
     def _start_install(self) -> None:
         from cellar.backend.installer import InstallCancelled, install_app
 
-        def _progress(phase: str, fraction: float) -> None:
-            GLib.idle_add(self._phase_label.set_text, f"{phase}…")
+        def _dl_progress(fraction: float) -> None:
+            GLib.idle_add(self._progress_bar.set_fraction, fraction)
+
+        def _inst_progress(fraction: float) -> None:
+            GLib.idle_add(self._phase_label.set_text, "Installing")
             GLib.idle_add(self._progress_bar.set_fraction, fraction)
 
         def _run() -> None:
@@ -718,7 +721,8 @@ class InstallProgressDialog(Adw.Dialog):
                     self._entry,
                     self._archive_uri,
                     self._selected_install,
-                    progress_cb=_progress,
+                    download_cb=_dl_progress,
+                    install_cb=_inst_progress,
                     cancel_event=self._cancel_event,
                 )
                 GLib.idle_add(self._on_done, bottle_name)

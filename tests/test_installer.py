@@ -306,18 +306,23 @@ def test_install_app_progress_reported(tmp_path):
     archive = _make_archive(tmp_path)
     bottles = _bottles(tmp_path)
     entry = _entry()
-    calls: list[tuple[str, float]] = []
-    ins.install_app(entry, str(archive), bottles, progress_cb=lambda p, f: calls.append((p, f)))
-    phases = [c[0] for c in calls]
-    assert "Downloading" in phases
-    assert "Installing" in phases
-    # Each phase should have its own 0–1 range
-    assert all(0.0 <= f <= 1.0 for _, f in calls)
-    # Download should complete (reach 1.0) before Installing starts
-    dl_fracs = [f for p, f in calls if p == "Downloading"]
-    inst_fracs = [f for p, f in calls if p == "Installing"]
-    assert dl_fracs[-1] == 1.0
-    assert inst_fracs[-1] == 1.0
+    dl_calls: list[float] = []
+    inst_calls: list[float] = []
+    ins.install_app(
+        entry, str(archive), bottles,
+        download_cb=lambda f: dl_calls.append(f),
+        install_cb=lambda f: inst_calls.append(f),
+    )
+    # Download bar: 0 → 1
+    assert len(dl_calls) >= 2
+    assert dl_calls[0] == 0.0
+    assert dl_calls[-1] == 1.0
+    assert all(0.0 <= f <= 1.0 for f in dl_calls)
+    # Install bar: 0 → 1
+    assert len(inst_calls) >= 2
+    assert inst_calls[0] == 0.0
+    assert inst_calls[-1] == 1.0
+    assert all(0.0 <= f <= 1.0 for f in inst_calls)
 
 
 def test_install_app_unsupported_scheme_raises(tmp_path):

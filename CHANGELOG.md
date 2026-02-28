@@ -4,6 +4,16 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.12.3] — 2026-02-28
+
+### Changed
+- **Install progress**: single progress bar with label that switches from
+  "Downloading" to "Installing". Bar resets to 0% when the phase changes.
+  Installer API now takes separate `download_cb` and `install_cb` callbacks
+  instead of a combined `progress_cb(phase, fraction)`.
+
+---
+
 ## [0.12.2] — 2026-02-28
 
 ### Fixed

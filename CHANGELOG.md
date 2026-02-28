@@ -4,6 +4,18 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.12.18] — 2026-02-28
+
+### Added
+- **ICO icon support** — `.ico` files are now displayed correctly in the
+  browse grid and detail view. `new_from_file_at_size` replaces
+  `new_from_file` in both texture loaders so GdkPixbuf's ICO loader picks
+  the frame closest to the target size rather than an arbitrary one. `.ico`
+  is added to `_IMAGE_EXTENSIONS` so ICO assets are fetched through the
+  auth-aware cache on HTTP(S) repos.
+
+---
+
 ## [0.12.17] — 2026-02-28
 
 ### Fixed

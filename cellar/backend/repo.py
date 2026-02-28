@@ -51,7 +51,7 @@ _USER_AGENT = "Mozilla/5.0 (compatible; Cellar/1.0)"
 # File extensions treated as image assets.  These are downloaded to a per-session
 # temp cache by resolve_asset_uri so that GdkPixbuf can load them from a local
 # path (it cannot pass auth headers when given an http:// URL).
-_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".avif"}
+_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".avif", ".ico"}
 
 
 class RepoError(Exception):

@@ -32,7 +32,7 @@ repo/
   catalogue.json          ← single source of truth; fetched on launch/refresh
   apps/
     appname/
-      icon.png            ← square icon (browse grid); must be PNG
+      icon.png            ← square icon (browse grid); PNG, JPG, ICO, or SVG
       cover.png           ← portrait cover (detail view)
       hero.png            ← wide banner (detail view header)
       screenshots/
@@ -315,7 +315,6 @@ UI files are resolved by `cellar/utils/paths.py` — it checks the source tree (
 - **HTTP User-Agent:** Python's default `User-Agent: Python-urllib/3.x` is blocked by Cloudflare and other CDN/WAF bot-protection rules. All outbound HTTP requests use `User-Agent: Mozilla/5.0 (compatible; Cellar/1.0)` (the `_USER_AGENT` constant in `repo.py`).
 - **nginx `^~` and image assets:** A plain `location /cellar/ { root /; }` block will lose to any `location ~* \.(jpg|png|...)$` regex block in the same server config (regex locations have higher priority than prefix locations in nginx). Use `location ^~ /cellar/` so the prefix match wins and images are served correctly.
 - **GdkPixbuf and HTTP:** `GdkPixbuf.new_from_file` cannot pass auth headers, and `os.path.isfile()` returns `False` for HTTP URLs. For HTTP(S) repos, `Repo.resolve_asset_uri` downloads image assets to a per-session temp cache and returns local paths. Archives still return URLs (handled by the installer).
-- **Icon format:** Only PNG icons are reliably supported by GdkPixbuf. `.ico` files should be converted to `.png` before adding to the repo.
 
 ---
 

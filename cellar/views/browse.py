@@ -382,7 +382,7 @@ def _load_cover_texture(path: str, target_w: int, target_h: int):
     """
     try:
         from gi.repository import Gdk, GdkPixbuf
-        src = GdkPixbuf.Pixbuf.new_from_file(path)
+        src = GdkPixbuf.Pixbuf.new_from_file_at_size(path, target_w, target_h)
         src_w, src_h = src.get_width(), src.get_height()
         scale = max(target_w / src_w, target_h / src_h)
         scaled_w = max(int(src_w * scale), target_w)
@@ -405,7 +405,7 @@ def _load_icon_texture(path: str, size: int):
     """
     try:
         from gi.repository import Gdk, GdkPixbuf
-        src = GdkPixbuf.Pixbuf.new_from_file(path)
+        src = GdkPixbuf.Pixbuf.new_from_file_at_size(path, size, size)
         src_w, src_h = src.get_width(), src.get_height()
         scale = size / min(src_w, src_h)
         scaled_w = max(int(src_w * scale), size)

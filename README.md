@@ -67,7 +67,7 @@ repo/
   catalogue.json          ← master index, fetched on launch/refresh
   apps/
     appname/
-      icon.png            ← square icon (browse grid); must be PNG
+      icon.png            ← square icon (browse grid); PNG, JPG, ICO, or SVG
       cover.png           ← portrait cover (2:3 ratio, browse grid + detail)
       hero.png            ← wide banner (detail view header)
       screenshots/
@@ -75,9 +75,6 @@ repo/
       appname-1.0.tar.gz  ← Bottles full backup archive
 ```
 
-> **Icon format:** use PNG. `.ico` files are not reliably supported by GdkPixbuf
-> and will be silently ignored. Convert with `convert icon.ico[0] icon.png`
-> (ImageMagick) if needed.
 
 ### `catalogue.json`
 

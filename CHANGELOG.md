@@ -4,6 +4,20 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.12.10] — 2026-02-28
+
+### Changed
+- **Preferences dialog now auto-sizes** — `content_height=-1` lets the window
+  grow vertically to fit its content rather than staying at a fixed small size.
+  Width set to 560 px to comfortably accommodate long repository URIs.
+- **Repo rows use `Adw.ExpanderRow` when SSL info is present** — instead of
+  cramming the CA cert name or SSL warning into a one-line subtitle, repos with
+  a custom CA cert or disabled verification expand to reveal a child row showing
+  the certificate filename (with a shield icon) or a "disabled" warning. Plain
+  repos without SSL overrides remain simple `Adw.ActionRow`s.
+
+---
+
 ## [0.12.9] — 2026-02-28
 
 ### Fixed

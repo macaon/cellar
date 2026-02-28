@@ -34,9 +34,9 @@ class SettingsDialog(Adw.PreferencesDialog):
         on_repos_changed: Callable[[], None] | None = None,
         **kwargs,
     ):
-        super().__init__(title="Preferences", **kwargs)
+        super().__init__(title="Preferences", content_width=560, content_height=-1, **kwargs)
         self._on_repos_changed = on_repos_changed
-        self._repo_rows: list[Adw.ActionRow] = []
+        self._repo_rows: list[Adw.PreferencesRow] = []
 
         # ── Page: General ─────────────────────────────────────────────────
         page = Adw.PreferencesPage(
@@ -91,20 +91,13 @@ class SettingsDialog(Adw.PreferencesDialog):
         # Add-row is always last.
         self._repo_group.add(self._add_row)
 
-    def _make_repo_row(self, repo_cfg: dict) -> Adw.ActionRow:
+    def _make_repo_row(self, repo_cfg: dict) -> Adw.PreferencesRow:
         uri = repo_cfg["uri"]
         name = repo_cfg.get("name") or ""
         ca_cert = repo_cfg.get("ca_cert") or ""
         ssl_verify = repo_cfg.get("ssl_verify", True)
-        subtitle_parts = [uri] if name else []
-        if ca_cert:
-            subtitle_parts.append(f"CA: {Path(ca_cert).name}")
-        elif not ssl_verify:
-            subtitle_parts.append("SSL verification disabled")
-        row = Adw.ActionRow(
-            title=name or uri,
-            subtitle=" · ".join(subtitle_parts),
-        )
+        has_ssl_info = bool(ca_cert) or not ssl_verify
+
         del_btn = Gtk.Button(
             icon_name="user-trash-symbolic",
             valign=Gtk.Align.CENTER,
@@ -113,7 +106,38 @@ class SettingsDialog(Adw.PreferencesDialog):
         )
         del_btn.add_css_class("destructive-action")
         del_btn.connect("clicked", self._on_delete_repo, uri)
-        row.add_suffix(del_btn)
+
+        if has_ssl_info:
+            row = Adw.ExpanderRow(
+                title=name or uri,
+                subtitle=uri if name else "",
+            )
+            if ca_cert:
+                cert_row = Adw.ActionRow(
+                    title="CA Certificate",
+                    subtitle=Path(ca_cert).name,
+                )
+                cert_row.add_prefix(
+                    Gtk.Image.new_from_icon_name("security-high-symbolic")
+                )
+                row.add_row(cert_row)
+            else:
+                warn_row = Adw.ActionRow(
+                    title="SSL Verification",
+                    subtitle="Disabled — connection is not verified",
+                )
+                warn_row.add_prefix(
+                    Gtk.Image.new_from_icon_name("security-low-symbolic")
+                )
+                row.add_row(warn_row)
+            row.add_suffix(del_btn)
+        else:
+            row = Adw.ActionRow(
+                title=name or uri,
+                subtitle=uri if name else "",
+            )
+            row.add_suffix(del_btn)
+
         return row
 
     # ------------------------------------------------------------------

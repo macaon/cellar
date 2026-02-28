@@ -349,7 +349,9 @@ class DetailView(Gtk.Box):
         wrapper = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         wrapper.set_margin_bottom(12)
 
-        carousel = Adw.Carousel(allow_scroll_wheel=False, reveal_duration=200)
+        carousel = Adw.Carousel(
+            allow_scroll_wheel=False, reveal_duration=200, spacing=12,
+        )
         multiple = len(self._screenshot_paths) > 1
 
         pointer_cursor = Gdk.Cursor.new_from_name("pointer")
@@ -791,7 +793,7 @@ class ScreenshotDialog(Adw.Dialog):
         body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         toolbar.set_content(body)
 
-        carousel = Adw.Carousel(allow_scroll_wheel=True, reveal_duration=200)
+        carousel = Adw.Carousel(allow_scroll_wheel=True, reveal_duration=200, spacing=12)
         for path in self._paths:
             pic = Gtk.Picture.new_for_filename(path)
             pic.set_content_fit(Gtk.ContentFit.CONTAIN)

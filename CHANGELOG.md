@@ -4,6 +4,14 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.11.30] — 2026-02-28
+
+### Changed
+- **Screenshot carousel spacing**: added 12 px gap between screenshots in both
+  the inline carousel and the fullscreen dialog so page boundaries are visible.
+
+---
+
 ## [0.11.29] — 2026-02-28
 
 ### Added

@@ -654,24 +654,36 @@ class InstallProgressDialog(Adw.Dialog):
         return scroll
 
     def _build_progress_page(self) -> Gtk.Widget:
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         box.set_valign(Gtk.Align.CENTER)
         box.set_margin_top(48)
         box.set_margin_bottom(48)
         box.set_margin_start(24)
         box.set_margin_end(24)
 
-        self._phase_label = Gtk.Label(label="Preparing…")
-        self._phase_label.add_css_class("dim-label")
-        box.append(self._phase_label)
+        # Download progress
+        self._dl_label = Gtk.Label(label="Downloading", xalign=0)
+        self._dl_label.add_css_class("dim-label")
+        box.append(self._dl_label)
 
-        self._progress_bar = Gtk.ProgressBar()
-        self._progress_bar.set_show_text(True)
-        self._progress_bar.set_fraction(0.0)
-        box.append(self._progress_bar)
+        self._dl_bar = Gtk.ProgressBar()
+        self._dl_bar.set_show_text(True)
+        self._dl_bar.set_fraction(0.0)
+        box.append(self._dl_bar)
+
+        # Install progress (extract + copy)
+        self._inst_label = Gtk.Label(label="Installing", xalign=0)
+        self._inst_label.add_css_class("dim-label")
+        box.append(self._inst_label)
+
+        self._inst_bar = Gtk.ProgressBar()
+        self._inst_bar.set_show_text(True)
+        self._inst_bar.set_fraction(0.0)
+        box.append(self._inst_bar)
 
         self._cancel_body_btn = Gtk.Button(label="Cancel")
         self._cancel_body_btn.set_halign(Gtk.Align.CENTER)
+        self._cancel_body_btn.set_margin_top(6)
         self._cancel_body_btn.connect("clicked", self._on_cancel_progress_clicked)
         box.append(self._cancel_body_btn)
 
@@ -691,7 +703,7 @@ class InstallProgressDialog(Adw.Dialog):
 
     def _on_cancel_progress_clicked(self, _btn) -> None:
         self._cancel_event.set()
-        self._phase_label.set_text("Cancelling…")
+        self._dl_label.set_text("Cancelling…")
         self._cancel_body_btn.set_sensitive(False)
 
     # ── Install thread ────────────────────────────────────────────────────
@@ -700,8 +712,12 @@ class InstallProgressDialog(Adw.Dialog):
         from cellar.backend.installer import InstallCancelled, install_app
 
         def _progress(phase: str, fraction: float) -> None:
-            GLib.idle_add(self._phase_label.set_text, phase)
-            GLib.idle_add(self._progress_bar.set_fraction, fraction)
+            if phase in ("Downloading", "Verifying"):
+                GLib.idle_add(self._dl_bar.set_fraction, fraction)
+                if phase == "Verifying":
+                    GLib.idle_add(self._dl_label.set_text, "Verifying…")
+            else:
+                GLib.idle_add(self._inst_bar.set_fraction, fraction)
 
         def _run() -> None:
             try:

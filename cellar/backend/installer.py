@@ -101,24 +101,25 @@ def install_app(
             archive_uri,
             tmp / "archive.tar.gz",
             expected_size=entry.archive_size,
-            progress_cb=lambda f: _report(progress_cb, "Downloading", f * 0.5),
+            progress_cb=lambda f: _report(progress_cb, "Downloading", f),
             cancel_event=cancel_event,
         )
+        _report(progress_cb, "Downloading", 1.0)
 
         # ── Step 2: Verify SHA-256 ─────────────────────────────────────
         if entry.archive_sha256:
             _check_cancel(cancel_event)
-            _report(progress_cb, "Verifying", 0.5)
+            _report(progress_cb, "Verifying", 0.0)
             _verify_sha256(archive_path, entry.archive_sha256)
 
         # ── Step 3: Extract ────────────────────────────────────────────
         _check_cancel(cancel_event)
-        _report(progress_cb, "Extracting", 0.55)
+        _report(progress_cb, "Installing", 0.0)
         extract_dir = tmp / "extracted"
         extract_dir.mkdir()
         _extract_archive(
             archive_path, extract_dir, cancel_event,
-            progress_cb=lambda f: _report(progress_cb, "Extracting", 0.55 + f * 0.15),
+            progress_cb=lambda f: _report(progress_cb, "Installing", f * 0.7),
         )
 
         # ── Step 4: Identify bottle directory ─────────────────────────
@@ -137,7 +138,7 @@ def install_app(
             shutil.rmtree(bottle_dest, ignore_errors=True)
             raise
 
-    _report(progress_cb, "Done", 1.0)
+    _report(progress_cb, "Installing", 1.0)
     return bottle_name
 
 

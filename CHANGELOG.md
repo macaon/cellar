@@ -6,10 +6,11 @@ All notable changes to Cellar are documented here.
 
 ## [0.11.31] — 2026-02-28
 
-### Fixed
-- **Install progress bar**: no longer skips to 55% for local/FUSE archives;
-  progress now starts at 0% and reports the download phase as complete
-  immediately when no network transfer is needed.
+### Changed
+- **Install progress**: split single progress bar into two separate indicators —
+  one for Downloading and one for Installing (extract + copy). Each phase
+  reports its own 0–100% independently, so local installs no longer show a
+  misleading jump and remote downloads get a dedicated bar.
 
 ---
 

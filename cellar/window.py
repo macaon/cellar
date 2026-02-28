@@ -132,6 +132,7 @@ class CellarWindow(Adw.ApplicationWindow):
                     mount_op=mount_op,
                     ssl_verify=cfg.get("ssl_verify", True),
                     ca_cert=ca_cert_path,
+                    token=cfg.get("token") or None,
                 )
                 manager.add(r)
                 self._first_repo = self._first_repo or r
@@ -272,6 +273,7 @@ class CellarWindow(Adw.ApplicationWindow):
             on_install_done=_on_install_done,
             on_remove_done=_on_remove_done,
             on_update_done=_on_update_done,
+            token=self._first_repo.token if self._first_repo else None,
         )
         page = Adw.NavigationPage(title=entry.name, child=detail)
         self.nav_view.push(page)
@@ -316,7 +318,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="application-x-executable",
-            version="0.12.11",
+            version="0.12.12",
             comments="A GNOME storefront for Bottles-managed Windows apps.",
             license_type=Gtk.License.GPL_3_0,
         )

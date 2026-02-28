@@ -88,9 +88,11 @@ class _HttpFetcher:
         *,
         ssl_verify: bool = True,
         ca_cert: str | None = None,
+        token: str | None = None,
     ) -> None:
         self._base = base_url.rstrip("/") + "/"
         self._ssl_ctx: ssl.SSLContext | None = None
+        self._token = token
         if ca_cert:
             # Load the user-supplied CA bundle and verify normally against it.
             ctx = ssl.create_default_context(cafile=ca_cert)
@@ -110,8 +112,11 @@ class _HttpFetcher:
 
     def fetch_bytes(self, rel_path: str) -> bytes:
         url = self._base + rel_path.lstrip("/")
+        req = urllib.request.Request(url)  # noqa: S310
+        if self._token:
+            req.add_header("Authorization", f"Bearer {self._token}")
         try:
-            with urllib.request.urlopen(url, timeout=30, context=self._ssl_ctx) as resp:  # noqa: S310
+            with urllib.request.urlopen(req, timeout=30, context=self._ssl_ctx) as resp:
                 return resp.read()
         except urllib.error.HTTPError as exc:
             raise RepoError(f"HTTP {exc.code} fetching {url}: {exc.reason}") from exc
@@ -322,6 +327,7 @@ def _make_fetcher(
     mount_op: object | None = None,
     ssl_verify: bool = True,
     ca_cert: str | None = None,
+    token: str | None = None,
 ) -> _Fetcher:
     """Return the appropriate fetcher for *uri*."""
     parsed = urlparse(uri)
@@ -336,7 +342,7 @@ def _make_fetcher(
         return _LocalFetcher(root)
 
     if scheme in ("http", "https"):
-        return _HttpFetcher(uri, ssl_verify=ssl_verify, ca_cert=ca_cert)
+        return _HttpFetcher(uri, ssl_verify=ssl_verify, ca_cert=ca_cert, token=token)
 
     if scheme == "ssh":
         if not parsed.hostname:
@@ -382,16 +388,24 @@ class Repo:
         mount_op: object | None = None,
         ssl_verify: bool = True,
         ca_cert: str | None = None,
+        token: str | None = None,
     ) -> None:
         self.uri = uri
         self.name = name or uri
+        self._token = token
         self._fetcher: _Fetcher = _make_fetcher(
             uri,
             ssh_identity=ssh_identity,
             mount_op=mount_op,
             ssl_verify=ssl_verify,
             ca_cert=ca_cert,
+            token=token,
         )
+
+    @property
+    def token(self) -> str | None:
+        """Bearer token for HTTP(S) authentication, or ``None``."""
+        return self._token
 
     # ------------------------------------------------------------------
     # Properties

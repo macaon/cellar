@@ -43,6 +43,7 @@ class UpdateDialog(Adw.Dialog):
         bottle_path: Path,
         archive_uri: str,
         on_success: Callable[[], None],
+        token: str | None = None,
     ) -> None:
         super().__init__(title=f"Update {entry.name}", content_width=440)
         self._entry = entry
@@ -50,6 +51,7 @@ class UpdateDialog(Adw.Dialog):
         self._bottle_path = bottle_path
         self._archive_uri = archive_uri
         self._on_success = on_success
+        self._token = token
         self._backup_path: Path | None = None
         self._cancel_event = threading.Event()
 
@@ -218,6 +220,7 @@ class UpdateDialog(Adw.Dialog):
                     backup_path=self._backup_path,
                     progress_cb=_progress,
                     cancel_event=self._cancel_event,
+                    token=self._token,
                 )
                 GLib.idle_add(self._on_done)
             except UpdateCancelled:

@@ -66,6 +66,7 @@ def install_app(
     download_cb: Callable[[float], None] | None = None,
     install_cb: Callable[[float], None] | None = None,
     cancel_event: threading.Event | None = None,
+    token: str | None = None,
 ) -> str:
     """Download, verify, extract, and import *entry* into Bottles.
 
@@ -105,6 +106,7 @@ def install_app(
             expected_size=entry.archive_size,
             progress_cb=download_cb,
             cancel_event=cancel_event,
+            token=token,
         )
         if download_cb:
             download_cb(1.0)
@@ -156,6 +158,7 @@ def _acquire_archive(
     expected_size: int,
     progress_cb: Callable[[float], None] | None,
     cancel_event: threading.Event | None,
+    token: str | None = None,
 ) -> Path:
     """Return a local path to the archive.
 
@@ -180,6 +183,7 @@ def _acquire_archive(
             expected_size=expected_size,
             progress_cb=progress_cb,
             cancel_event=cancel_event,
+            token=token,
         )
         return dest
 
@@ -266,12 +270,16 @@ def _http_stream(
     expected_size: int,
     progress_cb: Callable[[float], None] | None,
     cancel_event: threading.Event | None,
+    token: str | None = None,
 ) -> None:
     """Stream *url* to *dest* in 1 MB chunks."""
     chunk = 1 * 1024 * 1024
     downloaded = 0
+    req = urllib.request.Request(url)  # noqa: S310
+    if token:
+        req.add_header("Authorization", f"Bearer {token}")
     try:
-        with urllib.request.urlopen(url, timeout=30) as resp:  # noqa: S310
+        with urllib.request.urlopen(req, timeout=30) as resp:
             with open(dest, "wb") as fh:
                 while True:
                     if cancel_event and cancel_event.is_set():

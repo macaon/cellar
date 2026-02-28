@@ -150,6 +150,7 @@ def update_app_safe(
     backup_path: Path | None = None,
     progress_cb: Callable[[str, float], None] | None = None,
     cancel_event: threading.Event | None = None,
+    token: str | None = None,
 ) -> None:
     """Overlay-update *bottle_path* with the contents of *archive_uri*.
 
@@ -229,6 +230,7 @@ def update_app_safe(
                 archive_uri,
                 tmp / "archive.tar.gz",
                 expected_size=entry.archive_size,
+                token=token,
                 progress_cb=_sub("Downloading…", dl_lo, dl_hi),
                 cancel_event=cancel_event,
             )

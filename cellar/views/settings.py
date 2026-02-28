@@ -96,7 +96,10 @@ class SettingsDialog(Adw.PreferencesDialog):
         name = repo_cfg.get("name") or ""
         ca_cert = repo_cfg.get("ca_cert") or ""
         ssl_verify = repo_cfg.get("ssl_verify", True)
+        token = repo_cfg.get("token") or ""
         has_ssl_info = bool(ca_cert) or not ssl_verify
+        scheme = urlparse(uri).scheme.lower()
+        is_http = scheme in ("http", "https")
 
         del_btn = Gtk.Button(
             icon_name="user-trash-symbolic",
@@ -107,11 +110,27 @@ class SettingsDialog(Adw.PreferencesDialog):
         del_btn.add_css_class("destructive-action")
         del_btn.connect("clicked", self._on_delete_repo, uri)
 
-        if has_ssl_info:
+        if has_ssl_info or (is_http and token):
             row = Adw.ExpanderRow(
                 title=name or uri,
                 subtitle=uri if name else "",
             )
+            if token:
+                token_row = Adw.ActionRow(
+                    title="Access Token",
+                    subtitle="●" * 16,
+                )
+                token_row.add_prefix(
+                    Gtk.Image.new_from_icon_name("channel-secure-symbolic")
+                )
+                change_btn = Gtk.Button(
+                    label="Change…",
+                    valign=Gtk.Align.CENTER,
+                    has_frame=False,
+                )
+                change_btn.connect("clicked", self._on_change_token, uri)
+                token_row.add_suffix(change_btn)
+                row.add_row(token_row)
             if ca_cert:
                 cert_row = Adw.ActionRow(
                     title="CA Certificate",
@@ -121,7 +140,7 @@ class SettingsDialog(Adw.PreferencesDialog):
                     Gtk.Image.new_from_icon_name("security-high-symbolic")
                 )
                 row.add_row(cert_row)
-            else:
+            elif not ssl_verify:
                 warn_row = Adw.ActionRow(
                     title="SSL Verification",
                     subtitle="Disabled — connection is not verified",
@@ -194,6 +213,8 @@ class SettingsDialog(Adw.PreferencesDialog):
                         "HTTP repositories are read-only — the catalogue must "
                         "already exist on the server.",
                     )
+            elif _looks_like_auth_error(err):
+                self._ask_token(uri, entry_row)
             elif _looks_like_ssl_error(err):
                 self._ask_ssl_options(uri, entry_row)
             else:
@@ -432,8 +453,103 @@ class SettingsDialog(Adw.PreferencesDialog):
         self._commit_add(uri, ca_cert=dest.name)
         entry_row.set_text("")
 
+    def _ask_token(self, uri: str, entry_row: Adw.EntryRow) -> None:
+        """Show a dialog prompting for a bearer token after a 401 response."""
+        box, token_entry = self._make_token_box()
+        dialog = Adw.AlertDialog(
+            heading="Authentication Required",
+            body=(
+                f"The repository at {uri} requires a bearer token.\n\n"
+                "Paste the token you received, or generate a new one and "
+                "configure your web server to require it (see README for an "
+                "nginx example)."
+            ),
+            extra_child=box,
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("save", "Save")
+        dialog.set_response_appearance("save", Adw.ResponseAppearance.SUGGESTED)
+        dialog.connect("response", self._on_ask_token_response, uri, entry_row, token_entry)
+        dialog.present(self)
+
+    def _on_ask_token_response(
+        self,
+        _dialog,
+        response: str,
+        uri: str,
+        entry_row: Adw.EntryRow,
+        token_entry,
+    ) -> None:
+        if response != "save":
+            return
+        token = token_entry.get_text().strip()
+        if not token:
+            return
+        self._commit_add(uri, token=token)
+        entry_row.set_text("")
+
+    def _on_change_token(self, _btn: Gtk.Button, uri: str) -> None:
+        """Show a dialog to replace the bearer token for an existing repo."""
+        box, token_entry = self._make_token_box()
+        dialog = Adw.AlertDialog(
+            heading="Change Access Token",
+            body="Enter a new bearer token for this repository.",
+            extra_child=box,
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("save", "Save")
+        dialog.set_response_appearance("save", Adw.ResponseAppearance.SUGGESTED)
+        dialog.connect("response", self._on_change_token_response, uri, token_entry)
+        dialog.present(self)
+
+    def _on_change_token_response(
+        self, _dialog, response: str, uri: str, token_entry
+    ) -> None:
+        if response != "save":
+            return
+        token = token_entry.get_text().strip()
+        if not token:
+            return
+        repos = load_repos()
+        for r in repos:
+            if r["uri"] == uri:
+                r["token"] = token
+                break
+        save_repos(repos)
+        self._rebuild_repo_rows()
+        if self._on_repos_changed:
+            self._on_repos_changed()
+
+    def _make_token_box(self) -> tuple[Gtk.Box, Gtk.Entry]:
+        """Return a (box, entry) pair with a token field and a Generate button."""
+        import secrets
+
+        box = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL, spacing=6, margin_top=8
+        )
+        token_entry = Gtk.Entry(
+            hexpand=True,
+            placeholder_text="Paste or generate a token",
+        )
+        gen_btn = Gtk.Button(label="Generate")
+
+        def _on_generate(_b: Gtk.Button) -> None:
+            t = secrets.token_hex(32)
+            token_entry.set_text(t)
+            token_entry.get_clipboard().set(t)
+
+        gen_btn.connect("clicked", _on_generate)
+        box.append(token_entry)
+        box.append(gen_btn)
+        return box, token_entry
+
     def _commit_add(
-        self, uri: str, *, ssl_verify: bool = True, ca_cert: str | None = None
+        self,
+        uri: str,
+        *,
+        ssl_verify: bool = True,
+        ca_cert: str | None = None,
+        token: str | None = None,
     ) -> None:
         """Persist the new repo and refresh both the list and the main window."""
         repos = load_repos()
@@ -442,6 +558,8 @@ class SettingsDialog(Adw.PreferencesDialog):
             entry["ca_cert"] = ca_cert
         elif not ssl_verify:
             entry["ssl_verify"] = False
+        if token:
+            entry["token"] = token
         repos.append(entry)
         save_repos(repos)
         self._rebuild_repo_rows()
@@ -486,3 +604,8 @@ def _looks_like_ssl_error(err: str) -> bool:
     """Heuristic: does this look like an SSL certificate verification failure?"""
     low = err.lower()
     return any(kw in low for kw in ("ssl", "certificate", "cert_verify", "handshake"))
+
+
+def _looks_like_auth_error(err: str) -> bool:
+    """Heuristic: does this look like a 401 Unauthorized response?"""
+    return "HTTP 401" in err

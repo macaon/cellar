@@ -4,6 +4,23 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.12.12] — 2026-02-28
+
+### Added
+- **Bearer token authentication for HTTPS repos** — when adding an HTTPS repo
+  returns 401, Cellar now prompts for a bearer token. A **Generate** button
+  creates a 64-character random token and copies it to the clipboard so you
+  can paste it straight into your web server config. The token is stored in
+  `config.json` alongside the repo and included in every HTTP request
+  (`Authorization: Bearer …`), including archive downloads during install and
+  update. Existing repos with a token show a masked "Access Token" row in
+  Settings with a **Change…** button.
+- **nginx and Caddy config examples in README** — shows exactly how to
+  configure a `map`-based bearer token check in nginx and an equivalent Caddy
+  block so users can restrict access to their repo with minimal effort.
+
+---
+
 ## [0.12.11] — 2026-02-28
 
 ### Fixed

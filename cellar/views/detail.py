@@ -47,6 +47,7 @@ class DetailView(Gtk.Box):
         on_install_done: Callable | None = None,
         on_remove_done: Callable | None = None,
         on_update_done: Callable | None = None,
+        token: str | None = None,
     ) -> None:
         super().__init__()
         self._entry = entry
@@ -59,6 +60,7 @@ class DetailView(Gtk.Box):
         self._on_install_done = on_install_done
         self._on_remove_done = on_remove_done
         self._on_update_done = on_update_done
+        self._token = token
         self._has_update = (
             is_installed
             and installed_record is not None
@@ -182,6 +184,7 @@ class DetailView(Gtk.Box):
             installs=self._bottles_installs,
             archive_uri=archive_uri,
             on_success=self._on_install_success,
+            token=self._token,
         )
         dialog.present(self.get_root())
 
@@ -229,6 +232,7 @@ class DetailView(Gtk.Box):
             bottle_path=bottle_path,
             archive_uri=archive_uri,
             on_success=self._on_update_success,
+            token=self._token,
         )
         dialog.present(self.get_root())
 
@@ -578,12 +582,14 @@ class InstallProgressDialog(Adw.Dialog):
         installs: list,        # list[BottlesInstall]
         archive_uri: str,
         on_success: Callable[[str], None],
+        token: str | None = None,
     ) -> None:
         super().__init__(title=f"Install {entry.name}", content_width=360)
         self._entry = entry
         self._installs = installs
         self._archive_uri = archive_uri
         self._on_success = on_success
+        self._token = token
         self._cancel_event = threading.Event()
         self._selected_install = installs[0] if installs else None
 
@@ -725,6 +731,7 @@ class InstallProgressDialog(Adw.Dialog):
                     download_cb=_dl_progress,
                     install_cb=_inst_progress,
                     cancel_event=self._cancel_event,
+                    token=self._token,
                 )
                 GLib.idle_add(self._on_done, bottle_name)
             except InstallCancelled:

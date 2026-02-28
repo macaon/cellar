@@ -141,6 +141,77 @@ HTTP(S) repos are always read-only. If you point Cellar at a location with no
 `catalogue.json`, it will offer to initialise a new repository (writable
 transports only).
 
+### Restricting HTTPS access with a bearer token
+
+Cellar supports per-repo bearer token authentication for HTTPS repos. This lets
+you share a repo URL with specific people without making it publicly accessible.
+
+**Setting up the token**
+
+1. In Cellar → Preferences, add the repo URL. If the server returns 401 you
+   will be prompted for a token automatically.
+2. Click **Generate** to create a 64-character random token, which is copied to
+   your clipboard. Paste it into your web server config (see below), then click
+   **Save**.
+3. Share the URL and token with friends. They paste the token into the same
+   prompt when adding the repo.
+
+The token is stored in `~/.local/share/cellar/config.json`. You can change it
+at any time via Settings → expand the repo row → **Change…**.
+
+**nginx example**
+
+```nginx
+# /etc/nginx/sites-available/cellar
+map $http_authorization $cellar_auth_ok {
+    "Bearer YOUR_TOKEN_HERE"  1;
+    default                   0;
+}
+
+server {
+    listen 443 ssl;
+    server_name cellar.example.com;
+
+    ssl_certificate     /etc/ssl/certs/cellar.crt;
+    ssl_certificate_key /etc/ssl/private/cellar.key;
+
+    location /repo/ {
+        if ($cellar_auth_ok = 0) {
+            return 401 "Unauthorized\n";
+        }
+
+        alias /srv/cellar/repo/;
+        autoindex off;
+
+        # Optional: allow the client to know the content length for
+        # progress bars during archive downloads.
+        add_header Accept-Ranges bytes;
+    }
+}
+```
+
+Replace `YOUR_TOKEN_HERE` with your generated token and adjust the `alias`
+path to point at your repo directory. Reload nginx after editing:
+
+```bash
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+**Caddy example**
+
+```caddy
+cellar.example.com {
+    handle /repo/* {
+        @unauth not header Authorization "Bearer YOUR_TOKEN_HERE"
+        respond @unauth "Unauthorized" 401
+
+        file_server {
+            root /srv/cellar
+        }
+    }
+}
+```
+
 ---
 
 ## Project structure

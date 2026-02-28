@@ -4,6 +4,15 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.12.22] — 2026-02-28
+
+### Added
+- **Edit repo URI** — each repository row in Settings now has a pencil-icon
+  button that opens a dialog pre-filled with the current URI. Saving updates
+  just the URI while preserving all other fields (token, SSL options, name).
+
+---
+
 ## [0.12.21] — 2026-02-28
 
 ### Changed

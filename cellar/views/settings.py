@@ -131,6 +131,14 @@ class SettingsDialog(Adw.PreferencesDialog):
         scheme = urlparse(uri).scheme.lower()
         is_http = scheme in ("http", "https")
 
+        edit_btn = Gtk.Button(
+            icon_name="document-edit-symbolic",
+            valign=Gtk.Align.CENTER,
+            has_frame=False,
+            tooltip_text="Edit repository URI",
+        )
+        edit_btn.connect("clicked", self._on_edit_repo, uri)
+
         del_btn = Gtk.Button(
             icon_name="user-trash-symbolic",
             valign=Gtk.Align.CENTER,
@@ -179,12 +187,14 @@ class SettingsDialog(Adw.PreferencesDialog):
                     Gtk.Image.new_from_icon_name("security-low-symbolic")
                 )
                 row.add_row(warn_row)
+            row.add_suffix(edit_btn)
             row.add_suffix(del_btn)
         else:
             row = Adw.ActionRow(
                 title=name or uri,
                 subtitle=uri if name else "",
             )
+            row.add_suffix(edit_btn)
             row.add_suffix(del_btn)
 
         return row
@@ -407,6 +417,45 @@ class SettingsDialog(Adw.PreferencesDialog):
         log.info("Initialised new SSH repo at %s", uri)
         self._commit_add(uri)
         self._add_row.set_text("")
+
+    # ------------------------------------------------------------------
+    # "Edit" flow
+    # ------------------------------------------------------------------
+
+    def _on_edit_repo(self, _btn: Gtk.Button, uri: str) -> None:
+        entry = Gtk.Entry(
+            text=uri,
+            hexpand=True,
+            margin_top=8,
+        )
+        dialog = Adw.AlertDialog(
+            heading="Edit Repository URI",
+            body="Change the URI for this repository. Other settings (token, SSL options) are preserved.",
+            extra_child=entry,
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("save", "Save")
+        dialog.set_response_appearance("save", Adw.ResponseAppearance.SUGGESTED)
+        dialog.connect("response", self._on_edit_repo_response, uri, entry)
+        dialog.present(self)
+
+    def _on_edit_repo_response(
+        self, _dialog, response: str, old_uri: str, entry: Gtk.Entry
+    ) -> None:
+        if response != "save":
+            return
+        new_uri = entry.get_text().strip()
+        if not new_uri or new_uri == old_uri:
+            return
+        repos = load_repos()
+        for r in repos:
+            if r["uri"] == old_uri:
+                r["uri"] = new_uri
+                break
+        save_repos(repos)
+        self._rebuild_repo_rows()
+        if self._on_repos_changed:
+            self._on_repos_changed()
 
     # ------------------------------------------------------------------
     # "Delete" flow

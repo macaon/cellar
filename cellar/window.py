@@ -147,16 +147,33 @@ class CellarWindow(Adw.ApplicationWindow):
             entries = manager.fetch_all_catalogues()
             if entries:
                 from cellar.backend import database
+                from cellar.backend.bottles import detect_all_bottles
+                from cellar.backend.config import load_bottles_data_path
                 resolver = self._first_repo.resolve_asset_uri if self._first_repo else None
+
+                all_bottles = detect_all_bottles(load_bottles_data_path())
 
                 installed_entries = []
                 update_entries = []
                 for e in entries:
                     rec = database.get_installed(e.id)
-                    if rec is not None:
-                        installed_entries.append(e)
-                        if rec.get("installed_version") != e.version and bool(e.archive):
-                            update_entries.append(e)
+                    if rec is None:
+                        continue
+                    # Reconcile against disk: if the bottle directory no longer
+                    # exists, remove the stale record and skip.
+                    bottle_name = rec.get("bottle_name", "")
+                    if all_bottles and bottle_name and not any(
+                        (b.data_path / bottle_name).is_dir() for b in all_bottles
+                    ):
+                        log.info(
+                            "Bottle %r gone from disk; removing stale record for %r",
+                            bottle_name, e.id,
+                        )
+                        database.remove_installed(e.id)
+                        continue
+                    installed_entries.append(e)
+                    if rec.get("installed_version") != e.version and bool(e.archive):
+                        update_entries.append(e)
 
                 self._browse_explore.load_entries(entries, resolve_asset=resolver)
                 self._browse_installed.load_entries(installed_entries, resolve_asset=resolver)
@@ -289,7 +306,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="application-x-executable",
-            version="0.12.4",
+            version="0.12.5",
             comments="A GNOME storefront for Bottles-managed Windows apps.",
             license_type=Gtk.License.GPL_3_0,
         )

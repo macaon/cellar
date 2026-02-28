@@ -4,6 +4,17 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.12.5] — 2026-02-28
+
+### Fixed
+- **Installed tab shows stale entries** — catalogue load only checked the DB,
+  never the filesystem. Apps removed from within Bottles or manually would
+  stay on the Installed tab forever. Now reconciles against disk on every
+  catalogue load: missing bottle directories are pruned from the DB and
+  excluded from the Installed and Updates tabs immediately.
+
+---
+
 ## [0.12.4] — 2026-02-28
 
 ### Fixed

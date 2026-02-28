@@ -10,9 +10,10 @@ The primary use case is a private family or home-lab server: the person who
 manages the repo adds and packages apps; everyone else browses and installs via
 a read-only HTTP URL (or directly over SMB/NFS/SSH if they have access).
 
-> **Status: early development** — browse, detail view, install, remove, and safe
-> update are working; component-upgrade prompts and Flatpak packaging are not yet
-> implemented.
+> **Status: early development** — browse (GNOME Software-style horizontal cards
+> with Explore/Installed/Updates view switcher), detail view, install, remove,
+> and safe update are working; component-upgrade prompts and Flatpak packaging
+> are not yet implemented.
 
 ---
 
@@ -165,14 +166,16 @@ cellar/
       updater.py         Safe rsync overlay update + backup ✅
       bottles.py         bottles-cli wrapper, path detection ✅
       database.py        SQLite installed/repo tracking ✅
-      config.py          JSON config persistence (repos, capsule size) ✅
+      config.py          JSON config persistence (repos) ✅
     models/
       app_entry.py       Unified app/game dataclass (AppEntry + BuiltWith) ✅
     utils/
-      paths.py           UI file path resolution (source tree + installed) ✅
+      paths.py           UI + icons path resolution (source tree + installed) ✅
       gio_io.py          GIO file helpers ✅
       checksum.py        SHA-256 utility ✅
   data/
+    icons/
+      hicolor/symbolic/apps/   Bundled tab icons (CC0-1.0)
     ui/
       window.ui          Main window template
   tests/
@@ -185,15 +188,14 @@ cellar/
 ## Development roadmap
 
 1. **Repo backend** — catalogue parsing, all transport backends ✅
-2. **Browse UI** — app card grid, category filter, search ✅
+2. **Browse UI** — GNOME Software-style horizontal cards, category filter, search, Explore/Installed/Updates view switcher ✅
 3. **Detail view** — full app page from catalogue data ✅
 4. **Bottles backend** — path detection, `bottles-cli` wrapper, install + remove ✅
 5. **Local DB** — track installed apps, wire up Install/Remove button state ✅
 6. **Update logic** — safe rsync overlay (no --delete; AppData/Documents excluded) ✅
 7. **Component update UI** — post-install prompt to upgrade runner/DXVK
-8. **Repo management UI** — add/remove sources, initialise new repos, pull metadata from IGDB/Steam
-9. **Multi-repo support** — settings page
-10. **Flatpak packaging**
+8. **Repo management UI** — add/remove sources, initialise new repos
+9. **Flatpak packaging**
 
 ---
 

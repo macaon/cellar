@@ -210,10 +210,12 @@ Model the layout on GNOME Software. Use libadwaita components throughout.
 
 ### Main window
 
+- **View switcher:** `AdwViewSwitcher` replaces the window title with three tabs — **Explore** (all apps), **Installed** (installed only), **Updates** (updates available, with badge count). Backed by `AdwViewStack`.
 - **Category filter:** horizontal strip of linked `GtkToggleButton` pills (radio behaviour via `set_group`), built dynamically from the catalogue — one button per category plus "All". Scrolls horizontally if categories overflow.
-- **Main area:** `GtkFlowBox` of app cards — icon, name, short description. Cards use the `.card` Adwaita style class.
-- **Header bar:** Search toggle (reveals `GtkSearchBar`), Refresh button, Menu button. Typing anywhere in the window opens the search bar automatically via `set_key_capture_widget`.
+- **Main area:** `GtkFlowBox` (`homogeneous=False`, `halign=CENTER`) of GNOME Software-style horizontal app cards — fixed 300 × 96 px, cover thumbnail (64 × 96, 2:3 ratio) or 48 px icon on the left, name + up-to-two-line summary on the right. Cards use the `.card` Adwaita style class.
+- **Header bar:** Search toggle at far left (reveals `GtkSearchBar`), Refresh button, Menu button. Typing anywhere opens search automatically via `set_key_capture_widget`.
 - Empty/error states use `AdwStatusPage`.
+- Tab icons (`software-explore-symbolic`, `software-installed-symbolic`, `software-updates-symbolic`) are bundled under `data/icons/hicolor/symbolic/apps/` (CC0-1.0) and registered at startup via `Gtk.IconTheme.add_search_path()`.
 
 ### App detail view
 
@@ -260,17 +262,19 @@ cellar/
       updater.py             # Safe rsync overlay update + backup_bottle ✅
       bottles.py             # bottles-cli wrapper, path detection ✅
       database.py            # SQLite installed/repo tracking ✅
-      config.py              # JSON config persistence (repos, capsule size) ✅
+      config.py              # JSON config persistence (repos) ✅
     models/
       app_entry.py           # Unified AppEntry + BuiltWith dataclasses ✅
     utils/
       gio_io.py              # GIO-based file/network helpers ✅
-      paths.py               # UI file path resolution ✅
+      paths.py               # UI + icons path resolution (ui_file, icons_dir) ✅
       checksum.py            # SHA-256 utility ✅
   data/
     io.github.cellar.gschema.xml
     io.github.cellar.desktop
     io.github.cellar.metainfo.xml
+    icons/
+      hicolor/symbolic/apps/ # Bundled tab icons (CC0-1.0, fill=currentColor)
     ui/
       window.ui
   po/                        # i18n (set up but don't need to fill out)

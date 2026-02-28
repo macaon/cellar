@@ -4,6 +4,14 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.12.23] — 2026-02-28
+
+### Fixed
+- Add-to-Catalogue dialog width reduced from 560 to 360 to match the Install
+  progress dialog.
+
+---
+
 ## [0.12.22] — 2026-02-28
 
 ### Changed

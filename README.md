@@ -162,12 +162,7 @@ at any time via Settings → expand the repo row → **Change…**.
 **nginx example**
 
 ```nginx
-# /etc/nginx/sites-available/cellar
-#
-# Important: use 'root' not 'alias' here. Combining 'alias' with 'if'
-# inside a location block is a known nginx gotcha that causes 403 errors
-# even when the auth check passes.
-
+# In your http {} block (outside server {}):
 map $http_authorization $cellar_auth_ok {
     "Bearer YOUR_TOKEN_HERE"  1;
     default                   0;
@@ -180,26 +175,27 @@ server {
     ssl_certificate     /etc/ssl/certs/cellar.crt;
     ssl_certificate_key /etc/ssl/private/cellar.key;
 
-    # Repo files live at /srv/cellar/repo/ on disk.
-    # With 'root /srv/cellar', a request for /repo/catalogue.json
-    # is served from /srv/cellar/repo/catalogue.json.
-    location /repo/ {
+    # The repo directory on disk is /cellar/.
+    # nginx's 'root' is prepended to the full request URI, so
+    # 'root /' means /cellar/catalogue.json is served from /cellar/catalogue.json.
+    # Do NOT use 'alias' here — alias + if in the same location causes 403.
+    location /cellar/ {
         if ($cellar_auth_ok = 0) {
             return 401 "Unauthorized\n";
         }
 
-        root /srv/cellar;
+        root /;
         autoindex off;
-
-        # Lets the client know file sizes for download progress bars.
         add_header Accept-Ranges bytes;
     }
 }
 ```
 
-Replace `YOUR_TOKEN_HERE` with your generated token. Adjust `root` and the
-`location` path so that `root` + `location` = the directory on disk containing
-`catalogue.json`. Reload nginx after editing:
+Replace `YOUR_TOKEN_HERE` with your generated token. The key rule: `root` is
+prepended to the full URI, so `root /` + `/cellar/catalogue.json` =
+`/cellar/catalogue.json` on disk. If your repo is somewhere else, adjust
+accordingly — e.g. repo at `/srv/data/cellar/` with location `/cellar/` →
+`root /srv/data`. Reload nginx after editing:
 
 ```bash
 sudo nginx -t && sudo systemctl reload nginx

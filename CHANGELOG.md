@@ -4,6 +4,17 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.12.15] — 2026-02-28
+
+### Fixed
+- **README nginx example corrected again** — previous example used
+  `root /srv/cellar` which still doubles the path segment. The correct
+  rule is that `root` is prepended to the full request URI: with files
+  at `/cellar/` use `root /`, with files at `/srv/data/cellar/` use
+  `root /srv/data`, etc. Example and explanation updated accordingly.
+
+---
+
 ## [0.12.14] — 2026-02-28
 
 ### Fixed

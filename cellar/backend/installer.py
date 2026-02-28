@@ -4,8 +4,8 @@ Install flow
 ------------
 1. **Acquire** — for local archives (``file://`` or bare path) the file is
    used in-place; for HTTP(S) it is streamed to a temp file in 1 MB chunks
-   with progress reporting and cancel support.  SSH/SMB/NFS archives raise
-   ``InstallError`` (not yet supported).
+   with progress reporting and cancel support; for SMB it is streamed via
+   ``smbclient`` with file-size polling for progress.
 2. **Verify** — SHA-256 checksum checked against ``AppEntry.archive_sha256``
    (skipped when the field is empty).
 3. **Extract** — ``tarfile`` extracts to a temporary directory.
@@ -30,11 +30,14 @@ from any thread (the UI layer wraps it in ``GLib.idle_add``).
 from __future__ import annotations
 
 import hashlib
+import os
 import shutil
+import subprocess
 import sys
 import tarfile
 import tempfile
 import threading
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -164,8 +167,7 @@ def _acquire_archive(
 
     - Local (bare path or ``file://``) → returned as-is; no copy.
     - HTTP(S) → streamed to *dest* in 1 MB chunks.
-    - SMB/NFS → GVFS FUSE path used in-place when ``gvfsd-fuse`` is running
-      (standard on GNOME); otherwise streamed via a GIO ``InputStream``.
+    - SMB → downloaded via ``smbclient`` with file-size polling for progress.
     - Other schemes → ``InstallError``.
     """
     parsed = urlparse(uri)
@@ -187,43 +189,19 @@ def _acquire_archive(
         )
         return dest
 
-    if scheme in ("smb", "nfs"):
-        # Try to resolve a GVFS FUSE path so we can stream-copy with progress.
-        # Even though gvfsd-fuse exposes the file as a local path, reading
-        # through it is still network I/O, so we copy to a temp file to get
-        # accurate download progress rather than returning the FUSE path
-        # directly (which would make the download phase appear instant).
-        fuse_path: str | None = None
-        try:
-            import gi
-            gi.require_version("Gio", "2.0")
-            from gi.repository import Gio
-            fuse_path = Gio.File.new_for_uri(uri).get_path()
-        except (ImportError, ValueError):
-            pass
-
-        if fuse_path:
-            _file_stream(
-                Path(fuse_path),
-                dest,
-                expected_size=expected_size,
-                progress_cb=progress_cb,
-                cancel_event=cancel_event,
-            )
-        else:
-            # FUSE not available — stream via a GIO InputStream instead.
-            _gio_stream(
-                uri,
-                dest,
-                expected_size=expected_size,
-                progress_cb=progress_cb,
-                cancel_event=cancel_event,
-            )
+    if scheme == "smb":
+        _smb_stream(
+            uri,
+            dest,
+            expected_size=expected_size,
+            progress_cb=progress_cb,
+            cancel_event=cancel_event,
+        )
         return dest
 
     raise InstallError(
-        f"Downloading from {scheme!r} repos is not yet supported. "
-        "Use a local, HTTP(S), SMB, or NFS repo."
+        f"Downloading from {scheme!r} repos is not supported. "
+        "Use a local, HTTP(S), SSH, or SMB repo."
     )
 
 
@@ -306,7 +284,7 @@ def _http_stream(
         raise InstallError(f"Could not write archive to disk: {exc}") from exc
 
 
-def _gio_stream(
+def _smb_stream(
     uri: str,
     dest: Path,
     *,
@@ -314,53 +292,66 @@ def _gio_stream(
     progress_cb: Callable[[float], None] | None,
     cancel_event: threading.Event | None,
 ) -> None:
-    """Stream *uri* to *dest* via a GIO InputStream (SMB/NFS without FUSE).
+    """Download *uri* (smb://) to *dest* using smbclient.
 
-    GIO synchronous I/O is thread-safe and designed to be called from
-    background threads.
+    Progress is reported by polling the destination file size while smbclient
+    runs in the background.
     """
-    try:
-        import gi
-        gi.require_version("Gio", "2.0")
-        from gi.repository import Gio, GLib
-    except (ImportError, ValueError) as exc:
-        raise InstallError("GIO is unavailable; cannot stream from SMB/NFS") from exc
+    parsed = urlparse(uri)
+    host = parsed.hostname
+    port = parsed.port
+    path_parts = parsed.path.lstrip("/").split("/", 1)
+    if not host or not path_parts or not path_parts[0]:
+        raise InstallError(f"Invalid SMB URI: {uri!r}")
+    share = path_parts[0]
+    remote_path = path_parts[1] if len(path_parts) > 1 else ""
 
-    gfile = Gio.File.new_for_uri(uri)
-    try:
-        stream = gfile.read(None)
-    except GLib.Error as exc:
-        raise InstallError(f"Could not open {uri}: {exc.message}") from exc
+    unc = f"//{host}/{share}"
+    args = ["smbclient", unc]
+    if port:
+        args += ["-p", str(port)]
+    if parsed.username:
+        args += ["-U", parsed.username]
+    else:
+        args.append("--no-pass")
 
-    chunk = 1 * 1024 * 1024
-    downloaded = 0
+    env: dict | None = None
+    if parsed.password:
+        env = {**os.environ, "PASSWD": parsed.password}
+
+    cmd = args + ["-c", f'get "{remote_path}" "{dest}"']
     try:
-        with open(dest, "wb") as fh:
-            while True:
-                if cancel_event and cancel_event.is_set():
-                    raise InstallCancelled("Download cancelled")
-                buf = stream.read_bytes(chunk, None)
-                data = buf.get_data()
-                if not data:
-                    break
-                fh.write(data)
-                downloaded += len(data)
-                if progress_cb and expected_size > 0:
-                    progress_cb(min(downloaded / expected_size, 1.0))
+        proc = subprocess.Popen(
+            cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, env=env
+        )
+    except FileNotFoundError:
+        raise InstallError(
+            "smbclient not found; install samba-client to use smb:// repos"
+        )
+
+    try:
+        while proc.poll() is None:
+            if cancel_event and cancel_event.is_set():
+                proc.terminate()
+                dest.unlink(missing_ok=True)
+                raise InstallCancelled("Download cancelled")
+            if progress_cb and expected_size > 0 and dest.exists():
+                progress_cb(min(dest.stat().st_size / expected_size, 0.99))
+            time.sleep(0.5)
+
+        if proc.returncode != 0:
+            stderr = proc.stderr.read().decode(errors="replace").strip()
+            dest.unlink(missing_ok=True)
+            raise InstallError(
+                f"smbclient download failed: {stderr or 'unknown error'}"
+            )
+        if progress_cb:
+            progress_cb(1.0)
     except InstallCancelled:
-        dest.unlink(missing_ok=True)
         raise
-    except GLib.Error as exc:
-        dest.unlink(missing_ok=True)
-        raise InstallError(f"GIO read error: {exc.message}") from exc
     except OSError as exc:
         dest.unlink(missing_ok=True)
         raise InstallError(f"Could not write archive to disk: {exc}") from exc
-    finally:
-        try:
-            stream.close(None)
-        except Exception:
-            pass
 
 
 # ---------------------------------------------------------------------------

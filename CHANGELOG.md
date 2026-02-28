@@ -4,6 +4,25 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.12.19] — 2026-02-28
+
+### Changed
+- **SMB transport now uses `smbclient` instead of GVFS/GIO** — SMB shares are
+  read directly via the `smbclient` subprocess (samba-client package) without
+  ever creating a GVFS mount point. This eliminates the user-visible mount entry
+  that previously appeared in the Files app sidebar when browsing an SMB repo.
+  Image assets are cached locally (same path as HTTP images). SMB repos are now
+  read-only (matching HTTP), since write operations require a mount. The
+  `_GioFetcher` class and `utils/gio_io.py` have been removed, simplifying the
+  codebase.
+- **NFS support dropped** — NFS always requires a kernel-level mount (no
+  smbclient equivalent), so it has been removed. Anyone using an NFS share can
+  expose it via Samba, HTTP, or SSH instead.
+- **`mount_op` / `Gtk.MountOperation` removed** — no longer needed now that
+  GVFS is not used; `Repo.__init__` no longer accepts a `mount_op` parameter.
+
+---
+
 ## [0.12.18] — 2026-02-28
 
 ### Added

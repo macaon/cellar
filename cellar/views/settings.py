@@ -216,15 +216,8 @@ class SettingsDialog(Adw.PreferencesDialog):
                 return
 
         # Validate scheme / create fetcher.
-        # Pass a MountOperation so that SMB/NFS shares can be mounted (and
-        # credential dialogs shown) when the user first adds them.
-        # Adw.PreferencesDialog is not a GtkWindow, so walk up to the root.
-        root = self.get_root()
-        mount_op = Gtk.MountOperation(
-            parent=root if isinstance(root, Gtk.Window) else None
-        )
         try:
-            repo = Repo(uri, mount_op=mount_op, ssl_verify=True, token=token)
+            repo = Repo(uri, ssl_verify=True, token=token)
         except RepoError as exc:
             self._alert("Invalid Repository", str(exc))
             return
@@ -301,15 +294,12 @@ class SettingsDialog(Adw.PreferencesDialog):
         if response != "init":
             return
 
-        scheme = urlparse(uri).scheme.lower()
-
         if _is_local_uri(uri):
             self._init_local_repo(uri)
-        elif scheme in ("smb", "nfs"):
-            self._init_gio_repo(uri)
-        elif scheme == "ssh":
+        elif urlparse(uri).scheme.lower() == "ssh":
             self._init_ssh_repo(uri)
         else:
+            scheme = urlparse(uri).scheme.lower()
             self._alert(
                 "Not Supported",
                 f"Initialising {scheme!r} repositories is not supported.",
@@ -325,26 +315,6 @@ class SettingsDialog(Adw.PreferencesDialog):
                 encoding="utf-8",
             )
             log.info("Initialised new repo at %s", target)
-        except OSError as exc:
-            self._alert("Could Not Initialise", str(exc))
-            return
-        self._commit_add(uri)
-        self._add_row.set_text("")
-
-    def _init_gio_repo(self, uri: str) -> None:
-        """Create an empty catalogue.json at an SMB or NFS URI via GIO."""
-        from cellar.utils.gio_io import gio_makedirs, gio_write_bytes
-
-        root = self.get_root()
-        mount_op = Gtk.MountOperation(
-            parent=root if isinstance(root, Gtk.Window) else None
-        )
-        data = json.dumps(_empty_catalogue(), indent=2, ensure_ascii=False).encode()
-        catalogue_uri = uri.rstrip("/") + "/catalogue.json"
-        try:
-            gio_makedirs(uri, mount_op=mount_op)
-            gio_write_bytes(catalogue_uri, data, mount_op=mount_op)
-            log.info("Initialised new GIO repo at %s", uri)
         except OSError as exc:
             self._alert("Could Not Initialise", str(exc))
             return

@@ -103,10 +103,14 @@ All fields except `id`, `name`, `version`, and `category` are optional; unset fi
 | Local path / `file://` | Yes | |
 | `http://` / `https://` | **No** | Read-only; optional bearer token auth |
 | `ssh://[user@]host[:port]/path` | Yes | Uses system `ssh` client; key auth via agent or `ssh_identity=` |
-| `smb://` | Yes | Via GIO/GVFS |
-| `nfs://` | Yes | Via GIO/GVFS |
+| `smb://[user[:pass]@]host/share[/path]` | **No** | Uses `smbclient` (samba-client package); no GVFS mount created |
 
-If the client reaches a location with no `catalogue.json`, it offers to initialise a new repo (writable transports only). HTTP repos show an error instead.
+NFS is not supported. SMB was previously read/write via GIO/GVFS; it was
+switched to `smbclient` to eliminate GVFS mount points appearing in the Files
+sidebar, and GIO was removed from the codebase entirely (`_GioFetcher` /
+`utils/gio_io.py` deleted). SMB is now read-only.
+
+If the client reaches a location with no `catalogue.json`, it offers to initialise a new repo (local and SSH only). HTTP/SMB repos show an error instead.
 
 ### HTTP(S) bearer token authentication
 

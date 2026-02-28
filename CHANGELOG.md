@@ -7,8 +7,9 @@ All notable changes to Cellar are documented here.
 ## [0.12.23] — 2026-02-28
 
 ### Fixed
-- Add-to-Catalogue dialog width reduced from 560 to 360 to match the Install
-  progress dialog.
+- Add-to-Catalogue progress view now matches the Install progress dialog size
+  (360 px wide). The dialog resizes to 360 when the progress page is shown and
+  back to 560 if the user cancels or an error occurs.
 
 ---
 

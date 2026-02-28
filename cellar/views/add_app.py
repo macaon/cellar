@@ -37,7 +37,7 @@ class AddAppDialog(Adw.Dialog):
         repos,          # list[cellar.backend.repo.Repo] — all writable repos
         on_done,        # callable()
     ) -> None:
-        super().__init__(title="Add App to Catalogue", content_width=360)
+        super().__init__(title="Add App to Catalogue", content_width=560)
 
         self._archive_path = archive_path
         self._repos = repos
@@ -519,6 +519,7 @@ class AddAppDialog(Adw.Dialog):
         }
 
         self._cancel_event.clear()
+        self.set_content_width(360)
         self._stack.set_visible_child_name("progress")
         self._progress_bar.set_fraction(0.0)
         self._progress_label.set_text("Copying archive…")
@@ -580,10 +581,12 @@ class AddAppDialog(Adw.Dialog):
         self._on_done()
 
     def _on_import_cancelled(self) -> None:
+        self.set_content_width(560)
         self._stack.set_visible_child_name("form")
         self._cancel_progress_btn.set_sensitive(True)
 
     def _on_import_error(self, message: str) -> None:
+        self.set_content_width(560)
         self._stack.set_visible_child_name("form")
         self._cancel_progress_btn.set_sensitive(True)
         alert = Adw.AlertDialog(

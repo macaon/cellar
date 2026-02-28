@@ -4,6 +4,15 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.11.27] — 2026-02-28
+
+### Fixed
+- **Card margin fix**: Right hand card margin was set at 12px for text content,
+  while the left hand side had 6px padding before the image, and anoter 12px
+  margin added to the image call. Right hand margin was set to 18px to compensate.
+
+---
+
 ## [0.11.26] — 2026-02-27
 
 ### Changed

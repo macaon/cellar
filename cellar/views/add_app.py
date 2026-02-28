@@ -37,7 +37,7 @@ class AddAppDialog(Adw.Dialog):
         repos,          # list[cellar.backend.repo.Repo] — all writable repos
         on_done,        # callable()
     ) -> None:
-        super().__init__(title="Add App to Catalogue", content_width=560)
+        super().__init__(title="Add App to Catalogue", content_width=360)
 
         self._archive_path = archive_path
         self._repos = repos

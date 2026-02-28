@@ -121,23 +121,34 @@ class SettingsDialog(Adw.PreferencesDialog):
         self._repo_group.add(self._add_row)
         self._repo_group.add(self._add_token_row)
 
-    def _make_repo_row(self, repo_cfg: dict) -> Adw.PreferencesRow:
+    def _make_repo_row(self, repo_cfg: dict) -> Adw.EntryRow:
         uri = repo_cfg["uri"]
-        name = repo_cfg.get("name") or ""
         ca_cert = repo_cfg.get("ca_cert") or ""
         ssl_verify = repo_cfg.get("ssl_verify", True)
         token = repo_cfg.get("token") or ""
-        has_ssl_info = bool(ca_cert) or not ssl_verify
-        scheme = urlparse(uri).scheme.lower()
-        is_http = scheme in ("http", "https")
 
-        edit_btn = Gtk.Button(
-            icon_name="document-edit-symbolic",
-            valign=Gtk.Align.CENTER,
-            has_frame=False,
-            tooltip_text="Edit repository URI",
-        )
-        edit_btn.connect("clicked", self._on_edit_repo, uri)
+        row = Adw.EntryRow(title="Repository URI", text=uri)
+        row.connect("entry-activated", self._on_repo_uri_activated, uri)
+
+        if token:
+            icon = Gtk.Image.new_from_icon_name("channel-secure-symbolic")
+            icon.set_tooltip_text("Bearer token configured")
+            row.add_prefix(icon)
+            change_btn = Gtk.Button(
+                label="Token…",
+                valign=Gtk.Align.CENTER,
+                has_frame=False,
+            )
+            change_btn.connect("clicked", self._on_change_token, uri)
+            row.add_suffix(change_btn)
+        elif ca_cert:
+            icon = Gtk.Image.new_from_icon_name("security-high-symbolic")
+            icon.set_tooltip_text(f"CA certificate: {Path(ca_cert).name}")
+            row.add_prefix(icon)
+        elif not ssl_verify:
+            icon = Gtk.Image.new_from_icon_name("security-low-symbolic")
+            icon.set_tooltip_text("SSL verification disabled")
+            row.add_prefix(icon)
 
         del_btn = Gtk.Button(
             icon_name="user-trash-symbolic",
@@ -147,55 +158,7 @@ class SettingsDialog(Adw.PreferencesDialog):
         )
         del_btn.add_css_class("destructive-action")
         del_btn.connect("clicked", self._on_delete_repo, uri)
-
-        if has_ssl_info or (is_http and token):
-            row = Adw.ExpanderRow(
-                title=name or uri,
-                subtitle=uri if name else "",
-            )
-            if token:
-                token_row = Adw.ActionRow(
-                    title="Access Token",
-                    subtitle="●" * 16,
-                )
-                token_row.add_prefix(
-                    Gtk.Image.new_from_icon_name("channel-secure-symbolic")
-                )
-                change_btn = Gtk.Button(
-                    label="Change…",
-                    valign=Gtk.Align.CENTER,
-                    has_frame=False,
-                )
-                change_btn.connect("clicked", self._on_change_token, uri)
-                token_row.add_suffix(change_btn)
-                row.add_row(token_row)
-            if ca_cert:
-                cert_row = Adw.ActionRow(
-                    title="CA Certificate",
-                    subtitle=Path(ca_cert).name,
-                )
-                cert_row.add_prefix(
-                    Gtk.Image.new_from_icon_name("security-high-symbolic")
-                )
-                row.add_row(cert_row)
-            elif not ssl_verify:
-                warn_row = Adw.ActionRow(
-                    title="SSL Verification",
-                    subtitle="Disabled — connection is not verified",
-                )
-                warn_row.add_prefix(
-                    Gtk.Image.new_from_icon_name("security-low-symbolic")
-                )
-                row.add_row(warn_row)
-            row.add_suffix(edit_btn)
-            row.add_suffix(del_btn)
-        else:
-            row = Adw.ActionRow(
-                title=name or uri,
-                subtitle=uri if name else "",
-            )
-            row.add_suffix(edit_btn)
-            row.add_suffix(del_btn)
+        row.add_suffix(del_btn)
 
         return row
 
@@ -419,32 +382,11 @@ class SettingsDialog(Adw.PreferencesDialog):
         self._add_row.set_text("")
 
     # ------------------------------------------------------------------
-    # "Edit" flow
+    # "Edit URI" flow
     # ------------------------------------------------------------------
 
-    def _on_edit_repo(self, _btn: Gtk.Button, uri: str) -> None:
-        entry = Gtk.Entry(
-            text=uri,
-            hexpand=True,
-            margin_top=8,
-        )
-        dialog = Adw.AlertDialog(
-            heading="Edit Repository URI",
-            body="Change the URI for this repository. Other settings (token, SSL options) are preserved.",
-            extra_child=entry,
-        )
-        dialog.add_response("cancel", "Cancel")
-        dialog.add_response("save", "Save")
-        dialog.set_response_appearance("save", Adw.ResponseAppearance.SUGGESTED)
-        dialog.connect("response", self._on_edit_repo_response, uri, entry)
-        dialog.present(self)
-
-    def _on_edit_repo_response(
-        self, _dialog, response: str, old_uri: str, entry: Gtk.Entry
-    ) -> None:
-        if response != "save":
-            return
-        new_uri = entry.get_text().strip()
+    def _on_repo_uri_activated(self, row: Adw.EntryRow, old_uri: str) -> None:
+        new_uri = row.get_text().strip()
         if not new_uri or new_uri == old_uri:
             return
         repos = load_repos()

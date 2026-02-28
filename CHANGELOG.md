@@ -6,10 +6,12 @@ All notable changes to Cellar are documented here.
 
 ## [0.12.22] — 2026-02-28
 
-### Added
-- **Edit repo URI** — each repository row in Settings now has a pencil-icon
-  button that opens a dialog pre-filled with the current URI. Saving updates
-  just the URI while preserving all other fields (token, SSL options, name).
+### Changed
+- **Repo rows are now editable in-place** — existing repository rows in
+  Settings are now `AdwEntryRow` widgets pre-filled with the URI, matching
+  the add-repo row. Click the field, edit the URI, press Enter to save. Token
+  and SSL status are shown via prefix icons; the "Token…" button remains as a
+  suffix. The separate pencil-button-and-dialog approach is removed.
 
 ---
 

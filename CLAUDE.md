@@ -288,6 +288,7 @@ cellar/
 7. ~~**Update logic** — safe rsync overlay (no --delete; AppData/Documents excluded)~~ ✅
 8. ~~**HTTP(S) auth** — bearer token generation, per-request injection, image asset caching~~ ✅
 9. **Flatpak packaging**
+10. **KDE support** — GVFS fallback for SMB/NFS (`smbclient` or `gio mount` subprocess), KWallet credential storage, adaptive styling via `XDG_CURRENT_DESKTOP`
 
 ---
 

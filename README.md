@@ -287,9 +287,31 @@ cellar/
 6. **Update logic** — safe rsync overlay (no --delete; AppData/Documents excluded) ✅
 7. **HTTP(S) auth** — bearer token generation, storage, and per-request injection; image asset caching ✅
 8. **Flatpak packaging**
+9. **KDE support**
+
+---
+
+## Desktop environment compatibility
+
+| Feature | GNOME | KDE |
+|---|---|---|
+| Browse, install, update (HTTP(S) repo) | ✅ | ✅ |
+| Browse, install, update (local / SSH repo) | ✅ | ✅ |
+| SMB / NFS repos | ✅ | ❌ Requires GVFS, which is not present on KDE |
+| SMB / NFS credential dialogs | ✅ | ❌ Uses GNOME Keyring; KWallet not supported |
+| Visual integration | ✅ Native | ⚠️ Renders with GNOME/Adwaita styling |
+
+KDE support (GVFS fallback, KWallet integration, and adaptive styling) is planned for a future release.
 
 ---
 
 ## License
 
 GPL-3.0-or-later
+
+---
+
+## AI assistance
+
+This application was developed with the help of [Claude](https://claude.ai) by Anthropic. Claude assisted with architecture decisions, implementation, and debugging throughout the project.
+

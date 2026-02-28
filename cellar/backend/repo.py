@@ -31,6 +31,7 @@ import json
 import logging
 import ssl
 import subprocess
+import tempfile
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -46,6 +47,11 @@ CATALOGUE_VERSION = 1
 # Sent as the User-Agent on all outbound HTTP(S) requests.  A generic browser-
 # like string avoids CDN / WAF bot-protection rules that block Python-urllib.
 _USER_AGENT = "Mozilla/5.0 (compatible; Cellar/1.0)"
+
+# File extensions treated as image assets.  These are downloaded to a per-session
+# temp cache by resolve_asset_uri so that GdkPixbuf can load them from a local
+# path (it cannot pass auth headers when given an http:// URL).
+_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".avif"}
 
 
 class RepoError(Exception):
@@ -397,6 +403,7 @@ class Repo:
         self.uri = uri
         self.name = name or uri
         self._token = token
+        self._asset_cache: tempfile.TemporaryDirectory | None = None
         self._fetcher: _Fetcher = _make_fetcher(
             uri,
             ssh_identity=ssh_identity,
@@ -458,8 +465,47 @@ class Repo:
         raise RepoError(f"App {app_id!r} not found in catalogue at {self.uri}")
 
     def resolve_asset_uri(self, repo_relative: str) -> str:
-        """Return a URI/path string for a repo-relative asset (icon, screenshot…)."""
+        """Return a URI/path string for a repo-relative asset (icon, screenshot…).
+
+        For HTTP(S) repos, image assets (png, jpg, …) are downloaded to a
+        per-session temporary cache directory and the local path is returned.
+        This lets GdkPixbuf load them correctly — it cannot pass an
+        ``Authorization`` header when given a bare http:// URL — and makes
+        ``os.path.isfile()`` return ``True`` for screenshots and hero images.
+
+        Non-image assets (archives) are returned as URLs so the installer's
+        own auth-aware download code handles them.
+        """
+        if (
+            repo_relative
+            and isinstance(self._fetcher, _HttpFetcher)
+            and Path(repo_relative).suffix.lower() in _IMAGE_EXTENSIONS
+        ):
+            return self._fetch_to_cache(repo_relative)
         return self._fetcher.resolve_uri(repo_relative)
+
+    def _fetch_to_cache(self, rel_path: str) -> str:
+        """Download *rel_path* via the HTTP fetcher (with auth) to a temp file.
+
+        Returns the local file path on success, or an empty string on failure
+        (callers treat missing images as optional).  Results are cached for the
+        lifetime of this ``Repo`` instance so each asset is only downloaded once
+        per session.
+        """
+        if self._asset_cache is None:
+            self._asset_cache = tempfile.TemporaryDirectory(prefix="cellar-assets-")
+        parts = rel_path.lstrip("/").split("/")
+        dest = Path(self._asset_cache.name).joinpath(*parts)
+        if dest.exists():
+            return str(dest)
+        try:
+            data = self._fetcher.fetch_bytes(rel_path)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(data)
+            return str(dest)
+        except RepoError as exc:
+            log.warning("Could not cache image asset %r: %s", rel_path, exc)
+            return ""
 
     def fetch_categories(self) -> list[str]:
         """Return the ordered category list for this repo.

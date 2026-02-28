@@ -4,6 +4,20 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.12.17] — 2026-02-28
+
+### Fixed
+- **Images not loading from authenticated HTTPS repos** — `GdkPixbuf` cannot
+  pass an `Authorization` header when loading from an `http://` URL, and
+  `os.path.isfile()` always returns `False` for HTTP URLs (filtering out
+  hero images and screenshots in the detail view). `Repo.resolve_asset_uri`
+  now downloads image assets (png, jpg, gif, webp, svg, avif) through the
+  auth-aware Python fetcher into a per-session temporary cache directory and
+  returns the local path. Archives are still returned as URLs so the
+  installer's own token-aware downloader handles them.
+
+---
+
 ## [0.12.16] — 2026-02-28
 
 ### Fixed

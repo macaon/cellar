@@ -117,13 +117,21 @@ class CellarWindow(Adw.ApplicationWindow):
 
         for cfg in load_repos():
             try:
+                ca_cert_name = cfg.get("ca_cert") or None
+                ca_cert_path: str | None = None
+                if ca_cert_name:
+                    from cellar.backend.config import certs_dir
+                    resolved = certs_dir() / ca_cert_name
+                    ca_cert_path = str(resolved) if resolved.exists() else None
+                    if not ca_cert_path:
+                        log.warning("CA cert %r not found in certs dir; ignoring", ca_cert_name)
                 r = Repo(
                     cfg["uri"],
                     cfg.get("name", ""),
                     ssh_identity=cfg.get("ssh_identity"),
                     mount_op=mount_op,
                     ssl_verify=cfg.get("ssl_verify", True),
-                    ca_cert=cfg.get("ca_cert") or None,
+                    ca_cert=ca_cert_path,
                 )
                 manager.add(r)
                 self._first_repo = self._first_repo or r
@@ -308,7 +316,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="application-x-executable",
-            version="0.12.7",
+            version="0.12.8",
             comments="A GNOME storefront for Bottles-managed Windows apps.",
             license_type=Gtk.License.GPL_3_0,
         )

@@ -4,6 +4,17 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.12.8] — 2026-02-28
+
+### Changed
+- **CA certificates are now copied into `~/.local/share/cellar/certs/`** rather
+  than referenced by their original path. `config.json` stores only the
+  filename; `window.py` resolves it via `certs_dir()` at startup. This means
+  the cert remains available even if the source file is moved or deleted, and
+  the entire Cellar config directory is self-contained.
+
+---
+
 ## [0.12.7] — 2026-02-28
 
 ### Added

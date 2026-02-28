@@ -40,6 +40,13 @@ def data_dir() -> Path:
     return d
 
 
+def certs_dir() -> Path:
+    """Return (and create if needed) the directory for stored CA certificates."""
+    d = data_dir() / "certs"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def _config_path() -> Path:
     return data_dir() / _CONFIG_FILE
 

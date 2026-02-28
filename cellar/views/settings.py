@@ -16,7 +16,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gtk
 
-from cellar.backend.config import load_repos, save_repos
+from cellar.backend.config import certs_dir, load_repos, save_repos
 
 log = logging.getLogger(__name__)
 
@@ -380,24 +380,32 @@ class SettingsDialog(Adw.PreferencesDialog):
     ) -> None:
         if response != Gtk.ResponseType.ACCEPT:
             return
-        ca_path = chooser.get_file().get_path()
-        if not ca_path:
+        src_path = chooser.get_file().get_path()
+        if not src_path:
             return
-        # Validate: try connecting with this CA cert before saving.
+        # Validate before copying: try connecting with the cert as-is.
         from cellar.backend.repo import Repo, RepoError
         try:
-            Repo(uri, ca_cert=ca_path).fetch_catalogue()
+            Repo(uri, ca_cert=src_path).fetch_catalogue()
         except RepoError as exc:
             err = str(exc)
             if _looks_like_ssl_error(err):
                 self._alert(
                     "Certificate Not Accepted",
-                    f"The server still could not be verified using {ca_path}.\n\n{err}",
+                    f"The server still could not be verified using "
+                    f"{Path(src_path).name}.\n\n{err}",
                 )
             else:
                 self._alert("Could Not Connect", err)
             return
-        self._commit_add(uri, ca_cert=ca_path)
+        # Copy cert into the Cellar data directory so the repo config
+        # stays valid even if the source file is moved or deleted.
+        import shutil
+        src = Path(src_path)
+        dest = certs_dir() / src.name
+        if not dest.exists():
+            shutil.copy2(src, dest)
+        self._commit_add(uri, ca_cert=dest.name)
         entry_row.set_text("")
 
     def _commit_add(

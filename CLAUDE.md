@@ -238,14 +238,12 @@ cellar/
     main.py                  # GApplication entry point
     window.py                # Main AdwApplicationWindow
     views/
-      browse.py              # Grid browse view
+      browse.py              # BrowseView — used for all three tabs (Explore/Installed/Updates)
       detail.py              # App detail page (Install/Update/Remove)
       add_app.py             # Add-app-to-catalogue dialog
       edit_app.py            # Edit/delete catalogue entry dialog
       update_app.py          # Safe update dialog (backup + rsync overlay)
       settings.py            # Settings / repo management dialog
-      installed.py           # Stub
-      updates.py             # Stub
     backend/
       repo.py                # Catalogue fetching, all transport backends
       packager.py            # import_to_repo / update_in_repo / remove_from_repo

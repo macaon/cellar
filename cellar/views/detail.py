@@ -341,10 +341,12 @@ class DetailView(Gtk.Box):
         box.append(right)
 
         self._install_btn = Gtk.Button()
+        self._install_btn.set_size_request(105, 34)
         self._install_btn.connect("clicked", self._on_install_clicked)
         right.append(self._install_btn)
 
         self._update_btn = Gtk.Button(label="Update")
+        self._update_btn.set_size_request(105, 34)
         self._update_btn.add_css_class("suggested-action")
         self._update_btn.connect("clicked", self._on_update_clicked)
         right.append(self._update_btn)
@@ -358,29 +360,60 @@ class DetailView(Gtk.Box):
         return box
 
     def _make_source_selector(self) -> Gtk.Widget | None:
-        """Return a label (1 repo) or dropdown (2+ repos), or None."""
-        if not self._source_repos:
+        """Return a GNOME-Software-style source MenuButton, or None for ≤1 repo."""
+        if len(self._source_repos) < 2:
             return None
-        if len(self._source_repos) == 1:
-            repo = self._source_repos[0]
-            lbl = Gtk.Label(label=f"From: {repo.name}")
-            lbl.add_css_class("dim-label")
-            lbl.add_css_class("caption")
-            lbl.set_halign(Gtk.Align.CENTER)
-            return lbl
-        # Multiple repos — show a dropdown so the user can pick.
-        model = Gtk.StringList.new([r.name for r in self._source_repos])
-        dd = Gtk.DropDown(model=model)
-        dd.set_selected(0)
-        dd.connect("notify::selected", self._on_source_changed)
-        return dd
 
-    def _on_source_changed(self, dropdown: Gtk.DropDown, _param) -> None:
-        idx = dropdown.get_selected()
-        if 0 <= idx < len(self._source_repos):
-            repo = self._source_repos[idx]
-            self._resolve = repo.resolve_asset_uri
-            self._token = repo.token
+        # Label + arrow inside the button, matching GNOME Software's layout.
+        self._source_label = Gtk.Label(label=self._source_repos[0].name)
+        self._source_label.set_ellipsize(Pango.EllipsizeMode.END)
+        self._source_label.set_hexpand(True)
+        self._source_label.set_xalign(0)
+
+        arrow = Gtk.Image.new_from_icon_name("pan-down-symbolic")
+
+        btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        btn_box.append(self._source_label)
+        btn_box.append(arrow)
+
+        # Popover with radio rows — one per repo.
+        pop_box = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=2,
+            margin_top=6,
+            margin_bottom=6,
+            margin_start=6,
+            margin_end=6,
+        )
+        radio_group: Gtk.CheckButton | None = None
+        for idx, repo in enumerate(self._source_repos):
+            radio = Gtk.CheckButton(label=repo.name)
+            if radio_group is None:
+                radio_group = radio
+                radio.set_active(True)
+            else:
+                radio.set_group(radio_group)
+            radio.connect("toggled", self._on_source_radio_toggled, idx)
+            pop_box.append(radio)
+
+        popover = Gtk.Popover()
+        popover.set_child(pop_box)
+
+        menu_btn = Gtk.MenuButton(popover=popover)
+        menu_btn.set_child(btn_box)
+        menu_btn.set_size_request(105, 34)
+
+        self._source_popover = popover
+        return menu_btn
+
+    def _on_source_radio_toggled(self, radio: Gtk.CheckButton, idx: int) -> None:
+        if not radio.get_active():
+            return
+        repo = self._source_repos[idx]
+        self._resolve = repo.resolve_asset_uri
+        self._token = repo.token
+        self._source_label.set_label(repo.name)
+        self._source_popover.popdown()
 
     def _make_description(self) -> Gtk.Widget:
         lbl = Gtk.Label(label=self._entry.description)

@@ -4,6 +4,29 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.12.28] — 2026-03-01
+
+### Changed
+- **Source selector hidden for single repos** — the "From:" label is no longer
+  shown when only one repo carries an entry.
+- **GNOME Software-style source picker** — for entries available from multiple
+  repos the selector is now a fixed 105 × 34 px `GtkMenuButton` with a
+  downward-arrow chevron; clicking it opens a popover with radio rows, one per
+  repo. Selecting a row updates the active resolver/token and dismisses the
+  popover.
+- **Uniform action-button width** — Install/Remove and Update buttons are also
+  fixed at 105 × 34 px so the right column stays a consistent width.
+
+---
+
+## [0.12.27] — 2026-03-01
+
+### Changed
+- Style "Add" button as `suggested-action` (blue), shorten label from
+  "Add Repository" to "Add", remove description text from Repositories group.
+
+---
+
 ## [0.12.26] — 2026-03-01
 
 ### Changed

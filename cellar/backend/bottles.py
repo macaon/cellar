@@ -392,13 +392,54 @@ def edit_bottle(
 
     Common keys and example values::
 
-        "Runner"  → "proton-ge-9-1"
-        "DXVK"    → "2.3"
-        "VKD3D"   → "2.11"
+        "DXVK"   → "2.3"
+        "VKD3D"  → "2.11"
+
+    .. note::
+        bottles-cli does **not** support ``-k Runner``.  Use
+        :func:`set_bottle_runner` to change the runner field.
 
     Raises ``BottlesError`` on any subprocess failure.
     """
     _run(install, ["edit", "-b", bottle_name, "-k", key, "-v", value])
+
+
+def set_bottle_runner(
+    install: BottlesInstall,
+    bottle_name: str,
+    runner_name: str,
+) -> None:
+    """Set the ``Runner`` field in *bottle_name*/bottle.yml directly.
+
+    ``bottles-cli edit -k Runner`` is not supported by recent versions of
+    bottles-cli.  This function reads the YAML, updates the ``Runner`` key,
+    and writes it back — more reliable and no subprocess required.
+
+    Raises ``BottlesError`` if the file cannot be read or written.
+    """
+    import yaml
+
+    yml_path = install.data_path / bottle_name / "bottle.yml"
+    if not yml_path.exists():
+        raise BottlesError(f"bottle.yml not found in bottle {bottle_name!r}")
+    try:
+        data = yaml.safe_load(yml_path.read_text(encoding="utf-8", errors="replace"))
+    except (OSError, yaml.YAMLError) as exc:
+        raise BottlesError(
+            f"Failed to read bottle.yml for {bottle_name!r}: {exc}"
+        ) from exc
+    if not isinstance(data, dict):
+        raise BottlesError(f"Unexpected bottle.yml format in {bottle_name!r}")
+    data["Runner"] = runner_name
+    try:
+        yml_path.write_text(
+            yaml.dump(data, allow_unicode=True, default_flow_style=False),
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        raise BottlesError(
+            f"Failed to write bottle.yml for {bottle_name!r}: {exc}"
+        ) from exc
 
 
 # ---------------------------------------------------------------------------

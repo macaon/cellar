@@ -87,6 +87,33 @@ def is_available() -> bool:
     return (d / ".git").is_dir() and (d / "runners").is_dir()
 
 
+def list_available_runners() -> list[str]:
+    """Return all runner names present in the local components clone.
+
+    Scans every ``*.yml`` file under ``components/runners/`` and collects the
+    ``Name`` field.  Returns ``[]`` when the clone is absent or
+    :func:`is_available` would return ``False``.
+    """
+    try:
+        import yaml  # type: ignore[import]
+    except ImportError:
+        return []
+
+    runners_dir = _components_dir() / "runners"
+    if not runners_dir.is_dir():
+        return []
+
+    names: list[str] = []
+    for yml_file in runners_dir.rglob("*.yml"):
+        try:
+            data = yaml.safe_load(yml_file.read_text(encoding="utf-8"))
+            if isinstance(data, dict) and data.get("Name"):
+                names.append(str(data["Name"]))
+        except Exception:  # noqa: BLE001
+            pass
+    return sorted(names)
+
+
 def get_runner_info(runner_name: str) -> dict | None:
     """Return the parsed YAML dict for *runner_name*, or ``None`` if not found.
 

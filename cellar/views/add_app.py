@@ -478,6 +478,7 @@ class AddAppDialog(Adw.Dialog):
         # Build archive filename: apps/<id>/<basename of source>
         archive_filename = Path(self._archive_path).name
         archive_rel = f"apps/{app_id}/{archive_filename}"
+        archive_size = Path(self._archive_path).stat().st_size
 
         # Build image relative paths (only for images the user picked)
         icon_rel = f"apps/{app_id}/icon{Path(self._icon_path).suffix}" if self._icon_path else ""
@@ -507,6 +508,7 @@ class AddAppDialog(Adw.Dialog):
             hero=hero_rel,
             screenshots=screenshot_rels,
             archive=archive_rel,
+            archive_size=archive_size,
             built_with=built_with,
             update_strategy=strategy,
             entry_point=entry_point,

@@ -11,6 +11,11 @@ All notable changes to Cellar are documented here.
   next to the version (e.g. `1.0 · 12.3 GB`) and as a "Download size" row in
   the Details section.
 
+### Fixed
+- `archive_size` was never written to `catalogue.json` when adding a package
+  via the Add App dialog. The file size is now recorded automatically so the
+  size indicator appears without re-uploading.
+
 ---
 
 ## [0.12.23] — 2026-02-28

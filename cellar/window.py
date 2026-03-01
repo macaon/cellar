@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 
 import gi
 
@@ -93,6 +94,10 @@ class CellarWindow(Adw.ApplicationWindow):
         self.updates_box.append(self._browse_updates)
 
         self.connect("realize", lambda _w: self._load_catalogue())
+
+        # Sync the component index (runner download URLs) in the background.
+        from cellar.backend import components
+        threading.Thread(target=components.sync_index, daemon=True).start()
 
     # ── Catalogue loading ─────────────────────────────────────────────────
 
@@ -335,7 +340,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="application-x-executable",
-            version="0.12.29",
+            version="0.12.30",
             comments="A GNOME storefront for Bottles-managed Windows apps.",
             license_type=Gtk.License.GPL_3_0,
         )

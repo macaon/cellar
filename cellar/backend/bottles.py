@@ -246,6 +246,38 @@ def launch_bottle(
 
 
 # ---------------------------------------------------------------------------
+# Runner helpers
+# ---------------------------------------------------------------------------
+
+
+def runners_dir(install: BottlesInstall) -> Path:
+    """Return the path to the runners/ directory for this Bottles installation.
+
+    Flatpak: ``~/.var/app/com.usebottles.bottles/data/bottles/runners/``
+    Native:  ``~/.local/share/bottles/runners/``
+    """
+    return install.data_path.parent / "runners"
+
+
+def list_runners(install: BottlesInstall) -> list[str]:
+    """Return the names of all installed runner directories.
+
+    Reads the ``runners/`` directory next to the Bottles data root directly
+    (no subprocess call needed — the directory listing is the ground truth).
+
+    Returns an empty list when the directory does not exist.
+    Raises ``BottlesError`` if the directory cannot be read.
+    """
+    rdir = runners_dir(install)
+    if not rdir.is_dir():
+        return []
+    try:
+        return sorted(d.name for d in rdir.iterdir() if d.is_dir())
+    except OSError as exc:
+        raise BottlesError(f"Cannot list runners at {rdir}: {exc}") from exc
+
+
+# ---------------------------------------------------------------------------
 # bottles-cli wrapper
 # ---------------------------------------------------------------------------
 

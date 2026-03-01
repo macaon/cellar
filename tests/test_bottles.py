@@ -526,3 +526,87 @@ def test_edit_bottle_with_flatpak_cli_cmd():
     assert cmd[4:] == ["edit", "-b", "MyGame", "-k", "DXVK", "-v", "2.3"]
 
 
+# ---------------------------------------------------------------------------
+# runners_dir
+# ---------------------------------------------------------------------------
+
+def test_runners_dir_flatpak(tmp_path):
+    bottles_dir = tmp_path / "bottles"
+    bottles_dir.mkdir()
+    install = b.BottlesInstall(
+        data_path=bottles_dir,
+        variant="flatpak",
+        cli_cmd=[],
+    )
+    result = b.runners_dir(install)
+    assert result == tmp_path / "runners"
+
+
+def test_runners_dir_native(tmp_path):
+    bottles_dir = tmp_path / "bottles"
+    bottles_dir.mkdir()
+    install = b.BottlesInstall(
+        data_path=bottles_dir,
+        variant="native",
+        cli_cmd=[],
+    )
+    result = b.runners_dir(install)
+    assert result == tmp_path / "runners"
+
+
+# ---------------------------------------------------------------------------
+# list_runners
+# ---------------------------------------------------------------------------
+
+def _install_with_data_path(data_path: Path) -> b.BottlesInstall:
+    return b.BottlesInstall(
+        data_path=data_path,
+        variant="native",
+        cli_cmd=["bottles-cli"],
+    )
+
+
+def test_list_runners_empty_when_no_runners_dir(tmp_path):
+    bottles_dir = tmp_path / "bottles"
+    bottles_dir.mkdir()
+    install = _install_with_data_path(bottles_dir)
+    assert b.list_runners(install) == []
+
+
+def test_list_runners_returns_subdirectory_names(tmp_path):
+    bottles_dir = tmp_path / "bottles"
+    bottles_dir.mkdir()
+    runners = tmp_path / "runners"
+    (runners / "ge-proton10-32").mkdir(parents=True)
+    (runners / "soda-9.0-1").mkdir()
+    install = _install_with_data_path(bottles_dir)
+    result = b.list_runners(install)
+    assert "ge-proton10-32" in result
+    assert "soda-9.0-1" in result
+
+
+def test_list_runners_excludes_files(tmp_path):
+    bottles_dir = tmp_path / "bottles"
+    bottles_dir.mkdir()
+    runners = tmp_path / "runners"
+    runners.mkdir()
+    (runners / "ge-proton10-32").mkdir()
+    (runners / "readme.txt").write_text("not a runner")
+    install = _install_with_data_path(bottles_dir)
+    result = b.list_runners(install)
+    assert "ge-proton10-32" in result
+    assert "readme.txt" not in result
+
+
+def test_list_runners_sorted(tmp_path):
+    bottles_dir = tmp_path / "bottles"
+    bottles_dir.mkdir()
+    runners = tmp_path / "runners"
+    (runners / "z-runner").mkdir(parents=True)
+    (runners / "a-runner").mkdir()
+    (runners / "m-runner").mkdir()
+    install = _install_with_data_path(bottles_dir)
+    result = b.list_runners(install)
+    assert result == sorted(result)
+
+

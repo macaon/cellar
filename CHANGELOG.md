@@ -4,6 +4,49 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.12.30] — 2026-03-01
+
+### Added
+- **Runner compatibility checking** — the detail view asynchronously lists
+  runners installed in Bottles and checks whether the bottle's built-with
+  runner is present.
+- **`Adw.Banner` runner warning** — if the required runner is missing, a
+  banner appears below the header bar with one of two actions:
+  - **Download** — if the runner is found in the bottlesdevs/components
+    index, opens `InstallRunnerDialog` to download and extract it directly
+    into the Bottles runners directory.
+  - **Choose Runner** — if not in the index, opens `SelectRunnerDialog`
+    listing all installed runners as radio rows.
+- **InstallRunnerDialog** (`cellar/views/install_runner.py`) — two-phase
+  dialog (confirmation → progress) that stream-downloads a runner tarball,
+  verifies SHA-256, extracts it, and moves the result to the Bottles runners
+  directory.  Cancel supported at any point.
+- **SelectRunnerDialog** (inline in `cellar/views/detail.py`) — lets the
+  user pick any installed Bottles runner as a permanent override.  An
+  optional **Download original runner…** button appears when the built-with
+  runner is in the index but not yet installed.
+- **Runner override row** — the Wine Components group now shows the runner
+  as an interactive row with a **Change** button, so the user can switch
+  runners at any time without going through the banner.
+- **Runner override persistence** — the chosen override is stored in the
+  SQLite `installed` table (`runner_override TEXT` column via additive
+  `ALTER TABLE` migration) and applied immediately via `bottles-cli edit`
+  for already-installed bottles.  Applied after install for pre-selected
+  overrides.
+- **`cellar/backend/components.py`** — new module; clones
+  `bottlesdevs/components` on first run and pulls on subsequent startups
+  (using `dulwich`, pure-Python git).  Public API: `sync_index()`,
+  `is_available()`, `get_runner_info()`.
+- **`list_runners(install)`** and **`runners_dir(install)`** added to
+  `cellar/backend/bottles.py`; read the Bottles `runners/` directory
+  directly (no subprocess needed).
+- **`get_runner_override()`** and **`set_runner_override()`** added to
+  `cellar/backend/database.py`.
+- **`dulwich`** added to `pyproject.toml` dependencies alongside `PyYAML`.
+- 28 new tests (154 total, up from 126).
+
+---
+
 ## [0.12.29] — 2026-03-01
 
 ### Added

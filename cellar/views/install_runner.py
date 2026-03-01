@@ -1,0 +1,293 @@
+"""Runner download and install dialog.
+
+Follows the same two-phase stack pattern as ``update_app.py``:
+
+* **Confirmation page** — shows the runner name and a size note.
+  Header: Cancel (start) and Install (end, suggested-action).
+* **Progress page** — phase label + ``Gtk.ProgressBar`` + body Cancel.
+  Phases: *Downloading…* (0 → 0.8) → *Extracting…* (0.8 → 1.0).
+
+Usage::
+
+    dialog = InstallRunnerDialog(
+        runner_name="ge-proton10-32",
+        url="https://github.com/.../GE-Proton10-32.tar.gz",
+        checksum="sha256:abc123...",
+        target_dir=Path("~/.var/.../runners/ge-proton10-32"),
+        on_done=lambda name: ...,
+    )
+    dialog.present(parent)
+"""
+
+from __future__ import annotations
+
+import hashlib
+import logging
+import shutil
+import tarfile
+import tempfile
+import threading
+import urllib.request
+from pathlib import Path
+from typing import Callable
+
+import gi
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+from gi.repository import Adw, GLib, Gtk
+
+log = logging.getLogger(__name__)
+
+_USER_AGENT = "Mozilla/5.0 (compatible; Cellar/1.0)"
+
+
+class InstallRunnerDialog(Adw.Dialog):
+    """Two-phase dialog: confirmation → download/extract progress."""
+
+    def __init__(
+        self,
+        *,
+        runner_name: str,
+        url: str,
+        checksum: str,
+        target_dir: Path,
+        on_done: Callable[[str], None],
+    ) -> None:
+        super().__init__(title=f"Install {runner_name}", content_width=360)
+        self._runner_name = runner_name
+        self._url = url
+        self._checksum = checksum
+        self._target_dir = target_dir
+        self._on_done = on_done
+        self._cancel_event = threading.Event()
+
+        self._build_ui()
+        self.connect("closed", lambda _d: self._cancel_event.set())
+
+    # ── UI construction ───────────────────────────────────────────────────
+
+    def _build_ui(self) -> None:
+        toolbar_view = Adw.ToolbarView()
+
+        self._header = Adw.HeaderBar()
+        self._header.set_show_end_title_buttons(False)
+
+        cancel_btn = Gtk.Button(label="Cancel")
+        cancel_btn.connect("clicked", lambda _: self.close())
+        self._header.pack_start(cancel_btn)
+
+        self._install_btn = Gtk.Button(label="Install")
+        self._install_btn.add_css_class("suggested-action")
+        self._install_btn.connect("clicked", self._on_proceed_clicked)
+        self._header.pack_end(self._install_btn)
+
+        toolbar_view.add_top_bar(self._header)
+
+        self._stack = Gtk.Stack()
+        self._stack.add_named(self._build_confirm_page(), "confirm")
+        self._stack.add_named(self._build_progress_page(), "progress")
+        self._stack.set_visible_child_name("confirm")
+
+        toolbar_view.set_content(self._stack)
+        self.set_child(toolbar_view)
+
+    def _build_confirm_page(self) -> Gtk.Widget:
+        scroll = Gtk.ScrolledWindow(
+            hscrollbar_policy=Gtk.PolicyType.NEVER,
+            vscrollbar_policy=Gtk.PolicyType.AUTOMATIC,
+        )
+        scroll.set_propagate_natural_height(True)
+
+        page = Adw.PreferencesPage()
+        scroll.set_child(page)
+
+        group = Adw.PreferencesGroup(title="Runner")
+        row = Adw.ActionRow(
+            title=self._runner_name,
+            subtitle=(
+                "This runner will be downloaded and installed into Bottles. "
+                "The download size may be several hundred megabytes."
+            ),
+        )
+        row.add_prefix(Gtk.Image.new_from_icon_name("media-playback-start-symbolic"))
+        group.add(row)
+        page.add(group)
+
+        return scroll
+
+    def _build_progress_page(self) -> Gtk.Widget:
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        box.set_valign(Gtk.Align.CENTER)
+        box.set_margin_top(24)
+        box.set_margin_bottom(24)
+        box.set_margin_start(24)
+        box.set_margin_end(24)
+
+        self._phase_label = Gtk.Label(label="Downloading…", xalign=0)
+        self._phase_label.add_css_class("dim-label")
+        box.append(self._phase_label)
+
+        self._progress_bar = Gtk.ProgressBar()
+        self._progress_bar.set_show_text(True)
+        self._progress_bar.set_fraction(0.0)
+        box.append(self._progress_bar)
+
+        self._cancel_body_btn = Gtk.Button(label="Cancel")
+        self._cancel_body_btn.set_halign(Gtk.Align.CENTER)
+        self._cancel_body_btn.set_margin_top(6)
+        self._cancel_body_btn.connect("clicked", self._on_cancel_progress_clicked)
+        box.append(self._cancel_body_btn)
+
+        return box
+
+    # ── Signal handlers ───────────────────────────────────────────────────
+
+    def _on_proceed_clicked(self, _btn) -> None:
+        self._stack.set_visible_child_name("progress")
+        self._header.set_visible(False)
+        self._start_download()
+
+    def _on_cancel_progress_clicked(self, _btn) -> None:
+        self._cancel_event.set()
+        self._phase_label.set_text("Cancelling…")
+        self._cancel_body_btn.set_sensitive(False)
+
+    # ── Download thread ───────────────────────────────────────────────────
+
+    def _start_download(self) -> None:
+        def _progress(fraction: float) -> None:
+            GLib.idle_add(self._progress_bar.set_fraction, fraction)
+
+        def _phase(text: str) -> None:
+            GLib.idle_add(self._phase_label.set_text, text)
+
+        def _run() -> None:
+            try:
+                _download_and_extract_runner(
+                    url=self._url,
+                    checksum=self._checksum,
+                    target_dir=self._target_dir,
+                    progress_cb=_progress,
+                    phase_cb=_phase,
+                    cancel_event=self._cancel_event,
+                )
+                GLib.idle_add(self._on_done_ui, self._runner_name)
+            except _Cancelled:
+                GLib.idle_add(self.close)
+            except Exception as exc:  # noqa: BLE001
+                GLib.idle_add(self._on_error, str(exc))
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _on_done_ui(self, runner_name: str) -> None:
+        self.close()
+        self._on_done(runner_name)
+
+    def _on_error(self, message: str) -> None:
+        self._cancel_body_btn.set_sensitive(False)
+        alert = Adw.AlertDialog(heading="Install Failed", body=message)
+        alert.add_response("ok", "OK")
+        alert.connect("response", lambda _d, _r: self.close())
+        alert.present(self)
+
+
+# ---------------------------------------------------------------------------
+# Download + extract helper (private)
+# ---------------------------------------------------------------------------
+
+
+class _Cancelled(Exception):
+    """Raised when the user cancels the operation."""
+
+
+def _download_and_extract_runner(
+    *,
+    url: str,
+    checksum: str,
+    target_dir: Path,
+    progress_cb: Callable[[float], None],
+    phase_cb: Callable[[str], None],
+    cancel_event: threading.Event,
+) -> None:
+    """Download the runner archive, verify it, and extract it to *target_dir*.
+
+    Progress is reported via *progress_cb* in the range [0, 1]:
+      - 0.0 → 0.8 : download
+      - 0.8 → 1.0 : extract + move
+
+    Raises ``_Cancelled`` if *cancel_event* is set during the operation.
+    """
+    expected_hash = checksum.removeprefix("sha256:") if checksum else None
+
+    # ── Download ──────────────────────────────────────────────────────────
+    tmp_fd, tmp_name = tempfile.mkstemp(suffix=".tar.gz")
+    tmp_path = Path(tmp_name)
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+        sha256 = hashlib.sha256()
+        try:
+            with urllib.request.urlopen(req) as resp:
+                total = int(resp.headers.get("Content-Length", 0) or 0)
+                downloaded = 0
+                import os
+                with os.fdopen(tmp_fd, "wb") as f:
+                    tmp_fd = -1  # ownership transferred
+                    while True:
+                        if cancel_event.is_set():
+                            raise _Cancelled
+                        chunk = resp.read(1024 * 1024)  # 1 MiB chunks
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        sha256.update(chunk)
+                        downloaded += len(chunk)
+                        if total:
+                            progress_cb(min(0.8, (downloaded / total) * 0.8))
+        finally:
+            if tmp_fd >= 0:
+                import os as _os
+                _os.close(tmp_fd)
+
+        if expected_hash and sha256.hexdigest() != expected_hash:
+            raise ValueError(
+                f"SHA-256 mismatch for {url!r}: "
+                f"expected {expected_hash}, got {sha256.hexdigest()}"
+            )
+
+        progress_cb(0.8)
+        if cancel_event.is_set():
+            raise _Cancelled
+
+        # ── Extract ───────────────────────────────────────────────────────
+        phase_cb("Extracting…")
+        with tempfile.TemporaryDirectory() as extract_dir:
+            with tarfile.open(tmp_path) as tar:
+                tar.extractall(extract_dir)  # nosec
+
+            if cancel_event.is_set():
+                raise _Cancelled
+
+            progress_cb(0.9)
+
+            # Find the single top-level directory produced by the tarball.
+            entries = list(Path(extract_dir).iterdir())
+            if len(entries) == 1 and entries[0].is_dir():
+                extracted_dir = entries[0]
+            else:
+                # Tarball extracted flat — use the temp dir itself.
+                extracted_dir = Path(extract_dir)
+
+            target_dir.parent.mkdir(parents=True, exist_ok=True)
+            if target_dir.exists():
+                shutil.rmtree(target_dir)
+            shutil.move(str(extracted_dir), str(target_dir))
+
+        progress_cb(1.0)
+
+    finally:
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass

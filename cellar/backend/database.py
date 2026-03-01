@@ -54,6 +54,11 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             repo_source       TEXT
         );
     """)
+    # Additive migration: safe to run on every connection open.
+    try:
+        conn.execute("ALTER TABLE installed ADD COLUMN runner_override TEXT")
+    except sqlite3.OperationalError:
+        pass  # column already exists
 
 
 # ---------------------------------------------------------------------------
@@ -120,3 +125,26 @@ def get_all_installed() -> list[dict]:
             "SELECT * FROM installed ORDER BY installed_at"
         ).fetchall()
         return [dict(row) for row in rows]
+
+
+def get_runner_override(app_id: str) -> str | None:
+    """Return the persisted runner override for *app_id*, or ``None`` if not set."""
+    rec = get_installed(app_id)
+    if rec is None:
+        return None
+    return rec.get("runner_override")
+
+
+def set_runner_override(app_id: str, runner_name: str | None) -> None:
+    """Persist the runner override for *app_id*.
+
+    Pass ``None`` to clear the override (the bottle will use whatever
+    runner is configured in ``bottle.yml``).  No-op if *app_id* is not
+    in the database.
+    """
+    with _connect() as conn:
+        _ensure_schema(conn)
+        conn.execute(
+            "UPDATE installed SET runner_override = ? WHERE id = ?",
+            (runner_name, app_id),
+        )

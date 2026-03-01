@@ -114,3 +114,57 @@ def test_get_all_installed_ordered_by_installed_at(tmp_path):
         rows = db.get_all_installed()
     # First inserted should come first (both timestamps are close but sequential)
     assert rows[0]["id"] == "app-a"
+
+
+# ---------------------------------------------------------------------------
+# runner_override helpers
+# ---------------------------------------------------------------------------
+
+def test_get_runner_override_returns_none_for_uninstalled(tmp_path):
+    with _patch_db(tmp_path):
+        assert db.get_runner_override("nonexistent") is None
+
+
+def test_get_runner_override_returns_none_when_not_set(tmp_path):
+    with _patch_db(tmp_path):
+        db.mark_installed("app", "app", "1.0")
+        assert db.get_runner_override("app") is None
+
+
+def test_set_and_get_runner_override(tmp_path):
+    with _patch_db(tmp_path):
+        db.mark_installed("app", "app", "1.0")
+        db.set_runner_override("app", "ge-proton10-32")
+        assert db.get_runner_override("app") == "ge-proton10-32"
+
+
+def test_set_runner_override_clears_when_none(tmp_path):
+    with _patch_db(tmp_path):
+        db.mark_installed("app", "app", "1.0")
+        db.set_runner_override("app", "ge-proton10-32")
+        db.set_runner_override("app", None)
+        assert db.get_runner_override("app") is None
+
+
+def test_set_runner_override_noop_for_nonexistent(tmp_path):
+    """set_runner_override on a missing app should not raise."""
+    with _patch_db(tmp_path):
+        db.set_runner_override("ghost", "some-runner")  # must not raise
+
+
+def test_runner_override_included_in_get_installed(tmp_path):
+    with _patch_db(tmp_path):
+        db.mark_installed("app", "app", "1.0")
+        db.set_runner_override("app", "soda-9.0-1")
+        rec = db.get_installed("app")
+    assert rec is not None
+    assert rec.get("runner_override") == "soda-9.0-1"
+
+
+def test_runner_override_schema_migration_is_idempotent(tmp_path):
+    """Opening the DB twice must not fail even though ALTER TABLE runs each time."""
+    with _patch_db(tmp_path):
+        db.mark_installed("app", "app", "1.0")
+        # Second call triggers _ensure_schema again — ALTER TABLE must not crash.
+        rec = db.get_installed("app")
+    assert rec is not None

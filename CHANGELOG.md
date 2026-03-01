@@ -2,6 +2,19 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.13.1] — 2026-03-01
+
+### Fixed
+- **Runner family grouping** — runners are now classified by name prefix
+  (e.g. `soda-*` → Soda, `ge-proton*` → Proton GE) instead of by directory
+  name, so the Runner Manager Dialog shows fine-grained families instead of two
+  giant "Wine" and "Proton" buckets.
+- **Checksum verification** — runner downloads now read the correct
+  `file_checksum` YAML field (was reading nonexistent `checksum`), and detect
+  MD5 vs SHA-256 by hash length so verification actually works.
+- **Runner Manager Dialog height** — added `content_height=500` so the dialog
+  has a reasonable default size with 600+ runners.
+
 ## [0.13.0] — 2026-03-01
 
 ### Added

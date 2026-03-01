@@ -139,12 +139,39 @@ def list_available_runners() -> list[str]:
     return sorted(names)
 
 
+_FAMILY_PREFIX_MAP: list[tuple[str, str]] = [
+    # Longest prefixes first to avoid partial matches.
+    ("lutris-ge-", "lutris-ge"),
+    ("wine-ge-",   "wine-ge"),
+    ("caffe-rc-",  "caffe-rc"),
+    ("ge-proton",  "proton-ge"),
+    ("soda-",      "soda"),
+    ("caffe-",     "caffe"),
+    ("kron4ek-",   "kron4ek"),
+    ("lutris-",    "lutris"),
+    ("proton-",    "proton"),
+    ("vaniglia-",  "vaniglia"),
+]
+
+
+def _classify_runner(name: str, fallback_dir: str) -> str:
+    """Return the family key for a runner based on its name prefix."""
+    lower = name.lower()
+    for prefix, family in _FAMILY_PREFIX_MAP:
+        if lower.startswith(prefix):
+            return family
+    return fallback_dir
+
+
 def list_runners_by_category() -> dict[str, list[str]]:
-    """Return runner names grouped by family directory name.
+    """Return runner names grouped by family (prefix-based classification).
 
     Scans every ``*.yml`` file under each subdirectory of
-    ``components/runners/`` and collects the ``Name`` field.  Names within
-    each family are sorted reverse-alphabetically (newest first).
+    ``components/runners/`` and classifies runners by their name prefix
+    (e.g. ``soda-*`` → ``soda``, ``ge-proton*`` → ``proton-ge``).  Runners
+    that don't match any known prefix fall back to their directory name.
+
+    Names within each family are sorted reverse-alphabetically (newest first).
 
     Returns ``{}`` when the clone is absent or yaml is unavailable.
     """
@@ -161,16 +188,17 @@ def list_runners_by_category() -> dict[str, list[str]]:
     for family_dir in runners_dir.iterdir():
         if not family_dir.is_dir():
             continue
-        names: list[str] = []
         for yml_file in family_dir.glob("*.yml"):
             try:
                 data = yaml.safe_load(yml_file.read_text(encoding="utf-8"))
                 if isinstance(data, dict) and data.get("Name"):
-                    names.append(str(data["Name"]))
+                    name = str(data["Name"])
+                    family = _classify_runner(name, family_dir.name)
+                    result.setdefault(family, []).append(name)
             except Exception:  # noqa: BLE001
                 pass
-        if names:
-            result[family_dir.name] = sorted(names, reverse=True)
+    for family in result:
+        result[family] = sorted(result[family], reverse=True)
     return result
 
 

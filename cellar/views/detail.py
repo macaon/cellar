@@ -401,7 +401,7 @@ class DetailView(Gtk.Box):
             return
         file_info = files[0]
         url = file_info.get("url", "")
-        checksum = file_info.get("checksum", "")
+        checksum = file_info.get("file_checksum", "") or file_info.get("checksum", "")
         target_dir = runners_dir(self._bottles_installs[0]) / effective_name
 
         def _on_done_internal(rname: str) -> None:
@@ -987,7 +987,7 @@ class RunnerManagerDialog(Adw.Dialog):
         on_confirm: Callable[[str], None] | None = None,
         on_install_runner: Callable[[str], None] | None = None,
     ) -> None:
-        super().__init__(title="Runners", content_width=500)
+        super().__init__(title="Runners", content_width=500, content_height=500)
         self._installed = set(installed_runners)
         self._runners_in_use = runners_in_use
         self._runners_by_category = runners_by_category

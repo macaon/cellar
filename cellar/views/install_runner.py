@@ -218,14 +218,24 @@ def _download_and_extract_runner(
 
     Raises ``_Cancelled`` if *cancel_event* is set during the operation.
     """
-    expected_hash = checksum.removeprefix("sha256:") if checksum else None
+    # Determine hash algorithm from checksum format.
+    if checksum:
+        raw = checksum.removeprefix("sha256:").removeprefix("md5:")
+        if len(raw) == 32:
+            hash_algo = "md5"
+        else:
+            hash_algo = "sha256"
+        expected_hash: str | None = raw
+    else:
+        hash_algo = "sha256"
+        expected_hash = None
 
     # ── Download ──────────────────────────────────────────────────────────
     tmp_fd, tmp_name = tempfile.mkstemp(suffix=".tar.gz")
     tmp_path = Path(tmp_name)
     try:
         req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
-        sha256 = hashlib.sha256()
+        hasher = hashlib.new(hash_algo)
         try:
             with urllib.request.urlopen(req) as resp:
                 total = int(resp.headers.get("Content-Length", 0) or 0)
@@ -240,7 +250,7 @@ def _download_and_extract_runner(
                         if not chunk:
                             break
                         f.write(chunk)
-                        sha256.update(chunk)
+                        hasher.update(chunk)
                         downloaded += len(chunk)
                         if total:
                             progress_cb(min(0.8, (downloaded / total) * 0.8))
@@ -249,10 +259,10 @@ def _download_and_extract_runner(
                 import os as _os
                 _os.close(tmp_fd)
 
-        if expected_hash and sha256.hexdigest() != expected_hash:
+        if expected_hash and hasher.hexdigest() != expected_hash:
             raise ValueError(
-                f"SHA-256 mismatch for {url!r}: "
-                f"expected {expected_hash}, got {sha256.hexdigest()}"
+                f"{hash_algo.upper()} mismatch for {url!r}: "
+                f"expected {expected_hash}, got {hasher.hexdigest()}"
             )
 
         progress_cb(0.8)

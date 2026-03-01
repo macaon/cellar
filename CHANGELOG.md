@@ -2,6 +2,13 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.13.2] — 2026-03-01
+
+### Changed
+- **Cover as icon fallback** — the detail view now shows the cover image
+  (center-cropped to a square) next to the app title when no icon is available,
+  instead of the generic gear icon.
+
 ## [0.13.1] — 2026-03-01
 
 ### Added

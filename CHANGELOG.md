@@ -2,20 +2,6 @@
 
 All notable changes to Cellar are documented here.
 
-## Versioning
-
-Cellar does not follow SemVer. SemVer is designed for software with a
-declared **public API** — Cellar is a desktop application and has none.
-Instead, version numbers follow a simple three-part app convention:
-
-| Part | Incremented when… |
-|---|---|
-| **MAJOR** | A breaking change to a shared data format (catalogue schema, DB schema), or the first stable 1.0 release |
-| **MINOR** | A new user-visible feature or significant UI change is added |
-| **PATCH** | A bug is fixed, behaviour is corrected, or internal polish is applied |
-
----
-
 ## [0.12.0] — 2026-03-01
 
 ### Added

@@ -55,20 +55,11 @@ class SettingsDialog(Adw.PreferencesDialog):
         )
         page.add(self._repo_group)
 
-        # URI entry row — the Add button triggers the full add flow.
-        self._add_row = Adw.EntryRow(title="Repository URI")
-        add_btn = Gtk.Button(
-            icon_name="list-add-symbolic",
-            valign=Gtk.Align.CENTER,
-            has_frame=False,
-            tooltip_text="Add repository",
-        )
-        add_btn.connect("clicked", lambda _b: self._on_add_activated(self._add_row))
-        self._add_row.add_suffix(add_btn)
-        self._add_row.connect("entry-activated", self._on_add_activated)
-
-        # Optional token row — sits below the URI row, always visible.
-        self._add_token_row = Adw.EntryRow(title="Access token (optional)")
+        # "Add Repository" button in the group header suffix.
+        add_btn = Gtk.Button(label="Add Repository")
+        add_btn.add_css_class("flat")
+        add_btn.connect("clicked", self._on_add_clicked)
+        self._repo_group.set_header_suffix(add_btn)
 
         # ── Group: Access Control ─────────────────────────────────────────
         access_group = Adw.PreferencesGroup(
@@ -104,10 +95,6 @@ class SettingsDialog(Adw.PreferencesDialog):
 
     def _rebuild_repo_rows(self) -> None:
         """Sync the visible rows with the on-disk repo list."""
-        for w in (self._add_row, self._add_token_row):
-            if w.get_parent() is not None:
-                self._repo_group.remove(w)
-
         for row in self._repo_rows:
             self._repo_group.remove(row)
         self._repo_rows.clear()
@@ -117,30 +104,22 @@ class SettingsDialog(Adw.PreferencesDialog):
             self._repo_rows.append(row)
             self._repo_group.add(row)
 
-        # Add rows are always last.
-        self._repo_group.add(self._add_row)
-        self._repo_group.add(self._add_token_row)
-
-    def _make_repo_row(self, repo_cfg: dict) -> Adw.EntryRow:
+    def _make_repo_row(self, repo_cfg: dict) -> Adw.ActionRow:
+        name = repo_cfg.get("name") or ""
         uri = repo_cfg["uri"]
         ca_cert = repo_cfg.get("ca_cert") or ""
         ssl_verify = repo_cfg.get("ssl_verify", True)
         token = repo_cfg.get("token") or ""
 
-        row = Adw.EntryRow(title="Repository URI", text=uri)
-        row.connect("entry-activated", self._on_repo_uri_activated, uri)
+        title = name if name else uri
+        subtitle = uri if name else ""
+
+        row = Adw.ActionRow(title=title, subtitle=subtitle)
 
         if token:
             icon = Gtk.Image.new_from_icon_name("channel-secure-symbolic")
             icon.set_tooltip_text("Bearer token configured")
             row.add_prefix(icon)
-            change_btn = Gtk.Button(
-                label="Token…",
-                valign=Gtk.Align.CENTER,
-                has_frame=False,
-            )
-            change_btn.connect("clicked", self._on_change_token, uri)
-            row.add_suffix(change_btn)
         elif ca_cert:
             icon = Gtk.Image.new_from_icon_name("security-high-symbolic")
             icon.set_tooltip_text(f"CA certificate: {Path(ca_cert).name}")
@@ -149,6 +128,15 @@ class SettingsDialog(Adw.PreferencesDialog):
             icon = Gtk.Image.new_from_icon_name("security-low-symbolic")
             icon.set_tooltip_text("SSL verification disabled")
             row.add_prefix(icon)
+
+        edit_btn = Gtk.Button(
+            icon_name="document-edit-symbolic",
+            valign=Gtk.Align.CENTER,
+            has_frame=False,
+            tooltip_text="Edit repository",
+        )
+        edit_btn.connect("clicked", self._on_edit_repo, repo_cfg)
+        row.add_suffix(edit_btn)
 
         del_btn = Gtk.Button(
             icon_name="user-trash-symbolic",
@@ -163,54 +151,280 @@ class SettingsDialog(Adw.PreferencesDialog):
         return row
 
     # ------------------------------------------------------------------
-    # "Add" flow
+    # Add / Edit handlers
     # ------------------------------------------------------------------
 
-    def _on_add_activated(self, entry_row: Adw.EntryRow) -> None:
-        uri = entry_row.get_text().strip()
+    def _on_add_clicked(self, _btn: Gtk.Button) -> None:
+        def _save(cfg: dict) -> None:
+            repos = load_repos()
+            repos.append(cfg)
+            save_repos(repos)
+            self._rebuild_repo_rows()
+            if self._on_repos_changed:
+                self._on_repos_changed()
+
+        dialog = AddEditRepoDialog(on_save=_save)
+        dialog.present(self)
+
+    def _on_edit_repo(self, _btn: Gtk.Button, repo_cfg: dict) -> None:
+        old_uri = repo_cfg["uri"]
+
+        def _save(cfg: dict) -> None:
+            repos = load_repos()
+            for i, r in enumerate(repos):
+                if r["uri"] == old_uri:
+                    repos[i] = cfg
+                    break
+            save_repos(repos)
+            self._rebuild_repo_rows()
+            if self._on_repos_changed:
+                self._on_repos_changed()
+
+        dialog = AddEditRepoDialog(on_save=_save, existing=repo_cfg)
+        dialog.present(self)
+
+    # ------------------------------------------------------------------
+    # Delete handler
+    # ------------------------------------------------------------------
+
+    def _on_delete_repo(self, _btn: Gtk.Button, uri: str) -> None:
+        repos = [r for r in load_repos() if r["uri"] != uri]
+        save_repos(repos)
+        self._rebuild_repo_rows()
+        if self._on_repos_changed:
+            self._on_repos_changed()
+
+    # ------------------------------------------------------------------
+    # Access Control
+    # ------------------------------------------------------------------
+
+    def _on_generate_token(self, _btn: Gtk.Button) -> None:
+        """Generate a token and display it in a dialog for copying."""
+        import secrets
+        token = secrets.token_hex(32)
+        label = Gtk.Label(
+            label=token,
+            wrap=True,
+            wrap_mode=2,        # WORD_CHAR
+            selectable=True,
+            xalign=0,
+            css_classes=["monospace"],
+            margin_top=8,
+        )
+        dialog = Adw.AlertDialog(
+            heading="Generated Token",
+            body=(
+                "Add this token to your web server configuration, then share "
+                "it with anyone who should have access to your repository."
+            ),
+            extra_child=label,
+        )
+        dialog.add_response("copy", "Copy to Clipboard")
+        dialog.add_response("ok", "Done")
+        dialog.set_default_response("copy")
+        dialog.set_response_appearance("copy", Adw.ResponseAppearance.SUGGESTED)
+        dialog.connect("response", lambda _d, r: self.get_clipboard().set(token) if r == "copy" else None)
+        dialog.present(self)
+
+    def _alert(self, heading: str, body: str) -> None:
+        dialog = Adw.AlertDialog(heading=heading, body=body)
+        dialog.add_response("ok", "OK")
+        dialog.present(self)
+
+
+# ---------------------------------------------------------------------------
+# Add / Edit Repository dialog
+# ---------------------------------------------------------------------------
+
+
+class AddEditRepoDialog(Adw.Dialog):
+    """Single dialog for adding a new repository or editing an existing one.
+
+    Pass ``existing=None`` for "Add" mode, or ``existing=<repo-cfg-dict>``
+    for "Edit" mode.  ``on_save`` is called with the validated repo config
+    dict on success; closing the dialog without saving does nothing.
+    """
+
+    def __init__(
+        self,
+        *,
+        on_save: Callable[[dict], None],
+        existing: dict | None = None,
+    ) -> None:
+        mode = "Edit Repository" if existing else "Add Repository"
+        super().__init__(title=mode, content_width=480)
+        self._on_save = on_save
+        self._existing = existing
+        self._ca_cert_path: str | None = None
+        if existing and existing.get("ca_cert"):
+            self._ca_cert_path = existing["ca_cert"]
+        self._build_ui()
+
+    # ------------------------------------------------------------------
+    # UI construction
+    # ------------------------------------------------------------------
+
+    def _build_ui(self) -> None:
+        toolbar = Adw.ToolbarView()
+        header = Adw.HeaderBar()
+        header.set_show_end_title_buttons(False)
+
+        cancel_btn = Gtk.Button(label="Cancel")
+        cancel_btn.connect("clicked", lambda _: self.close())
+        header.pack_start(cancel_btn)
+
+        save_label = "Save" if self._existing else "Add"
+        self._save_btn = Gtk.Button(label=save_label)
+        self._save_btn.add_css_class("suggested-action")
+        self._save_btn.connect("clicked", self._on_save_clicked)
+        header.pack_end(self._save_btn)
+
+        toolbar.add_top_bar(header)
+
+        scroll = Gtk.ScrolledWindow(
+            hscrollbar_policy=Gtk.PolicyType.NEVER,
+            vscrollbar_policy=Gtk.PolicyType.AUTOMATIC,
+        )
+        scroll.set_propagate_natural_height(True)
+
+        page = Adw.PreferencesPage()
+        scroll.set_child(page)
+
+        group = Adw.PreferencesGroup()
+        page.add(group)
+
+        # Name
+        self._name_row = Adw.EntryRow(title="Name")
+        if self._existing:
+            self._name_row.set_text(self._existing.get("name") or "")
+        group.add(self._name_row)
+
+        # URI (required)
+        self._uri_row = Adw.EntryRow(title="URI *")
+        self._uri_row.connect("entry-activated", lambda _: self._on_save_clicked(None))
+        if self._existing:
+            self._uri_row.set_text(self._existing.get("uri") or "")
+        group.add(self._uri_row)
+
+        # Access token (password-masked)
+        self._token_row = Adw.PasswordEntryRow(title="Access token")
+        if self._existing:
+            self._token_row.set_text(self._existing.get("token") or "")
+        group.add(self._token_row)
+
+        # SSL verification toggle
+        self._ssl_row = Adw.SwitchRow(title="Verify SSL certificate")
+        ssl_active = True
+        if self._existing:
+            ssl_active = self._existing.get("ssl_verify", True)
+        self._ssl_row.set_active(ssl_active)
+        self._ssl_row.connect("notify::active", self._on_ssl_toggled)
+        group.add(self._ssl_row)
+
+        # CA certificate selector (hidden when ssl_verify is off)
+        self._ca_row = Adw.ActionRow(title="CA Certificate")
+        ca_subtitle = (
+            Path(self._ca_cert_path).name
+            if self._ca_cert_path
+            else "No certificate selected"
+        )
+        self._ca_row.set_subtitle(ca_subtitle)
+        select_btn = Gtk.Button(label="Select…", valign=Gtk.Align.CENTER)
+        select_btn.connect("clicked", self._on_select_ca_cert)
+        self._ca_row.add_suffix(select_btn)
+        self._ca_row.set_visible(ssl_active)
+        group.add(self._ca_row)
+
+        toolbar.set_content(scroll)
+        self.set_child(toolbar)
+
+    # ------------------------------------------------------------------
+    # Signal handlers
+    # ------------------------------------------------------------------
+
+    def _on_ssl_toggled(self, row: Adw.SwitchRow, _param) -> None:
+        self._ca_row.set_visible(row.get_active())
+
+    def _on_select_ca_cert(self, _btn: Gtk.Button) -> None:
+        root = self.get_root()
+        chooser = Gtk.FileChooserNative(
+            title="Select CA Certificate",
+            transient_for=root if isinstance(root, Gtk.Window) else None,
+            action=Gtk.FileChooserAction.OPEN,
+        )
+        f = Gtk.FileFilter()
+        f.set_name("Certificate files (*.crt, *.pem, *.cer)")
+        f.add_pattern("*.crt")
+        f.add_pattern("*.pem")
+        f.add_pattern("*.cer")
+        chooser.add_filter(f)
+        chooser.connect("response", self._on_ca_cert_chosen, chooser)
+        chooser.show()
+
+    def _on_ca_cert_chosen(
+        self, _chooser, response: int, chooser: Gtk.FileChooserNative
+    ) -> None:
+        if response != Gtk.ResponseType.ACCEPT:
+            return
+        path = chooser.get_file().get_path()
+        if path:
+            self._ca_cert_path = path
+            self._ca_row.set_subtitle(Path(path).name)
+
+    def _on_save_clicked(self, _btn) -> None:
+        uri = self._uri_row.get_text().strip()
         if not uri:
+            self._alert("URI Required", "Please enter a repository URI.")
             return
 
-        token = self._add_token_row.get_text().strip() or None
+        name = self._name_row.get_text().strip()
+        token = self._token_row.get_text().strip() or None
+        ssl_verify = self._ssl_row.get_active()
 
-        # Duplicate check.
-        if any(r["uri"] == uri for r in load_repos()):
+        # Duplicate check — only if URI is new.
+        old_uri = self._existing.get("uri") if self._existing else None
+        if uri != old_uri and any(r["uri"] == uri for r in load_repos()):
             self._alert("Already Added", "This repository is already in the list.")
             return
 
-        from cellar.backend.repo import Repo, RepoError
-
-        # For a local path that doesn't exist yet, skip straight to init.
+        # Local path that doesn't exist → offer to initialise.
         if _is_local_uri(uri):
             parsed = urlparse(uri)
             local_path = Path(parsed.path if parsed.path else uri).expanduser()
             if not local_path.is_dir():
-                self._ask_init(uri)
+                self._ask_init(uri, name, token, ssl_verify)
                 return
 
-        # Validate scheme / create fetcher.
-        # Pass a MountOperation so that SMB/NFS shares can be mounted (and
-        # credential dialogs shown) when the user first adds them.
-        # Adw.PreferencesDialog is not a GtkWindow, so walk up to the root.
+        # Resolve CA cert path for the connection attempt.
+        ca_cert_path, ca_cert_name = self._resolve_ca_cert(ssl_verify)
+
         root = self.get_root()
         mount_op = Gtk.MountOperation(
             parent=root if isinstance(root, Gtk.Window) else None
         )
+
+        from cellar.backend.repo import Repo, RepoError
+
         try:
-            repo = Repo(uri, mount_op=mount_op, ssl_verify=True, token=token)
+            repo = Repo(
+                uri,
+                name,
+                mount_op=mount_op,
+                ssl_verify=ssl_verify,
+                ca_cert=ca_cert_path,
+                token=token,
+            )
         except RepoError as exc:
             self._alert("Invalid Repository", str(exc))
             return
 
-        # Try to fetch the catalogue.
-        # TODO: run this off the main thread once async support lands.
         try:
             repo.fetch_catalogue()
         except RepoError as exc:
             err = str(exc)
             if _looks_like_missing(err):
                 if repo.is_writable:
-                    self._ask_init(uri)
+                    self._ask_init(uri, name, token, ssl_verify)
                 else:
                     self._alert(
                         "No Catalogue Found",
@@ -242,16 +456,33 @@ class SettingsDialog(Adw.PreferencesDialog):
                     "example.",
                 )
             elif _looks_like_ssl_error(err):
-                self._ask_ssl_options(uri, entry_row)
+                self._alert(
+                    "SSL Certificate Error",
+                    f"The server at {uri} presented a certificate that could not "
+                    "be verified. Provide your CA certificate file using the "
+                    "CA Certificate field above, or disable SSL verification.",
+                )
             else:
                 self._alert("Could Not Connect", err)
             return
 
-        self._commit_add(uri, token=token)
-        entry_row.set_text("")
-        self._add_token_row.set_text("")
+        # Copy CA cert into certs_dir if it's a newly selected file.
+        if ca_cert_path and ca_cert_name:
+            import shutil
+            src = Path(ca_cert_path)
+            dest = certs_dir() / ca_cert_name
+            if not dest.exists():
+                shutil.copy2(src, dest)
 
-    def _ask_init(self, uri: str) -> None:
+        self._finish_save(uri, name, token, ssl_verify, ca_cert_name)
+
+    # ------------------------------------------------------------------
+    # Init flow (catalogue missing on a writable repo)
+    # ------------------------------------------------------------------
+
+    def _ask_init(
+        self, uri: str, name: str, token: str | None, ssl_verify: bool
+    ) -> None:
         if _is_local_uri(uri):
             body = (
                 "No catalogue.json was found at this location. "
@@ -261,34 +492,43 @@ class SettingsDialog(Adw.PreferencesDialog):
             body = (
                 "No catalogue.json was found at this location. "
                 "Initialise a new empty repository here?\n\n"
-                "The directory will be created on the server if it does not exist yet."
+                "The directory will be created on the server if it "
+                "does not exist yet."
             )
         dialog = Adw.AlertDialog(heading="No Catalogue Found", body=body)
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("init", "Initialise")
         dialog.set_response_appearance("init", Adw.ResponseAppearance.SUGGESTED)
-        dialog.connect("response", self._on_init_response, uri)
+        dialog.connect("response", self._on_init_response, uri, name, token, ssl_verify)
         dialog.present(self)
 
-    def _on_init_response(self, _dialog, response: str, uri: str) -> None:
+    def _on_init_response(
+        self,
+        _dialog,
+        response: str,
+        uri: str,
+        name: str,
+        token: str | None,
+        ssl_verify: bool,
+    ) -> None:
         if response != "init":
             return
-
         scheme = urlparse(uri).scheme.lower()
-
         if _is_local_uri(uri):
-            self._init_local_repo(uri)
+            self._init_local_repo(uri, name, token, ssl_verify)
         elif scheme in ("smb", "nfs"):
-            self._init_gio_repo(uri)
+            self._init_gio_repo(uri, name, token, ssl_verify)
         elif scheme == "ssh":
-            self._init_ssh_repo(uri)
+            self._init_ssh_repo(uri, name, token, ssl_verify)
         else:
             self._alert(
                 "Not Supported",
                 f"Initialising {scheme!r} repositories is not supported.",
             )
 
-    def _init_local_repo(self, uri: str) -> None:
+    def _init_local_repo(
+        self, uri: str, name: str, token: str | None, ssl_verify: bool
+    ) -> None:
         parsed = urlparse(uri)
         target = Path(parsed.path if parsed.path else uri).expanduser()
         try:
@@ -301,11 +541,11 @@ class SettingsDialog(Adw.PreferencesDialog):
         except OSError as exc:
             self._alert("Could Not Initialise", str(exc))
             return
-        self._commit_add(uri)
-        self._add_row.set_text("")
+        self._finish_save(uri, name, token, ssl_verify, None)
 
-    def _init_gio_repo(self, uri: str) -> None:
-        """Create an empty catalogue.json at an SMB or NFS URI via GIO."""
+    def _init_gio_repo(
+        self, uri: str, name: str, token: str | None, ssl_verify: bool
+    ) -> None:
         from cellar.utils.gio_io import gio_makedirs, gio_write_bytes
 
         root = self.get_root()
@@ -321,11 +561,11 @@ class SettingsDialog(Adw.PreferencesDialog):
         except OSError as exc:
             self._alert("Could Not Initialise", str(exc))
             return
-        self._commit_add(uri)
-        self._add_row.set_text("")
+        self._finish_save(uri, name, token, ssl_verify, None)
 
-    def _init_ssh_repo(self, uri: str) -> None:
-        """Create an empty catalogue.json at an SSH URI via subprocess."""
+    def _init_ssh_repo(
+        self, uri: str, name: str, token: str | None, ssl_verify: bool
+    ) -> None:
         import shlex
         import subprocess
 
@@ -334,7 +574,11 @@ class SettingsDialog(Adw.PreferencesDialog):
             self._alert("Invalid URI", f"No hostname in SSH URI: {uri!r}")
             return
 
-        dest = f"{parsed.username}@{parsed.hostname}" if parsed.username else parsed.hostname
+        dest = (
+            f"{parsed.username}@{parsed.hostname}"
+            if parsed.username
+            else parsed.hostname
+        )
         base_args = [
             "ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
         ]
@@ -343,8 +587,6 @@ class SettingsDialog(Adw.PreferencesDialog):
         base_args.append(dest)
 
         path = parsed.path or "/"
-
-        # Create directory tree on the remote.
         try:
             result = subprocess.run(
                 base_args + ["mkdir", "-p", path],
@@ -358,10 +600,12 @@ class SettingsDialog(Adw.PreferencesDialog):
             return
         if result.returncode != 0:
             stderr = result.stderr.decode(errors="replace").strip()
-            self._alert("Could Not Initialise", f"Could not create directory: {stderr or 'SSH error'}")
+            self._alert(
+                "Could Not Initialise",
+                f"Could not create directory: {stderr or 'SSH error'}",
+            )
             return
 
-        # Write catalogue.json via stdin.
         cat_path = path.rstrip("/") + "/catalogue.json"
         data = json.dumps(_empty_catalogue(), indent=2, ensure_ascii=False).encode()
         try:
@@ -374,235 +618,49 @@ class SettingsDialog(Adw.PreferencesDialog):
             return
         if result.returncode != 0:
             stderr = result.stderr.decode(errors="replace").strip()
-            self._alert("Could Not Initialise", f"Could not write catalogue.json: {stderr or 'SSH error'}")
+            self._alert(
+                "Could Not Initialise",
+                f"Could not write catalogue.json: {stderr or 'SSH error'}",
+            )
             return
 
         log.info("Initialised new SSH repo at %s", uri)
-        self._commit_add(uri)
-        self._add_row.set_text("")
-
-    # ------------------------------------------------------------------
-    # "Edit URI" flow
-    # ------------------------------------------------------------------
-
-    def _on_repo_uri_activated(self, row: Adw.EntryRow, old_uri: str) -> None:
-        new_uri = row.get_text().strip()
-        if not new_uri or new_uri == old_uri:
-            return
-        repos = load_repos()
-        for r in repos:
-            if r["uri"] == old_uri:
-                r["uri"] = new_uri
-                break
-        save_repos(repos)
-        self._rebuild_repo_rows()
-        if self._on_repos_changed:
-            self._on_repos_changed()
-
-    # ------------------------------------------------------------------
-    # "Delete" flow
-    # ------------------------------------------------------------------
-
-    def _on_delete_repo(self, _btn: Gtk.Button, uri: str) -> None:
-        repos = [r for r in load_repos() if r["uri"] != uri]
-        save_repos(repos)
-        self._rebuild_repo_rows()
-        if self._on_repos_changed:
-            self._on_repos_changed()
+        self._finish_save(uri, name, token, ssl_verify, None)
 
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
 
-    def _ask_ssl_options(self, uri: str, entry_row: Adw.EntryRow) -> None:
-        dialog = Adw.AlertDialog(
-            heading="SSL Certificate Error",
-            body=(
-                f"The server at {uri} presented a certificate that could not be "
-                "verified. This is common for self-signed certificates or a "
-                "private certificate authority.\n\n"
-                "You can provide your CA certificate file (.crt / .pem) so Cellar "
-                "can verify the server securely, or disable verification entirely "
-                "(not recommended outside a trusted local network)."
-            ),
-        )
-        dialog.add_response("cancel", "Cancel")
-        dialog.add_response("ca_cert", "Add CA Certificate…")
-        dialog.add_response("skip", "Disable Verification")
-        dialog.set_response_appearance("ca_cert", Adw.ResponseAppearance.SUGGESTED)
-        dialog.set_response_appearance("skip", Adw.ResponseAppearance.DESTRUCTIVE)
-        dialog.connect("response", self._on_ssl_options_response, uri, entry_row)
-        dialog.present(self)
+    def _resolve_ca_cert(self, ssl_verify: bool) -> tuple[str | None, str | None]:
+        """Return (full path, filename) for the current CA cert selection."""
+        if not self._ca_cert_path or not ssl_verify:
+            return None, None
+        p = Path(self._ca_cert_path)
+        if p.is_absolute() and p.exists():
+            return str(p), p.name
+        # Existing cert stored by filename only.
+        resolved = certs_dir() / self._ca_cert_path
+        if resolved.exists():
+            return str(resolved), self._ca_cert_path
+        return None, None
 
-    def _on_ssl_options_response(
-        self, _dialog, response: str, uri: str, entry_row: Adw.EntryRow
-    ) -> None:
-        if response == "ca_cert":
-            self._pick_ca_cert(uri, entry_row)
-        elif response == "skip":
-            self._commit_add(uri, ssl_verify=False)
-            entry_row.set_text("")
-
-    def _pick_ca_cert(self, uri: str, entry_row: Adw.EntryRow) -> None:
-        chooser = Gtk.FileChooserNative(
-            title="Select CA Certificate",
-            transient_for=self.get_root()
-            if isinstance(self.get_root(), Gtk.Window)
-            else None,
-            action=Gtk.FileChooserAction.OPEN,
-        )
-        f = Gtk.FileFilter()
-        f.set_name("Certificate files (*.crt, *.pem, *.cer)")
-        f.add_pattern("*.crt")
-        f.add_pattern("*.pem")
-        f.add_pattern("*.cer")
-        chooser.add_filter(f)
-        chooser.connect("response", self._on_ca_cert_chosen, uri, entry_row, chooser)
-        chooser.show()
-
-    def _on_ca_cert_chosen(
-        self,
-        _chooser,
-        response: int,
-        uri: str,
-        entry_row: Adw.EntryRow,
-        chooser: Gtk.FileChooserNative,
-    ) -> None:
-        if response != Gtk.ResponseType.ACCEPT:
-            return
-        src_path = chooser.get_file().get_path()
-        if not src_path:
-            return
-        # Validate before copying: try connecting with the cert as-is.
-        from cellar.backend.repo import Repo, RepoError
-        try:
-            Repo(uri, ca_cert=src_path).fetch_catalogue()
-        except RepoError as exc:
-            err = str(exc)
-            if _looks_like_ssl_error(err):
-                self._alert(
-                    "Certificate Not Accepted",
-                    f"The server still could not be verified using "
-                    f"{Path(src_path).name}.\n\n{err}",
-                )
-            else:
-                self._alert("Could Not Connect", err)
-            return
-        # Copy cert into the Cellar data directory so the repo config
-        # stays valid even if the source file is moved or deleted.
-        import shutil
-        src = Path(src_path)
-        dest = certs_dir() / src.name
-        if not dest.exists():
-            shutil.copy2(src, dest)
-        self._commit_add(uri, ca_cert=dest.name)
-        entry_row.set_text("")
-
-    def _on_generate_token(self, _btn: Gtk.Button) -> None:
-        """Generate a token and display it in a dialog for copying."""
-        import secrets
-        token = secrets.token_hex(32)
-        label = Gtk.Label(
-            label=token,
-            wrap=True,
-            wrap_mode=2,        # WORD_CHAR
-            selectable=True,
-            xalign=0,
-            css_classes=["monospace"],
-            margin_top=8,
-        )
-        dialog = Adw.AlertDialog(
-            heading="Generated Token",
-            body=(
-                "Add this token to your web server configuration, then share "
-                "it with anyone who should have access to your repository."
-            ),
-            extra_child=label,
-        )
-        dialog.add_response("copy", "Copy to Clipboard")
-        dialog.add_response("ok", "Done")
-        dialog.set_default_response("copy")
-        dialog.set_response_appearance("copy", Adw.ResponseAppearance.SUGGESTED)
-        dialog.connect("response", lambda _d, r: self.get_clipboard().set(token) if r == "copy" else None)
-        dialog.present(self)
-
-    def _on_change_token(self, _btn: Gtk.Button, uri: str) -> None:
-        """Show a dialog to replace the bearer token for an existing repo."""
-        box, token_entry = self._make_token_box()
-        dialog = Adw.AlertDialog(
-            heading="Change Access Token",
-            body="Enter a new bearer token for this repository.",
-            extra_child=box,
-        )
-        dialog.add_response("cancel", "Cancel")
-        dialog.add_response("save", "Save")
-        dialog.set_response_appearance("save", Adw.ResponseAppearance.SUGGESTED)
-        dialog.connect("response", self._on_change_token_response, uri, token_entry)
-        dialog.present(self)
-
-    def _on_change_token_response(
-        self, _dialog, response: str, uri: str, token_entry
-    ) -> None:
-        if response != "save":
-            return
-        token = token_entry.get_text().strip()
-        if not token:
-            return
-        repos = load_repos()
-        for r in repos:
-            if r["uri"] == uri:
-                r["token"] = token
-                break
-        save_repos(repos)
-        self._rebuild_repo_rows()
-        if self._on_repos_changed:
-            self._on_repos_changed()
-
-    def _make_token_box(self) -> tuple[Gtk.Box, Gtk.Entry]:
-        """Return a (box, entry) pair with a token field and a Generate button."""
-        import secrets
-
-        box = Gtk.Box(
-            orientation=Gtk.Orientation.HORIZONTAL, spacing=6, margin_top=8
-        )
-        token_entry = Gtk.Entry(
-            hexpand=True,
-            placeholder_text="Paste or generate a token",
-        )
-        gen_btn = Gtk.Button(label="Generate")
-
-        def _on_generate(_b: Gtk.Button) -> None:
-            t = secrets.token_hex(32)
-            token_entry.set_text(t)
-            token_entry.get_clipboard().set(t)
-
-        gen_btn.connect("clicked", _on_generate)
-        box.append(token_entry)
-        box.append(gen_btn)
-        return box, token_entry
-
-    def _commit_add(
+    def _finish_save(
         self,
         uri: str,
-        *,
-        ssl_verify: bool = True,
-        ca_cert: str | None = None,
-        token: str | None = None,
+        name: str,
+        token: str | None,
+        ssl_verify: bool,
+        ca_cert_name: str | None,
     ) -> None:
-        """Persist the new repo and refresh both the list and the main window."""
-        repos = load_repos()
-        entry: dict = {"uri": uri, "name": ""}
-        if ca_cert:
-            entry["ca_cert"] = ca_cert
-        elif not ssl_verify:
-            entry["ssl_verify"] = False
+        cfg: dict = {"uri": uri, "name": name}
         if token:
-            entry["token"] = token
-        repos.append(entry)
-        save_repos(repos)
-        self._rebuild_repo_rows()
-        if self._on_repos_changed:
-            self._on_repos_changed()
+            cfg["token"] = token
+        if not ssl_verify:
+            cfg["ssl_verify"] = False
+        if ca_cert_name and ssl_verify:
+            cfg["ca_cert"] = ca_cert_name
+        self._on_save(cfg)
+        self.close()
 
     def _alert(self, heading: str, body: str) -> None:
         dialog = Adw.AlertDialog(heading=heading, body=body)

@@ -37,11 +37,14 @@ class CellarWindow(Adw.ApplicationWindow):
         super().__init__(**kwargs)
 
         # The first successfully loaded Repo — used to resolve asset URIs in
-        # the detail view.  Updated on every catalogue reload.
+        # the browse grid and callbacks.  Updated on every catalogue reload.
         self._first_repo = None
         # All writable repos from the last catalogue load — passed to AddAppDialog
         # so the user can choose which one to add a package to.
         self._writable_repos: list = []
+        # Maps entry.id → list of Repo objects that carry the entry, for the
+        # source selector shown in the detail view.
+        self._entry_repos: dict = {}
 
         self.search_bar.set_key_capture_widget(self)
         self.add_button.connect("clicked", self._on_add_app_clicked)
@@ -95,7 +98,7 @@ class CellarWindow(Adw.ApplicationWindow):
 
     def _load_catalogue(self) -> None:
         from cellar.backend.config import load_repos
-        from cellar.backend.repo import Repo, RepoError, RepoManager
+        from cellar.backend.repo import Repo, RepoError, RepoManager  # noqa: F401
 
         # A single MountOperation with this window as parent covers all repos
         # in this load pass.  Gtk.MountOperation shows credential dialogs and
@@ -154,8 +157,21 @@ class CellarWindow(Adw.ApplicationWindow):
             return
 
         self.refresh_button.set_sensitive(False)
+
+        # Fetch each repo individually so we can track which repo carries each
+        # entry (for the source selector in the detail view).
+        self._entry_repos = {}
+        all_entries: dict = {}
+        for repo in manager:
+            try:
+                for e in repo.fetch_catalogue():
+                    all_entries[e.id] = e  # last-repo-wins
+                    self._entry_repos.setdefault(e.id, []).append(repo)
+            except RepoError as exc:
+                log.warning("Failed to fetch from %s: %s", repo.uri, exc)
+        entries = list(all_entries.values())
+
         try:
-            entries = manager.fetch_all_catalogues()
             if entries:
                 from cellar.backend import database
                 from cellar.backend.bottles import detect_all_bottles
@@ -215,7 +231,9 @@ class CellarWindow(Adw.ApplicationWindow):
         from cellar.backend.bottles import detect_all_bottles
         from cellar.backend.config import load_bottles_data_path
 
-        resolver = self._first_repo.resolve_asset_uri if self._first_repo else None
+        source_repos = self._entry_repos.get(entry.id, [])
+        if not source_repos and self._first_repo:
+            source_repos = [self._first_repo]
         can_write = self._first_repo is not None and self._first_repo.is_writable
 
         all_bottles = detect_all_bottles(load_bottles_data_path())
@@ -264,7 +282,7 @@ class CellarWindow(Adw.ApplicationWindow):
 
         detail = DetailView(
             entry,
-            resolve_asset=resolver,
+            source_repos=source_repos,
             is_writable=can_write,
             on_edit=_on_edit if can_write else None,
             bottles_installs=all_bottles,
@@ -273,7 +291,6 @@ class CellarWindow(Adw.ApplicationWindow):
             on_install_done=_on_install_done,
             on_remove_done=_on_remove_done,
             on_update_done=_on_update_done,
-            token=self._first_repo.token if self._first_repo else None,
         )
         page = Adw.NavigationPage(title=entry.name, child=detail)
         self.nav_view.push(page)
@@ -318,7 +335,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="application-x-executable",
-            version="0.12.25",
+            version="0.12.26",
             comments="A GNOME storefront for Bottles-managed Windows apps.",
             license_type=Gtk.License.GPL_3_0,
         )

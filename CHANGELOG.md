@@ -4,6 +4,26 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.12.26] — 2026-03-01
+
+### Changed
+- **Install button moved to app header** — Install/Remove/Update buttons now
+  appear to the right of the app title in the detail view (like GNOME Software),
+  keeping the header bar uncluttered. The edit (pencil) button stays in the
+  header bar.
+- **Source selector in detail view** — when a single repo carries an app, a
+  "From: Name" dim-label is shown below the action buttons. When multiple repos
+  carry the same app the label becomes a dropdown so the user can pick which
+  source to download from; switching repos updates the resolver and auth token.
+- **Settings repo list redesign** — each configured repository is now shown as
+  a plain `ActionRow` (name + URI) with a pencil edit button and a trash remove
+  button. An "Add Repository" button lives in the group header suffix.
+- **AddEditRepoDialog** — adding or editing a repo now opens a dedicated dialog
+  with Name, URI, Access token (password-masked), Verify SSL toggle, and CA
+  Certificate picker all visible upfront, replacing the old inline entry rows.
+
+---
+
 ## [0.12.25] — 2026-03-01
 
 ### Added

@@ -38,7 +38,7 @@ class DetailView(Gtk.Box):
         self,
         entry: AppEntry,
         *,
-        resolve_asset: Callable[[str], str] | None = None,
+        source_repos: list | None = None,
         is_writable: bool = False,
         on_edit: Callable | None = None,
         bottles_installs: list | None = None,
@@ -47,11 +47,13 @@ class DetailView(Gtk.Box):
         on_install_done: Callable | None = None,
         on_remove_done: Callable | None = None,
         on_update_done: Callable | None = None,
-        token: str | None = None,
     ) -> None:
         super().__init__()
         self._entry = entry
-        self._resolve = resolve_asset or (lambda rel: rel)
+        self._source_repos = source_repos or []
+        _first = self._source_repos[0] if self._source_repos else None
+        self._resolve = _first.resolve_asset_uri if _first else (lambda rel: rel)
+        self._token = _first.token if _first else None
         self._is_writable = is_writable
         self._on_edit = on_edit
         self._bottles_installs = bottles_installs or []
@@ -60,7 +62,6 @@ class DetailView(Gtk.Box):
         self._on_install_done = on_install_done
         self._on_remove_done = on_remove_done
         self._on_update_done = on_update_done
-        self._token = token
         self._has_update = (
             is_installed
             and installed_record is not None
@@ -81,19 +82,8 @@ class DetailView(Gtk.Box):
         # ── Header bar ────────────────────────────────────────────────────
         header = Adw.HeaderBar()
 
-        # Install / Remove button (rightmost).
-        self._install_btn = Gtk.Button()
-        self._install_btn.connect("clicked", self._on_install_clicked)
-        header.pack_end(self._install_btn)
-
-        # Update button — visible only when an update is available.
-        self._update_btn = Gtk.Button(label="Update")
-        self._update_btn.add_css_class("suggested-action")
-        self._update_btn.connect("clicked", self._on_update_clicked)
-        header.pack_end(self._update_btn)
-
-        self._update_install_button()
-
+        # Edit button (pencil) stays in the header bar; Install/Remove/Update
+        # move to the app header row alongside the title.
         if self._is_writable and self._on_edit:
             edit_btn = Gtk.Button(
                 icon_name="document-edit-symbolic",
@@ -303,6 +293,7 @@ class DetailView(Gtk.Box):
 
         meta = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         meta.set_valign(Gtk.Align.CENTER)
+        meta.set_hexpand(True)
         box.append(meta)
 
         name_lbl = Gtk.Label(label=e.name)
@@ -340,7 +331,56 @@ class DetailView(Gtk.Box):
         if chips.get_first_child():
             meta.append(chips)
 
+        # Right column: Install/Remove + Update buttons + source selector.
+        right = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=6,
+            valign=Gtk.Align.CENTER,
+            halign=Gtk.Align.END,
+        )
+        box.append(right)
+
+        self._install_btn = Gtk.Button()
+        self._install_btn.connect("clicked", self._on_install_clicked)
+        right.append(self._install_btn)
+
+        self._update_btn = Gtk.Button(label="Update")
+        self._update_btn.add_css_class("suggested-action")
+        self._update_btn.connect("clicked", self._on_update_clicked)
+        right.append(self._update_btn)
+
+        source_widget = self._make_source_selector()
+        if source_widget:
+            right.append(source_widget)
+
+        self._update_install_button()
+
         return box
+
+    def _make_source_selector(self) -> Gtk.Widget | None:
+        """Return a label (1 repo) or dropdown (2+ repos), or None."""
+        if not self._source_repos:
+            return None
+        if len(self._source_repos) == 1:
+            repo = self._source_repos[0]
+            lbl = Gtk.Label(label=f"From: {repo.name}")
+            lbl.add_css_class("dim-label")
+            lbl.add_css_class("caption")
+            lbl.set_halign(Gtk.Align.CENTER)
+            return lbl
+        # Multiple repos — show a dropdown so the user can pick.
+        model = Gtk.StringList.new([r.name for r in self._source_repos])
+        dd = Gtk.DropDown(model=model)
+        dd.set_selected(0)
+        dd.connect("notify::selected", self._on_source_changed)
+        return dd
+
+    def _on_source_changed(self, dropdown: Gtk.DropDown, _param) -> None:
+        idx = dropdown.get_selected()
+        if 0 <= idx < len(self._source_repos):
+            repo = self._source_repos[idx]
+            self._resolve = repo.resolve_asset_uri
+            self._token = repo.token
 
     def _make_description(self) -> Gtk.Widget:
         lbl = Gtk.Label(label=self._entry.description)

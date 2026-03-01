@@ -2,6 +2,12 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.13.8] — 2026-03-01
+
+### Fixed
+- **Installed checkmark positioning** — margins adjusted to 9px top/right to
+  match GNOME Software exactly.
+
 ## [0.13.7] — 2026-03-01
 
 ### Changed

@@ -181,8 +181,8 @@ class AppCard(Gtk.FlowBoxChild):
             check.set_pixel_size(16)
             check.set_halign(Gtk.Align.END)
             check.set_valign(Gtk.Align.START)
-            check.set_margin_top(6)
-            check.set_margin_end(6)
+            check.set_margin_top(9)
+            check.set_margin_end(9)
             check.add_css_class("success")
             overlay.add_overlay(check)
 

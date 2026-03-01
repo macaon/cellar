@@ -260,21 +260,72 @@ def runners_dir(install: BottlesInstall) -> Path:
 
 
 def list_runners(install: BottlesInstall) -> list[str]:
-    """Return the names of all installed runner directories.
+    """Return the names of all runners available to this Bottles installation.
 
-    Reads the ``runners/`` directory next to the Bottles data root directly
-    (no subprocess call needed — the directory listing is the ground truth).
+    Three sources are combined:
 
-    Returns an empty list when the directory does not exist.
-    Raises ``BottlesError`` if the directory cannot be read.
+    1. **Directory runners** — subdirectory names inside ``runners/`` next to
+       the Bottles data root (e.g. ``ge-proton10-32``, ``soda-9.0-1``).
+    2. **System Wine** — detected by running ``wine --version`` and mapping
+       the output to the ``sys-wine-<version>`` naming convention Bottles uses
+       (e.g. ``wine-11.0`` → ``sys-wine-11.0``).
+    3. **bottle.yml scan** — any ``sys-wine-*`` runner already referenced by
+       an existing bottle; catches edge cases where the version string Bottles
+       recorded differs from what ``wine --version`` returns today.
+
+    Returns a sorted, de-duplicated list.
+    Raises ``BottlesError`` if the runners directory exists but cannot be read.
     """
+    found: set[str] = set()
+
+    # 1. Directory-based runners
     rdir = runners_dir(install)
-    if not rdir.is_dir():
-        return []
+    if rdir.is_dir():
+        try:
+            found.update(d.name for d in rdir.iterdir() if d.is_dir())
+        except OSError as exc:
+            raise BottlesError(f"Cannot list runners at {rdir}: {exc}") from exc
+
+    # 2. System Wine via `wine --version`
+    found.update(_detect_system_wine())
+
+    # 3. Scan bottle.yml files for referenced sys-wine runners
     try:
-        return sorted(d.name for d in rdir.iterdir() if d.is_dir())
-    except OSError as exc:
-        raise BottlesError(f"Cannot list runners at {rdir}: {exc}") from exc
+        import yaml
+        for bottle_dir in install.data_path.iterdir():
+            yml = bottle_dir / "bottle.yml"
+            if not yml.is_file():
+                continue
+            try:
+                data = yaml.safe_load(yml.read_text(encoding="utf-8", errors="replace"))
+                runner = (data or {}).get("Runner", "") or ""
+                if runner.startswith("sys-wine-"):
+                    found.add(runner)
+            except Exception:  # noqa: BLE001
+                pass
+    except OSError:
+        pass
+
+    return sorted(found)
+
+
+def _detect_system_wine() -> list[str]:
+    """Return a ``['sys-wine-X.Y']`` list if system Wine is detected, else ``[]``.
+
+    Runs ``wine --version`` (prefixed with ``flatpak-spawn --host`` when
+    Cellar itself is sandboxed) and parses the output into the
+    ``sys-wine-<version>`` naming Bottles uses internally.
+    """
+    cmd = (["flatpak-spawn", "--host"] if is_cellar_sandboxed() else []) + ["wine", "--version"]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            ver = result.stdout.strip()           # e.g. "wine-11.0"
+            if ver.startswith("wine-"):
+                return [f"sys-wine-{ver[5:]}"]   # "sys-wine-11.0"
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        pass
+    return []
 
 
 # ---------------------------------------------------------------------------

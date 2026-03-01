@@ -566,11 +566,17 @@ def _install_with_data_path(data_path: Path) -> b.BottlesInstall:
     )
 
 
+def _no_sys_wine():
+    """Patch _detect_system_wine to return [] so tests are isolated."""
+    return patch("cellar.backend.bottles._detect_system_wine", return_value=[])
+
+
 def test_list_runners_empty_when_no_runners_dir(tmp_path):
     bottles_dir = tmp_path / "bottles"
     bottles_dir.mkdir()
     install = _install_with_data_path(bottles_dir)
-    assert b.list_runners(install) == []
+    with _no_sys_wine():
+        assert b.list_runners(install) == []
 
 
 def test_list_runners_returns_subdirectory_names(tmp_path):
@@ -580,7 +586,8 @@ def test_list_runners_returns_subdirectory_names(tmp_path):
     (runners / "ge-proton10-32").mkdir(parents=True)
     (runners / "soda-9.0-1").mkdir()
     install = _install_with_data_path(bottles_dir)
-    result = b.list_runners(install)
+    with _no_sys_wine():
+        result = b.list_runners(install)
     assert "ge-proton10-32" in result
     assert "soda-9.0-1" in result
 
@@ -593,7 +600,8 @@ def test_list_runners_excludes_files(tmp_path):
     (runners / "ge-proton10-32").mkdir()
     (runners / "readme.txt").write_text("not a runner")
     install = _install_with_data_path(bottles_dir)
-    result = b.list_runners(install)
+    with _no_sys_wine():
+        result = b.list_runners(install)
     assert "ge-proton10-32" in result
     assert "readme.txt" not in result
 
@@ -606,7 +614,157 @@ def test_list_runners_sorted(tmp_path):
     (runners / "a-runner").mkdir()
     (runners / "m-runner").mkdir()
     install = _install_with_data_path(bottles_dir)
-    result = b.list_runners(install)
+    with _no_sys_wine():
+        result = b.list_runners(install)
     assert result == sorted(result)
+
+
+# ---------------------------------------------------------------------------
+# _detect_system_wine
+# ---------------------------------------------------------------------------
+
+def test_detect_system_wine_returns_sys_wine_name():
+    with patch("cellar.backend.bottles.subprocess.run",
+               return_value=_completed(stdout="wine-11.0\n")), \
+         patch.object(b, "_FLATPAK_INFO", Path("/nonexistent")):
+        result = b._detect_system_wine()
+    assert result == ["sys-wine-11.0"]
+
+
+def test_detect_system_wine_strips_trailing_whitespace():
+    with patch("cellar.backend.bottles.subprocess.run",
+               return_value=_completed(stdout="wine-9.0  \n")), \
+         patch.object(b, "_FLATPAK_INFO", Path("/nonexistent")):
+        result = b._detect_system_wine()
+    assert result == ["sys-wine-9.0"]
+
+
+def test_detect_system_wine_returns_empty_when_not_found():
+    with patch("cellar.backend.bottles.subprocess.run",
+               side_effect=FileNotFoundError), \
+         patch.object(b, "_FLATPAK_INFO", Path("/nonexistent")):
+        result = b._detect_system_wine()
+    assert result == []
+
+
+def test_detect_system_wine_returns_empty_on_timeout():
+    with patch("cellar.backend.bottles.subprocess.run",
+               side_effect=subprocess.TimeoutExpired(cmd=[], timeout=5)), \
+         patch.object(b, "_FLATPAK_INFO", Path("/nonexistent")):
+        result = b._detect_system_wine()
+    assert result == []
+
+
+def test_detect_system_wine_returns_empty_on_nonzero_exit():
+    with patch("cellar.backend.bottles.subprocess.run",
+               return_value=_completed(returncode=1)), \
+         patch.object(b, "_FLATPAK_INFO", Path("/nonexistent")):
+        result = b._detect_system_wine()
+    assert result == []
+
+
+def test_detect_system_wine_prefixes_flatpak_spawn_when_sandboxed(tmp_path):
+    info = tmp_path / ".flatpak-info"
+    info.touch()
+    with patch("cellar.backend.bottles.subprocess.run",
+               return_value=_completed(stdout="wine-11.0\n")) as mock_run, \
+         patch.object(b, "_FLATPAK_INFO", info):
+        b._detect_system_wine()
+    cmd = mock_run.call_args[0][0]
+    assert cmd[:2] == ["flatpak-spawn", "--host"]
+    assert "wine" in cmd
+
+
+def test_detect_system_wine_no_flatpak_spawn_when_unsandboxed(tmp_path):
+    info = tmp_path / ".flatpak-info"  # does not exist
+    with patch("cellar.backend.bottles.subprocess.run",
+               return_value=_completed(stdout="wine-11.0\n")) as mock_run, \
+         patch.object(b, "_FLATPAK_INFO", info):
+        b._detect_system_wine()
+    cmd = mock_run.call_args[0][0]
+    assert "flatpak-spawn" not in cmd
+
+
+# ---------------------------------------------------------------------------
+# list_runners — sys-wine integration
+# ---------------------------------------------------------------------------
+
+def test_list_runners_includes_system_wine(tmp_path):
+    bottles_dir = tmp_path / "bottles"
+    bottles_dir.mkdir()
+    install = _install_with_data_path(bottles_dir)
+    with patch("cellar.backend.bottles._detect_system_wine",
+               return_value=["sys-wine-11.0"]):
+        result = b.list_runners(install)
+    assert "sys-wine-11.0" in result
+
+
+def test_list_runners_deduplicates_sys_wine(tmp_path):
+    """sys-wine detected by both wine --version and bottle.yml scan must appear once."""
+    bottles_dir = tmp_path / "bottles"
+    bottles_dir.mkdir()
+    # Create a bottle that references sys-wine-11.0
+    bottle_dir = bottles_dir / "Photoshop"
+    bottle_dir.mkdir()
+    (bottle_dir / "bottle.yml").write_text("Runner: sys-wine-11.0\n")
+    install = _install_with_data_path(bottles_dir)
+    with patch("cellar.backend.bottles._detect_system_wine",
+               return_value=["sys-wine-11.0"]):
+        result = b.list_runners(install)
+    assert result.count("sys-wine-11.0") == 1
+
+
+def test_list_runners_picks_up_sys_wine_from_bottle_yml(tmp_path):
+    """A sys-wine runner referenced in bottle.yml is included even without wine binary."""
+    bottles_dir = tmp_path / "bottles"
+    bottles_dir.mkdir()
+    bottle_dir = bottles_dir / "Photoshop"
+    bottle_dir.mkdir()
+    (bottle_dir / "bottle.yml").write_text("Runner: sys-wine-11.0\n")
+    install = _install_with_data_path(bottles_dir)
+    with _no_sys_wine():
+        result = b.list_runners(install)
+    assert "sys-wine-11.0" in result
+
+
+def test_list_runners_ignores_non_syswine_from_bottle_yml(tmp_path):
+    """Non-sys-wine runner names in bottle.yml must not be added (they'd be in runners/ dir)."""
+    bottles_dir = tmp_path / "bottles"
+    bottles_dir.mkdir()
+    bottle_dir = bottles_dir / "SomeApp"
+    bottle_dir.mkdir()
+    (bottle_dir / "bottle.yml").write_text("Runner: ge-proton10-32\n")
+    install = _install_with_data_path(bottles_dir)
+    with _no_sys_wine():
+        result = b.list_runners(install)
+    # ge-proton10-32 is NOT in runners/ dir so it must not appear
+    assert "ge-proton10-32" not in result
+
+
+def test_list_runners_bottle_yml_scan_handles_invalid_yaml(tmp_path):
+    """Malformed bottle.yml must not crash list_runners."""
+    bottles_dir = tmp_path / "bottles"
+    bottles_dir.mkdir()
+    bottle_dir = bottles_dir / "Broken"
+    bottle_dir.mkdir()
+    (bottle_dir / "bottle.yml").write_text("{{{{ not yaml ::::")
+    install = _install_with_data_path(bottles_dir)
+    with _no_sys_wine():
+        result = b.list_runners(install)   # must not raise
+    assert isinstance(result, list)
+
+
+def test_list_runners_combined_sources_are_sorted(tmp_path):
+    bottles_dir = tmp_path / "bottles"
+    bottles_dir.mkdir()
+    runners = tmp_path / "runners"
+    (runners / "soda-9.0-1").mkdir(parents=True)
+    install = _install_with_data_path(bottles_dir)
+    with patch("cellar.backend.bottles._detect_system_wine",
+               return_value=["sys-wine-11.0"]):
+        result = b.list_runners(install)
+    assert result == sorted(result)
+    assert "soda-9.0-1" in result
+    assert "sys-wine-11.0" in result
 
 

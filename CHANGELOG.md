@@ -4,6 +4,25 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.12.31] — 2026-03-01
+
+### Fixed
+- **sys-wine runner detection** — `list_runners()` now correctly detects
+  system Wine runners (e.g. `sys-wine-11.0`) which live in `/usr/bin/wine`,
+  not in the Bottles `runners/` directory.  Three sources are merged:
+  1. **Directory scan** — subdirectories of `runners/` (unchanged).
+  2. **`wine --version`** — runs the Wine binary (`flatpak-spawn --host`
+     prefix added automatically when Cellar is sandboxed) and maps the
+     output to the `sys-wine-<version>` name Bottles uses internally.
+  3. **`bottle.yml` scan** — walks existing bottles in the Bottles data dir
+     and collects any `sys-wine-*` runner already referenced; catches edge
+     cases where the version string recorded at bottle-create time differs
+     from the current `wine --version` output.
+  The three lists are de-duplicated and sorted before being returned.
+- 13 new tests (167 total).
+
+---
+
 ## [0.12.30] — 2026-03-01
 
 ### Added

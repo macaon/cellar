@@ -365,6 +365,33 @@ def _wine_version_cmds(install: BottlesInstall) -> list[list[str]]:
     return [spawn + ["wine", "--version"]]
 
 
+def get_runners_in_use(install: BottlesInstall) -> set[str]:
+    """Return the set of runner names referenced by any bottle in *install*.
+
+    Scans every ``bottle.yml`` under ``install.data_path`` and collects the
+    ``Runner`` field value.  Returns an empty set when no bottles are found or
+    the data path cannot be read.
+    """
+    import yaml
+
+    in_use: set[str] = set()
+    try:
+        for bottle_dir in install.data_path.iterdir():
+            yml = bottle_dir / "bottle.yml"
+            if not yml.is_file():
+                continue
+            try:
+                data = yaml.safe_load(yml.read_text(encoding="utf-8", errors="replace"))
+                runner = (data or {}).get("Runner", "") or ""
+                if runner:
+                    in_use.add(runner)
+            except Exception:  # noqa: BLE001
+                pass
+    except OSError:
+        pass
+    return in_use
+
+
 # ---------------------------------------------------------------------------
 # bottles-cli wrapper
 # ---------------------------------------------------------------------------

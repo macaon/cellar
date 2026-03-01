@@ -43,6 +43,31 @@ log = logging.getLogger(__name__)
 
 REPO_URL = "https://github.com/bottlesdevs/components"
 
+# ---------------------------------------------------------------------------
+# Runner family metadata
+# ---------------------------------------------------------------------------
+
+#: Maps the family directory name (under ``components/runners/``) to
+#: a ``(display_name, description)`` tuple.
+_FAMILY_MAP: dict[str, tuple[str, str]] = {
+    "soda":      ("Soda",      "Based on Valve's Wine; includes Staging and Proton patches."),
+    "caffe":     ("Caffe",     "Based on Wine upstream; includes Staging and Proton patches."),
+    "caffe-rc":  ("Caffe RC",  "Release candidates for Caffe."),
+    "vaniglia":  ("Vaniglia",  "Ubuntu Wine builds."),
+    "wine-ge":   ("Wine GE",   "Based on Valve's Proton Experimental Wine. For non-Steam games outside Steam."),
+    "kron4ek":   ("Kron4ek",   "Based on Wine upstream with Staging, Staging-TkG and optional Proton patchset."),
+    "lutris":    ("Lutris",    ""),
+    "lutris-ge": ("Lutris GE", ""),
+    "proton-ge": ("Proton GE", "Based on Valve's Proton Experimental. Requires the Steam Runtime."),
+    "proton":    ("Proton",    "Steam Proton builds."),
+    "sys-wine":  ("System Wine", ""),
+}
+
+#: Preferred display order for runner families.
+_FAMILY_DISPLAY_ORDER: list[str] = [
+    "soda", "caffe", "wine-ge", "kron4ek", "lutris", "proton-ge",
+]
+
 
 def _components_dir() -> Path:
     return data_dir() / "components"
@@ -112,6 +137,55 @@ def list_available_runners() -> list[str]:
         except Exception:  # noqa: BLE001
             pass
     return sorted(names)
+
+
+def list_runners_by_category() -> dict[str, list[str]]:
+    """Return runner names grouped by family directory name.
+
+    Scans every ``*.yml`` file under each subdirectory of
+    ``components/runners/`` and collects the ``Name`` field.  Names within
+    each family are sorted reverse-alphabetically (newest first).
+
+    Returns ``{}`` when the clone is absent or yaml is unavailable.
+    """
+    try:
+        import yaml  # type: ignore[import]
+    except ImportError:
+        return {}
+
+    runners_dir = _components_dir() / "runners"
+    if not runners_dir.is_dir():
+        return {}
+
+    result: dict[str, list[str]] = {}
+    for family_dir in runners_dir.iterdir():
+        if not family_dir.is_dir():
+            continue
+        names: list[str] = []
+        for yml_file in family_dir.glob("*.yml"):
+            try:
+                data = yaml.safe_load(yml_file.read_text(encoding="utf-8"))
+                if isinstance(data, dict) and data.get("Name"):
+                    names.append(str(data["Name"]))
+            except Exception:  # noqa: BLE001
+                pass
+        if names:
+            result[family_dir.name] = sorted(names, reverse=True)
+    return result
+
+
+def get_family_info(dir_name: str) -> tuple[str, str]:
+    """Return *(display_name, description)* for a runner family directory name.
+
+    Falls back to a title-cased version of *dir_name* with an empty description
+    for families not in :data:`_FAMILY_MAP`.
+    """
+    return _FAMILY_MAP.get(dir_name, (dir_name.replace("-", " ").title(), ""))
+
+
+def family_display_order() -> list[str]:
+    """Return the preferred display order for runner families."""
+    return list(_FAMILY_DISPLAY_ORDER)
 
 
 def get_runner_info(runner_name: str) -> dict | None:

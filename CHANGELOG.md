@@ -2,6 +2,37 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.13.0] — 2026-03-01
+
+### Added
+- **Runner manager dialog** — replaces the simple `SelectRunnerDialog` with a
+  new `RunnerManagerDialog` (500 px wide) that groups runners into collapsible
+  family sections (Soda, Caffe, Wine GE, Kron4ek, Lutris, Proton GE, …) using
+  data from the bottlesdevs/components index.  Each row shows state-based
+  suffix icons: installed + in-use → folder button only; installed + not in use
+  → folder + trash; not installed → download.
+- **Pre-install runner check** — when clicking **Install** and the required
+  runner is missing (and the runner list has loaded), Cellar now opens the
+  runner manager so the user can download or select an alternative before
+  proceeding.  Installation continues automatically once a runner is confirmed.
+- **Warning icon on runner row** — a small warning icon appears next to the
+  runner version in the Wine Components group while browsing when the required
+  runner is not installed; the banner that previously covered the full width of
+  the detail view is removed.
+- `RunnerManagerDialog` can delete unused runners (confirmation dialog +
+  background `shutil.rmtree`) and open their folder in the system file manager
+  via `Gio.AppInfo.launch_default_for_uri`.
+
+### Changed
+- `components.py`: added `list_runners_by_category()`, `get_family_info()`,
+  `family_display_order()`, and `_FAMILY_MAP` / `_FAMILY_DISPLAY_ORDER`
+  constants for runner family grouping.
+- `bottles.py`: added `get_runners_in_use(install)` that scans all
+  `bottle.yml` files and returns the set of runner names currently in use
+  (used to guard runner deletion).
+
+---
+
 ## [0.12.0] — 2026-03-01
 
 ### Added

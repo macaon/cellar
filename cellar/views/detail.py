@@ -1004,7 +1004,7 @@ class RunnerManagerDialog(Adw.Dialog):
         self._build_ui()
 
     def _build_ui(self) -> None:
-        from cellar.backend.components import _version_sort_key, family_display_order, get_family_info
+        from cellar.backend.components import _classify_runner, _version_sort_key, family_display_order, get_family_info
 
         toolbar = Adw.ToolbarView()
 
@@ -1043,10 +1043,11 @@ class RunnerManagerDialog(Adw.Dialog):
                 if rname not in runner_to_family:
                     runner_to_family[rname] = dir_name
 
-        # Installed runners whose name doesn't appear in any index family.
-        uncategorized: list[str] = sorted(
-            r for r in self._installed if r not in runner_to_family
-        )
+        # Classify installed runners not in the index by name prefix so
+        # they appear in the correct family (e.g. sys-wine-11.0 → wine).
+        for r in self._installed:
+            if r not in runner_to_family:
+                runner_to_family[r] = _classify_runner(r, "wine")
 
         # All families that have at least one runner (installed or indexed).
         active_families: set[str] = set(self._runners_by_category.keys())
@@ -1061,13 +1062,6 @@ class RunnerManagerDialog(Adw.Dialog):
         ordered: list[str] = explicit + rest
         if "other" in active_families:
             ordered.append("other")
-
-        # ── Uncategorized installed runners ────────────────────────────────
-        if uncategorized:
-            grp = Adw.PreferencesGroup(title="Installed")
-            page.add(grp)
-            for runner in uncategorized:
-                grp.add(self._make_runner_row(runner, is_installed=True))
 
         # ── Family groups (collapsible) ────────────────────────────────────
         if ordered:
@@ -1099,7 +1093,7 @@ class RunnerManagerDialog(Adw.Dialog):
                 families_grp.add(expander)
 
         # Placeholder when nothing is available at all.
-        if not uncategorized and not ordered:
+        if not ordered:
             grp = Adw.PreferencesGroup()
             page.add(grp)
             grp.add(Adw.ActionRow(

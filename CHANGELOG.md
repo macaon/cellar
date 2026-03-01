@@ -2,6 +2,13 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.13.4] — 2026-03-01
+
+### Fixed
+- **Installed runners classified by prefix** — locally installed runners not in
+  the components index (e.g. `sys-wine-11.0`) are now classified into families
+  by name prefix instead of dumped into a separate "Installed" group at the top.
+
 ## [0.13.3] — 2026-03-01
 
 ### Fixed

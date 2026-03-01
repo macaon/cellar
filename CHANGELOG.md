@@ -2,6 +2,13 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.13.6] — 2026-03-01
+
+### Added
+- **Installed checkmark on app cards** — a green check icon (`app-installed-symbolic`
+  with Adwaita `success` class) appears at the top-right corner of app cards in
+  the Explore view for installed apps, matching GNOME Software's style.
+
 ## [0.13.5] — 2026-03-01
 
 ### Changed

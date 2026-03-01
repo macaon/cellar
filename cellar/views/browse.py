@@ -98,6 +98,7 @@ class AppCard(Gtk.FlowBoxChild):
         entry: AppEntry,
         *,
         resolve_asset: Callable[[str], str] | None = None,
+        is_installed: bool = False,
     ) -> None:
         super().__init__()
         self.entry = entry
@@ -172,8 +173,21 @@ class AppCard(Gtk.FlowBoxChild):
             summary_lbl.set_ellipsize(Pango.EllipsizeMode.END)
             text_box.append(summary_lbl)
 
+        overlay = Gtk.Overlay()
+        overlay.set_child(card)
+
+        if is_installed:
+            check = Gtk.Image.new_from_icon_name("app-installed-symbolic")
+            check.set_pixel_size(16)
+            check.set_halign(Gtk.Align.END)
+            check.set_valign(Gtk.Align.START)
+            check.set_margin_top(6)
+            check.set_margin_end(6)
+            check.add_css_class("success")
+            overlay.add_overlay(check)
+
         fixed = _FixedBox(_CARD_WIDTH, _CARD_HEIGHT)
-        fixed.set_child(card)
+        fixed.set_child(overlay)
         self.set_child(fixed)
 
     def matches(self, category: str | None, search: str) -> bool:
@@ -217,6 +231,7 @@ class BrowseView(Gtk.Box):
         # Stored so cards can be rebuilt on catalogue reload.
         self._entries: list[AppEntry] = []
         self._resolve_asset: Callable[[str], str] | None = None
+        self._installed_ids: set[str] = set()
 
         # ── Category strip ────────────────────────────────────────────────
         self._cat_scroll = Gtk.ScrolledWindow()
@@ -272,10 +287,12 @@ class BrowseView(Gtk.Box):
         self,
         entries: list[AppEntry],
         resolve_asset: Callable[[str], str] | None = None,
+        installed_ids: set[str] | None = None,
     ) -> None:
         """Populate the grid from a list of catalogue entries."""
         self._entries = entries
         self._resolve_asset = resolve_asset
+        self._installed_ids = installed_ids or set()
         self._rebuild_cards()
 
     def _rebuild_cards(self) -> None:
@@ -299,7 +316,7 @@ class BrowseView(Gtk.Box):
 
         # Add cards sorted alphabetically.
         for entry in sorted(self._entries, key=lambda e: e.name.lower()):
-            card = AppCard(entry, resolve_asset=self._resolve_asset)
+            card = AppCard(entry, resolve_asset=self._resolve_asset, is_installed=entry.id in self._installed_ids)
             self._cards.append(card)
             self._flow_box.append(card)
 

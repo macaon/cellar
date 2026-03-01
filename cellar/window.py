@@ -207,8 +207,9 @@ class CellarWindow(Adw.ApplicationWindow):
                     if rec.get("installed_version") != e.version and bool(e.archive):
                         update_entries.append(e)
 
-                self._browse_explore.load_entries(entries, resolve_asset=resolver)
-                self._browse_installed.load_entries(installed_entries, resolve_asset=resolver)
+                installed_ids = {e.id for e in installed_entries}
+                self._browse_explore.load_entries(entries, resolve_asset=resolver, installed_ids=installed_ids)
+                self._browse_installed.load_entries(installed_entries, resolve_asset=resolver, installed_ids=installed_ids)
                 self._browse_updates.load_entries(update_entries, resolve_asset=resolver)
                 self.updates_page.set_badge_number(len(update_entries))
             else:
@@ -340,7 +341,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="application-x-executable",
-            version="0.13.5",
+            version="0.13.6",
             comments="A GNOME storefront for Bottles-managed Windows apps.",
             license_type=Gtk.License.GPL_3_0,
         )

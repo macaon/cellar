@@ -395,15 +395,21 @@ class BrowseView(Gtk.Box):
 # ---------------------------------------------------------------------------
 
 def _load_cover_texture(path: str, target_w: int, target_h: int):
-    """Scale-to-cover and center-crop to exactly target_w × target_h using HYPER.
+    """Scale-to-cover and center-crop to exactly target_w × target_h.
 
-    The resulting texture has pixel dimensions equal to the target, so
-    ``_FixedBox`` renders it 1:1 — no GTK scaling pass, no blur.
+    Loads the source at 4× the target size (preserving detail), then
+    HYPER-downscales to the exact crop dimensions.  This avoids the blur
+    caused by ``new_from_file_at_size`` reducing to target first and then
+    scaling back up.
+
     Returns a ``Gdk.Texture`` or ``None`` on error.
     """
     try:
         from gi.repository import Gdk, GdkPixbuf
-        src = GdkPixbuf.Pixbuf.new_from_file_at_size(path, target_w, target_h)
+        # Load at 4× target to preserve detail for the final downscale.
+        load_w = target_w * 4
+        load_h = target_h * 4
+        src = GdkPixbuf.Pixbuf.new_from_file_at_size(path, load_w, load_h)
         src_w, src_h = src.get_width(), src.get_height()
         scale = max(target_w / src_w, target_h / src_h)
         scaled_w = max(int(src_w * scale), target_w)

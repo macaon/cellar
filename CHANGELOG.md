@@ -2,6 +2,20 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.13.12] — 2026-03-01
+
+### Fixed
+- **Cover image sharpness** — card cover thumbnails now load at 4× target size
+  before HYPER-downscaling, eliminating the blur from double-scaling.
+- **Hero vertical centering** — hero banner now crops equally from top and
+  bottom when the window resizes (was clipping from the top only).
+
+### Added
+- **Image optimisation at import** — covers are downscaled to 300×400, heroes
+  to 1920×620, and screenshots to 1920×1080 (JPEG 85%) when imported via the
+  packager.  Icons are copied as-is.  Images already within limits are not
+  re-encoded.
+
 ## [0.13.0] — 2026-03-01
 
 ### Added

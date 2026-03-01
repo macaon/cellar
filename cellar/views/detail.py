@@ -492,8 +492,16 @@ class DetailView(Gtk.Box):
         pic = Gtk.Picture.new_for_filename(path)
         pic.set_content_fit(Gtk.ContentFit.COVER)
         pic.set_can_shrink(True)
-        pic.set_size_request(-1, 220)
-        return pic
+        pic.set_halign(Gtk.Align.FILL)
+        pic.set_valign(Gtk.Align.CENTER)
+        # Fixed-height clamp — the picture centres vertically within this
+        # so resizing the window crops equally from top and bottom.
+        clamp = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        clamp.set_overflow(Gtk.Overflow.HIDDEN)
+        clamp.set_size_request(-1, 220)
+        clamp.set_vexpand(False)
+        clamp.append(pic)
+        return clamp
 
     def _make_app_header(self) -> Gtk.Widget:
         e = self._entry

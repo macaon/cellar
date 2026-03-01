@@ -28,6 +28,73 @@ BASE_CATEGORIES: list[str] = ["Games", "Productivity", "Graphics", "Utility"]
 
 
 # ---------------------------------------------------------------------------
+# Image optimisation at import time
+# ---------------------------------------------------------------------------
+
+#: Maximum dimensions per image role.  Images larger than these are downscaled
+#: (preserving aspect ratio) and saved as JPEG at 85% quality.  Images already
+#: within limits are copied as-is.
+_IMAGE_MAX_SIZE: dict[str, tuple[int, int]] = {
+    "icon":       (256, 256),
+    "cover":      (300, 400),
+    "hero":       (1920, 620),
+    "screenshot": (1920, 1080),
+}
+
+_JPEG_QUALITY = 85
+
+
+def _optimize_image(src: str | Path, dest: Path, role: str) -> None:
+    """Copy *src* to *dest*, downscaling if it exceeds the role's max size.
+
+    Uses GdkPixbuf for the resize (HYPER interpolation) and saves as JPEG
+    when the source needs resizing, otherwise copies as-is to preserve the
+    original format for small/already-optimised images.  Icons are always
+    copied as-is (they're usually small PNGs/ICOs/SVGs).
+    """
+    src = Path(src)
+    max_dims = _IMAGE_MAX_SIZE.get(role)
+    if not max_dims or role == "icon":
+        shutil.copyfile(src, dest)
+        return
+
+    try:
+        import gi
+        gi.require_version("GdkPixbuf", "2.0")
+        from gi.repository import GdkPixbuf
+    except (ImportError, ValueError):
+        shutil.copyfile(src, dest)
+        return
+
+    try:
+        fmt, orig_w, orig_h = GdkPixbuf.Pixbuf.get_file_info(str(src))
+    except Exception:
+        shutil.copyfile(src, dest)
+        return
+
+    if fmt is None:
+        shutil.copyfile(src, dest)
+        return
+
+    max_w, max_h = max_dims
+    if orig_w <= max_w and orig_h <= max_h:
+        shutil.copyfile(src, dest)
+        return
+
+    try:
+        pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(
+            str(src), max_w, max_h, True,
+        )
+        jpeg_dest = dest.with_suffix(".jpg")
+        pixbuf.savev(str(jpeg_dest), "jpeg", ["quality"], [str(_JPEG_QUALITY)])
+        # If the caller expected a different extension, rename.
+        if jpeg_dest != dest:
+            jpeg_dest.rename(dest)
+    except Exception:
+        shutil.copyfile(src, dest)
+
+
+# ---------------------------------------------------------------------------
 # bottle.yml extraction
 # ---------------------------------------------------------------------------
 
@@ -175,13 +242,13 @@ def import_to_repo(
         if src and getattr(entry, key):
             dest = repo_root / getattr(entry, key)
             dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(src, dest)
+            _optimize_image(src, dest, key)
 
     # ── Screenshots ───────────────────────────────────────────────────────
     ss_dir = app_dir / "screenshots"
     for i, src in enumerate(images.get("screenshots", []), 1):
         ss_dir.mkdir(exist_ok=True)
-        shutil.copyfile(src, ss_dir / f"{i:02d}{Path(src).suffix}")
+        _optimize_image(src, ss_dir / f"{i:02d}{Path(src).suffix}", "screenshot")
 
     # ── catalogue.json ────────────────────────────────────────────────────
     _upsert_catalogue(repo_root, entry)
@@ -249,7 +316,7 @@ def update_in_repo(
         if src and getattr(new_entry, key):
             dest = repo_root / getattr(new_entry, key)
             dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(src, dest)
+            _optimize_image(src, dest, key)
 
     # ── Screenshots ───────────────────────────────────────────────────────
     # None = keep existing, [] = clear all, [...] = replace
@@ -261,7 +328,7 @@ def update_in_repo(
         if new_screenshots:
             ss_dir.mkdir(parents=True, exist_ok=True)
             for i, src in enumerate(new_screenshots, 1):
-                shutil.copyfile(src, ss_dir / f"{i:02d}{Path(src).suffix}")
+                _optimize_image(src, ss_dir / f"{i:02d}{Path(src).suffix}", "screenshot")
 
     # ── catalogue.json ────────────────────────────────────────────────────
     _upsert_catalogue(repo_root, new_entry)

@@ -157,7 +157,7 @@ class AppCard(Gtk.FlowBoxChild):
         text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         text_box.set_valign(Gtk.Align.CENTER)
         text_box.set_hexpand(True)
-        text_box.set_margin_start(12)
+        text_box.set_margin_start(_ICON_MARGIN)
         text_box.set_margin_end(18)
         card.append(text_box)
 

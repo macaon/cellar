@@ -809,7 +809,7 @@ class DetailView(Gtk.Box):
             if self._is_installed:
                 # Change button only makes sense once the bottle exists on disk.
                 change_btn = Gtk.Button(label="Change")
-                change_btn.add_css_class("flat")
+                change_btn.add_css_class("suggested-action")
                 change_btn.set_valign(Gtk.Align.CENTER)
                 change_btn.connect("clicked", self._on_change_runner_clicked)
                 runner_row.add_suffix(change_btn)

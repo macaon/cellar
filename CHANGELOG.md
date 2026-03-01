@@ -2,6 +2,12 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.13.5] — 2026-03-01
+
+### Changed
+- **Change button accent color** — the "Change" button on the runner row now
+  uses `suggested-action` (system accent color) instead of `flat` styling.
+
 ## [0.13.4] — 2026-03-01
 
 ### Fixed

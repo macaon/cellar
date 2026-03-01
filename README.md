@@ -10,10 +10,11 @@ The primary use case is a private family or home-lab server: the person who
 manages the repo adds and packages apps; everyone else browses and installs via
 a read-only HTTP URL (or directly over SMB/NFS/SSH if they have access).
 
-> **Status: early development** — browse (GNOME Software-style horizontal cards
-> with Explore/Installed/Updates view switcher), detail view, install, remove,
-> and safe update are working; component-upgrade prompts and Flatpak packaging
-> are not yet implemented.
+> **Status: feature-complete, pre-packaging** — browse (GNOME Software-style
+> horizontal cards with Explore/Installed/Updates view switcher), detail view,
+> install, remove, safe update, runner compatibility checking with automated
+> download, and auto-discovered program launching are all working. Flatpak
+> packaging is not yet implemented.
 
 ---
 
@@ -23,7 +24,8 @@ a read-only HTTP URL (or directly over SMB/NFS/SSH if they have access).
 - **UI toolkit:** GTK4 + libadwaita (GNOME 46+)
 - **Packaging:** Flatpak (`io.github.cellar`)
 - **Local data:** SQLite via `sqlite3` stdlib
-- **Network I/O:** `urllib` for HTTP/HTTPS; system `ssh` client for SSH; GIO/GVFS for SMB and NFS
+- **Network I/O:** `requests` for HTTP/HTTPS; system `ssh` client for SSH; GIO/GVFS for SMB and NFS
+- **Image handling:** Pillow (loading, resizing, ICO→PNG conversion)
 - **Bottles integration:** `bottles-cli` subprocess + YAML manipulation
 
 ---
@@ -34,6 +36,7 @@ a read-only HTTP URL (or directly over SMB/NFS/SSH if they have access).
 
 - Python 3.11+
 - GTK 4 and libadwaita 1.x (`python3-gobject` / `pygobject`)
+- PyYAML, Pillow, requests, dulwich
 - `pytest` for running tests
 
 ### Quick start
@@ -244,21 +247,24 @@ cellar/
       add_app.py         Add-app-to-catalogue dialog
       edit_app.py        Edit / delete catalogue entry dialog
       update_app.py      Safe update dialog (backup + rsync overlay)
+      install_runner.py  Runner download + install dialog
       settings.py        Settings / repo management dialog
     backend/
       repo.py            Catalogue fetching, all transport backends
       packager.py        import_to_repo / update_in_repo / remove_from_repo
       installer.py       Download, verify, extract, import to Bottles
       updater.py         Safe rsync overlay update + backup
-      bottles.py         Bottles path detection
+      bottles.py         Bottles path detection, program listing, launch
+      components.py      bottlesdevs/components index (runner metadata)
       database.py        SQLite installed/repo tracking
       config.py          JSON config persistence (repos)
     models/
       app_entry.py       AppEntry + BuiltWith dataclasses
     utils/
-      paths.py           UI + icons path resolution (source tree + installed)
       gio_io.py          GIO file helpers
-      checksum.py        SHA-256 utility
+      http.py            requests.Session factory (User-Agent, auth, SSL)
+      images.py          Pillow image helpers (load, crop, fit, optimize)
+      paths.py           UI + icons path resolution (source tree + installed)
   data/
     icons/
       hicolor/symbolic/apps/   Bundled tab icons (CC0-1.0)
@@ -268,7 +274,9 @@ cellar/
     fixtures/            Sample catalogue.json for local testing
     test_repo.py
     test_bottles.py
+    test_components.py
     test_database.py
+    test_images.py
     test_installer.py
 ```
 
@@ -283,8 +291,9 @@ cellar/
 5. **Local DB** — track installed apps, wire up Install/Remove button state ✅
 6. **Update logic** — safe rsync overlay (no --delete; AppData/Documents excluded) ✅
 7. **HTTP(S) auth** — bearer token generation, storage, and per-request injection; image asset caching ✅
-8. **Flatpak packaging**
-9. **KDE support**
+8. **Runner compatibility** — check, download, and manage Wine runners from the bottlesdevs/components index ✅
+9. **Flatpak packaging**
+10. **KDE support**
 
 ---
 

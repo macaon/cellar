@@ -5,11 +5,13 @@ All notable changes to Cellar are documented here.
 ## [0.15.0] — 2026-03-01
 
 ### Added
-- **Auto-discover programs via `bottles-cli programs`** — the Open button now
-  finds programs auto-discovered by Bottles from `.lnk` shortcuts (Desktop and
-  Start Menu), not just manually registered `External_Programs`.  New
-  `list_bottle_programs()` merges both sources with name-based deduplication.
-  Falls back to `External_Programs` only when `bottles-cli` is unavailable.
+- **Auto-discover programs via `bottles-cli --json programs`** — the Open
+  button now finds all programs available in a bottle, including those
+  auto-discovered by Bottles from `.lnk` shortcuts.  Previously only manually
+  registered `External_Programs` from `bottle.yml` were shown.  New
+  `list_bottle_programs()` calls `bottles-cli --json programs -b <name>` for
+  structured JSON output (name, executable, path, auto_discovered flag) and
+  falls back to `bottle.yml` parsing when `bottles-cli` is unavailable.
 
 ## [0.14.0] — 2026-03-01
 

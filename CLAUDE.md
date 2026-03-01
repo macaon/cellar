@@ -14,7 +14,8 @@ The project is called **Cellar**.
 - **UI toolkit:** GTK4 + libadwaita (target GNOME 46+)
 - **Packaging:** Flatpak (target `io.github.cellar` or similar)
 - **Local data:** SQLite via `sqlite3` stdlib for installed app tracking
-- **Network I/O:** `urllib` for HTTP/HTTPS; system `ssh` subprocess for SSH repos; GIO (`gi.repository.Gio`) for SMB/NFS via GVFS
+- **Network I/O:** `requests` for HTTP/HTTPS; system `ssh` subprocess for SSH repos; GIO (`gi.repository.Gio`) for SMB/NFS via GVFS
+- **Image handling:** Pillow for loading, resizing, cropping, ICO→PNG conversion
 - **Archive handling:** Python `tarfile` stdlib
 - **File sync:** `rsync` subprocess call for smart updates
 - **Bottles integration:** `bottles-cli` subprocess calls + direct YAML manipulation via `PyYAML`
@@ -166,7 +167,7 @@ Used when `update_strategy: "full"`, or user opts in manually.
 2. Remove existing bottle directory
 3. Follow normal install flow
 
-`bottles-cli` is used only for detecting installed Bottles instances (`bottles-cli list bottles`). Component version management is left to Bottles. Handle its absence gracefully (show a setup warning if Bottles isn't detected).
+`bottles-cli` is used for listing bottles (`bottles-cli list bottles`), listing programs inside a bottle (`bottles-cli --json programs -b <name>` — includes auto-discovered `.lnk` shortcuts), and launching programs (`bottles-cli run`). Component version management is left to Bottles. Handle its absence gracefully (show a setup warning if Bottles isn't detected).
 
 ---
 
@@ -244,21 +245,24 @@ cellar/
       add_app.py             # Add-app-to-catalogue dialog
       edit_app.py            # Edit/delete catalogue entry dialog
       update_app.py          # Safe update dialog (backup + rsync overlay)
+      install_runner.py      # Runner download + install dialog
       settings.py            # Settings / repo management dialog
     backend/
       repo.py                # Catalogue fetching, all transport backends
       packager.py            # import_to_repo / update_in_repo / remove_from_repo
       installer.py           # Download, verify, extract, import to Bottles
       updater.py             # Safe rsync overlay update + backup_bottle
-      bottles.py             # Bottles path detection
+      bottles.py             # Bottles path detection, program listing, launch
+      components.py          # bottlesdevs/components index (runner metadata)
       database.py            # SQLite installed/repo tracking
       config.py              # JSON config persistence (repos)
     models/
       app_entry.py           # AppEntry + BuiltWith dataclasses
     utils/
       gio_io.py              # GIO-based file/network helpers
+      http.py                # requests.Session factory (User-Agent, auth, SSL)
+      images.py              # Pillow image helpers (load, crop, fit, optimize)
       paths.py               # UI + icons path resolution (ui_file, icons_dir)
-      checksum.py            # SHA-256 utility
   data/
     icons/
       hicolor/symbolic/apps/ # Bundled tab icons (CC0-1.0, fill=currentColor)
@@ -269,7 +273,9 @@ cellar/
     fixtures/                # Sample catalogue.json for local testing
     test_repo.py
     test_bottles.py
+    test_components.py
     test_database.py
+    test_images.py
     test_installer.py
   pyproject.toml
   meson.build
@@ -313,9 +319,9 @@ UI files are resolved by `cellar/utils/paths.py` — it checks the source tree (
 - **Archive size:** These archives can be multi-gigabyte. All download and extract operations must be async (use `GLib.Thread` or `asyncio` with GLib main loop integration). Never block the UI thread.
 - **bottles-cli not found:** Show a clear setup prompt rather than crashing. Detect both Flatpak and native installs.
 - **Repo unreachable:** Gracefully show cached catalogue if the repo is offline. Don't prevent app launch.
-- **HTTP User-Agent:** Python's default `User-Agent: Python-urllib/3.x` is blocked by Cloudflare and other CDN/WAF bot-protection rules. All outbound HTTP requests use `User-Agent: Mozilla/5.0 (compatible; Cellar/1.0)` (the `_USER_AGENT` constant in `repo.py`).
+- **HTTP User-Agent:** The default `User-Agent` from Python HTTP libraries is blocked by Cloudflare and other CDN/WAF bot-protection rules. All outbound HTTP requests use `User-Agent: Mozilla/5.0 (compatible; Cellar/1.0)` (the `USER_AGENT` constant in `cellar/utils/http.py`, applied via `requests.Session`).
 - **nginx `^~` and image assets:** A plain `location /cellar/ { root /; }` block will lose to any `location ~* \.(jpg|png|...)$` regex block in the same server config (regex locations have higher priority than prefix locations in nginx). Use `location ^~ /cellar/` so the prefix match wins and images are served correctly.
-- **GdkPixbuf and HTTP:** `GdkPixbuf.new_from_file` cannot pass auth headers, and `os.path.isfile()` returns `False` for HTTP URLs. For HTTP(S) repos, `Repo.resolve_asset_uri` downloads image assets to a per-session temp cache and returns local paths. Archives still return URLs (handled by the installer).
+- **Pillow and HTTP:** Pillow and `os.path.isfile()` cannot handle HTTP URLs or pass auth headers. For HTTP(S) repos, `Repo.resolve_asset_uri` downloads image assets to a per-session temp cache and returns local paths. Archives still return URLs (handled by the installer).
 
 ---
 

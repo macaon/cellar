@@ -2,6 +2,12 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.13.10] — 2026-03-01
+
+### Fixed
+- **Card icon left margin** — corrected from 23 px to 22 px to match the
+  vertical centering math: (96 - 52) / 2 = 22.
+
 ## [0.13.9] — 2026-03-01
 
 ### Changed

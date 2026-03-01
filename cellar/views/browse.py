@@ -21,7 +21,7 @@ _CARD_WIDTH   = 300
 _CARD_HEIGHT  = 96
 _COVER_WIDTH  = 75   # cover thumbnail, flush left, cropped to fill
 _ICON_SIZE    = 52   # matches GNOME Software app tiles
-_ICON_MARGIN  = 23   # px from left edge of card (GNOME Software standard)
+_ICON_MARGIN  = 22   # px from left edge — matches vertical centering: (96-52)/2
 
 
 # ---------------------------------------------------------------------------

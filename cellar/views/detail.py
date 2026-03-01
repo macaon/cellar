@@ -875,8 +875,8 @@ class DetailView(Gtk.Box):
                     img = Gtk.Image.new_from_paintable(texture)
                     img.set_pixel_size(size)
                     return img
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log.warning("_make_icon: failed to load %r: %s", path, exc)
         # Fall back to the cover image, center-cropped to a square.
         if cover_fallback:
             cover_path = self._resolve(cover_fallback)

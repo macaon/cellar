@@ -490,7 +490,8 @@ class AddAppDialog(Adw.Dialog):
         archive_size = Path(self._archive_path).stat().st_size
 
         # Build image relative paths (only for images the user picked)
-        icon_rel = f"apps/{app_id}/icon{Path(self._icon_path).suffix}" if self._icon_path else ""
+        icon_ext = ".png" if self._icon_path and Path(self._icon_path).suffix.lower() == ".ico" else (Path(self._icon_path).suffix if self._icon_path else "")
+        icon_rel = f"apps/{app_id}/icon{icon_ext}" if self._icon_path else ""
         cover_rel = f"apps/{app_id}/cover{Path(self._cover_path).suffix}" if self._cover_path else ""
         hero_rel = f"apps/{app_id}/hero{Path(self._hero_path).suffix}" if self._hero_path else ""
         screenshot_rels = tuple(

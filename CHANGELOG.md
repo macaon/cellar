@@ -2,6 +2,19 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.13.4] — 2026-03-01
+
+### Added
+- **ICO → PNG conversion at import** — ICO files uploaded as icons are
+  automatically converted to PNG (extracting the largest embedded frame,
+  typically 256 px) when imported via Add App or Edit App.  This works around
+  GdkPixbuf lacking an ICO loader on most Linux systems.
+
+### Fixed
+- **ICO icon display** — icons stored as `.ico` no longer silently fall back to
+  the cover image or gear placeholder.  The packager now writes PNG, and the
+  catalogue references the `.png` path.
+
 ## [0.13.3] — 2026-03-01
 
 ### Fixed

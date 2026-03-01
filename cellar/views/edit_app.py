@@ -611,7 +611,8 @@ class EditAppDialog(Adw.Dialog):
         elif self._icon_path == "":
             icon_rel = ""
         else:
-            icon_rel = f"apps/{app_id}/icon{Path(self._icon_path).suffix}"
+            ext = ".png" if Path(self._icon_path).suffix.lower() == ".ico" else Path(self._icon_path).suffix
+            icon_rel = f"apps/{app_id}/icon{ext}"
 
         if self._cover_path is None:
             cover_rel = e.cover

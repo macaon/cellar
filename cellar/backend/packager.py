@@ -16,6 +16,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
+from cellar.utils.images import optimize_image as _optimize_image
+
 
 # ---------------------------------------------------------------------------
 # Category constants
@@ -25,142 +27,6 @@ from typing import Callable
 #: categories are stored in the ``categories`` key of ``catalogue.json`` and
 #: merged with this list at read time.
 BASE_CATEGORIES: list[str] = ["Games", "Productivity", "Graphics", "Utility"]
-
-
-# ---------------------------------------------------------------------------
-# Image optimisation at import time
-# ---------------------------------------------------------------------------
-
-#: Maximum dimensions per image role.  Images larger than these are downscaled
-#: (preserving aspect ratio) and saved as JPEG at 85% quality.  Images already
-#: within limits are copied as-is.
-_IMAGE_MAX_SIZE: dict[str, tuple[int, int]] = {
-    "icon":       (256, 256),
-    "cover":      (300, 400),
-    "hero":       (1920, 620),
-    "screenshot": (1920, 1080),
-}
-
-_JPEG_QUALITY = 85
-
-
-def _ico_to_png(src: Path, dest: Path) -> bool:
-    """Extract the largest image from an ICO file and save it as PNG.
-
-    Modern ICO files embed PNG data for large frames (typically 256 px).
-    For BMP-encoded frames we skip conversion and return ``False``.
-
-    Returns ``True`` if a PNG was successfully written to *dest*.
-    """
-    import struct
-
-    try:
-        data = src.read_bytes()
-    except OSError:
-        return False
-
-    if len(data) < 6:
-        return False
-
-    _reserved, _type, count = struct.unpack_from("<HHH", data, 0)
-    if _type not in (1, 2) or count == 0:
-        return False
-
-    # Find the largest entry.
-    best_offset = 0
-    best_size = 0
-    best_pixels = 0
-    for i in range(count):
-        off = 6 + i * 16
-        if off + 16 > len(data):
-            break
-        w = data[off] or 256
-        h = data[off + 1] or 256
-        img_size = struct.unpack_from("<I", data, off + 8)[0]
-        img_offset = struct.unpack_from("<I", data, off + 12)[0]
-        if w * h > best_pixels:
-            best_pixels = w * h
-            best_offset = img_offset
-            best_size = img_size
-
-    if best_size == 0 or best_offset + best_size > len(data):
-        return False
-
-    frame = data[best_offset : best_offset + best_size]
-
-    # Check if the frame is PNG-encoded (starts with PNG magic).
-    if frame[:8] == b"\x89PNG\r\n\x1a\n":
-        try:
-            dest.write_bytes(frame)
-            return True
-        except OSError:
-            return False
-
-    return False
-
-
-def _optimize_image(src: str | Path, dest: Path, role: str) -> None:
-    """Copy *src* to *dest*, downscaling if it exceeds the role's max size.
-
-    Uses GdkPixbuf for the resize (HYPER interpolation) and saves as JPEG
-    when the source needs resizing, otherwise copies as-is to preserve the
-    original format for small/already-optimised images.
-
-    ICO icons are converted to PNG at import time since GdkPixbuf on most
-    systems lacks an ICO loader.
-    """
-    src = Path(src)
-    max_dims = _IMAGE_MAX_SIZE.get(role)
-
-    # Convert ICO → PNG for any role (GdkPixbuf typically can't load ICO).
-    if src.suffix.lower() == ".ico":
-        png_dest = dest.with_suffix(".png")
-        if _ico_to_png(src, png_dest):
-            if png_dest != dest:
-                png_dest.rename(dest)
-            return
-        # Fallback: copy as-is and hope for the best.
-        shutil.copyfile(src, dest)
-        return
-
-    if not max_dims or role == "icon":
-        shutil.copyfile(src, dest)
-        return
-
-    try:
-        import gi
-        gi.require_version("GdkPixbuf", "2.0")
-        from gi.repository import GdkPixbuf
-    except (ImportError, ValueError):
-        shutil.copyfile(src, dest)
-        return
-
-    try:
-        fmt, orig_w, orig_h = GdkPixbuf.Pixbuf.get_file_info(str(src))
-    except Exception:
-        shutil.copyfile(src, dest)
-        return
-
-    if fmt is None:
-        shutil.copyfile(src, dest)
-        return
-
-    max_w, max_h = max_dims
-    if orig_w <= max_w and orig_h <= max_h:
-        shutil.copyfile(src, dest)
-        return
-
-    try:
-        pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(
-            str(src), max_w, max_h, True,
-        )
-        jpeg_dest = dest.with_suffix(".jpg")
-        pixbuf.savev(str(jpeg_dest), "jpeg", ["quality"], [str(_JPEG_QUALITY)])
-        # If the caller expected a different extension, rename.
-        if jpeg_dest != dest:
-            jpeg_dest.rename(dest)
-    except Exception:
-        shutil.copyfile(src, dest)
 
 
 # ---------------------------------------------------------------------------

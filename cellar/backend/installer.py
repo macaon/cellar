@@ -41,11 +41,13 @@ import sys
 import tarfile
 import tempfile
 import threading
-import urllib.error
-import urllib.request
 from pathlib import Path
 from typing import Callable
 from urllib.parse import urlparse
+
+import requests
+
+from cellar.utils.http import DEFAULT_TIMEOUT, make_session
 
 
 # ---------------------------------------------------------------------------
@@ -73,6 +75,8 @@ def install_app(
     install_cb: Callable[[float], None] | None = None,
     cancel_event: threading.Event | None = None,
     token: str | None = None,
+    ssl_verify: bool = True,
+    ca_cert: str | None = None,
 ) -> str:
     """Download, verify, extract, and import *entry* into Bottles.
 
@@ -113,6 +117,8 @@ def install_app(
             progress_cb=download_cb,
             cancel_event=cancel_event,
             token=token,
+            ssl_verify=ssl_verify,
+            ca_cert=ca_cert,
         )
         if download_cb:
             download_cb(1.0)
@@ -171,6 +177,8 @@ def _acquire_archive(
     progress_cb: Callable[[float], None] | None,
     cancel_event: threading.Event | None,
     token: str | None = None,
+    ssl_verify: bool = True,
+    ca_cert: str | None = None,
 ) -> Path:
     """Return a local path to the archive.
 
@@ -196,6 +204,8 @@ def _acquire_archive(
             progress_cb=progress_cb,
             cancel_event=cancel_event,
             token=token,
+            ssl_verify=ssl_verify,
+            ca_cert=ca_cert,
         )
         return dest
 
@@ -283,36 +293,34 @@ def _http_stream(
     progress_cb: Callable[[float], None] | None,
     cancel_event: threading.Event | None,
     token: str | None = None,
+    ssl_verify: bool = True,
+    ca_cert: str | None = None,
 ) -> None:
     """Stream *url* to *dest* in 1 MB chunks."""
     chunk = 1 * 1024 * 1024
     downloaded = 0
-    from cellar.backend.repo import _USER_AGENT
-    req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})  # noqa: S310
-    if token:
-        req.add_header("Authorization", f"Bearer {token}")
+    session = make_session(token=token, ssl_verify=ssl_verify, ca_cert=ca_cert)
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            with open(dest, "wb") as fh:
-                while True:
-                    if cancel_event and cancel_event.is_set():
-                        raise InstallCancelled("Download cancelled")
-                    buf = resp.read(chunk)
-                    if not buf:
-                        break
-                    fh.write(buf)
-                    downloaded += len(buf)
-                    if progress_cb and expected_size > 0:
-                        progress_cb(min(downloaded / expected_size, 1.0))
+        resp = session.get(url, stream=True, timeout=DEFAULT_TIMEOUT)
+        resp.raise_for_status()
+        with open(dest, "wb") as fh:
+            for buf in resp.iter_content(chunk_size=chunk):
+                if cancel_event and cancel_event.is_set():
+                    raise InstallCancelled("Download cancelled")
+                fh.write(buf)
+                downloaded += len(buf)
+                if progress_cb and expected_size > 0:
+                    progress_cb(min(downloaded / expected_size, 1.0))
     except InstallCancelled:
         dest.unlink(missing_ok=True)
         raise
-    except urllib.error.HTTPError as exc:
+    except requests.HTTPError as exc:
         dest.unlink(missing_ok=True)
-        raise InstallError(f"HTTP {exc.code} downloading archive: {exc.reason}") from exc
-    except urllib.error.URLError as exc:
+        code = exc.response.status_code if exc.response is not None else "?"
+        raise InstallError(f"HTTP {code} downloading archive") from exc
+    except requests.RequestException as exc:
         dest.unlink(missing_ok=True)
-        raise InstallError(f"Network error downloading archive: {exc.reason}") from exc
+        raise InstallError(f"Network error downloading archive: {exc}") from exc
     except OSError as exc:
         dest.unlink(missing_ok=True)
         raise InstallError(f"Could not write archive to disk: {exc}") from exc

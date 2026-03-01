@@ -27,7 +27,6 @@ import shutil
 import tarfile
 import tempfile
 import threading
-import urllib.request
 from pathlib import Path
 from typing import Callable
 
@@ -37,9 +36,9 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk
 
-log = logging.getLogger(__name__)
+from cellar.utils.http import DEFAULT_TIMEOUT, make_session
 
-_USER_AGENT = "Mozilla/5.0 (compatible; Cellar/1.0)"
+log = logging.getLogger(__name__)
 
 
 class InstallRunnerDialog(Adw.Dialog):
@@ -234,30 +233,27 @@ def _download_and_extract_runner(
     tmp_fd, tmp_name = tempfile.mkstemp(suffix=".tar.gz")
     tmp_path = Path(tmp_name)
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+        session = make_session()
         hasher = hashlib.new(hash_algo)
+        import os
         try:
-            with urllib.request.urlopen(req) as resp:
-                total = int(resp.headers.get("Content-Length", 0) or 0)
-                downloaded = 0
-                import os
-                with os.fdopen(tmp_fd, "wb") as f:
-                    tmp_fd = -1  # ownership transferred
-                    while True:
-                        if cancel_event.is_set():
-                            raise _Cancelled
-                        chunk = resp.read(1024 * 1024)  # 1 MiB chunks
-                        if not chunk:
-                            break
-                        f.write(chunk)
-                        hasher.update(chunk)
-                        downloaded += len(chunk)
-                        if total:
-                            progress_cb(min(0.8, (downloaded / total) * 0.8))
+            resp = session.get(url, stream=True, timeout=DEFAULT_TIMEOUT)
+            resp.raise_for_status()
+            total = int(resp.headers.get("Content-Length", 0) or 0)
+            downloaded = 0
+            with os.fdopen(tmp_fd, "wb") as f:
+                tmp_fd = -1  # ownership transferred
+                for chunk in resp.iter_content(chunk_size=1024 * 1024):
+                    if cancel_event.is_set():
+                        raise _Cancelled
+                    f.write(chunk)
+                    hasher.update(chunk)
+                    downloaded += len(chunk)
+                    if total:
+                        progress_cb(min(0.8, (downloaded / total) * 0.8))
         finally:
             if tmp_fd >= 0:
-                import os as _os
-                _os.close(tmp_fd)
+                os.close(tmp_fd)
 
         if expected_hash and hasher.hexdigest() != expected_hash:
             raise ValueError(

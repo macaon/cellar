@@ -2,6 +2,28 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.14.0] — 2026-03-01
+
+### Changed
+- **Pillow replaces GdkPixbuf for image handling** — all image loading,
+  resizing, cropping, and ICO conversion now uses Pillow instead of GdkPixbuf.
+  Fixes ICO files with BMP-encoded frames that the hand-rolled parser silently
+  skipped.  New `cellar/utils/images.py` module with `load_and_crop`,
+  `load_and_fit`, `optimize_image`, and `to_texture` helpers.
+- **requests replaces urllib** — all HTTP(S) requests now go through
+  `requests.Session` via the new `cellar/utils/http.py` session factory.
+  User-Agent, bearer token, and SSL settings (verify/CA cert) are configured
+  once per session.  Fixes archive downloads (`installer.py`) and runner
+  downloads (`install_runner.py`) ignoring repo SSL settings.
+
+### Removed
+- `cellar/utils/checksum.py` — empty placeholder file.
+- `_USER_AGENT` constant duplication between `repo.py` and `install_runner.py`.
+- `_ico_to_png()` and `_optimize_image()` from `packager.py` (replaced by
+  `cellar.utils.images.optimize_image`).
+- `_load_cover_texture()` and `_load_icon_texture()` from `browse.py`
+  (replaced by `cellar.utils.images` helpers).
+
 ## [0.13.4] — 2026-03-01
 
 ### Added

@@ -13,6 +13,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, GObject, Gtk, Pango
 
 from cellar.models.app_entry import AppEntry
+from cellar.utils.images import load_and_crop, load_and_fit, to_texture
 
 log = logging.getLogger(__name__)
 
@@ -121,10 +122,10 @@ class AppCard(Gtk.FlowBoxChild):
         if resolve_asset and entry.cover:
             cover_path = resolve_asset(entry.cover)
             if os.path.isfile(cover_path):
-                texture = _load_cover_texture(cover_path, _COVER_WIDTH, _CARD_HEIGHT)
-                if texture is not None:
+                png_bytes = load_and_crop(cover_path, _COVER_WIDTH, _CARD_HEIGHT)
+                if png_bytes is not None:
                     img_area = _FixedBox(_COVER_WIDTH, _CARD_HEIGHT)
-                    pic = Gtk.Picture.new_for_paintable(texture)
+                    pic = Gtk.Picture.new_for_paintable(to_texture(png_bytes))
                     pic.set_content_fit(Gtk.ContentFit.FILL)
                     img_area.set_child(pic)
                     card.append(img_area)
@@ -135,9 +136,9 @@ class AppCard(Gtk.FlowBoxChild):
             if resolve_asset and entry.icon:
                 icon_path = resolve_asset(entry.icon)
                 if os.path.isfile(icon_path):
-                    texture = _load_icon_texture(icon_path, _ICON_SIZE)
-                    if texture is not None:
-                        pic = Gtk.Picture.new_for_paintable(texture)
+                    png_bytes = load_and_fit(icon_path, _ICON_SIZE)
+                    if png_bytes is not None:
+                        pic = Gtk.Picture.new_for_paintable(to_texture(png_bytes))
                         pic.set_content_fit(Gtk.ContentFit.SCALE_DOWN)
                         img_area = _FixedBox(_ICON_SIZE, _ICON_SIZE)
                         img_area.set_margin_start(_ICON_MARGIN)
@@ -390,57 +391,3 @@ class BrowseView(Gtk.Box):
         self.emit("app-selected", child.entry)
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _load_cover_texture(path: str, target_w: int, target_h: int):
-    """Scale-to-cover and center-crop to exactly target_w × target_h.
-
-    Loads the source at 4× the target size (preserving detail), then
-    HYPER-downscales to the exact crop dimensions.  This avoids the blur
-    caused by ``new_from_file_at_size`` reducing to target first and then
-    scaling back up.
-
-    Returns a ``Gdk.Texture`` or ``None`` on error.
-    """
-    try:
-        from gi.repository import Gdk, GdkPixbuf
-        # Load at 4× target to preserve detail for the final downscale.
-        load_w = target_w * 4
-        load_h = target_h * 4
-        src = GdkPixbuf.Pixbuf.new_from_file_at_size(path, load_w, load_h)
-        src_w, src_h = src.get_width(), src.get_height()
-        scale = max(target_w / src_w, target_h / src_h)
-        scaled_w = max(int(src_w * scale), target_w)
-        scaled_h = max(int(src_h * scale), target_h)
-        scaled = src.scale_simple(scaled_w, scaled_h, GdkPixbuf.InterpType.HYPER)
-        x_off = (scaled_w - target_w) // 2
-        y_off = (scaled_h - target_h) // 2
-        cropped = scaled.new_subpixbuf(x_off, y_off, target_w, target_h)
-        return Gdk.Texture.new_for_pixbuf(cropped)
-    except Exception:
-        return None
-
-
-def _load_icon_texture(path: str, size: int):
-    """HYPER-scale icon to size × size (center-crop if not square).
-
-    Produces a texture at exactly the card width so ``_FixedBox`` renders it
-    1:1 with ``ContentFit.CONTAIN`` — no GTK upscaling, no blur.
-    Returns a ``Gdk.Texture`` or ``None`` on error.
-    """
-    try:
-        from gi.repository import Gdk, GdkPixbuf
-        src = GdkPixbuf.Pixbuf.new_from_file_at_size(path, size, size)
-        src_w, src_h = src.get_width(), src.get_height()
-        scale = size / min(src_w, src_h)
-        scaled_w = max(int(src_w * scale), size)
-        scaled_h = max(int(src_h * scale), size)
-        scaled = src.scale_simple(scaled_w, scaled_h, GdkPixbuf.InterpType.HYPER)
-        x_off = (scaled_w - size) // 2
-        y_off = (scaled_h - size) // 2
-        cropped = scaled.new_subpixbuf(x_off, y_off, size, size)
-        return Gdk.Texture.new_for_pixbuf(cropped)
-    except Exception:
-        return None

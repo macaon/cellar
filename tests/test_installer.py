@@ -5,9 +5,8 @@ from __future__ import annotations
 import hashlib
 import tarfile
 import threading
-from io import BytesIO
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -195,27 +194,24 @@ def test_acquire_unsupported_scheme_raises(tmp_path):
 # _acquire_archive — HTTP
 # ---------------------------------------------------------------------------
 
-class _FakeResponse:
-    """Minimal urllib response mock for streaming tests."""
-    def __init__(self, data: bytes) -> None:
-        self._buf = BytesIO(data)
-
-    def read(self, n: int) -> bytes:
-        return self._buf.read(n)
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *_):
-        pass
+def _fake_streaming_response(data: bytes):
+    """Create a mock requests.Response that supports iter_content."""
+    resp = Mock()
+    resp.status_code = 200
+    resp.raise_for_status = Mock()
+    # iter_content yields the data in chunks
+    chunk_size = 1024 * 1024
+    chunks = [data[i:i + chunk_size] for i in range(0, len(data), chunk_size)]
+    resp.iter_content = Mock(return_value=iter(chunks))
+    return resp
 
 
 def test_acquire_http_downloads_to_dest(tmp_path):
     archive = _make_archive(tmp_path)
     data = archive.read_bytes()
     dest = tmp_path / "download.tar.gz"
-    with patch("cellar.backend.installer.urllib.request.urlopen",
-               return_value=_FakeResponse(data)):
+    with patch("requests.Session.get",
+               return_value=_fake_streaming_response(data)):
         result = ins._acquire_archive(
             "https://example.com/archive.tar.gz", dest,
             expected_size=len(data), progress_cb=None, cancel_event=None,
@@ -230,8 +226,8 @@ def test_acquire_http_cancel_cleans_up(tmp_path):
     dest = tmp_path / "download.tar.gz"
     cancel = threading.Event()
     cancel.set()
-    with patch("cellar.backend.installer.urllib.request.urlopen",
-               return_value=_FakeResponse(data)):
+    with patch("requests.Session.get",
+               return_value=_fake_streaming_response(data)):
         with pytest.raises(ins.InstallCancelled):
             ins._acquire_archive(
                 "https://example.com/archive.tar.gz", dest,
@@ -245,8 +241,8 @@ def test_acquire_http_progress_reported(tmp_path):
     data = archive.read_bytes()
     dest = tmp_path / "download.tar.gz"
     reported: list[float] = []
-    with patch("cellar.backend.installer.urllib.request.urlopen",
-               return_value=_FakeResponse(data)):
+    with patch("requests.Session.get",
+               return_value=_fake_streaming_response(data)):
         ins._acquire_archive(
             "https://example.com/archive.tar.gz", dest,
             expected_size=len(data), progress_cb=reported.append, cancel_event=None,

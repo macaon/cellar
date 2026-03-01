@@ -15,6 +15,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, GLib, Gio, Gtk, Pango
 
 from cellar.models.app_entry import AppEntry
+from cellar.utils.images import load_and_crop, load_and_fit, to_texture
 
 log = logging.getLogger(__name__)
 
@@ -863,42 +864,26 @@ class DetailView(Gtk.Box):
     # ------------------------------------------------------------------
 
     def _make_icon(self, rel_path: str, size: int, *, cover_fallback: str = "") -> Gtk.Widget:
-        # Try the actual icon first.  Use GdkPixbuf so ICO files get the
-        # largest embedded frame rather than the first (often 16 px) one.
+        # Try the actual icon first.
         if rel_path:
             path = self._resolve(rel_path)
             if os.path.isfile(path):
-                try:
-                    from gi.repository import Gdk, GdkPixbuf
-                    pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_size(path, size, size)
-                    texture = Gdk.Texture.new_for_pixbuf(pixbuf)
-                    img = Gtk.Image.new_from_paintable(texture)
+                png_bytes = load_and_fit(path, size)
+                if png_bytes is not None:
+                    img = Gtk.Image.new_from_paintable(to_texture(png_bytes))
                     img.set_pixel_size(size)
                     return img
-                except Exception as exc:
-                    log.warning("_make_icon: failed to load %r: %s", path, exc)
         # Fall back to the cover image, center-cropped to a square.
         if cover_fallback:
             cover_path = self._resolve(cover_fallback)
             if os.path.isfile(cover_path):
-                try:
-                    from gi.repository import Gdk, GdkPixbuf
-                    src = GdkPixbuf.Pixbuf.new_from_file_at_size(cover_path, size * 2, size * 2)
-                    src_w, src_h = src.get_width(), src.get_height()
-                    crop = min(src_w, src_h)
-                    x_off = (src_w - crop) // 2
-                    y_off = (src_h - crop) // 2
-                    square = src.new_subpixbuf(x_off, y_off, crop, crop)
-                    scaled = square.scale_simple(size, size, GdkPixbuf.InterpType.HYPER)
-                    texture = Gdk.Texture.new_for_pixbuf(scaled)
-                    pic = Gtk.Picture.new_for_paintable(texture)
+                png_bytes = load_and_crop(cover_path, size, size)
+                if png_bytes is not None:
+                    pic = Gtk.Picture.new_for_paintable(to_texture(png_bytes))
                     pic.set_size_request(size, size)
                     pic.set_content_fit(Gtk.ContentFit.FILL)
-                    # Round corners with the icon-dropshadow class.
                     pic.add_css_class("icon-dropshadow")
                     return pic
-                except Exception:
-                    pass
         img = Gtk.Image.new_from_icon_name("application-x-executable")
         img.set_pixel_size(size)
         return img

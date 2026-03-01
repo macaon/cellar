@@ -29,24 +29,20 @@ from __future__ import annotations
 
 import json
 import logging
-import ssl
 import subprocess
 import tempfile
-import urllib.error
-import urllib.request
 from pathlib import Path
 from typing import Iterator, Protocol, runtime_checkable
 from urllib.parse import urlparse
 
+import requests
+
 from cellar.models.app_entry import AppEntry
+from cellar.utils.http import DEFAULT_TIMEOUT, make_session
 
 log = logging.getLogger(__name__)
 
 CATALOGUE_VERSION = 1
-
-# Sent as the User-Agent on all outbound HTTP(S) requests.  A generic browser-
-# like string avoids CDN / WAF bot-protection rules that block Python-urllib.
-_USER_AGENT = "Mozilla/5.0 (compatible; Cellar/1.0)"
 
 # File extensions treated as image assets.  These are downloaded to a per-session
 # temp cache by resolve_asset_uri so that GdkPixbuf can load them from a local
@@ -101,37 +97,21 @@ class _HttpFetcher:
         token: str | None = None,
     ) -> None:
         self._base = base_url.rstrip("/") + "/"
-        self._ssl_ctx: ssl.SSLContext | None = None
-        self._token = token
-        if ca_cert:
-            # Load the user-supplied CA bundle and verify normally against it.
-            ctx = ssl.create_default_context(cafile=ca_cert)
-            # Python 3.10+ with OpenSSL 3.x sets X509_V_FLAG_X509_STRICT by
-            # default, which makes the Authority Key Identifier extension
-            # mandatory.  Many home/self-signed CAs omit it, causing
-            # "Missing Authority Key Identifier" failures even with a valid
-            # chain.  curl and browsers don't enforce this.  Clear the flag so
-            # full chain validation (hostname, expiry, trust anchor) still runs.
-            ctx.verify_flags &= ~ssl.VERIFY_X509_STRICT
-            self._ssl_ctx = ctx
-        elif not ssl_verify:
-            ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
-            self._ssl_ctx = ctx
+        self._session = make_session(
+            token=token, ssl_verify=ssl_verify, ca_cert=ca_cert,
+        )
 
     def fetch_bytes(self, rel_path: str) -> bytes:
         url = self._base + rel_path.lstrip("/")
-        req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})  # noqa: S310
-        if self._token:
-            req.add_header("Authorization", f"Bearer {self._token}")
         try:
-            with urllib.request.urlopen(req, timeout=30, context=self._ssl_ctx) as resp:
-                return resp.read()
-        except urllib.error.HTTPError as exc:
-            raise RepoError(f"HTTP {exc.code} fetching {url}: {exc.reason}") from exc
-        except urllib.error.URLError as exc:
-            raise RepoError(f"Network error fetching {url}: {exc.reason}") from exc
+            resp = self._session.get(url, timeout=DEFAULT_TIMEOUT)
+            resp.raise_for_status()
+            return resp.content
+        except requests.HTTPError as exc:
+            code = exc.response.status_code if exc.response is not None else "?"
+            raise RepoError(f"HTTP {code} fetching {url}") from exc
+        except requests.RequestException as exc:
+            raise RepoError(f"Network error fetching {url}: {exc}") from exc
 
     def resolve_uri(self, rel_path: str) -> str:
         return self._base + rel_path.lstrip("/")

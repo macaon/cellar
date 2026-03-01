@@ -2,12 +2,13 @@
 
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 # Allow running from the repo root without installing the package.
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
+import requests
 
 from cellar.backend.repo import (
     Repo,
@@ -288,17 +289,20 @@ def test_repo_manager_skips_bad_repo(tmp_path):
 # _HttpFetcher
 # ---------------------------------------------------------------------------
 
-def _mock_response(body: bytes):
-    resp = MagicMock()
-    resp.read.return_value = body
-    resp.__enter__ = lambda s: s
-    resp.__exit__ = MagicMock(return_value=False)
+def _mock_response(body: bytes, status_code: int = 200):
+    resp = Mock()
+    resp.content = body
+    resp.status_code = status_code
+    resp.raise_for_status = Mock()
+    if status_code >= 400:
+        http_err = requests.HTTPError(response=resp)
+        resp.raise_for_status.side_effect = http_err
     return resp
 
 
 def test_http_fetcher_fetch_bytes():
     payload = b'{"key": "value"}'
-    with patch("urllib.request.urlopen", return_value=_mock_response(payload)):
+    with patch("requests.Session.get", return_value=_mock_response(payload)):
         assert _HttpFetcher("https://example.com/repo").fetch_bytes("catalogue.json") == payload
 
 
@@ -314,25 +318,20 @@ def test_http_fetcher_trailing_slash_normalised():
 
 
 def test_http_fetcher_http_error_raises():
-    import urllib.error
-    with patch(
-        "urllib.request.urlopen",
-        side_effect=urllib.error.HTTPError("https://example.com/404", 404, "Not Found", {}, None),
-    ):
+    with patch("requests.Session.get", return_value=_mock_response(b"", 404)):
         with pytest.raises(RepoError, match="HTTP 404"):
             _HttpFetcher("https://example.com/repo").fetch_bytes("missing.json")
 
 
 def test_http_fetcher_network_error_raises():
-    import urllib.error
-    with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("Connection refused")):
+    with patch("requests.Session.get", side_effect=requests.ConnectionError("Connection refused")):
         with pytest.raises(RepoError, match="Network error"):
             _HttpFetcher("https://example.com/repo").fetch_bytes("catalogue.json")
 
 
 def test_repo_http_catalogue():
     catalogue = (FIXTURES / "catalogue.json").read_bytes()
-    with patch("urllib.request.urlopen", return_value=_mock_response(catalogue)):
+    with patch("requests.Session.get", return_value=_mock_response(catalogue)):
         repo = Repo.__new__(Repo)
         repo.uri = "https://example.com/repo"
         repo.name = "test"

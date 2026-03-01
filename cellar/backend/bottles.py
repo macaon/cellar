@@ -266,12 +266,14 @@ def list_runners(install: BottlesInstall) -> list[str]:
 
     1. **Directory runners** — subdirectory names inside ``runners/`` next to
        the Bottles data root (e.g. ``ge-proton10-32``, ``soda-9.0-1``).
-    2. **System Wine** — detected by running ``wine --version`` and mapping
-       the output to the ``sys-wine-<version>`` naming convention Bottles uses
-       (e.g. ``wine-11.0`` → ``sys-wine-11.0``).
+    2. **System Wine** — detected by running the appropriate Wine binary and
+       mapping the output to the ``sys-wine-<version>`` naming Bottles uses
+       (e.g. ``wine-11.0`` → ``sys-wine-11.0``).  For Flatpak Bottles this
+       is the Wine binary bundled inside the Flatpak; for native Bottles it
+       is ``wine`` on ``$PATH``.
     3. **bottle.yml scan** — any ``sys-wine-*`` runner already referenced by
        an existing bottle; catches edge cases where the version string Bottles
-       recorded differs from what ``wine --version`` returns today.
+       recorded differs from the current ``wine --version`` output.
 
     Returns a sorted, de-duplicated list.
     Raises ``BottlesError`` if the runners directory exists but cannot be read.
@@ -286,8 +288,8 @@ def list_runners(install: BottlesInstall) -> list[str]:
         except OSError as exc:
             raise BottlesError(f"Cannot list runners at {rdir}: {exc}") from exc
 
-    # 2. System Wine via `wine --version`
-    found.update(_detect_system_wine())
+    # 2. System Wine via the appropriate wine binary
+    found.update(_detect_system_wine(install))
 
     # 3. Scan bottle.yml files for referenced sys-wine runners
     try:
@@ -309,23 +311,58 @@ def list_runners(install: BottlesInstall) -> list[str]:
     return sorted(found)
 
 
-def _detect_system_wine() -> list[str]:
-    """Return a ``['sys-wine-X.Y']`` list if system Wine is detected, else ``[]``.
+# Candidate paths for Wine bundled inside the Bottles Flatpak.
+# Bottles is installed either system-wide (/var/lib/flatpak) or per-user
+# (~/.local/share/flatpak); we probe both.
+_FLATPAK_WINE_PATHS: list[Path] = [
+    Path("/var/lib/flatpak/app/com.usebottles.bottles/current/active/files/bin/wine"),
+    Path.home() / ".local/share/flatpak/app/com.usebottles.bottles/current/active/files/bin/wine",
+]
 
-    Runs ``wine --version`` (prefixed with ``flatpak-spawn --host`` when
-    Cellar itself is sandboxed) and parses the output into the
-    ``sys-wine-<version>`` naming Bottles uses internally.
+
+def _detect_system_wine(install: BottlesInstall) -> list[str]:
+    """Return ``['sys-wine-X.Y']`` if Wine is detectable for *install*, else ``[]``.
+
+    **Flatpak Bottles** — Wine is bundled inside the Flatpak, not on
+    ``$PATH``.  We probe the two standard Flatpak installation prefixes
+    (system and per-user) for the Wine binary and run whichever one exists.
+    When Cellar itself is sandboxed the command is prefixed with
+    ``flatpak-spawn --host`` so we can reach the host filesystem.
+
+    **Native / custom Bottles** — we run ``wine --version`` from ``$PATH``
+    (again with the ``flatpak-spawn --host`` prefix when Cellar is sandboxed).
     """
-    cmd = (["flatpak-spawn", "--host"] if is_cellar_sandboxed() else []) + ["wine", "--version"]
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
-        if result.returncode == 0:
-            ver = result.stdout.strip()           # e.g. "wine-11.0"
-            if ver.startswith("wine-"):
-                return [f"sys-wine-{ver[5:]}"]   # "sys-wine-11.0"
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-        pass
+    for cmd in _wine_version_cmds(install):
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                ver = result.stdout.strip()         # e.g. "wine-11.0"
+                if ver.startswith("wine-"):
+                    return [f"sys-wine-{ver[5:]}"]  # "sys-wine-11.0"
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+            continue
     return []
+
+
+def _wine_version_cmds(install: BottlesInstall) -> list[list[str]]:
+    """Return an ordered list of ``[cmd, ...]`` candidates to try for ``wine --version``.
+
+    Each entry is a complete argv list.  Callers try them in order and stop
+    at the first that succeeds.
+    """
+    spawn = ["flatpak-spawn", "--host"] if is_cellar_sandboxed() else []
+
+    if install.variant == "flatpak":
+        # The Wine binary lives inside the Flatpak bundle at a fixed path.
+        # When Cellar is sandboxed we can't stat host paths, so we emit both
+        # candidates and let the subprocess failure serve as the probe.
+        return [
+            spawn + [str(p), "--version"]
+            for p in _FLATPAK_WINE_PATHS
+        ]
+
+    # Native or custom: Wine should be on $PATH.
+    return [spawn + ["wine", "--version"]]
 
 
 # ---------------------------------------------------------------------------

@@ -4,6 +4,26 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.12.32] — 2026-03-01
+
+### Fixed
+- **Flatpak Bottles sys-wine detection** — `_detect_system_wine()` now
+  accepts the `BottlesInstall` and uses the correct Wine binary depending on
+  the install variant:
+  - **Flatpak Bottles** — probes the Wine binary bundled inside the Flatpak
+    at `/var/lib/flatpak/app/com.usebottles.bottles/current/active/files/bin/wine`
+    (system install) and the per-user equivalent; falls back to the second
+    path if the first is not present.  `wine` on `$PATH` is never used for
+    Flatpak Bottles.
+  - **Native / custom Bottles** — unchanged: `wine --version` on `$PATH`.
+  - `flatpak-spawn --host` prefix is still applied in both cases when Cellar
+    itself runs sandboxed.
+- New helper `_wine_version_cmds(install)` encapsulates the per-variant
+  command selection and is independently tested.
+- 6 new tests (173 total).
+
+---
+
 ## [0.12.31] — 2026-03-01
 
 ### Fixed

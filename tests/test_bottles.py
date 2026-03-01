@@ -568,7 +568,7 @@ def _install_with_data_path(data_path: Path) -> b.BottlesInstall:
 
 def _no_sys_wine():
     """Patch _detect_system_wine to return [] so tests are isolated."""
-    return patch("cellar.backend.bottles._detect_system_wine", return_value=[])
+    return patch("cellar.backend.bottles._detect_system_wine", return_value=[], autospec=True)
 
 
 def test_list_runners_empty_when_no_runners_dir(tmp_path):
@@ -620,69 +620,159 @@ def test_list_runners_sorted(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# _wine_version_cmds
+# ---------------------------------------------------------------------------
+
+def _native_install(tmp_path):
+    bottles_dir = tmp_path / "bottles"
+    bottles_dir.mkdir(exist_ok=True)
+    return b.BottlesInstall(data_path=bottles_dir, variant="native", cli_cmd=[])
+
+
+def _flatpak_install(tmp_path):
+    bottles_dir = tmp_path / "bottles"
+    bottles_dir.mkdir(exist_ok=True)
+    return b.BottlesInstall(data_path=bottles_dir, variant="flatpak", cli_cmd=[])
+
+
+def test_wine_version_cmds_native_unsandboxed(tmp_path):
+    install = _native_install(tmp_path)
+    with patch.object(b, "_FLATPAK_INFO", tmp_path / "no-info"):
+        cmds = b._wine_version_cmds(install)
+    assert cmds == [["wine", "--version"]]
+
+
+def test_wine_version_cmds_native_sandboxed(tmp_path):
+    info = tmp_path / ".flatpak-info"
+    info.touch()
+    install = _native_install(tmp_path)
+    with patch.object(b, "_FLATPAK_INFO", info):
+        cmds = b._wine_version_cmds(install)
+    assert cmds == [["flatpak-spawn", "--host", "wine", "--version"]]
+
+
+def test_wine_version_cmds_flatpak_uses_bundle_paths(tmp_path):
+    install = _flatpak_install(tmp_path)
+    with patch.object(b, "_FLATPAK_INFO", tmp_path / "no-info"):
+        cmds = b._wine_version_cmds(install)
+    # Both Flatpak Wine paths should be present, ending with "--version"
+    assert len(cmds) == 2
+    for cmd in cmds:
+        assert cmd[-1] == "--version"
+        assert any("com.usebottles.bottles" in part for part in cmd)
+
+
+def test_wine_version_cmds_flatpak_sandboxed_prefixes_spawn(tmp_path):
+    info = tmp_path / ".flatpak-info"
+    info.touch()
+    install = _flatpak_install(tmp_path)
+    with patch.object(b, "_FLATPAK_INFO", info):
+        cmds = b._wine_version_cmds(install)
+    for cmd in cmds:
+        assert cmd[:2] == ["flatpak-spawn", "--host"]
+
+
+# ---------------------------------------------------------------------------
 # _detect_system_wine
 # ---------------------------------------------------------------------------
 
-def test_detect_system_wine_returns_sys_wine_name():
+def test_detect_system_wine_returns_sys_wine_name(tmp_path):
+    install = _native_install(tmp_path)
     with patch("cellar.backend.bottles.subprocess.run",
                return_value=_completed(stdout="wine-11.0\n")), \
-         patch.object(b, "_FLATPAK_INFO", Path("/nonexistent")):
-        result = b._detect_system_wine()
+         patch.object(b, "_FLATPAK_INFO", tmp_path / "no-info"):
+        result = b._detect_system_wine(install)
     assert result == ["sys-wine-11.0"]
 
 
-def test_detect_system_wine_strips_trailing_whitespace():
+def test_detect_system_wine_strips_trailing_whitespace(tmp_path):
+    install = _native_install(tmp_path)
     with patch("cellar.backend.bottles.subprocess.run",
                return_value=_completed(stdout="wine-9.0  \n")), \
-         patch.object(b, "_FLATPAK_INFO", Path("/nonexistent")):
-        result = b._detect_system_wine()
+         patch.object(b, "_FLATPAK_INFO", tmp_path / "no-info"):
+        result = b._detect_system_wine(install)
     assert result == ["sys-wine-9.0"]
 
 
-def test_detect_system_wine_returns_empty_when_not_found():
+def test_detect_system_wine_returns_empty_when_not_found(tmp_path):
+    install = _native_install(tmp_path)
     with patch("cellar.backend.bottles.subprocess.run",
                side_effect=FileNotFoundError), \
-         patch.object(b, "_FLATPAK_INFO", Path("/nonexistent")):
-        result = b._detect_system_wine()
+         patch.object(b, "_FLATPAK_INFO", tmp_path / "no-info"):
+        result = b._detect_system_wine(install)
     assert result == []
 
 
-def test_detect_system_wine_returns_empty_on_timeout():
+def test_detect_system_wine_returns_empty_on_timeout(tmp_path):
+    install = _native_install(tmp_path)
     with patch("cellar.backend.bottles.subprocess.run",
                side_effect=subprocess.TimeoutExpired(cmd=[], timeout=5)), \
-         patch.object(b, "_FLATPAK_INFO", Path("/nonexistent")):
-        result = b._detect_system_wine()
+         patch.object(b, "_FLATPAK_INFO", tmp_path / "no-info"):
+        result = b._detect_system_wine(install)
     assert result == []
 
 
-def test_detect_system_wine_returns_empty_on_nonzero_exit():
+def test_detect_system_wine_returns_empty_on_nonzero_exit(tmp_path):
+    install = _native_install(tmp_path)
     with patch("cellar.backend.bottles.subprocess.run",
                return_value=_completed(returncode=1)), \
-         patch.object(b, "_FLATPAK_INFO", Path("/nonexistent")):
-        result = b._detect_system_wine()
+         patch.object(b, "_FLATPAK_INFO", tmp_path / "no-info"):
+        result = b._detect_system_wine(install)
     assert result == []
 
 
-def test_detect_system_wine_prefixes_flatpak_spawn_when_sandboxed(tmp_path):
+def test_detect_system_wine_native_prefixes_flatpak_spawn_when_sandboxed(tmp_path):
     info = tmp_path / ".flatpak-info"
     info.touch()
+    install = _native_install(tmp_path)
     with patch("cellar.backend.bottles.subprocess.run",
                return_value=_completed(stdout="wine-11.0\n")) as mock_run, \
          patch.object(b, "_FLATPAK_INFO", info):
-        b._detect_system_wine()
+        b._detect_system_wine(install)
     cmd = mock_run.call_args[0][0]
     assert cmd[:2] == ["flatpak-spawn", "--host"]
     assert "wine" in cmd
 
 
-def test_detect_system_wine_no_flatpak_spawn_when_unsandboxed(tmp_path):
-    info = tmp_path / ".flatpak-info"  # does not exist
+def test_detect_system_wine_native_no_flatpak_spawn_when_unsandboxed(tmp_path):
+    install = _native_install(tmp_path)
     with patch("cellar.backend.bottles.subprocess.run",
                return_value=_completed(stdout="wine-11.0\n")) as mock_run, \
-         patch.object(b, "_FLATPAK_INFO", info):
-        b._detect_system_wine()
+         patch.object(b, "_FLATPAK_INFO", tmp_path / "no-info"):
+        b._detect_system_wine(install)
     cmd = mock_run.call_args[0][0]
     assert "flatpak-spawn" not in cmd
+
+
+def test_detect_system_wine_flatpak_uses_bundle_wine_path(tmp_path):
+    """For Flatpak Bottles, the command must reference the Bottles Flatpak Wine binary."""
+    install = _flatpak_install(tmp_path)
+    with patch("cellar.backend.bottles.subprocess.run",
+               return_value=_completed(stdout="wine-11.0\n")) as mock_run, \
+         patch.object(b, "_FLATPAK_INFO", tmp_path / "no-info"):
+        result = b._detect_system_wine(install)
+    assert result == ["sys-wine-11.0"]
+    cmd = mock_run.call_args[0][0]
+    assert any("com.usebottles.bottles" in part for part in cmd)
+
+
+def test_detect_system_wine_flatpak_falls_back_to_second_path(tmp_path):
+    """If the first Flatpak Wine path fails, the second is tried."""
+    install = _flatpak_install(tmp_path)
+    call_count = 0
+
+    def _side_effect(cmd, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise FileNotFoundError
+        return _completed(stdout="wine-11.0\n")
+
+    with patch("cellar.backend.bottles.subprocess.run", side_effect=_side_effect), \
+         patch.object(b, "_FLATPAK_INFO", tmp_path / "no-info"):
+        result = b._detect_system_wine(install)
+    assert result == ["sys-wine-11.0"]
+    assert call_count == 2
 
 
 # ---------------------------------------------------------------------------

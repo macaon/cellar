@@ -1004,7 +1004,7 @@ class RunnerManagerDialog(Adw.Dialog):
         self._build_ui()
 
     def _build_ui(self) -> None:
-        from cellar.backend.components import family_display_order, get_family_info
+        from cellar.backend.components import _version_sort_key, family_display_order, get_family_info
 
         toolbar = Adw.ToolbarView()
 
@@ -1056,8 +1056,11 @@ class RunnerManagerDialog(Adw.Dialog):
                 active_families.add(fam)
 
         display_order = family_display_order()
-        ordered: list[str] = [f for f in display_order if f in active_families]
-        ordered.extend(sorted(f for f in active_families if f not in display_order))
+        explicit = [f for f in display_order if f in active_families]
+        rest = sorted(f for f in active_families if f not in display_order and f != "other")
+        ordered: list[str] = explicit + rest
+        if "other" in active_families:
+            ordered.append("other")
 
         # ── Uncategorized installed runners ────────────────────────────────
         if uncategorized:
@@ -1081,7 +1084,7 @@ class RunnerManagerDialog(Adw.Dialog):
                 installed_in_family: set[str] = {
                     r for r in self._installed if runner_to_family.get(r) == dir_name
                 }
-                all_runners = sorted(index_runners | installed_in_family, reverse=True)
+                all_runners = sorted(index_runners | installed_in_family, key=_version_sort_key, reverse=True)
 
                 # Auto-expand if the family contains the current or required runner.
                 should_expand = (
@@ -1152,7 +1155,7 @@ class RunnerManagerDialog(Adw.Dialog):
                 trash_btn.connect("clicked", self._on_delete, runner)
                 row.add_suffix(trash_btn)
         else:
-            dl_btn = Gtk.Button(icon_name="folder-arrow-down-symbolic")
+            dl_btn = Gtk.Button(icon_name="folder-download-symbolic")
             dl_btn.add_css_class("flat")
             dl_btn.set_valign(Gtk.Align.CENTER)
             dl_btn.set_tooltip_text("Download runner")

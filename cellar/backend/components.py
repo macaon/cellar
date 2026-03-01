@@ -47,25 +47,27 @@ REPO_URL = "https://github.com/bottlesdevs/components"
 # Runner family metadata
 # ---------------------------------------------------------------------------
 
-#: Maps the family directory name (under ``components/runners/``) to
-#: a ``(display_name, description)`` tuple.
+#: Maps the family key to a ``(display_name, description)`` tuple.
 _FAMILY_MAP: dict[str, tuple[str, str]] = {
     "soda":      ("Soda",      "Based on Valve's Wine; includes Staging and Proton patches."),
     "caffe":     ("Caffe",     "Based on Wine upstream; includes Staging and Proton patches."),
     "caffe-rc":  ("Caffe RC",  "Release candidates for Caffe."),
-    "vaniglia":  ("Vaniglia",  "Ubuntu Wine builds."),
     "wine-ge":   ("Wine GE",   "Based on Valve's Proton Experimental Wine. For non-Steam games outside Steam."),
     "kron4ek":   ("Kron4ek",   "Based on Wine upstream with Staging, Staging-TkG and optional Proton patchset."),
-    "lutris":    ("Lutris",    ""),
-    "lutris-ge": ("Lutris GE", ""),
     "proton-ge": ("Proton GE", "Based on Valve's Proton Experimental. Requires the Steam Runtime."),
     "proton":    ("Proton",    "Steam Proton builds."),
-    "sys-wine":  ("System Wine", ""),
+    "sys-wine":  ("Wine",      "System Wine and other Wine builds."),
+    "other":     ("Other",     "Lutris, Vaniglia and other less common runners."),
 }
 
-#: Preferred display order for runner families.
+#: Families that are folded into the "Other" group.
+_OTHER_FAMILIES: set[str] = {"lutris", "lutris-ge", "vaniglia"}
+
+#: Preferred display order for runner families.  Families not listed here
+#: appear in alphabetical order after the last explicit entry but before
+#: "other" (which is always last).
 _FAMILY_DISPLAY_ORDER: list[str] = [
-    "soda", "caffe", "wine-ge", "kron4ek", "lutris", "proton-ge",
+    "soda", "caffe", "wine-ge", "kron4ek", "proton-ge",
 ]
 
 
@@ -141,6 +143,7 @@ def list_available_runners() -> list[str]:
 
 _FAMILY_PREFIX_MAP: list[tuple[str, str]] = [
     # Longest prefixes first to avoid partial matches.
+    ("sys-wine-",  "sys-wine"),
     ("lutris-ge-", "lutris-ge"),
     ("wine-ge-",   "wine-ge"),
     ("caffe-rc-",  "caffe-rc"),
@@ -155,12 +158,42 @@ _FAMILY_PREFIX_MAP: list[tuple[str, str]] = [
 
 
 def _classify_runner(name: str, fallback_dir: str) -> str:
-    """Return the family key for a runner based on its name prefix."""
+    """Return the family key for a runner based on its name prefix.
+
+    Families in :data:`_OTHER_FAMILIES` are folded into ``"other"``.
+    """
     lower = name.lower()
-    for prefix, family in _FAMILY_PREFIX_MAP:
+    family = fallback_dir
+    for prefix, fam in _FAMILY_PREFIX_MAP:
         if lower.startswith(prefix):
-            return family
-    return fallback_dir
+            family = fam
+            break
+    if family in _OTHER_FAMILIES:
+        return "other"
+    return family
+
+
+import re as _re
+
+_VERSION_RE = _re.compile(r"(\d+)")
+
+
+def _version_sort_key(name: str) -> list[int | str]:
+    """Split *name* into text/number tokens for natural (version-aware) sort.
+
+    ``"ge-proton10-32"`` → ``["ge-proton", 10, "-", 32]`` so that
+    ``ge-proton10`` sorts after ``ge-proton9``.
+    """
+    parts: list[int | str] = []
+    pos = 0
+    for m in _VERSION_RE.finditer(name):
+        if m.start() > pos:
+            parts.append(name[pos : m.start()])
+        parts.append(int(m.group()))
+        pos = m.end()
+    if pos < len(name):
+        parts.append(name[pos:])
+    return parts
 
 
 def list_runners_by_category() -> dict[str, list[str]]:
@@ -169,9 +202,12 @@ def list_runners_by_category() -> dict[str, list[str]]:
     Scans every ``*.yml`` file under each subdirectory of
     ``components/runners/`` and classifies runners by their name prefix
     (e.g. ``soda-*`` → ``soda``, ``ge-proton*`` → ``proton-ge``).  Runners
-    that don't match any known prefix fall back to their directory name.
+    whose prefix is in :data:`_OTHER_FAMILIES` are merged into ``"other"``.
+    Runners that don't match any known prefix fall back to their directory
+    name.
 
-    Names within each family are sorted reverse-alphabetically (newest first).
+    Names within each family are sorted newest-first using version-aware
+    natural sort (so ``ge-proton10`` sorts before ``ge-proton9``).
 
     Returns ``{}`` when the clone is absent or yaml is unavailable.
     """
@@ -198,7 +234,7 @@ def list_runners_by_category() -> dict[str, list[str]]:
             except Exception:  # noqa: BLE001
                 pass
     for family in result:
-        result[family] = sorted(result[family], reverse=True)
+        result[family] = sorted(result[family], key=_version_sort_key, reverse=True)
     return result
 
 
@@ -212,7 +248,11 @@ def get_family_info(dir_name: str) -> tuple[str, str]:
 
 
 def family_display_order() -> list[str]:
-    """Return the preferred display order for runner families."""
+    """Return the preferred display order for runner families.
+
+    Families not in this list appear alphabetically after these, except
+    ``"other"`` which is always last.
+    """
     return list(_FAMILY_DISPLAY_ORDER)
 
 

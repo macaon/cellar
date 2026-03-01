@@ -2,6 +2,19 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.13.2] — 2026-03-01
+
+### Fixed
+- **Version-aware sorting** — runners now sort by version number naturally
+  (`ge-proton10` before `ge-proton9`) instead of lexicographically.
+- **Download icon** — replaced missing `folder-arrow-down-symbolic` with
+  `folder-download-symbolic` (standard Adwaita icon).
+- **sys-wine under Wine** — `sys-wine-*` runners now appear under the "Wine"
+  family instead of getting their own section.
+- **Other group** — Lutris, Lutris GE and Vaniglia are folded into an "Other"
+  group at the bottom of the runner list; remaining families appear in
+  alphabetical order after the preferred ones.
+
 ## [0.13.1] — 2026-03-01
 
 ### Fixed

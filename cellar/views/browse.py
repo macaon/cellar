@@ -177,7 +177,7 @@ class AppCard(Gtk.FlowBoxChild):
         overlay.set_child(card)
 
         if is_installed:
-            check = Gtk.Image.new_from_icon_name("app-installed-symbolic")
+            check = Gtk.Image.new_from_icon_name("check-round-outline2-symbolic")
             check.set_pixel_size(16)
             check.set_halign(Gtk.Align.END)
             check.set_valign(Gtk.Align.START)

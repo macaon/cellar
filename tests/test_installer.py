@@ -40,11 +40,16 @@ def _bottles(tmp_path: Path) -> BottlesInstall:
     return BottlesInstall(data_path=data, variant="native", cli_cmd=["bottles-cli"])
 
 
-def _make_archive(tmp_path: Path, bottle_name: str = "TestBottle") -> Path:
+def _make_archive(
+    tmp_path: Path,
+    bottle_name: str = "TestBottle",
+    extra_yml: str = "",
+) -> Path:
     """Create a minimal .tar.gz containing a fake bottle directory."""
     src = tmp_path / "_bottle_src" / bottle_name
     src.mkdir(parents=True)
-    (src / "bottle.yml").write_text("Name: TestBottle\nRunner: wine-7.0\n")
+    yml = f"Name: {bottle_name}\nRunner: wine-7.0\n{extra_yml}"
+    (src / "bottle.yml").write_text(yml)
     (src / "drive_c").mkdir()
     archive = tmp_path / "test-app-1.0.tar.gz"
     with tarfile.open(archive, "w:gz") as tf:
@@ -260,19 +265,38 @@ def test_install_app_local_happy_path(tmp_path):
     bottles = _bottles(tmp_path)
     entry = _entry()
     bottle_name = ins.install_app(entry, str(archive), bottles)
-    assert bottle_name == "test-app"
-    assert (bottles.data_path / "test-app" / "bottle.yml").exists()
-    assert (bottles.data_path / "test-app" / "drive_c").is_dir()
+    # Directory name comes from the archive, not the entry ID
+    assert bottle_name == "TestBottle"
+    assert (bottles.data_path / "TestBottle" / "bottle.yml").exists()
+    assert (bottles.data_path / "TestBottle" / "drive_c").is_dir()
+
+
+def test_install_app_fixes_program_paths(tmp_path):
+    """bottle.yml External_Programs paths are rewritten to the install location."""
+    old_path = "/home/otheruser/.var/app/com.usebottles.bottles/data/bottles/bottles"
+    extra_yml = (
+        "External_Programs:\n"
+        "  myapp:\n"
+        f"    path: {old_path}/TestBottle/drive_c/MyApp/MyApp.exe\n"
+        "    name: MyApp\n"
+    )
+    archive = _make_archive(tmp_path, "TestBottle", extra_yml=extra_yml)
+    bottles = _bottles(tmp_path)
+    ins.install_app(_entry(), str(archive), bottles)
+    yml_text = (bottles.data_path / "TestBottle" / "bottle.yml").read_text()
+    expected_prefix = str(bottles.data_path / "TestBottle")
+    assert expected_prefix in yml_text
+    assert old_path not in yml_text
 
 
 def test_install_app_collision_suffix(tmp_path):
-    archive = _make_archive(tmp_path)
+    archive = _make_archive(tmp_path)  # archive dir is "TestBottle"
     bottles = _bottles(tmp_path)
-    (bottles.data_path / "test-app").mkdir()   # pre-existing
+    (bottles.data_path / "TestBottle").mkdir()   # pre-existing collision
     entry = _entry()
     bottle_name = ins.install_app(entry, str(archive), bottles)
-    assert bottle_name == "test-app-2"
-    assert (bottles.data_path / "test-app-2").is_dir()
+    assert bottle_name == "TestBottle-2"
+    assert (bottles.data_path / "TestBottle-2").is_dir()
 
 
 def test_install_app_sha256_verified(tmp_path):
@@ -289,7 +313,7 @@ def test_install_app_sha256_correct_passes(tmp_path):
     sha = hashlib.sha256(archive.read_bytes()).hexdigest()
     entry = _entry(archive_sha256=sha)
     bottle_name = ins.install_app(entry, str(archive), bottles)
-    assert bottle_name == "test-app"
+    assert bottle_name == "TestBottle"
 
 
 def test_install_app_cancel_before_start(tmp_path):
@@ -341,5 +365,5 @@ def test_install_app_partial_copy_cleaned_up_on_error(tmp_path):
                side_effect=OSError("disk full")):
         with pytest.raises(OSError, match="disk full"):
             ins.install_app(entry, str(archive), bottles)
-    # Destination must not exist (cleaned up)
-    assert not (bottles.data_path / "test-app").exists()
+    # Destination must not exist (cleaned up); archive dir name is "TestBottle"
+    assert not (bottles.data_path / "TestBottle").exists()

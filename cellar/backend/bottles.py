@@ -150,6 +150,102 @@ def _build_cli_cmd(*, is_flatpak_bottles: bool, sandboxed: bool) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# bottle.yml program reader
+# ---------------------------------------------------------------------------
+
+def read_bottle_programs(bottle_path: Path) -> list[dict]:
+    """Return non-removed External_Programs entries from *bottle_path*/bottle.yml.
+
+    Each returned dict contains at least ``name``, ``executable``, ``path``,
+    and optionally ``arguments``.  Programs with ``removed: true`` are excluded.
+    """
+    import yaml
+
+    yml_path = bottle_path / "bottle.yml"
+    if not yml_path.exists():
+        return []
+    try:
+        data = yaml.safe_load(yml_path.read_text(encoding="utf-8", errors="replace"))
+    except (OSError, yaml.YAMLError):
+        return []
+
+    if not isinstance(data, dict):
+        return []
+
+    external = data.get("External_Programs") or {}
+    programs = [p for p in external.values() if isinstance(p, dict)]
+    return [p for p in programs if p.get("removed") is not True]
+
+
+# ---------------------------------------------------------------------------
+# Launch helpers
+# ---------------------------------------------------------------------------
+
+def _bottle_display_name(install: BottlesInstall, bottle_dir: str) -> str:
+    """Return the bottle's display name from bottle.yml.
+
+    ``bottles-cli run -b`` expects the ``Name`` field from ``bottle.yml``,
+    not the directory name.  Falls back to *bottle_dir* if the file is missing
+    or unparseable.
+    """
+    import yaml
+
+    yml_path = install.data_path / bottle_dir / "bottle.yml"
+    try:
+        data = yaml.safe_load(yml_path.read_text(encoding="utf-8", errors="replace"))
+        if isinstance(data, dict) and data.get("Name"):
+            return str(data["Name"])
+    except (OSError, yaml.YAMLError):
+        pass
+    return bottle_dir
+
+
+def launch_bottle(
+    install: BottlesInstall,
+    bottle_name: str,
+    entry_point: str | None = None,
+    program: dict | None = None,
+) -> None:
+    """Launch a program inside a bottle, or open the Bottles GUI as a fallback.
+
+    Fire-and-forget: spawned with ``start_new_session=True``.
+
+    ``bottles-cli run`` flags used:
+
+    * ``-b <display_name>`` — the ``Name`` field from ``bottle.yml``; resolved
+      via :func:`_bottle_display_name`.
+    * ``-p <program_name>`` — for registered ``External_Programs`` entries;
+      bottles-cli looks up the entry by ``name``, resolves its path, and
+      applies its stored arguments automatically.
+    * ``-e <exe_path>`` — for a raw catalogue ``entry_point``; tells
+      bottles-cli to run that executable directly via wine.
+
+    Priority:
+    1. *program* dict (from ``read_bottle_programs``) — run by program name
+       via ``-p``; bottles-cli handles path and arguments from its own config.
+    2. *entry_point* string (from the catalogue) — run executable via ``-e``.
+    3. Neither — opens the Bottles GUI for the user to start the app manually.
+    """
+    import subprocess
+
+    if program or entry_point:
+        display_name = _bottle_display_name(install, bottle_name)
+        if program:
+            prog_name = program.get("name") or ""
+            cmd = install.cli_cmd + ["run", "-b", display_name, "-p", prog_name]
+        else:
+            cmd = install.cli_cmd + ["run", "-b", display_name, "-e", entry_point]
+    else:
+        if install.variant == "flatpak":
+            inner: list[str] = ["flatpak", "run", _BOTTLES_FLATPAK_ID]
+        else:
+            inner = ["bottles"]
+        cmd = (["flatpak-spawn", "--host"] + inner) if is_cellar_sandboxed() else inner
+
+    subprocess.Popen(cmd, start_new_session=True)
+
+
+# ---------------------------------------------------------------------------
 # bottles-cli wrapper
 # ---------------------------------------------------------------------------
 

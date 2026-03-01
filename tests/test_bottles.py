@@ -524,3 +524,5 @@ def test_edit_bottle_with_flatpak_cli_cmd():
     cmd = mock_run.call_args[0][0]
     assert cmd[:4] == ["flatpak", "run", "--command=bottles-cli", "com.usebottles.bottles"]
     assert cmd[4:] == ["edit", "-b", "MyGame", "-k", "DXVK", "-v", "2.3"]
+
+

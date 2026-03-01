@@ -1,7 +1,7 @@
 """Packaging helpers for writing apps into a local Cellar repo.
 
 This module handles:
-- Reading ``bottle.yml`` from a Bottles backup archive (no PyYAML required)
+- Reading ``bottle.yml`` from a Bottles backup archive
 - Generating URL-safe app IDs from human names
 - Writing a complete archive + images + catalogue entry into a repo
 """
@@ -61,18 +61,18 @@ class _ProgressFileObj:
 
 
 def read_bottle_yml(archive_path: str, *, progress_cb=None) -> dict:
-    """Extract and return top-level scalar fields from ``bottle.yml``.
+    """Extract and parse ``bottle.yml`` from a Bottles ``.tar.gz`` backup.
 
-    Searches for ``bottle.yml`` at any depth inside the ``.tar.gz``.
-    Uses a simple line-by-line parser — no PyYAML dependency.
-    Iterates members one at a time so it stops as soon as the file is
-    found — no need to read the whole archive.
+    Searches for ``bottle.yml`` at any depth inside the archive.
+    Iterates members one at a time and stops as soon as the file is found.
 
     *progress_cb*, if given, is called with a float in ``[0, 1]``
     representing how far through the compressed stream has been read.
 
-    Returns an empty dict if the file is not found or cannot be read.
+    Returns an empty dict if the file is not found or cannot be parsed.
     """
+    import yaml
+
     try:
         with open(archive_path, "rb") as raw:
             if progress_cb:
@@ -87,24 +87,11 @@ def read_bottle_yml(archive_path: str, *, progress_cb=None) -> dict:
                         if f:
                             if progress_cb:
                                 progress_cb(1.0)
-                            return _parse_top_level(f.read())
-    except (tarfile.TarError, OSError):
+                            data = yaml.safe_load(f.read())
+                            return data if isinstance(data, dict) else {}
+    except (tarfile.TarError, OSError, yaml.YAMLError):
         pass
     return {}
-
-
-def _parse_top_level(content: bytes) -> dict:
-    """Parse only non-indented ``Key: value`` lines.
-
-    This is sufficient for all the scalar fields we care about
-    (Name, Runner, DXVK, VKD3D, Windows, Environment).
-    """
-    result: dict = {}
-    for line in content.decode(errors="replace").splitlines():
-        m = re.match(r"^([A-Za-z_]\w*): (.+)$", line)
-        if m:
-            result[m.group(1)] = m.group(2).strip().strip("'\"")
-    return result
 
 
 # ---------------------------------------------------------------------------

@@ -13,10 +13,16 @@ Install flow
    as the bottle source; if there are multiple, the one containing
    ``bottle.yml`` is preferred.
 5. **Name** — a collision-safe bottle directory name is derived from the
-   app ID (e.g. ``my-app``, then ``my-app-2``, ``my-app-3`` …).
+   archive's top-level directory name (preserving original capitalisation),
+   e.g. ``My-App``, then ``My-App-2``, ``My-App-3`` …
 6. **Copy** — ``shutil.copytree`` moves the extracted bottle into the Bottles
    data path; a partial copy is cleaned up on failure.
-7. **Return** — the caller receives the ``bottle_name`` string and is
+7. **Fix paths** — absolute ``path:`` values inside ``bottle.yml``'s
+   ``External_Programs`` section are rewritten to use the actual install
+   location.  Bottles stores full host paths (e.g.
+   ``/home/alice/.var/…/bottles/MyApp/drive_c/…``) so they must be updated
+   whenever the target machine or user differs from the original.
+8. **Return** — the caller receives the ``bottle_name`` string and is
    responsible for writing the DB record (``database.mark_installed``).
 
 Threading
@@ -131,7 +137,10 @@ def install_app(
         bottle_src = _find_bottle_dir(extract_dir)
 
         # ── Step 5: Collision-safe name ────────────────────────────────
-        bottle_name = _safe_bottle_name(entry.id, bottles_install.data_path)
+        # Use the directory name from the archive verbatim so that absolute
+        # paths stored in bottle.yml (External_Programs entries etc.) remain
+        # valid after installation.
+        bottle_name = _safe_bottle_name(bottle_src.name, bottles_install.data_path)
         bottle_dest = bottles_install.data_path / bottle_name
 
         # ── Step 6: Copy into Bottles ──────────────────────────────────
@@ -141,6 +150,9 @@ def install_app(
         except Exception:
             shutil.rmtree(bottle_dest, ignore_errors=True)
             raise
+
+        # ── Step 7: Fix absolute paths in bottle.yml ───────────────────
+        _fix_program_paths(bottle_dest, bottles_install.data_path)
 
     if install_cb:
         install_cb(1.0)
@@ -468,6 +480,39 @@ def _safe_bottle_name(app_id: str, data_path: Path) -> str:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _fix_program_paths(bottle_dest: Path, new_data_path: Path) -> None:
+    """Rewrite absolute External_Programs path values in bottle.yml.
+
+    Bottles stores full host paths in ``bottle.yml``, e.g.::
+
+        path: /home/alice/.var/…/bottles/MyApp/drive_c/MyApp/MyApp.exe
+
+    These break on any machine where the username or Bottles data directory
+    differs from the original.  We replace the prefix up to and including
+    ``/<bottle_dir_name>/`` with the actual install location.  If the paths
+    already point to the correct location (same machine, same user) this is
+    a no-op.
+    """
+    import re
+
+    bottle_name = bottle_dest.name
+    yml_path = bottle_dest / "bottle.yml"
+    try:
+        text = yml_path.read_text(encoding="utf-8", errors="replace")
+        new_prefix = str(new_data_path / bottle_name) + "/"
+        # Match any indented "path: <anything>/<bottle_name>/<rest>" line and
+        # replace the prefix up to /<bottle_name>/ with the new location.
+        pattern = re.compile(
+            r"(^\s+path:\s+).*?" + re.escape(bottle_name) + r"/(.+)$",
+            re.MULTILINE,
+        )
+        patched = pattern.sub(lambda m: m.group(1) + new_prefix + m.group(2), text)
+        if patched != text:
+            yml_path.write_text(patched, encoding="utf-8")
+    except OSError:
+        pass
+
 
 def _check_cancel(cancel_event: threading.Event | None) -> None:
     if cancel_event and cancel_event.is_set():

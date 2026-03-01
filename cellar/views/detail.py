@@ -148,25 +148,28 @@ class DetailView(Gtk.Box):
         for cls in ("suggested-action", "success", "destructive-action"):
             btn.remove_css_class(cls)
         if self._is_installed:
-            btn.set_label("Remove")
-            btn.add_css_class("destructive-action")
+            btn.set_label("Open")
+            btn.add_css_class("suggested-action")
             btn.set_sensitive(True)
             btn.set_tooltip_text("")
+            self._remove_btn.set_visible(True)
         elif self._bottles_installs:
             btn.set_label("Install")
             btn.add_css_class("suggested-action")
             btn.set_sensitive(True)
             btn.set_tooltip_text("")
+            self._remove_btn.set_visible(False)
         else:
             btn.set_label("Install")
             btn.add_css_class("suggested-action")
             btn.set_sensitive(False)
             btn.set_tooltip_text("Bottles is not installed")
+            self._remove_btn.set_visible(False)
         self._update_btn.set_visible(self._has_update)
 
     def _on_install_clicked(self, _btn) -> None:
         if self._is_installed:
-            self._on_remove_clicked()
+            self._on_open_clicked()
             return
         archive_uri = self._resolve(self._entry.archive) if self._entry.archive else ""
         dialog = InstallProgressDialog(
@@ -184,6 +187,30 @@ class DetailView(Gtk.Box):
         self._update_install_button()
         if self._on_install_done:
             self._on_install_done(bottle_name)
+
+    def _on_open_clicked(self) -> None:
+        from cellar.backend.bottles import launch_bottle, read_bottle_programs
+        bottle_name = (self._installed_record or {}).get("bottle_name", "")
+        if not bottle_name or not self._bottles_installs:
+            return
+        # Prefer the install that actually has the bottle directory.
+        install = self._bottles_installs[0]
+        for inst in self._bottles_installs:
+            if (inst.data_path / bottle_name).is_dir():
+                install = inst
+                break
+        programs = read_bottle_programs(install.data_path / bottle_name)
+        if not programs:
+            # Nothing registered — fall back to catalogue entry_point or GUI.
+            launch_bottle(install, bottle_name, self._entry.entry_point or None)
+        elif len(programs) == 1:
+            launch_bottle(install, bottle_name, program=programs[0])
+        else:
+            LaunchProgramDialog(
+                bottle_name=bottle_name,
+                install=install,
+                programs=programs,
+            ).present(self.get_root())
 
     def _on_remove_clicked(self) -> None:
         bottle_name = (self._installed_record or {}).get("bottle_name", "")
@@ -331,7 +358,7 @@ class DetailView(Gtk.Box):
         if chips.get_first_child():
             meta.append(chips)
 
-        # Right column: Install/Remove + Update buttons + source selector.
+        # Right column: action row + update + source selector.
         right = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL,
             spacing=6,
@@ -340,10 +367,22 @@ class DetailView(Gtk.Box):
         )
         box.append(right)
 
+        # Action row: primary button (Install / Open) + trash (visible when installed).
+        action_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        right.append(action_row)
+
         self._install_btn = Gtk.Button()
         self._install_btn.set_size_request(105, 34)
         self._install_btn.connect("clicked", self._on_install_clicked)
-        right.append(self._install_btn)
+        action_row.append(self._install_btn)
+
+        self._remove_btn = Gtk.Button(icon_name="user-trash-symbolic")
+        self._remove_btn.set_size_request(34, 34)
+        self._remove_btn.add_css_class("destructive-action")
+        self._remove_btn.set_tooltip_text("Uninstall")
+        self._remove_btn.connect("clicked", lambda _b: self._on_remove_clicked())
+        self._remove_btn.set_visible(False)
+        action_row.append(self._remove_btn)
 
         self._update_btn = Gtk.Button(label="Update")
         self._update_btn.set_size_request(105, 34)
@@ -616,6 +655,88 @@ class DetailView(Gtk.Box):
         img = Gtk.Image.new_from_icon_name("application-x-executable")
         img.set_pixel_size(size)
         return img
+
+
+# ---------------------------------------------------------------------------
+# Program picker dialog (shown when a bottle has multiple External_Programs)
+# ---------------------------------------------------------------------------
+
+
+class LaunchProgramDialog(Adw.Dialog):
+    """Let the user pick which program inside a bottle to launch."""
+
+    def __init__(
+        self,
+        *,
+        bottle_name: str,
+        install,          # BottlesInstall
+        programs: list[dict],
+    ) -> None:
+        super().__init__(title="Open", content_width=360)
+        self._bottle_name = bottle_name
+        self._install = install
+        self._programs = programs
+        self._selected: dict | None = programs[0] if programs else None
+        self._build_ui()
+
+    def _build_ui(self) -> None:
+        toolbar = Adw.ToolbarView()
+
+        header = Adw.HeaderBar()
+        header.set_show_end_title_buttons(False)
+
+        cancel_btn = Gtk.Button(label="Cancel")
+        cancel_btn.connect("clicked", lambda _: self.close())
+        header.pack_start(cancel_btn)
+
+        open_btn = Gtk.Button(label="Open")
+        open_btn.add_css_class("suggested-action")
+        open_btn.connect("clicked", self._on_open_clicked)
+        header.pack_end(open_btn)
+
+        toolbar.add_top_bar(header)
+
+        scroll = Gtk.ScrolledWindow(
+            hscrollbar_policy=Gtk.PolicyType.NEVER,
+            vscrollbar_policy=Gtk.PolicyType.AUTOMATIC,
+        )
+        scroll.set_propagate_natural_height(True)
+
+        page = Adw.PreferencesPage()
+        scroll.set_child(page)
+
+        group = Adw.PreferencesGroup(title="Select Program")
+        page.add(group)
+
+        radio_group: Gtk.CheckButton | None = None
+        for program in self._programs:
+            name = program.get("name") or program.get("executable") or "Unknown"
+            exe = program.get("executable") or ""
+            row = Adw.ActionRow(title=name, subtitle=exe)
+            radio = Gtk.CheckButton()
+            radio.set_valign(Gtk.Align.CENTER)
+            if radio_group is None:
+                radio_group = radio
+                radio.set_active(True)
+            else:
+                radio.set_group(radio_group)
+            radio.connect("toggled", self._on_radio_toggled, program)
+            row.add_prefix(radio)
+            row.set_activatable_widget(radio)
+            group.add(row)
+
+        toolbar.set_content(scroll)
+        self.set_child(toolbar)
+
+    def _on_radio_toggled(self, btn: Gtk.CheckButton, program: dict) -> None:
+        if btn.get_active():
+            self._selected = program
+
+    def _on_open_clicked(self, _btn) -> None:
+        from cellar.backend.bottles import launch_bottle
+        if self._selected:
+            launch_bottle(self._install, self._bottle_name, program=self._selected)
+        self.close()
 
 
 # ---------------------------------------------------------------------------

@@ -4,6 +4,56 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.12.29] — 2026-03-01
+
+### Added
+- **Open button replaces Remove** — when an app is installed the primary
+  action button now reads "Open" and launches the bottle directly.  A
+  `user-trash-symbolic` icon button (34 × 34 px, `destructive-action`)
+  appears beside it for uninstalling, matching GNOME Software's layout.
+- **Smart Open flow** — clicking Open reads `External_Programs` from
+  `bottle.yml` and picks the right launch path automatically:
+  - **0 programs** → falls back to the catalogue `entry_point`, or opens
+    the Bottles GUI if no entry point is configured.
+  - **1 program** → launches it directly.
+  - **2+ programs** → opens `LaunchProgramDialog`, a small picker with radio
+    rows (name as title, executable path as subtitle); Cancel/Open buttons in
+    the header bar.
+- **`launch_bottle()`** in `bottles.py` — handles all four
+  sandbox/variant combinations (Cellar sandboxed/unsandboxed ×
+  Flatpak/native Bottles).
+- **`read_bottle_programs()`** in `bottles.py` — parses `External_Programs`
+  from `bottle.yml` via `yaml.safe_load`; filters out `removed: true`
+  entries.
+
+### Changed
+- **PyYAML adopted** — `PyYAML` added to `pyproject.toml` dependencies and
+  used for all `bottle.yml` parsing (`read_bottle_programs()`,
+  `read_bottle_yml()` in `packager.py`).
+
+### Fixed
+- **`bottles-cli` bottle name** — `launch_bottle()` now reads the `Name`
+  field from `bottle.yml` (via `_bottle_display_name()`) and passes it as
+  the `-b` argument; previously the directory name was used, which could
+  differ from the display name Bottles expects.
+- **`bottles-cli run` flags** — corrected flag usage: `-p <name>` for
+  registered `External_Programs` entries (bottles-cli resolves the path and
+  arguments from its own config); `-e <path>` for a raw catalogue
+  `entry_point`.  The non-existent `-a` flag was removed.
+- **Bottle directory name preserved from archive** — the installer now uses
+  the directory name from inside the archive verbatim (with a numeric suffix
+  only on collision) instead of deriving a lowercase slug from the catalogue
+  ID.  `bottle.yml` program paths are absolute and embed the original
+  directory name; the old slug-based naming caused `bottles-cli` to report
+  programs as not found.  Bottles itself is unaffected.
+- **Cross-machine `bottle.yml` path fixup** — Linux absolute paths in
+  `External_Programs` (e.g. `/home/alice/…/bottles/MyApp/drive_c/…`) are
+  rewritten to the actual install location after extraction, so archives
+  created on one machine import cleanly on any other regardless of username
+  or Bottles variant.  Windows-format paths (`C:\…`) are left untouched.
+
+---
+
 ## [0.12.28] — 2026-03-01
 
 ### Changed

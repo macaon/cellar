@@ -17,9 +17,10 @@ The project is called **Cellar**.
 - **Network I/O:** `urllib` for HTTP/HTTPS; system `ssh` subprocess for SSH repos; GIO (`gi.repository.Gio`) for SMB/NFS via GVFS
 - **Archive handling:** Python `tarfile` stdlib
 - **File sync:** `rsync` subprocess call for smart updates
-- **Bottles integration:** `bottles-cli` subprocess calls + direct YAML manipulation
+- **Bottles integration:** `bottles-cli` subprocess calls + direct YAML manipulation via `PyYAML`
+- **YAML:** `PyYAML` (`yaml.safe_load`) for reading `bottle.yml`
 
-Avoid pulling in heavy dependencies where the stdlib or GLib/GIO covers the need.
+Use the right library for the job. Everything is bundled inside the Flatpak, so there is no meaningful distinction between stdlib and a pip package at ship time.
 
 ---
 

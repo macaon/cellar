@@ -2,116 +2,53 @@
 
 All notable changes to Cellar are documented here.
 
-## [0.13.10] — 2026-03-01
-
-### Fixed
-- **Card icon left margin** — corrected from 23 px to 22 px to match the
-  vertical centering math: (96 - 52) / 2 = 22.
-
-## [0.13.9] — 2026-03-01
-
-### Changed
-- **Card icon sizing** — app icons are now 52×52 px with 23 px left margin,
-  matching GNOME Software's app tile layout.
-- **Card cover images** — covers now fill flush left (no margin), cropped and
-  zoomed to exactly 75 px wide × full card height for a clean edge-to-edge look.
-
-## [0.13.8] — 2026-03-01
-
-### Fixed
-- **Installed checkmark positioning** — margins adjusted to 9px top/right to
-  match GNOME Software exactly.
-
-## [0.13.7] — 2026-03-01
-
-### Changed
-- **Installed checkmark icon** — replaced homemade `app-installed-symbolic` with
-  the proper GNOME `check-round-outline2-symbolic` icon from the Icon Library.
-
-## [0.13.6] — 2026-03-01
-
-### Added
-- **Installed checkmark on app cards** — a green check icon with Adwaita
-  `success` class appears at the top-right corner of app cards in the Explore
-  view for installed apps, matching GNOME Software's style.
-
-## [0.13.5] — 2026-03-01
-
-### Changed
-- **Change button accent color** — the "Change" button on the runner row now
-  uses `suggested-action` (system accent color) instead of `flat` styling.
-
-## [0.13.4] — 2026-03-01
-
-### Fixed
-- **Installed runners classified by prefix** — locally installed runners not in
-  the components index (e.g. `sys-wine-11.0`) are now classified into families
-  by name prefix instead of dumped into a separate "Installed" group at the top.
-
-## [0.13.3] — 2026-03-01
-
-### Fixed
-- **sys-wine under Wine** — `sys-wine-*` runners now correctly merge into the
-  "Wine" family bucket (was a separate "Wine" section due to mismatched family
-  keys).
-- **Sorting** — runners within each family now sort alphabetically (A→Z) with
-  the newest version of each runner name on top (e.g. `chardonnay-6.12` before
-  `chardonnay-6.11`, then `sys-wine-11.0`, then `wc3-6.19`).
-
-## [0.13.2] — 2026-03-01
-
-### Fixed
-- **Version-aware sorting** — runners now sort by version number naturally
-  (`ge-proton10` before `ge-proton9`) instead of lexicographically.
-- **Download icon** — replaced missing `folder-arrow-down-symbolic` with
-  `folder-download-symbolic` (standard Adwaita icon).
-- **sys-wine under Wine** — `sys-wine-*` runners now appear under the "Wine"
-  family instead of getting their own section.
-- **Other group** — Lutris, Lutris GE and Vaniglia are folded into an "Other"
-  group at the bottom of the runner list; remaining families appear in
-  alphabetical order after the preferred ones.
-
-## [0.13.1] — 2026-03-01
-
-### Fixed
-- **Runner family grouping** — runners are now classified by name prefix
-  (e.g. `soda-*` → Soda, `ge-proton*` → Proton GE) instead of by directory
-  name, so the Runner Manager Dialog shows fine-grained families instead of two
-  giant "Wine" and "Proton" buckets.
-- **Checksum verification** — runner downloads now read the correct
-  `file_checksum` YAML field (was reading nonexistent `checksum`), and detect
-  MD5 vs SHA-256 by hash length so verification actually works.
-- **Runner Manager Dialog height** — added `content_height=500` so the dialog
-  has a reasonable default size with 600+ runners.
-
 ## [0.13.0] — 2026-03-01
 
 ### Added
 - **Runner manager dialog** — replaces the simple `SelectRunnerDialog` with a
-  new `RunnerManagerDialog` (500 px wide) that groups runners into collapsible
-  family sections (Soda, Caffe, Wine GE, Kron4ek, Lutris, Proton GE, …) using
-  data from the bottlesdevs/components index.  Each row shows state-based
-  suffix icons: installed + in-use → folder button only; installed + not in use
-  → folder + trash; not installed → download.
+  new `RunnerManagerDialog` (500 × 500 px) that groups runners into collapsible
+  family sections (Soda, Caffe, Wine GE, Kron4ek, Proton GE, …) using data
+  from the bottlesdevs/components index.  Each row shows state-based suffix
+  icons: installed + in-use → folder button only; installed + not in use →
+  folder + trash; not installed → `folder-download-symbolic`.
 - **Pre-install runner check** — when clicking **Install** and the required
-  runner is missing (and the runner list has loaded), Cellar now opens the
-  runner manager so the user can download or select an alternative before
-  proceeding.  Installation continues automatically once a runner is confirmed.
+  runner is missing, Cellar opens the runner manager so the user can download
+  or select an alternative before proceeding.  Installation continues
+  automatically once a runner is confirmed.
 - **Warning icon on runner row** — a small warning icon appears next to the
-  runner version in the Wine Components group while browsing when the required
-  runner is not installed; the banner that previously covered the full width of
-  the detail view is removed.
+  runner version in the Wine Components group when the required runner is not
+  installed.
 - `RunnerManagerDialog` can delete unused runners (confirmation dialog +
-  background `shutil.rmtree`) and open their folder in the system file manager
-  via `Gio.AppInfo.launch_default_for_uri`.
+  background `shutil.rmtree`) and open their folder in the system file manager.
+- **Installed checkmark on app cards** — a green GNOME
+  `check-round-outline2-symbolic` icon (Adwaita `success` class) appears at
+  the top-right corner (9 px margin) of app cards in the Explore view for
+  installed apps, matching GNOME Software's style.
+- **Card layout matching GNOME Software** — app icons are 52 × 52 px with
+  22 px margins (left, top, bottom); cover images fill flush left, cropped to
+  75 px wide × full card height.
 
 ### Changed
+- **Runner family grouping** — runners are classified by name prefix (e.g.
+  `soda-*` → Soda, `ge-proton*` → Proton GE) with version-aware natural sort
+  (newest first within each name, alphabetical across names).  Locally
+  installed runners not in the index are classified the same way.
+- **Runner family organisation** — Lutris, Lutris GE and Vaniglia are folded
+  into an "Other" group (always last); `sys-wine-*` runners appear under
+  "Wine"; remaining families in alphabetical order after the preferred ones.
+- **Change button accent color** — the "Change" button on the runner row uses
+  `suggested-action` (system accent color) instead of flat styling.
 - `components.py`: added `list_runners_by_category()`, `get_family_info()`,
   `family_display_order()`, and `_FAMILY_MAP` / `_FAMILY_DISPLAY_ORDER`
   constants for runner family grouping.
 - `bottles.py`: added `get_runners_in_use(install)` that scans all
   `bottle.yml` files and returns the set of runner names currently in use
   (used to guard runner deletion).
+
+### Fixed
+- **Checksum verification** — runner downloads now read the correct
+  `file_checksum` YAML field (was reading nonexistent `checksum`), and detect
+  MD5 vs SHA-256 by hash length so verification actually works.
 
 ---
 

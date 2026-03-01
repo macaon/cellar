@@ -177,6 +177,58 @@ def read_bottle_programs(bottle_path: Path) -> list[dict]:
     return [p for p in programs if p.get("removed") is not True]
 
 
+def list_bottle_programs(install: BottlesInstall, bottle_dir: str) -> list[dict]:
+    """Return all programs available in a bottle, including auto-discovered ones.
+
+    Calls ``bottles-cli --json programs -b <name>`` which returns a JSON array
+    of program dicts — including ``.lnk`` shortcuts auto-discovered by Bottles
+    from ``drive_c`` Desktop and Start Menu directories.  Each dict contains
+    ``name``, ``executable``, ``path``, and ``auto_discovered`` (bool) fields.
+
+    All returned programs (registered and auto-discovered) can be launched via
+    ``bottles-cli run -b <name> -p <program_name>``.
+
+    Falls back to ``External_Programs`` from ``bottle.yml`` only when
+    ``bottles-cli`` is unavailable or fails.
+    """
+    # Try the CLI first — it gives us the full merged list.
+    try:
+        display_name = _bottle_display_name(install, bottle_dir)
+        result = _run(install, ["--json", "programs", "-b", display_name])
+        programs = _parse_programs_json(result.stdout)
+        if programs is not None:
+            return programs
+    except (BottlesError, Exception):
+        pass
+
+    # Fallback: read External_Programs from bottle.yml directly.
+    return read_bottle_programs(install.data_path / bottle_dir)
+
+
+def _parse_programs_json(output: str) -> list[dict] | None:
+    """Parse JSON output from ``bottles-cli --json programs -b``.
+
+    The command outputs logging lines on stderr/stdout followed by a JSON
+    array on the last non-empty line.  Returns ``None`` if parsing fails.
+    """
+    import json
+
+    # The JSON array is on the last non-empty line.
+    for line in reversed(output.splitlines()):
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith("["):
+            try:
+                data = json.loads(line)
+                if isinstance(data, list):
+                    return [p for p in data if isinstance(p, dict)]
+            except (json.JSONDecodeError, ValueError):
+                pass
+            break
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Launch helpers
 # ---------------------------------------------------------------------------

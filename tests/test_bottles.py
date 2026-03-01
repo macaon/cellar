@@ -858,3 +858,179 @@ def test_list_runners_combined_sources_are_sorted(tmp_path):
     assert "sys-wine-11.0" in result
 
 
+# ---------------------------------------------------------------------------
+# _parse_programs_json
+# ---------------------------------------------------------------------------
+
+_SAMPLE_JSON_OUTPUT = (
+    '23:35:23 (INFO) Forcing offline mode \n'
+    'WARNING:root:Skipping unexpected config\n'
+    'INFO:root:Bottles found:\n'
+    '     - Mp3tag\n'
+    '\n'
+    '[{"executable": "Mp3tag.exe", "arguments": "", "name": "Mp3tag",'
+    ' "path": "C:\\\\Program Files\\\\Mp3tag\\\\Mp3tag.exe",'
+    ' "folder": "/home/user/.var/app/com.usebottles.bottles/data/bottles/bottles/Mp3tag/drive_c/Program Files/Mp3tag",'
+    ' "icon": "com.usebottles.bottles-program",'
+    ' "id": "de3cb155-f5e2-4359-89fb-6cf5c4656a74",'
+    ' "auto_discovered": true}]\n'
+)
+
+
+def test_parse_programs_json_typical_output():
+    result = b._parse_programs_json(_SAMPLE_JSON_OUTPUT)
+    assert result is not None
+    assert len(result) == 1
+    assert result[0]["name"] == "Mp3tag"
+    assert result[0]["executable"] == "Mp3tag.exe"
+    assert result[0]["auto_discovered"] is True
+
+
+def test_parse_programs_json_empty_output():
+    assert b._parse_programs_json("") is None
+
+
+def test_parse_programs_json_empty_list():
+    result = b._parse_programs_json("INFO: stuff\n[]\n")
+    assert result == []
+
+
+def test_parse_programs_json_no_json_line():
+    assert b._parse_programs_json("Just some logs\nNothing here\n") is None
+
+
+def test_parse_programs_json_invalid_json():
+    assert b._parse_programs_json("[{broken json\n") is None
+
+
+def test_parse_programs_json_multiple_programs():
+    output = '[{"name": "A", "executable": "a.exe"}, {"name": "B", "executable": "b.exe"}]\n'
+    result = b._parse_programs_json(output)
+    assert len(result) == 2
+    assert result[0]["name"] == "A"
+    assert result[1]["name"] == "B"
+
+
+# ---------------------------------------------------------------------------
+# list_bottle_programs — CLI JSON + fallback to bottle.yml
+# ---------------------------------------------------------------------------
+
+def _write_bottle_yml(bottle_path, programs: dict | None = None):
+    """Write a minimal bottle.yml with optional External_Programs."""
+    import yaml
+    data: dict = {"Name": "TestBottle"}
+    if programs is not None:
+        data["External_Programs"] = programs
+    yml = bottle_path / "bottle.yml"
+    yml.write_text(yaml.dump(data), encoding="utf-8")
+
+
+def _cli_json_output(programs: list[dict]) -> str:
+    """Build fake bottles-cli --json programs output."""
+    import json
+    return f"INFO:root:stuff\n{json.dumps(programs)}\n"
+
+
+def test_list_bottle_programs_returns_cli_json(tmp_path):
+    """When bottles-cli --json succeeds, its output is returned directly."""
+    bottles_dir = tmp_path / "bottles"
+    bottle = bottles_dir / "mybottle"
+    bottle.mkdir(parents=True)
+    _write_bottle_yml(bottle, {})
+    install = b.BottlesInstall(
+        data_path=bottles_dir, variant="native", cli_cmd=["bottles-cli"],
+    )
+    cli_programs = [
+        {"name": "Mp3tag", "executable": "Mp3tag.exe",
+         "path": r"C:\Program Files\Mp3tag\Mp3tag.exe", "auto_discovered": True},
+    ]
+    with patch("cellar.backend.bottles.subprocess.run",
+               return_value=_completed(stdout=_cli_json_output(cli_programs))):
+        result = b.list_bottle_programs(install, "mybottle")
+    assert len(result) == 1
+    assert result[0]["name"] == "Mp3tag"
+    assert result[0]["auto_discovered"] is True
+
+
+def test_list_bottle_programs_includes_registered_and_discovered(tmp_path):
+    """CLI returns both registered and auto-discovered programs."""
+    bottles_dir = tmp_path / "bottles"
+    bottle = bottles_dir / "mybottle"
+    bottle.mkdir(parents=True)
+    _write_bottle_yml(bottle, {
+        "0": {"name": "Registered", "executable": "registered.exe",
+              "path": r"C:\registered.exe"},
+    })
+    install = b.BottlesInstall(
+        data_path=bottles_dir, variant="native", cli_cmd=["bottles-cli"],
+    )
+    cli_programs = [
+        {"name": "Registered", "executable": "registered.exe",
+         "path": r"C:\registered.exe"},
+        {"name": "Auto App", "executable": "autoapp.exe",
+         "path": r"C:\autoapp.exe", "auto_discovered": True},
+    ]
+    with patch("cellar.backend.bottles.subprocess.run",
+               return_value=_completed(stdout=_cli_json_output(cli_programs))):
+        result = b.list_bottle_programs(install, "mybottle")
+    names = [p["name"] for p in result]
+    assert "Registered" in names
+    assert "Auto App" in names
+    assert len(result) == 2
+
+
+def test_list_bottle_programs_falls_back_on_cli_failure(tmp_path):
+    """When bottles-cli fails, fall back to External_Programs only."""
+    bottles_dir = tmp_path / "bottles"
+    bottle = bottles_dir / "mybottle"
+    bottle.mkdir(parents=True)
+    _write_bottle_yml(bottle, {
+        "0": {"name": "Registered", "executable": "registered.exe",
+              "path": r"C:\registered.exe"},
+    })
+    install = b.BottlesInstall(
+        data_path=bottles_dir, variant="native", cli_cmd=["bottles-cli"],
+    )
+    with patch("cellar.backend.bottles.subprocess.run",
+               side_effect=FileNotFoundError):
+        result = b.list_bottle_programs(install, "mybottle")
+    assert len(result) == 1
+    assert result[0]["name"] == "Registered"
+
+
+def test_list_bottle_programs_falls_back_on_bad_json(tmp_path):
+    """When CLI returns non-JSON output, fall back to External_Programs."""
+    bottles_dir = tmp_path / "bottles"
+    bottle = bottles_dir / "mybottle"
+    bottle.mkdir(parents=True)
+    _write_bottle_yml(bottle, {
+        "0": {"name": "YmlOnly", "executable": "yml.exe",
+              "path": r"C:\yml.exe"},
+    })
+    install = b.BottlesInstall(
+        data_path=bottles_dir, variant="native", cli_cmd=["bottles-cli"],
+    )
+    with patch("cellar.backend.bottles.subprocess.run",
+               return_value=_completed(stdout="Found 0 programs:\n")):
+        result = b.list_bottle_programs(install, "mybottle")
+    assert len(result) == 1
+    assert result[0]["name"] == "YmlOnly"
+
+
+def test_list_bottle_programs_uses_json_flag(tmp_path):
+    """Verify that --json is passed to bottles-cli."""
+    bottles_dir = tmp_path / "bottles"
+    bottle = bottles_dir / "mybottle"
+    bottle.mkdir(parents=True)
+    _write_bottle_yml(bottle, {})
+    install = b.BottlesInstall(
+        data_path=bottles_dir, variant="native", cli_cmd=["bottles-cli"],
+    )
+    with patch("cellar.backend.bottles.subprocess.run",
+               return_value=_completed(stdout="[]\n")) as mock_run:
+        b.list_bottle_programs(install, "mybottle")
+    cmd = mock_run.call_args[0][0]
+    assert "--json" in cmd
+    assert "programs" in cmd
+
+

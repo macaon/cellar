@@ -235,7 +235,7 @@ class DetailView(Gtk.Box):
                 log.error("Failed to apply runner override after install: %s", exc)
 
     def _on_open_clicked(self) -> None:
-        from cellar.backend.bottles import launch_bottle, read_bottle_programs
+        from cellar.backend.bottles import launch_bottle, list_bottle_programs
         bottle_name = (self._installed_record or {}).get("bottle_name", "")
         if not bottle_name or not self._bottles_installs:
             return
@@ -245,7 +245,7 @@ class DetailView(Gtk.Box):
             if (inst.data_path / bottle_name).is_dir():
                 install = inst
                 break
-        programs = read_bottle_programs(install.data_path / bottle_name)
+        programs = list_bottle_programs(install, bottle_name)
         if not programs:
             # Nothing registered — fall back to catalogue entry_point or GUI.
             launch_bottle(install, bottle_name, self._entry.entry_point or None)

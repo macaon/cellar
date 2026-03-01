@@ -863,13 +863,15 @@ class DetailView(Gtk.Box):
     # ------------------------------------------------------------------
 
     def _make_icon(self, rel_path: str, size: int, *, cover_fallback: str = "") -> Gtk.Widget:
-        # Try the actual icon first.
+        # Try the actual icon first.  Use GdkPixbuf so ICO files get the
+        # largest embedded frame rather than the first (often 16 px) one.
         if rel_path:
             path = self._resolve(rel_path)
             if os.path.isfile(path):
                 try:
-                    from gi.repository import Gdk
-                    texture = Gdk.Texture.new_from_filename(path)
+                    from gi.repository import Gdk, GdkPixbuf
+                    pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_size(path, size, size)
+                    texture = Gdk.Texture.new_for_pixbuf(pixbuf)
                     img = Gtk.Image.new_from_paintable(texture)
                     img.set_pixel_size(size)
                     return img

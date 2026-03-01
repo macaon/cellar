@@ -2,6 +2,14 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.13.3] — 2026-03-01
+
+### Fixed
+- **ICO icon rendering** — detail view now uses GdkPixbuf to load icons,
+  picking the largest embedded frame from ICO files (typically 256 px) instead
+  of the first/smallest one.  Fixes blurry icons when using ICO files from
+  SteamGridDB.
+
 ## [0.13.2] — 2026-03-01
 
 ### Changed

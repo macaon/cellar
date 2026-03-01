@@ -17,11 +17,11 @@ from cellar.models.app_entry import AppEntry
 log = logging.getLogger(__name__)
 
 # Fixed card dimensions (GNOME Software-style horizontal cards).
-# _IMG_WIDTH × _CARD_HEIGHT is an exact 2:3 cover thumbnail (Steam capsule ratio).
-_CARD_WIDTH  = 300
-_CARD_HEIGHT = 96
-_IMG_WIDTH   = 64   # = _CARD_HEIGHT * 2 // 3
-_ICON_SIZE   = 48   # standard GNOME icon size, centred in the image column
+_CARD_WIDTH   = 300
+_CARD_HEIGHT  = 96
+_COVER_WIDTH  = 75   # cover thumbnail, flush left, cropped to fill
+_ICON_SIZE    = 52   # matches GNOME Software app tiles
+_ICON_MARGIN  = 23   # px from left edge of card (GNOME Software standard)
 
 
 # ---------------------------------------------------------------------------
@@ -87,10 +87,11 @@ class AppCard(Gtk.FlowBoxChild):
     """A single app row in the browse grid.
 
     Horizontal layout matching GNOME Software's style:
-      [64×96 cover/icon] [name (bold) / summary (dim)]
+      [75×96 cover or 52×52 icon] [name (bold) / summary (dim)]
 
-    The left column shows a 2:3 cover thumbnail when one is available,
-    falling back to the app icon (48 px, centred) or a generic icon.
+    The left column shows a cover thumbnail (cropped to 75×96, flush left)
+    when one is available, falling back to the app icon (52 px, 23 px from
+    left edge, vertically centred) or a generic icon.
     """
 
     def __init__(
@@ -114,23 +115,21 @@ class AppCard(Gtk.FlowBoxChild):
         card.set_overflow(Gtk.Overflow.HIDDEN)
 
         # ── Left: image column ────────────────────────────────────────────
-        img_area = _FixedBox(_IMG_WIDTH, _CARD_HEIGHT)
-        img_area.set_margin_start(12)   # 12 px left padding (GNOME Software standard)
-        card.append(img_area)
-
-        # Cover thumbnail (scaled/cropped to exact 64×96).
+        # Cover: flush left, cropped to _COVER_WIDTH × _CARD_HEIGHT.
+        # Icon:  52×52 with 23 px left margin, vertically centred.
         cover_shown = False
         if resolve_asset and entry.cover:
             cover_path = resolve_asset(entry.cover)
             if os.path.isfile(cover_path):
-                texture = _load_cover_texture(cover_path, _IMG_WIDTH, _CARD_HEIGHT)
+                texture = _load_cover_texture(cover_path, _COVER_WIDTH, _CARD_HEIGHT)
                 if texture is not None:
+                    img_area = _FixedBox(_COVER_WIDTH, _CARD_HEIGHT)
                     pic = Gtk.Picture.new_for_paintable(texture)
                     pic.set_content_fit(Gtk.ContentFit.FILL)
                     img_area.set_child(pic)
+                    card.append(img_area)
                     cover_shown = True
 
-        # App icon (48 px, centred in the 64×96 column) when no cover.
         if not cover_shown:
             icon_shown = False
             if resolve_asset and entry.icon:
@@ -140,14 +139,19 @@ class AppCard(Gtk.FlowBoxChild):
                     if texture is not None:
                         pic = Gtk.Picture.new_for_paintable(texture)
                         pic.set_content_fit(Gtk.ContentFit.SCALE_DOWN)
+                        img_area = _FixedBox(_ICON_SIZE, _ICON_SIZE)
+                        img_area.set_margin_start(_ICON_MARGIN)
+                        img_area.set_valign(Gtk.Align.CENTER)
                         img_area.set_child(pic)
+                        card.append(img_area)
                         icon_shown = True
             if not icon_shown:
                 icon = Gtk.Image.new_from_icon_name("application-x-executable")
                 icon.set_pixel_size(_ICON_SIZE)
                 icon.set_halign(Gtk.Align.CENTER)
                 icon.set_valign(Gtk.Align.CENTER)
-                img_area.set_child(icon)
+                icon.set_margin_start(_ICON_MARGIN)
+                card.append(icon)
 
         # ── Right: text column ────────────────────────────────────────────
         text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)

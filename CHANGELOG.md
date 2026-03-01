@@ -2,6 +2,14 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.13.9] — 2026-03-01
+
+### Changed
+- **Card icon sizing** — app icons are now 52×52 px with 23 px left margin,
+  matching GNOME Software's app tile layout.
+- **Card cover images** — covers now fill flush left (no margin), cropped and
+  zoomed to exactly 75 px wide × full card height for a clean edge-to-edge look.
+
 ## [0.13.8] — 2026-03-01
 
 ### Fixed

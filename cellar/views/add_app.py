@@ -60,6 +60,7 @@ class AddAppDialog(Adw.Dialog):
 
         # Track whether the user has manually edited the ID field
         self._id_user_edited = False
+        self._install_size: int = 0
 
         self._build_ui()
         threading.Thread(target=self._prefill, daemon=True).start()
@@ -310,12 +311,20 @@ class AddAppDialog(Adw.Dialog):
 
     def _prefill(self) -> None:
         """Read bottle.yml in a background thread, show progress, then reveal the form."""
+        import tarfile
         from cellar.backend.packager import read_bottle_yml
 
         def _on_progress(fraction: float) -> None:
             GLib.idle_add(self._scan_bar.set_fraction, fraction)
 
         yml = read_bottle_yml(self._archive_path, progress_cb=_on_progress)
+
+        # Sum uncompressed member sizes for the install size estimate.
+        try:
+            with tarfile.open(self._archive_path, "r:gz") as tf:
+                self._install_size = sum(m.size for m in tf.getmembers() if m.isfile())
+        except Exception:
+            self._install_size = 0
 
         def _apply() -> None:
             name = yml.get("Name", "")
@@ -509,6 +518,7 @@ class AddAppDialog(Adw.Dialog):
             screenshots=screenshot_rels,
             archive=archive_rel,
             archive_size=archive_size,
+            install_size_estimate=self._install_size,
             built_with=built_with,
             update_strategy=strategy,
             entry_point=entry_point,

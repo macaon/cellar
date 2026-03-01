@@ -4,6 +4,17 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.12.25] — 2026-03-01
+
+### Added
+- **Install size in detail view** — `install_size_estimate` now appears as an
+  "Install size" row in the Package section. The add-app flow computes it
+  automatically by summing uncompressed member sizes from the tar archive
+  during the scan phase, so no manual entry is needed. Both size fields are
+  shown under Package only (not duplicated in Details).
+
+---
+
 ## [0.12.24] — 2026-03-01
 
 ### Added

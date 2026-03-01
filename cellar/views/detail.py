@@ -466,7 +466,6 @@ class DetailView(Gtk.Box):
             or e.tags
             or e.website
             or e.store_links
-            or e.archive_size
         )
         if not has_any:
             return None
@@ -477,8 +476,6 @@ class DetailView(Gtk.Box):
             group.add(_info_row("Publisher", e.publisher))
         if e.release_year:
             group.add(_info_row("Released", str(e.release_year)))
-        if e.archive_size:
-            group.add(_info_row("Download size", _fmt_bytes(e.archive_size)))
         if e.languages:
             group.add(_info_row("Languages", ", ".join(e.languages)))
         if e.content_rating:

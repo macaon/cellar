@@ -46,18 +46,11 @@ class SettingsDialog(Adw.PreferencesDialog):
         self.add(page)
 
         # ── Group: Repositories ───────────────────────────────────────────
-        self._repo_group = Adw.PreferencesGroup(
-            title="Repositories",
-            description=(
-                "Sources to browse and install apps from. "
-                "HTTP(S) sources are read-only."
-            ),
-        )
+        self._repo_group = Adw.PreferencesGroup(title="Repositories")
         page.add(self._repo_group)
 
-        # "Add Repository" button in the group header suffix.
-        add_btn = Gtk.Button(label="Add Repository")
-        add_btn.add_css_class("flat")
+        add_btn = Gtk.Button(label="Add")
+        add_btn.add_css_class("suggested-action")
         add_btn.connect("clicked", self._on_add_clicked)
         self._repo_group.set_header_suffix(add_btn)
 

@@ -1084,7 +1084,7 @@ class RunnerManagerDialog(Adw.Dialog):
                 installed_in_family: set[str] = {
                     r for r in self._installed if runner_to_family.get(r) == dir_name
                 }
-                all_runners = sorted(index_runners | installed_in_family, key=_version_sort_key, reverse=True)
+                all_runners = sorted(index_runners | installed_in_family, key=_version_sort_key)
 
                 # Auto-expand if the family contains the current or required runner.
                 should_expand = (

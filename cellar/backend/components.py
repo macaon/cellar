@@ -56,7 +56,7 @@ _FAMILY_MAP: dict[str, tuple[str, str]] = {
     "kron4ek":   ("Kron4ek",   "Based on Wine upstream with Staging, Staging-TkG and optional Proton patchset."),
     "proton-ge": ("Proton GE", "Based on Valve's Proton Experimental. Requires the Steam Runtime."),
     "proton":    ("Proton",    "Steam Proton builds."),
-    "sys-wine":  ("Wine",      "System Wine and other Wine builds."),
+    "wine":      ("Wine",      "Wine builds not covered by the families above."),
     "other":     ("Other",     "Lutris, Vaniglia and other less common runners."),
 }
 
@@ -143,7 +143,7 @@ def list_available_runners() -> list[str]:
 
 _FAMILY_PREFIX_MAP: list[tuple[str, str]] = [
     # Longest prefixes first to avoid partial matches.
-    ("sys-wine-",  "sys-wine"),
+    ("sys-wine-",  "wine"),
     ("lutris-ge-", "lutris-ge"),
     ("wine-ge-",   "wine-ge"),
     ("caffe-rc-",  "caffe-rc"),
@@ -179,17 +179,23 @@ _VERSION_RE = _re.compile(r"(\d+)")
 
 
 def _version_sort_key(name: str) -> list[int | str]:
-    """Split *name* into text/number tokens for natural (version-aware) sort.
+    """Sort key for alphabetical order with newest versions first.
 
-    ``"ge-proton10-32"`` → ``["ge-proton", 10, "-", 32]`` so that
-    ``ge-proton10`` sorts after ``ge-proton9``.
+    Text tokens sort ascending (A→Z) while numeric tokens are negated so
+    higher version numbers sort first::
+
+        chardonnay-6.12   → ["chardonnay-", -6, ".", -12]
+        chardonnay-6.11   → ["chardonnay-", -6, ".", -11]
+        wine-wayland-6.19 → ["wine-wayland-", -6, ".", -19]
+
+    Used with ``sorted(..., reverse=False)`` (the default).
     """
     parts: list[int | str] = []
     pos = 0
     for m in _VERSION_RE.finditer(name):
         if m.start() > pos:
             parts.append(name[pos : m.start()])
-        parts.append(int(m.group()))
+        parts.append(-int(m.group()))
         pos = m.end()
     if pos < len(name):
         parts.append(name[pos:])
@@ -234,7 +240,7 @@ def list_runners_by_category() -> dict[str, list[str]]:
             except Exception:  # noqa: BLE001
                 pass
     for family in result:
-        result[family] = sorted(result[family], key=_version_sort_key, reverse=True)
+        result[family] = sorted(result[family], key=_version_sort_key)
     return result
 
 

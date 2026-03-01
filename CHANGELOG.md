@@ -2,6 +2,16 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.13.3] — 2026-03-01
+
+### Fixed
+- **sys-wine under Wine** — `sys-wine-*` runners now correctly merge into the
+  "Wine" family bucket (was a separate "Wine" section due to mismatched family
+  keys).
+- **Sorting** — runners within each family now sort alphabetically (A→Z) with
+  the newest version of each runner name on top (e.g. `chardonnay-6.12` before
+  `chardonnay-6.11`, then `sys-wine-11.0`, then `wc3-6.19`).
+
 ## [0.13.2] — 2026-03-01
 
 ### Fixed

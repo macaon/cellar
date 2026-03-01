@@ -4,6 +4,15 @@ All notable changes to Cellar are documented here.
 
 ---
 
+## [0.12.24] — 2026-03-01
+
+### Added
+- **Package size in detail view** — download size now appears in the byline
+  next to the version (e.g. `1.0 · 12.3 GB`) and as a "Download size" row in
+  the Details section.
+
+---
+
 ## [0.12.23] — 2026-02-28
 
 ### Fixed

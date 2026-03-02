@@ -2,6 +2,19 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.20.3] — 2026-03-02
+
+### Changed
+- **Updater delta path** — `update_app_safe()` now accepts `base_entry` and
+  `base_archive_uri` keyword args (API parity with `install_app`).  For delta
+  packages the rsync overlay strategy is used unchanged: the delta archive
+  contains only changed/new files and overlaying them directly on the existing
+  bottle is correct (unchanged files stay, user data is preserved via the
+  existing no-delete + exclusion rules).  No base reconstruction is needed.
+- `_on_update_clicked` in `DetailView` resolves `base_entry` /
+  `base_archive_uri` from source repos and passes them to `UpdateDialog`.
+- `UpdateDialog` threads the base params through to `update_app_safe()`.
+
 ## [0.20.2] — 2026-03-02
 
 ### Changed

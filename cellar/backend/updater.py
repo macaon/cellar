@@ -148,11 +148,21 @@ def update_app_safe(
     bottle_path: Path,
     *,
     backup_path: Path | None = None,
+    base_entry=None,                # BaseEntry | None — accepted but unused; delta overlay
+    base_archive_uri: str = "",     # URI for base archive — accepted but unused
     progress_cb: Callable[[str, float], None] | None = None,
     cancel_event: threading.Event | None = None,
     token: str | None = None,
 ) -> None:
     """Overlay-update *bottle_path* with the contents of *archive_uri*.
+
+    For delta packages (``entry.base_win_ver`` is set) the rsync overlay
+    strategy works without base reconstruction: the delta archive contains
+    only changed/new files and the overlay applies them directly on top of
+    the existing bottle.  Files absent from the delta are left untouched
+    (``--no-delete`` semantics), so unchanged base files and user data are
+    both preserved.  ``base_entry`` and ``base_archive_uri`` are accepted
+    for API consistency with ``install_app`` but are not used here.
 
     Parameters
     ----------
@@ -165,6 +175,10 @@ def update_app_safe(
     backup_path:
         When supplied, the current bottle is archived here before the
         update proceeds.  The parent directory is created automatically.
+    base_entry:
+        Ignored.  Present for API symmetry with ``install_app``.
+    base_archive_uri:
+        Ignored.  Present for API symmetry with ``install_app``.
     progress_cb:
         Optional ``(phase, fraction)`` callback.
     cancel_event:
@@ -177,6 +191,11 @@ def update_app_safe(
     UpdateCancelled
         When *cancel_event* is set during the operation.
     """
+    if entry.base_win_ver:
+        log.debug(
+            "Delta update for %r: overlaying delta directly (no base reconstruction needed)",
+            entry.id,
+        )
     # Fraction ranges shift when a backup phase is present.
     has_backup = backup_path is not None
     dl_lo  = 0.20 if has_backup else 0.00

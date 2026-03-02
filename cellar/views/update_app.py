@@ -43,6 +43,8 @@ class UpdateDialog(Adw.Dialog):
         bottle_path: Path,
         archive_uri: str,
         on_success: Callable[[], None],
+        base_entry=None,
+        base_archive_uri: str = "",
         token: str | None = None,
     ) -> None:
         super().__init__(title=f"Update {entry.name}", content_width=440)
@@ -51,6 +53,8 @@ class UpdateDialog(Adw.Dialog):
         self._bottle_path = bottle_path
         self._archive_uri = archive_uri
         self._on_success = on_success
+        self._base_entry = base_entry
+        self._base_archive_uri = base_archive_uri
         self._token = token
         self._backup_path: Path | None = None
         self._cancel_event = threading.Event()
@@ -218,6 +222,8 @@ class UpdateDialog(Adw.Dialog):
                     self._archive_uri,
                     self._bottle_path,
                     backup_path=self._backup_path,
+                    base_entry=self._base_entry,
+                    base_archive_uri=self._base_archive_uri,
                     progress_cb=_progress,
                     cancel_event=self._cancel_event,
                     token=self._token,

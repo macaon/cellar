@@ -331,12 +331,29 @@ class DetailView(Gtk.Box):
             return
 
         archive_uri = self._resolve(self._entry.archive) if self._entry.archive else ""
+
+        # Resolve base archive for delta updates (same pattern as _proceed_to_install).
+        base_entry = None
+        base_archive_uri = ""
+        if self._entry.base_win_ver:
+            for repo in self._source_repos:
+                try:
+                    bases = repo.fetch_bases()
+                    if self._entry.base_win_ver in bases:
+                        base_entry = bases[self._entry.base_win_ver]
+                        base_archive_uri = repo.resolve_asset_uri(base_entry.archive)
+                        break
+                except Exception:
+                    pass
+
         dialog = UpdateDialog(
             entry=self._entry,
             installed_record=self._installed_record or {},
             bottle_path=bottle_path,
             archive_uri=archive_uri,
             on_success=self._on_update_success,
+            base_entry=base_entry,
+            base_archive_uri=base_archive_uri,
             token=self._token,
         )
         dialog.present(self.get_root())

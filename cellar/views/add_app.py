@@ -79,6 +79,11 @@ class AddAppDialog(Adw.Dialog):
         self._id_user_edited = False
         self._install_size: int = 0
 
+        # Delta packaging state (set after prefill reads bottle.yml)
+        self._win_ver: str = ""       # Windows: field from bottle.yml, e.g. "win10"
+        self._use_delta: bool = False  # True when repo has base AND it's installed locally
+        self._base_ok: bool = True     # False blocks the Add button
+
         self._build_ui()
         threading.Thread(target=self._prefill, daemon=True).start()
 
@@ -141,6 +146,15 @@ class AddAppDialog(Adw.Dialog):
             subtitle=Path(self._archive_path).name,
         )
         archive_group.add(self._archive_row)
+
+        # Delta status row — hidden until prefill completes and detects a base
+        self._delta_icon = Gtk.Image()
+        self._delta_icon.set_icon_size(Gtk.IconSize.NORMAL)
+        self._delta_row = Adw.ActionRow()
+        self._delta_row.add_prefix(self._delta_icon)
+        self._delta_row.set_visible(False)
+        archive_group.add(self._delta_row)
+
         page.add(archive_group)
 
         # ── Identity ──────────────────────────────────────────────────────
@@ -336,6 +350,7 @@ class AddAppDialog(Adw.Dialog):
             GLib.idle_add(self._scan_bar.set_fraction, fraction)
 
         yml = read_bottle_yml(self._archive_path, progress_cb=_on_progress)
+        win_ver = yml.get("Windows", "")
 
         # Sum uncompressed member sizes for the install size estimate.
         try:
@@ -365,6 +380,10 @@ class AddAppDialog(Adw.Dialog):
             if env.lower() == "game" and "Games" in self._categories:
                 self._category_row.set_selected(self._categories.index("Games"))
 
+            if win_ver:
+                self._win_ver = win_ver
+                self._check_delta_base(win_ver)
+
             self._stack.set_visible_child_name("form")
 
         GLib.idle_add(_apply)
@@ -375,6 +394,58 @@ class AddAppDialog(Adw.Dialog):
         idx = row.get_selected()
         if 0 <= idx < len(self._repos):
             self._repo = self._repos[idx]
+            if self._win_ver:
+                self._check_delta_base(self._win_ver)
+
+    _WIN_VER_LABELS: dict[str, str] = {
+        "win10": "Windows 10",
+        "win11": "Windows 11",
+        "win7": "Windows 7",
+        "win8": "Windows 8",
+        "win81": "Windows 8.1",
+        "winxp": "Windows XP",
+        "win2k": "Windows 2000",
+    }
+
+    def _check_delta_base(self, win_ver: str) -> None:
+        """Determine delta eligibility; update the delta status row accordingly."""
+        from cellar.backend.base_store import is_base_installed
+
+        label = self._WIN_VER_LABELS.get(win_ver, win_ver)
+
+        bases: dict = {}
+        try:
+            bases = self._repo.fetch_bases()
+        except Exception:
+            pass
+
+        if win_ver not in bases:
+            # No base in this repo — fall back to full archive upload.
+            self._use_delta = False
+            self._base_ok = True
+            self._delta_row.set_visible(False)
+            self._update_add_button()
+            return
+
+        if is_base_installed(win_ver):
+            self._use_delta = True
+            self._base_ok = True
+            self._delta_icon.set_from_icon_name("emblem-ok-symbolic")
+            self._delta_row.set_title("Delta archive")
+            self._delta_row.set_subtitle(
+                f"Only files that differ from the {label} base will be stored"
+            )
+        else:
+            self._use_delta = False
+            self._base_ok = False
+            self._delta_icon.set_from_icon_name("dialog-warning-symbolic")
+            self._delta_row.set_title(f"{label} base not installed locally")
+            self._delta_row.set_subtitle(
+                "Install it via Settings \u2192 Delta Base Images before adding this app"
+            )
+
+        self._delta_row.set_visible(True)
+        self._update_add_button()
 
     def _on_name_changed(self, _entry) -> None:
         name = self._name_entry.get_text().strip()
@@ -414,7 +485,7 @@ class AddAppDialog(Adw.Dialog):
     def _update_add_button(self) -> None:
         name_ok = bool(self._name_entry.get_text().strip())
         category_ok = bool(self._get_category())
-        self._add_btn.set_sensitive(name_ok and category_ok)
+        self._add_btn.set_sensitive(name_ok and category_ok and self._base_ok)
 
     # ── Image pickers ─────────────────────────────────────────────────────
 
@@ -541,6 +612,7 @@ class AddAppDialog(Adw.Dialog):
             built_with=built_with,
             update_strategy=strategy,
             entry_point=entry_point,
+            base_win_ver=self._win_ver if self._use_delta else "",
         )
 
         images = {
@@ -561,7 +633,13 @@ class AddAppDialog(Adw.Dialog):
 
         repo_root = self._repo.writable_path()
 
+        use_delta = self._use_delta
+        win_ver = self._win_ver
+
         def _run():
+            import shutil as _shutil
+            import tempfile
+            from dataclasses import replace as _replace
             from cellar.backend.packager import (
                 BASE_CATEGORIES,
                 CancelledError,
@@ -584,11 +662,51 @@ class AddAppDialog(Adw.Dialog):
             def _progress(fraction: float) -> None:
                 GLib.idle_add(self._progress_bar.set_fraction, fraction)
 
+            # ── Delta archive creation ─────────────────────────────────────
+            archive_to_upload = self._archive_path
+            entry_to_upload = entry
+            tmp_delta: str | None = None
+
+            if use_delta:
+                from cellar.backend.packager import create_delta_archive
+                from cellar.backend.base_store import base_path as _base_path
+
+                GLib.idle_add(self._progress_label.set_text, "Creating delta archive\u2026")
+                GLib.idle_add(self._progress_bar.set_fraction, 0.0)
+                GLib.idle_add(self._progress_bar.set_text, "")
+
+                tmp_delta = tempfile.mkdtemp(prefix="cellar-delta-upload-")
+                delta_path = Path(tmp_delta) / Path(self._archive_path).name
+
+                try:
+                    create_delta_archive(
+                        self._archive_path,
+                        _base_path(win_ver),
+                        delta_path,
+                        progress_cb=lambda f: GLib.idle_add(
+                            self._progress_bar.set_fraction, f
+                        ),
+                    )
+                except Exception as exc:
+                    _shutil.rmtree(tmp_delta, ignore_errors=True)
+                    GLib.idle_add(
+                        self._on_import_error,
+                        f"Failed to create delta archive: {exc}",
+                    )
+                    return
+
+                archive_to_upload = str(delta_path)
+                entry_to_upload = _replace(
+                    entry_to_upload,
+                    archive_size=delta_path.stat().st_size,
+                )
+
+            # ── Import into repo ───────────────────────────────────────────
             try:
                 import_to_repo(
                     repo_root,
-                    entry,
-                    self._archive_path,
+                    entry_to_upload,
+                    archive_to_upload,
                     images,
                     progress_cb=_progress,
                     phase_cb=_phase,
@@ -608,6 +726,9 @@ class AddAppDialog(Adw.Dialog):
                 GLib.idle_add(self._on_import_cancelled)
             except Exception as exc:  # noqa: BLE001
                 GLib.idle_add(self._on_import_error, str(exc))
+            finally:
+                if tmp_delta:
+                    _shutil.rmtree(tmp_delta, ignore_errors=True)
 
         threading.Thread(target=_run, daemon=True).start()
 

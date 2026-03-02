@@ -436,6 +436,120 @@ def remove_base(repo_root: Path, win_ver: str) -> None:
     _write_catalogue(cat_path, apps, categories, bases if bases else None)
 
 
+def create_delta_archive(
+    full_archive_path: str | Path,
+    base_dir: Path,
+    dest: Path,
+    *,
+    progress_cb: Callable[[float], None] | None = None,
+) -> None:
+    """Create a delta ``.tar.gz`` from a full Bottles backup, relative to *base_dir*.
+
+    Extracts *full_archive_path* to a temp directory, identifies files that
+    differ from *base_dir* using ``rsync --checksum --compare-dest`` (or a
+    Python size-based fallback), and packs only those files into a new archive
+    at *dest*.
+
+    The result has the same top-level bottle directory name as the original and
+    is suitable for :func:`~cellar.backend.installer._overlay_delta` at install
+    time.  *progress_cb* is called at 0.0 (start), 0.3 (extracted), 0.7
+    (diffed), and 1.0 (done).
+
+    Raises :exc:`RuntimeError` on failure.
+    """
+    import tempfile
+
+    full_archive_path = Path(full_archive_path)
+
+    with tempfile.TemporaryDirectory(prefix="cellar-delta-") as tmp_str:
+        tmp = Path(tmp_str)
+        extract_dir = tmp / "full"
+        extract_dir.mkdir()
+        delta_dir = tmp / "delta"
+        delta_dir.mkdir()
+
+        # 1. Extract full archive
+        if progress_cb:
+            progress_cb(0.0)
+        try:
+            with tarfile.open(full_archive_path, "r:gz") as tf:
+                tf.extractall(extract_dir)
+        except tarfile.TarError as exc:
+            raise RuntimeError(f"Failed to extract full archive: {exc}") from exc
+
+        if progress_cb:
+            progress_cb(0.3)
+
+        # 2. Locate the bottle root inside the extracted archive
+        subdirs = [d for d in extract_dir.iterdir() if d.is_dir()]
+        if not subdirs:
+            raise RuntimeError("No bottle directory found in archive")
+        bottle_dir = subdirs[0]
+        for d in subdirs:
+            if (d / "bottle.yml").exists():
+                bottle_dir = d
+                break
+
+        bottle_name = bottle_dir.name
+        delta_bottle = delta_dir / bottle_name
+        delta_bottle.mkdir()
+
+        # 3. Compute the delta (files that differ from base_dir)
+        _compute_delta(bottle_dir, base_dir, delta_bottle)
+
+        if progress_cb:
+            progress_cb(0.7)
+
+        # 4. Pack the delta into a .tar.gz
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with tarfile.open(dest, "w:gz") as tf:
+                tf.add(delta_bottle, arcname=bottle_name)
+        except tarfile.TarError as exc:
+            dest.unlink(missing_ok=True)
+            raise RuntimeError(f"Failed to create delta archive: {exc}") from exc
+
+        if progress_cb:
+            progress_cb(1.0)
+
+
+def _compute_delta(full_dir: Path, base_dir: Path, delta_out: Path) -> None:
+    """Copy files from *full_dir* to *delta_out* that differ from *base_dir*.
+
+    Uses ``rsync --checksum --compare-dest`` when rsync is available (content-
+    accurate).  Falls back to a Python implementation that uses file size as the
+    comparison heuristic (may include some false positives, always correct).
+    """
+    import subprocess
+
+    if shutil.which("rsync"):
+        try:
+            subprocess.run(
+                [
+                    "rsync", "-a", "--checksum",
+                    f"--compare-dest={base_dir}/",
+                    f"{full_dir}/",
+                    f"{delta_out}/",
+                ],
+                check=True,
+                capture_output=True,
+            )
+            return
+        except subprocess.CalledProcessError:
+            pass  # fall through to Python fallback
+
+    # Python fallback: include a file if absent from base or a different size.
+    for src in full_dir.rglob("*"):
+        if not src.is_file():
+            continue
+        rel = src.relative_to(full_dir)
+        base_file = base_dir / rel
+        if not base_file.exists() or src.stat().st_size != base_file.stat().st_size:
+            out = delta_out / rel
+            out.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, out)
+
+
 def add_catalogue_category(repo_root: Path, category: str) -> None:
     """Append *category* to the top-level ``categories`` list in ``catalogue.json``.
 

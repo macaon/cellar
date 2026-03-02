@@ -2,6 +2,21 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.20.0] — 2026-03-02
+
+### Added
+- **Delta archive creation in Add App dialog** — when a repo contains a base image
+  for the bottle's Windows version, the Add App dialog now creates a delta archive
+  automatically: only files that differ from the base are stored in the repo.
+  Uses `rsync --checksum --compare-dest` for accurate content diffing; falls back
+  to a Python size-based implementation when rsync is unavailable.
+- `create_delta_archive(full_archive, base_dir, dest)` in `packager.py` — new
+  helper that extracts a full backup, diffs against a local base directory, and
+  produces a minimal delta `.tar.gz`.
+- Delta status row in the Add App dialog — a new row in the Archive group shows
+  whether delta packaging will be used for the current archive, with a warning and
+  a disabled Add button if the required base is not installed locally.
+
 ## [0.19.11] — 2026-03-02
 
 ### Fixed

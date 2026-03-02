@@ -2,6 +2,21 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.19.8] — 2026-03-02
+
+### Changed
+- **Detail view opens instantly** — hero banner, app icon, and screenshots are
+  now loaded asynchronously on background threads.  The page appears immediately
+  with a generic icon placeholder and an empty screenshot area; each image fades
+  in (150 ms crossfade for the icon) as it finishes downloading and decoding.
+  Eliminates the multi-second freeze when opening an app detail page over a
+  slow network connection.
+- **Persistent asset cache** — HTTP(S) image assets (hero, cover, screenshots,
+  icons) are cached to `~/.cache/cellar/assets/<repo-hash>/` instead of a
+  per-session temp directory.  Re-opening the same app on subsequent visits
+  shows images instantly from disk.  The cache is automatically invalidated
+  when the repo's `catalogue.json` `generated_at` field changes.
+
 ## [0.19.7] — 2026-03-02
 
 ### Fixed

@@ -27,10 +27,11 @@ A bare JSON array is also accepted for backwards compatibility.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+import shutil
 import subprocess
-import tempfile
 from pathlib import Path
 from typing import Iterator, Protocol, runtime_checkable
 from urllib.parse import urlparse
@@ -43,6 +44,7 @@ from cellar.utils.http import DEFAULT_TIMEOUT, make_session
 log = logging.getLogger(__name__)
 
 CATALOGUE_VERSION = 1
+_ASSET_CACHE_ROOT = Path.home() / ".cache" / "cellar" / "assets"
 
 # File extensions treated as image assets.  These are downloaded to a per-session
 # temp cache by resolve_asset_uri so that GdkPixbuf can load them from a local
@@ -383,7 +385,7 @@ class Repo:
         self.uri = uri
         self.name = name or uri
         self._token = token
-        self._asset_cache: tempfile.TemporaryDirectory | None = None
+        self._cache_dir: Path | None = None
         self._fetcher: _Fetcher = _make_fetcher(
             uri,
             ssh_identity=ssh_identity,
@@ -423,6 +425,7 @@ class Repo:
             items = raw
         elif isinstance(raw, dict):
             items = raw.get("apps", [])
+            self._init_asset_cache(raw.get("generated_at"))
         else:
             raise RepoError("catalogue.json has an unexpected top-level type")
 
@@ -464,18 +467,47 @@ class Repo:
             return self._fetch_to_cache(repo_relative)
         return self._fetcher.resolve_uri(repo_relative)
 
-    def _fetch_to_cache(self, rel_path: str) -> str:
-        """Download *rel_path* via the HTTP fetcher (with auth) to a temp file.
+    def _init_asset_cache(self, generated_at: str | None = None) -> None:
+        """Set up the persistent asset cache directory for this repo.
 
-        Returns the local file path on success, or an empty string on failure
-        (callers treat missing images as optional).  Results are cached for the
-        lifetime of this ``Repo`` instance so each asset is only downloaded once
-        per session.
+        Uses ``~/.cache/cellar/assets/<sha256-prefix>/`` keyed on the repo URI.
+        If *generated_at* has changed since the cache was last written, the
+        entire cache directory is wiped so stale images are never served.
+        Only applies to HTTP(S) repos; other transports use local file paths.
         """
-        if self._asset_cache is None:
-            self._asset_cache = tempfile.TemporaryDirectory(prefix="cellar-assets-")
+        if not isinstance(self._fetcher, _HttpFetcher):
+            return
+        key = hashlib.sha256(self.uri.encode()).hexdigest()[:16]
+        cache_dir = _ASSET_CACHE_ROOT / key
+        sentinel = cache_dir / ".generated_at"
+        if generated_at and cache_dir.exists():
+            try:
+                if sentinel.read_text().strip() != generated_at.strip():
+                    shutil.rmtree(cache_dir, ignore_errors=True)
+                    log.info("Asset cache invalidated for %s (catalogue updated)", self.uri)
+            except OSError:
+                pass
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        if generated_at:
+            try:
+                sentinel.write_text(generated_at)
+            except OSError:
+                pass
+        self._cache_dir = cache_dir
+
+    def _fetch_to_cache(self, rel_path: str) -> str:
+        """Download *rel_path* to the persistent asset cache and return its local path.
+
+        Returns an empty string on failure; callers treat missing images as
+        optional.  The file is only downloaded once per *generated_at* epoch —
+        subsequent calls return the cached path instantly.
+        """
+        if self._cache_dir is None:
+            self._init_asset_cache()
+        if self._cache_dir is None:
+            return ""
         parts = rel_path.lstrip("/").split("/")
-        dest = Path(self._asset_cache.name).joinpath(*parts)
+        dest = self._cache_dir.joinpath(*parts)
         if dest.exists():
             return str(dest)
         try:

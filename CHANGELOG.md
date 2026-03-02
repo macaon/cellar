@@ -2,6 +2,12 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.20.5] — 2026-03-02
+
+### Changed
+- Remove duplicate "Upload Base Image…" button from the empty-state row;
+  the header "Add" button is the single entry point, matching Repositories.
+
 ## [0.20.4] — 2026-03-02
 
 ### Changed

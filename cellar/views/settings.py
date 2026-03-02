@@ -185,13 +185,7 @@ class SettingsDialog(Adw.PreferencesDialog):
         bases = database.get_all_installed_bases()
         if not bases:
             empty = Adw.ActionRow(title="No base images installed")
-            upload_btn = Gtk.Button(
-                label="Upload Base Image\u2026",
-                valign=Gtk.Align.CENTER,
-            )
-            upload_btn.add_css_class("suggested-action")
-            upload_btn.connect("clicked", self._on_upload_base_clicked)
-            empty.add_suffix(upload_btn)
+            empty.set_sensitive(False)
             self._delta_rows.append(empty)
             self._delta_group.add(empty)
             return

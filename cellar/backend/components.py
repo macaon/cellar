@@ -93,6 +93,15 @@ def sync_index() -> None:
         log.warning("dulwich not installed; component index unavailable")
         return
 
+    # Dulwich reads ``http.sslVerify`` from ``~/.gitconfig``.  When it is
+    # ``false`` (common on home-lab setups with a local proxy), dulwich
+    # creates its urllib3 pool with ``cert_reqs=CERT_NONE``, which emits
+    # noisy InsecureRequestWarning lines to stderr on every HTTPS request.
+    # The user already opted in via their git config, so suppress these.
+    import warnings
+    import urllib3.exceptions
+    warnings.filterwarnings("ignore", category=urllib3.exceptions.InsecureRequestWarning)
+
     target = _components_dir()
     git_dir = target / ".git"
     try:

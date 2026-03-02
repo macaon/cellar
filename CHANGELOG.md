@@ -19,6 +19,11 @@ All notable changes to Cellar are documented here.
   `catalogue.json` and `AppEntry`; old `archive_sha256` keys in existing
   catalogues are read transparently for backward compatibility.
 
+### Fixed
+- **urllib3 InsecureRequestWarning on startup** — suppressed the noisy
+  "Unverified HTTPS request" warnings emitted by dulwich when `~/.gitconfig`
+  has `http.sslVerify = false` (common on home-lab setups with a local proxy).
+
 ## [0.15.0] — 2026-03-01
 
 ### Added

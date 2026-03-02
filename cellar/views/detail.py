@@ -1258,6 +1258,14 @@ class RunnerManagerDialog(Adw.Dialog):
 # ---------------------------------------------------------------------------
 
 
+def _trunc_filename(name: str, max_chars: int = 40) -> str:
+    """Middle-truncate *name* so it fits in the progress bar without resizing."""
+    if len(name) <= max_chars:
+        return name
+    half = (max_chars - 1) // 2
+    return f"{name[:half]}\u2026{name[-(max_chars - half - 1):]}"
+
+
 def _fmt_dl_stats(downloaded: int, total: int, speed: float) -> str:
     """Format download progress as e.g. '2.6 MB / 349 MB (1.3 MB/s)'."""
     def _sz(n: int) -> str:
@@ -1458,10 +1466,10 @@ class InstallProgressDialog(Adw.Dialog):
         self._open_runner_manager(_on_change)
 
     def _build_progress_page(self) -> Gtk.Widget:
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         box.set_valign(Gtk.Align.CENTER)
-        box.set_margin_top(18)
-        box.set_margin_bottom(18)
+        box.set_margin_top(12)
+        box.set_margin_bottom(12)
         box.set_margin_start(24)
         box.set_margin_end(24)
 
@@ -1472,6 +1480,9 @@ class InstallProgressDialog(Adw.Dialog):
         self._progress_bar = Gtk.ProgressBar()
         self._progress_bar.set_show_text(True)
         self._progress_bar.set_fraction(0.0)
+        # Prevent the bar from requesting extra width to fit text — the dialog
+        # width is fixed by content_width; the bar fills that space.
+        self._progress_bar.set_size_request(0, -1)
         box.append(self._progress_bar)
 
         self._cancel_body_btn = Gtk.Button(label="Cancel")
@@ -1527,7 +1538,7 @@ class InstallProgressDialog(Adw.Dialog):
             now = time.monotonic()
             if now - _last_name_t[0] >= 0.08:
                 _last_name_t[0] = now
-                GLib.idle_add(self._progress_bar.set_text, filename)
+                GLib.idle_add(self._progress_bar.set_text, _trunc_filename(filename))
 
         def _run() -> None:
             try:
@@ -1552,7 +1563,7 @@ class InstallProgressDialog(Adw.Dialog):
                         now = time.monotonic()
                         if now - _last_runner_name_t[0] >= 0.08:
                             _last_runner_name_t[0] = now
-                            GLib.idle_add(self._progress_bar.set_text, filename)
+                            GLib.idle_add(self._progress_bar.set_text, _trunc_filename(filename))
 
                     try:
                         _download_and_extract_runner(

@@ -696,6 +696,7 @@ class EditAppDialog(Adw.Dialog):
         }
 
         self._cancel_event.clear()
+        self._saved_entry = new_entry  # made available to _on_save_done
         self._stack.set_visible_child_name("progress")
         self._progress_bar.set_fraction(0.0)
         self._progress_label.set_text("Saving changes\u2026")
@@ -759,11 +760,8 @@ class EditAppDialog(Adw.Dialog):
         self._cancel_progress_btn.set_sensitive(False)
 
     def _on_save_done(self) -> None:
-        root = self.get_root()
-        if hasattr(root, "_show_toast"):
-            root._show_toast("Entry updated")
         self.close()
-        self._on_done()
+        self._on_done(self._saved_entry)
 
     def _on_save_cancelled(self) -> None:
         self._stack.set_visible_child_name("form")

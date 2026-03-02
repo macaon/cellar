@@ -261,10 +261,27 @@ class CellarWindow(Adw.ApplicationWindow):
 
         def _on_edit(selected_entry):
             from cellar.views.edit_app import EditAppDialog
+            from cellar.views.detail import DetailView
 
-            def _on_edit_done():
-                self.nav_view.pop()
+            def _on_edit_done(updated_entry):
                 self._load_catalogue()
+                current_page = self.nav_view.get_visible_page()
+                if current_page is not None:
+                    new_detail = DetailView(
+                        updated_entry,
+                        source_repos=self._entry_repos.get(updated_entry.id) or source_repos,
+                        is_writable=can_write,
+                        on_edit=_on_edit if can_write else None,
+                        bottles_installs=all_bottles,
+                        is_installed=is_installed,
+                        installed_record=rec,
+                        on_install_done=_on_install_done,
+                        on_remove_done=_on_remove_done,
+                        on_update_done=_on_update_done,
+                    )
+                    current_page.set_child(new_detail)
+                    current_page.set_title(updated_entry.name)
+                self._show_toast("Entry updated")
 
             EditAppDialog(
                 entry=selected_entry,

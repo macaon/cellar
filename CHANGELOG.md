@@ -2,6 +2,30 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.19.0] — 2026-03-02
+
+### Added
+- **Upload size and speed display** — progress bars in the Add App and Edit
+  Catalogue Entry dialogs now show `copied / total (speed)` text during the
+  archive copy phase (e.g. `256 MB / 4.2 GB (1.3 GB/s)`).  Text is cleared
+  automatically when the phase switches to "Writing catalogue…".
+  `packager.py` gains `phase_cb(label)` and `stats_cb(copied, total, speed_bps)`
+  parameters on both `import_to_repo` and `update_in_repo`.
+
+### Changed
+- **Better upload phase labels** — the archive copy phase now shows "Copying
+  archive…" and the catalogue-write phase shows "Writing catalogue…", replacing
+  the old fraction-threshold hack that changed the label at 90% progress.
+- **Upload progress page layout** — margins and spacing tightened to match the
+  download progress pages (12 px top/bottom, spacing 6); progress bars have
+  `set_size_request(0, -1)` so the dialog width stays stable.
+
+### Fixed
+- **GTK focus assertion** (`gtk_list_box_row_grab_focus: assertion 'box != NULL'
+  failed`) — the screenshot list in Edit Catalogue Entry now hides the ListBox
+  before removing rows so GTK does not try to move keyboard focus to a row that
+  is being unparented.
+
 ## [0.18.0] — 2026-03-02
 
 ### Added

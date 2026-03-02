@@ -15,6 +15,7 @@ Flow
 from __future__ import annotations
 
 import threading
+import time
 from pathlib import Path
 
 import gi
@@ -26,6 +27,22 @@ from gi.repository import Adw, GLib, Gtk
 
 _STRATEGIES = ["safe", "full"]
 _STRATEGY_LABELS = ["Safe (preserve user data)", "Full (complete replacement)"]
+
+
+def _fmt_ul_stats(copied: int, total: int, speed: float) -> str:
+    """Format upload progress as e.g. '2.6 MB / 349 MB (1.3 MB/s)'."""
+    def _sz(n: int) -> str:
+        if n < 1024:
+            return f"{n} B"
+        if n < 1024 ** 2:
+            return f"{n / 1024:.1f} KB"
+        if n < 1024 ** 3:
+            return f"{n / 1024 ** 2:.1f} MB"
+        return f"{n / 1024 ** 3:.2f} GB"
+
+    size_str = f"{_sz(copied)} / {_sz(total)}" if total > 0 else _sz(copied)
+    speed_str = f"{_sz(int(speed))}/s" if speed > 0 else "\u2026"
+    return f"{size_str} ({speed_str})"
 
 
 class EditAppDialog(Adw.Dialog):
@@ -301,22 +318,24 @@ class EditAppDialog(Adw.Dialog):
         return row, clear_btn
 
     def _build_progress(self) -> Gtk.Widget:
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         box.set_valign(Gtk.Align.CENTER)
-        box.set_margin_top(48)
-        box.set_margin_bottom(48)
+        box.set_margin_top(12)
+        box.set_margin_bottom(12)
         box.set_margin_start(24)
         box.set_margin_end(24)
+
+        self._progress_label = Gtk.Label(label="Saving changes\u2026", xalign=0)
+        self._progress_label.add_css_class("dim-label")
 
         self._progress_bar = Gtk.ProgressBar()
         self._progress_bar.set_show_text(True)
         self._progress_bar.set_fraction(0.0)
-
-        self._progress_label = Gtk.Label(label="Saving changes…")
-        self._progress_label.add_css_class("dim-label")
+        self._progress_bar.set_size_request(0, -1)
 
         self._cancel_progress_btn = Gtk.Button(label="Cancel")
         self._cancel_progress_btn.set_halign(Gtk.Align.CENTER)
+        self._cancel_progress_btn.set_margin_top(6)
         self._cancel_progress_btn.connect("clicked", self._on_cancel_progress_clicked)
 
         box.append(self._progress_label)
@@ -548,6 +567,9 @@ class EditAppDialog(Adw.Dialog):
     # ── Screenshot list helpers ───────────────────────────────────────────
 
     def _rebuild_screenshot_list(self) -> None:
+        # Hide before removing rows so GTK doesn't try to move focus to a
+        # row that is being unparented (avoids gtk_list_box_row_grab_focus assertion).
+        self._ss_listbox.set_visible(False)
         row = self._ss_listbox.get_row_at_index(0)
         while row is not None:
             self._ss_listbox.remove(row)
@@ -676,7 +698,7 @@ class EditAppDialog(Adw.Dialog):
         self._cancel_event.clear()
         self._stack.set_visible_child_name("progress")
         self._progress_bar.set_fraction(0.0)
-        self._progress_label.set_text("Saving changes…")
+        self._progress_label.set_text("Saving changes\u2026")
 
         repo_root = self._repo.writable_path()
 
@@ -688,11 +710,20 @@ class EditAppDialog(Adw.Dialog):
                 update_in_repo,
             )
 
-            def _progress(fraction: float) -> bool:
+            def _phase(label: str) -> None:
+                GLib.idle_add(self._progress_label.set_text, label)
+                GLib.idle_add(self._progress_bar.set_text, "")
+
+            _last_stats_t = [0.0]
+
+            def _stats(copied: int, total: int, speed: float) -> None:
+                now = time.monotonic()
+                if now - _last_stats_t[0] >= 0.1:
+                    _last_stats_t[0] = now
+                    GLib.idle_add(self._progress_bar.set_text, _fmt_ul_stats(copied, total, speed))
+
+            def _progress(fraction: float) -> None:
                 GLib.idle_add(self._progress_bar.set_fraction, fraction)
-                if fraction >= 0.9:
-                    GLib.idle_add(self._progress_label.set_text, "Writing catalogue…")
-                return False
 
             try:
                 update_in_repo(
@@ -702,6 +733,8 @@ class EditAppDialog(Adw.Dialog):
                     images,
                     self._new_archive_src or None,
                     progress_cb=_progress,
+                    phase_cb=_phase,
+                    stats_cb=_stats,
                     cancel_event=self._cancel_event,
                 )
                 if category not in BASE_CATEGORIES:

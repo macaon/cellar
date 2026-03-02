@@ -12,6 +12,7 @@ import json
 import re
 import shutil
 import tarfile
+import time
 import zlib
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -132,6 +133,8 @@ def import_to_repo(
     images: dict,
     *,
     progress_cb: Callable[[float], None] | None = None,
+    phase_cb: Callable[[str], None] | None = None,
+    stats_cb: Callable[[int, int, float], None] | None = None,
     cancel_event=None,          # threading.Event — checked during archive copy
 ) -> None:
     """Copy archive + images into *repo_root* and update ``catalogue.json``.
@@ -141,6 +144,10 @@ def import_to_repo(
       ``"screenshots"`` → list[str] paths
 
     *progress_cb* receives a float in [0, 1] during the archive copy phase.
+    *phase_cb*, when provided, is called as ``phase_cb(label)`` when the
+    operation phase changes (e.g. "Copying archive…", "Writing catalogue…").
+    *stats_cb*, when provided, is called as ``stats_cb(copied, total, speed_bps)``
+    during the archive copy so the UI can show size/speed text.
     *cancel_event* is a ``threading.Event``; when set the copy is aborted and
     the partial destination file is removed.
     """
@@ -148,12 +155,15 @@ def import_to_repo(
     app_dir.mkdir(parents=True, exist_ok=True)
 
     # ── Archive copy (chunked for progress reporting + CRC32) ──────────────
+    if phase_cb:
+        phase_cb("Copying archive\u2026")
     archive_dest = repo_root / entry.archive
     archive_dest.parent.mkdir(parents=True, exist_ok=True)
     src_size = Path(archive_src).stat().st_size
     chunk = 1 * 1024 * 1024  # 1 MB
     copied = 0
     crc = 0
+    start = time.monotonic()
     try:
         with open(archive_src, "rb") as src_f, open(archive_dest, "wb") as dst_f:
             while True:
@@ -167,6 +177,10 @@ def import_to_repo(
                 dst_f.write(buf)
                 crc = zlib.crc32(buf, crc)
                 copied += len(buf)
+                elapsed = time.monotonic() - start
+                speed = copied / elapsed if elapsed > 0.1 else 0.0
+                if stats_cb and src_size > 0:
+                    stats_cb(copied, src_size, speed)
                 if progress_cb and src_size > 0:
                     progress_cb(min(copied / src_size * 0.9, 0.9))
     except CancelledError:
@@ -192,6 +206,8 @@ def import_to_repo(
         _optimize_image(src, ss_dir / f"{i:02d}{Path(src).suffix}", "screenshot")
 
     # ── catalogue.json ────────────────────────────────────────────────────
+    if phase_cb:
+        phase_cb("Writing catalogue\u2026")
     _upsert_catalogue(repo_root, entry)
 
     if progress_cb:
@@ -206,6 +222,8 @@ def update_in_repo(
     new_archive_src: str | None = None,
     *,
     progress_cb: Callable[[float], None] | None = None,
+    phase_cb: Callable[[str], None] | None = None,
+    stats_cb: Callable[[int, int, float], None] | None = None,
     cancel_event=None,
 ) -> None:
     """Update an existing entry in *repo_root*.
@@ -221,12 +239,15 @@ def update_in_repo(
 
     # ── Archive (optional replacement + CRC32) ──────────────────────────────
     if new_archive_src:
+        if phase_cb:
+            phase_cb("Copying archive\u2026")
         archive_dest = repo_root / new_entry.archive
         archive_dest.parent.mkdir(parents=True, exist_ok=True)
         src_size = Path(new_archive_src).stat().st_size
         chunk = 1 * 1024 * 1024
         copied = 0
         crc = 0
+        start = time.monotonic()
         try:
             with open(new_archive_src, "rb") as src_f, open(archive_dest, "wb") as dst_f:
                 while True:
@@ -240,6 +261,10 @@ def update_in_repo(
                     dst_f.write(buf)
                     crc = zlib.crc32(buf, crc)
                     copied += len(buf)
+                    elapsed = time.monotonic() - start
+                    speed = copied / elapsed if elapsed > 0.1 else 0.0
+                    if stats_cb and src_size > 0:
+                        stats_cb(copied, src_size, speed)
                     if progress_cb and src_size > 0:
                         progress_cb(min(copied / src_size * 0.9, 0.9))
         except CancelledError:
@@ -276,6 +301,8 @@ def update_in_repo(
                 _optimize_image(src, ss_dir / f"{i:02d}{Path(src).suffix}", "screenshot")
 
     # ── catalogue.json ────────────────────────────────────────────────────
+    if phase_cb:
+        phase_cb("Writing catalogue\u2026")
     _upsert_catalogue(repo_root, new_entry)
 
     if progress_cb:

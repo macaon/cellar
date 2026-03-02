@@ -1,4 +1,4 @@
-"""SQLite tracking of installed apps.
+"""SQLite tracking of installed apps and base images.
 
 Database location
 -----------------
@@ -16,6 +16,12 @@ Schema
         installed_at     TIMESTAMP,
         last_updated     TIMESTAMP,
         repo_source      TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS bases (
+        win_ver      TEXT PRIMARY KEY,   -- e.g. "win10"
+        installed_at TIMESTAMP,
+        repo_source  TEXT
     );
 """
 
@@ -53,8 +59,13 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             last_updated      TIMESTAMP,
             repo_source       TEXT
         );
+        CREATE TABLE IF NOT EXISTS bases (
+            win_ver      TEXT PRIMARY KEY,
+            installed_at TIMESTAMP,
+            repo_source  TEXT
+        );
     """)
-    # Additive migration: safe to run on every connection open.
+    # Additive migrations: safe to run on every connection open.
     try:
         conn.execute("ALTER TABLE installed ADD COLUMN runner_override TEXT")
     except sqlite3.OperationalError:
@@ -148,3 +159,51 @@ def set_runner_override(app_id: str, runner_name: str | None) -> None:
             "UPDATE installed SET runner_override = ? WHERE id = ?",
             (runner_name, app_id),
         )
+
+
+# ---------------------------------------------------------------------------
+# Base image tracking
+# ---------------------------------------------------------------------------
+
+def mark_base_installed(win_ver: str, repo_source: str = "") -> None:
+    """Record that the base image for *win_ver* is installed."""
+    now = datetime.now(timezone.utc).isoformat()
+    with _connect() as conn:
+        _ensure_schema(conn)
+        conn.execute(
+            """
+            INSERT INTO bases (win_ver, installed_at, repo_source)
+            VALUES (?, ?, ?)
+            ON CONFLICT(win_ver) DO UPDATE SET
+                installed_at = excluded.installed_at,
+                repo_source  = excluded.repo_source
+            """,
+            (win_ver, now, repo_source),
+        )
+
+
+def get_installed_base(win_ver: str) -> dict | None:
+    """Return the installed record for *win_ver*, or ``None`` if not present."""
+    with _connect() as conn:
+        _ensure_schema(conn)
+        row = conn.execute(
+            "SELECT * FROM bases WHERE win_ver = ?", (win_ver,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def get_all_installed_bases() -> list[dict]:
+    """Return all installed base records ordered by ``installed_at``."""
+    with _connect() as conn:
+        _ensure_schema(conn)
+        rows = conn.execute(
+            "SELECT * FROM bases ORDER BY installed_at"
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def remove_base_record(win_ver: str) -> None:
+    """Delete the base record for *win_ver* (no-op if not present)."""
+    with _connect() as conn:
+        _ensure_schema(conn)
+        conn.execute("DELETE FROM bases WHERE win_ver = ?", (win_ver,))

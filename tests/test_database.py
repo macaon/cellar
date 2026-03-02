@@ -168,3 +168,50 @@ def test_runner_override_schema_migration_is_idempotent(tmp_path):
         # Second call triggers _ensure_schema again — ALTER TABLE must not crash.
         rec = db.get_installed("app")
     assert rec is not None
+
+
+# ---------------------------------------------------------------------------
+# Base image tracking
+# ---------------------------------------------------------------------------
+
+def test_mark_and_get_installed_base(tmp_path):
+    with _patch_db(tmp_path):
+        db.mark_base_installed("win10", "smb://server/repo")
+        rec = db.get_installed_base("win10")
+    assert rec is not None
+    assert rec["win_ver"] == "win10"
+    assert rec["repo_source"] == "smb://server/repo"
+    assert rec["installed_at"]
+
+
+def test_get_installed_base_missing(tmp_path):
+    with _patch_db(tmp_path):
+        assert db.get_installed_base("win7") is None
+
+
+def test_mark_base_installed_upsert(tmp_path):
+    with _patch_db(tmp_path):
+        db.mark_base_installed("win10", "smb://old")
+        db.mark_base_installed("win10", "smb://new")
+        rec = db.get_installed_base("win10")
+    assert rec["repo_source"] == "smb://new"
+
+
+def test_get_all_installed_bases(tmp_path):
+    with _patch_db(tmp_path):
+        db.mark_base_installed("win10")
+        db.mark_base_installed("win7")
+        bases = db.get_all_installed_bases()
+    assert {b["win_ver"] for b in bases} == {"win10", "win7"}
+
+
+def test_remove_base_record(tmp_path):
+    with _patch_db(tmp_path):
+        db.mark_base_installed("win10")
+        db.remove_base_record("win10")
+        assert db.get_installed_base("win10") is None
+
+
+def test_remove_base_record_noop_when_missing(tmp_path):
+    with _patch_db(tmp_path):
+        db.remove_base_record("win10")  # should not raise

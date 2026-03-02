@@ -216,7 +216,7 @@ def update_app_safe(
                 _check_cancel as _inst_check,
                 _extract_archive,
                 _find_bottle_dir,
-                _verify_sha256,
+                _verify_crc32,
             )
         except ImportError as exc:
             raise UpdateError(f"Internal error: {exc}") from exc
@@ -241,10 +241,10 @@ def update_app_safe(
 
         # ── Phase 3: Verify ────────────────────────────────────────────────
         _check_cancel(cancel_event)
-        if entry.archive_sha256:
+        if entry.archive_crc32:
             _report(progress_cb, "Verifying…", ver_lo)
             try:
-                _verify_sha256(archive_path, entry.archive_sha256)
+                _verify_crc32(archive_path, entry.archive_crc32)
             except InstallError as exc:
                 raise UpdateError(str(exc)) from exc
 

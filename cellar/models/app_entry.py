@@ -78,7 +78,7 @@ class AppEntry:
     # ── Installation ──────────────────────────────────────────────────────
     archive: str = ""
     archive_size: int = 0
-    archive_sha256: str = ""
+    archive_crc32: str = ""
     install_size_estimate: int = 0
     built_with: BuiltWith | None = None
     update_strategy: Literal["safe", "full"] = "safe"
@@ -121,7 +121,7 @@ class AppEntry:
             screenshots=tuple(data.get("screenshots", [])),
             archive=data.get("archive", ""),
             archive_size=int(data.get("archive_size", 0)),
-            archive_sha256=data.get("archive_sha256", ""),
+            archive_crc32=data.get("archive_crc32", data.get("archive_sha256", "")),
             install_size_estimate=int(data.get("install_size_estimate", 0)),
             built_with=BuiltWith.from_dict(built_with_raw) if built_with_raw else None,
             update_strategy=strategy,
@@ -161,7 +161,7 @@ class AppEntry:
         _opt_str(d, "archive", self.archive)
         if self.archive_size:
             d["archive_size"] = self.archive_size
-        _opt_str(d, "archive_sha256", self.archive_sha256)
+        _opt_str(d, "archive_crc32", self.archive_crc32)
         if self.install_size_estimate:
             d["install_size_estimate"] = self.install_size_estimate
         if self.built_with is not None:

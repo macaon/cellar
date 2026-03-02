@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import hashlib
 import tarfile
 import threading
+import zlib
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -27,7 +27,7 @@ def _entry(**kwargs) -> AppEntry:
         category="Games",
         archive="apps/test-app/test-app-1.0.tar.gz",
         archive_size=0,
-        archive_sha256="",
+        archive_crc32="",
     )
     defaults.update(kwargs)
     return AppEntry(**defaults)
@@ -119,22 +119,22 @@ def test_find_bottle_dir_ambiguous_raises(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# _verify_sha256
+# _verify_crc32
 # ---------------------------------------------------------------------------
 
-def test_verify_sha256_correct(tmp_path):
+def test_verify_crc32_correct(tmp_path):
     data = b"hello world"
     f = tmp_path / "file.bin"
     f.write_bytes(data)
-    expected = hashlib.sha256(data).hexdigest()
-    ins._verify_sha256(f, expected)  # must not raise
+    expected = format(zlib.crc32(data) & 0xFFFFFFFF, "08x")
+    ins._verify_crc32(f, expected)  # must not raise
 
 
-def test_verify_sha256_mismatch_raises(tmp_path):
+def test_verify_crc32_mismatch_raises(tmp_path):
     f = tmp_path / "file.bin"
     f.write_bytes(b"hello world")
-    with pytest.raises(ins.InstallError, match="SHA256"):
-        ins._verify_sha256(f, "a" * 64)
+    with pytest.raises(ins.InstallError, match="CRC32"):
+        ins._verify_crc32(f, "deadbeef")
 
 
 # ---------------------------------------------------------------------------
@@ -295,19 +295,19 @@ def test_install_app_collision_suffix(tmp_path):
     assert (bottles.data_path / "TestBottle-2").is_dir()
 
 
-def test_install_app_sha256_verified(tmp_path):
+def test_install_app_crc32_verified(tmp_path):
     archive = _make_archive(tmp_path)
     bottles = _bottles(tmp_path)
-    entry = _entry(archive_sha256="a" * 64)  # wrong hash
-    with pytest.raises(ins.InstallError, match="SHA256"):
+    entry = _entry(archive_crc32="deadbeef")  # wrong hash
+    with pytest.raises(ins.InstallError, match="CRC32"):
         ins.install_app(entry, str(archive), bottles)
 
 
-def test_install_app_sha256_correct_passes(tmp_path):
+def test_install_app_crc32_correct_passes(tmp_path):
     archive = _make_archive(tmp_path)
     bottles = _bottles(tmp_path)
-    sha = hashlib.sha256(archive.read_bytes()).hexdigest()
-    entry = _entry(archive_sha256=sha)
+    crc = format(zlib.crc32(archive.read_bytes()) & 0xFFFFFFFF, "08x")
+    entry = _entry(archive_crc32=crc)
     bottle_name = ins.install_app(entry, str(archive), bottles)
     assert bottle_name == "TestBottle"
 

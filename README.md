@@ -113,7 +113,7 @@ per-app manifest files. All paths inside are relative to the repo root.
 
       "archive": "apps/appname/appname-1.0.tar.gz",
       "archive_size": 524288000,
-      "archive_sha256": "abc123...",
+      "archive_crc32": "abc123de",
       "install_size_estimate": 2147483648,
       "built_with": {
         "runner": "proton-ge-9-1",

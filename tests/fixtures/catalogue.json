@@ -28,7 +28,7 @@
       ],
       "archive": "apps/example-app/example-app-1.0.tar.gz",
       "archive_size": 104857600,
-      "archive_sha256": "deadbeef1234567890abcdef1234567890abcdef1234567890abcdef12345678",
+      "archive_crc32": "deadbeef1234567890abcdef1234567890abcdef1234567890abcdef12345678",
       "install_size_estimate": 524288000,
       "built_with": {
         "runner": "proton-ge-9-1",
@@ -58,7 +58,7 @@
       ],
       "archive": "apps/paint-clone/paint-clone-2.1.tar.gz",
       "archive_size": 20971520,
-      "archive_sha256": "cafebabe1234567890abcdef1234567890abcdef1234567890abcdef12345678",
+      "archive_crc32": "cafebabe1234567890abcdef1234567890abcdef1234567890abcdef12345678",
       "built_with": {
         "runner": "caffe-8.21",
         "dxvk": "2.1"

@@ -1400,11 +1400,18 @@ class InstallProgressDialog(Adw.Dialog):
     def _start_install(self) -> None:
         from cellar.backend.installer import InstallCancelled, install_app
 
+        self._pulse_id: int | None = None
+
+        def _set_phase(label: str) -> None:
+            GLib.idle_add(self._on_phase_change, label)
+
         def _dl_progress(fraction: float) -> None:
             GLib.idle_add(self._progress_bar.set_fraction, fraction)
 
+        def _verify_progress(fraction: float) -> None:
+            GLib.idle_add(self._progress_bar.set_fraction, fraction)
+
         def _inst_progress(fraction: float) -> None:
-            GLib.idle_add(self._phase_label.set_text, "Installing")
             GLib.idle_add(self._progress_bar.set_fraction, fraction)
 
         def _run() -> None:
@@ -1415,6 +1422,8 @@ class InstallProgressDialog(Adw.Dialog):
                     self._selected_install,
                     download_cb=_dl_progress,
                     install_cb=_inst_progress,
+                    phase_cb=_set_phase,
+                    verify_cb=_verify_progress,
                     cancel_event=self._cancel_event,
                     token=self._token,
                 )
@@ -1425,6 +1434,26 @@ class InstallProgressDialog(Adw.Dialog):
                 GLib.idle_add(self._on_error, str(exc))
 
         threading.Thread(target=_run, daemon=True).start()
+
+    def _on_phase_change(self, label: str) -> None:
+        """Reset bar and update label on phase transition (runs on UI thread)."""
+        # Stop any active pulse
+        if self._pulse_id is not None:
+            GLib.source_remove(self._pulse_id)
+            self._pulse_id = None
+        self._phase_label.set_text(label)
+        if "Copying" in label:
+            # Indeterminate pulse for copytree
+            self._progress_bar.set_fraction(0.0)
+            self._progress_bar.set_show_text(False)
+            self._pulse_id = GLib.timeout_add(80, self._do_pulse)
+        else:
+            self._progress_bar.set_fraction(0.0)
+            self._progress_bar.set_show_text(True)
+
+    def _do_pulse(self) -> bool:
+        self._progress_bar.pulse()
+        return True  # keep calling
 
     def _on_done(self, bottle_name: str) -> None:
         self.close()

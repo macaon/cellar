@@ -107,7 +107,7 @@ def test_example_app_install_fields():
     e = entries["example-app"]
     assert e.archive == "apps/example-app/example-app-1.0.tar.gz"
     assert e.archive_size == 104857600
-    assert e.archive_sha256 == "deadbeef1234567890abcdef1234567890abcdef1234567890abcdef12345678"
+    assert e.archive_crc32 == "deadbeef1234567890abcdef1234567890abcdef1234567890abcdef12345678"
     assert e.install_size_estimate == 524288000
     assert e.update_strategy == "safe"
     assert e.entry_point == "Program Files/ExampleApp/example.exe"

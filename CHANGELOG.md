@@ -2,6 +2,23 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.16.0] — 2026-03-02
+
+### Changed
+- **Multi-phase install progress bars** — `InstallProgressDialog` now shows
+  distinct phases (Downloading → Verifying → Extracting → Copying → Finishing),
+  each resetting the bar to 0 → 100%.  The "Copying to Bottles" phase uses an
+  indeterminate pulse since `shutil.copytree` does not report per-file progress.
+  Eliminates the stalls at ~7%, ~40%, and ~70% caused by the verify and copy
+  steps sharing a single bar with no progress feedback.
+- **Multi-phase runner install progress** — `InstallRunnerDialog` now uses two
+  distinct 0 → 100% phases (Downloading, Extracting) with per-member extract
+  progress, replacing the previous 0–80%/80–100% split.
+- **CRC32 replaces SHA-256** for archive integrity verification — ~4× faster on
+  multi-gigabyte files.  `archive_sha256` field renamed to `archive_crc32` in
+  `catalogue.json` and `AppEntry`; old `archive_sha256` keys in existing
+  catalogues are read transparently for backward compatibility.
+
 ## [0.15.0] — 2026-03-01
 
 ### Added

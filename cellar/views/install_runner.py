@@ -24,6 +24,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import shutil
+import sys
 import tarfile
 import tempfile
 import threading
@@ -211,9 +212,9 @@ def _download_and_extract_runner(
 ) -> None:
     """Download the runner archive, verify it, and extract it to *target_dir*.
 
-    Progress is reported via *progress_cb* in the range [0, 1]:
-      - 0.0 → 0.8 : download
-      - 0.8 → 1.0 : extract + move
+    Progress is reported via *progress_cb* in distinct phases, each 0 → 1:
+      - **Downloading…** — HTTP stream
+      - **Extracting…** — per-member tarfile extraction
 
     Raises ``_Cancelled`` if *cancel_event* is set during the operation.
     """
@@ -250,7 +251,7 @@ def _download_and_extract_runner(
                     hasher.update(chunk)
                     downloaded += len(chunk)
                     if total:
-                        progress_cb(min(0.8, (downloaded / total) * 0.8))
+                        progress_cb(min(downloaded / total, 1.0))
         finally:
             if tmp_fd >= 0:
                 os.close(tmp_fd)
@@ -261,20 +262,29 @@ def _download_and_extract_runner(
                 f"expected {expected_hash}, got {hasher.hexdigest()}"
             )
 
-        progress_cb(0.8)
+        progress_cb(1.0)
         if cancel_event.is_set():
             raise _Cancelled
 
         # ── Extract ───────────────────────────────────────────────────────
-        phase_cb("Extracting…")
+        phase_cb("Extracting\u2026")
+        progress_cb(0.0)
+        use_filter = sys.version_info >= (3, 12)
         with tempfile.TemporaryDirectory() as extract_dir:
-            with tarfile.open(tmp_path) as tar:
-                tar.extractall(extract_dir)  # nosec
+            archive_size = tmp_path.stat().st_size or 1
+            with open(tmp_path, "rb") as raw:
+                with tarfile.open(fileobj=raw, mode="r:gz") as tar:
+                    for member in tar:
+                        if cancel_event.is_set():
+                            raise _Cancelled
+                        if use_filter:
+                            tar.extract(member, extract_dir, filter="data")
+                        else:
+                            tar.extract(member, extract_dir)  # noqa: S202
+                        progress_cb(min(raw.tell() / archive_size, 1.0))
 
             if cancel_event.is_set():
                 raise _Cancelled
-
-            progress_cb(0.9)
 
             # Find the single top-level directory produced by the tarball.
             entries = list(Path(extract_dir).iterdir())

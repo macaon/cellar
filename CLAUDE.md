@@ -76,7 +76,7 @@ A fat JSON file containing every app's full metadata. All asset paths are relati
       "screenshots": ["apps/appname/screenshots/01.png"],
       "archive": "apps/appname/appname-1.0.tar.gz",
       "archive_size": 524288000,
-      "archive_sha256": "abc123...",
+      "archive_crc32": "abc123de",
       "install_size_estimate": 2147483648,
       "built_with": {
         "runner": "proton-ge-9-1",
@@ -137,7 +137,7 @@ Check both at startup and let the user override in settings if needed.
 
 ### Import (install) flow
 
-1. Download archive to a temp directory, verify SHA256
+1. Download archive to a temp directory, verify CRC32
 2. Extract archive to a temp location
 3. Copy/move extracted bottle directory to the Bottles data path with a sanitised name derived from the app ID
 4. Record the installation in the local SQLite database

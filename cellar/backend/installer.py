@@ -6,7 +6,7 @@ Install flow
    used in-place; for HTTP(S) it is streamed to a temp file in 1 MB chunks
    with progress reporting and cancel support.  SSH/SMB/NFS archives raise
    ``InstallError`` (not yet supported).
-2. **Verify** — SHA-256 checksum checked against ``AppEntry.archive_sha256``
+2. **Verify** — CRC32 checksum checked against ``AppEntry.archive_crc32``
    (skipped when the field is empty).
 3. **Extract** — ``tarfile`` extracts to a temporary directory.
 4. **Identify** — the single top-level directory inside the archive is taken
@@ -35,12 +35,12 @@ from any thread (the UI layer wraps it in ``GLib.idle_add``).
 
 from __future__ import annotations
 
-import hashlib
 import shutil
 import sys
 import tarfile
 import tempfile
 import threading
+import zlib
 from pathlib import Path
 from typing import Callable
 from urllib.parse import urlparse
@@ -73,6 +73,8 @@ def install_app(
     *,
     download_cb: Callable[[float], None] | None = None,
     install_cb: Callable[[float], None] | None = None,
+    phase_cb: Callable[[str], None] | None = None,
+    verify_cb: Callable[[float], None] | None = None,
     cancel_event: threading.Event | None = None,
     token: str | None = None,
     ssl_verify: bool = True,
@@ -92,7 +94,12 @@ def install_app(
     download_cb:
         Optional ``(fraction)`` callback for the download phase (0 → 1).
     install_cb:
-        Optional ``(fraction)`` callback for the install phase (0 → 1).
+        Optional ``(fraction)`` callback for the extract phase (0 → 1).
+    phase_cb:
+        Optional ``(label)`` callback; called at each phase transition
+        so the UI can update the status label and reset the bar.
+    verify_cb:
+        Optional ``(fraction)`` callback for the CRC32 verify phase (0 → 1).
     cancel_event:
         ``threading.Event``; when set the operation is aborted and
         ``InstallCancelled`` is raised.
@@ -108,6 +115,8 @@ def install_app(
         tmp = Path(tmp_str)
 
         # ── Step 1: Acquire archive ────────────────────────────────────
+        if phase_cb:
+            phase_cb("Downloading\u2026")
         if download_cb:
             download_cb(0.0)
         archive_path = _acquire_archive(
@@ -123,13 +132,17 @@ def install_app(
         if download_cb:
             download_cb(1.0)
 
-        # ── Step 2: Verify SHA-256 ─────────────────────────────────────
-        if entry.archive_sha256:
+        # ── Step 2: Verify CRC32 ──────────────────────────────────────
+        if entry.archive_crc32:
             _check_cancel(cancel_event)
-            _verify_sha256(archive_path, entry.archive_sha256)
+            if phase_cb:
+                phase_cb("Verifying download\u2026")
+            _verify_crc32(archive_path, entry.archive_crc32, progress_cb=verify_cb)
 
         # ── Step 3: Extract ────────────────────────────────────────────
         _check_cancel(cancel_event)
+        if phase_cb:
+            phase_cb("Extracting\u2026")
         if install_cb:
             install_cb(0.0)
         extract_dir = tmp / "extracted"
@@ -151,6 +164,8 @@ def install_app(
 
         # ── Step 6: Copy into Bottles ──────────────────────────────────
         _check_cancel(cancel_event)
+        if phase_cb:
+            phase_cb("Copying to Bottles\u2026")
         try:
             shutil.copytree(bottle_src, bottle_dest)
         except Exception:
@@ -158,6 +173,8 @@ def install_app(
             raise
 
         # ── Step 7: Fix absolute paths in bottle.yml ───────────────────
+        if phase_cb:
+            phase_cb("Finishing\u2026")
         _fix_program_paths(bottle_dest, bottles_install.data_path)
 
     if install_cb:
@@ -387,16 +404,25 @@ def _gio_stream(
 # Verify
 # ---------------------------------------------------------------------------
 
-def _verify_sha256(path: Path, expected: str) -> None:
-    """Raise ``InstallError`` if *path* does not match *expected* SHA-256 hex."""
-    h = hashlib.sha256()
+def _verify_crc32(
+    path: Path,
+    expected: str,
+    progress_cb: Callable[[float], None] | None = None,
+) -> None:
+    """Raise ``InstallError`` if *path* does not match *expected* CRC32 hex."""
+    crc = 0
+    total = path.stat().st_size or 1
+    read = 0
     with open(path, "rb") as fh:
         for chunk in iter(lambda: fh.read(1024 * 1024), b""):
-            h.update(chunk)
-    actual = h.hexdigest()
+            crc = zlib.crc32(chunk, crc)
+            read += len(chunk)
+            if progress_cb:
+                progress_cb(min(read / total, 1.0))
+    actual = format(crc & 0xFFFFFFFF, "08x")
     if actual != expected:
         raise InstallError(
-            f"SHA256 mismatch — archive may be corrupt or tampered.\n"
+            f"CRC32 mismatch — archive may be corrupt or tampered.\n"
             f"  expected: {expected}\n"
             f"  actual:   {actual}"
         )

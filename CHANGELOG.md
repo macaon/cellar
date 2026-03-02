@@ -2,6 +2,19 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.20.2] — 2026-03-02
+
+### Changed
+- **Install progress pulsing for delta phase** — `InstallProgressDialog` now
+  triggers an indeterminate progress-bar pulse for "Applying delta…" phases
+  in addition to the existing "Copying…" pulse, so the bar moves during rsync
+  overlay operations.
+- `_proceed_to_install()` in `DetailView` resolves `base_entry` and
+  `base_archive_uri` from the entry's source repos and threads them through
+  `InstallProgressDialog` → `install_app()`, so the "Downloading base image…" /
+  "Verifying base image…" / "Installing base image…" phase labels are shown
+  when a delta install needs to auto-download its base image.
+
 ## [0.20.1] — 2026-03-02
 
 ### Added

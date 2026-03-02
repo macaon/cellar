@@ -221,6 +221,20 @@ class DetailView(Gtk.Box):
         archive_uri = self._resolve(self._entry.archive) if self._entry.archive else ""
         runner_info = self._resolve_runner_info(runner_to_install) if runner_to_install else None
 
+        # Resolve base archive for delta installs.
+        base_entry = None
+        base_archive_uri = ""
+        if self._entry.base_win_ver:
+            for repo in self._source_repos:
+                try:
+                    bases = repo.fetch_bases()
+                    if self._entry.base_win_ver in bases:
+                        base_entry = bases[self._entry.base_win_ver]
+                        base_archive_uri = repo.resolve_asset_uri(base_entry.archive)
+                        break
+                except Exception:
+                    pass
+
         def _open_runner_manager(on_change):
             """Open RunnerManagerDialog from the Change button inside InstallProgressDialog."""
             self._open_runner_manager(
@@ -239,6 +253,8 @@ class DetailView(Gtk.Box):
             installed_runners=list(self._installed_runners),
             open_runner_manager=_open_runner_manager,
             resolve_runner_info=self._resolve_runner_info,
+            base_entry=base_entry,
+            base_archive_uri=base_archive_uri,
         )
         dialog.present(self.get_root())
 
@@ -1505,6 +1521,8 @@ class InstallProgressDialog(Adw.Dialog):
         installed_runners: list[str] | None = None,
         open_runner_manager: Callable | None = None,
         resolve_runner_info: Callable | None = None,
+        base_entry=None,            # BaseEntry | None — for delta installs
+        base_archive_uri: str = "", # resolved URI for the base archive
     ) -> None:
         super().__init__(title=f"Install {entry.name}", content_width=360)
         self._entry = entry
@@ -1520,6 +1538,8 @@ class InstallProgressDialog(Adw.Dialog):
         self._open_runner_manager = open_runner_manager
         self._resolve_runner_info = resolve_runner_info
         self._runner_row: Adw.ActionRow | None = None
+        self._base_entry = base_entry
+        self._base_archive_uri = base_archive_uri
 
         # Determine whether we need to show the confirm page at all.
         self._needs_confirm = bool(runner_to_install) or len(installs) > 1
@@ -1765,12 +1785,14 @@ class InstallProgressDialog(Adw.Dialog):
                     if self._cancel_event.is_set():
                         raise InstallCancelled("Runner download cancelled")
 
-                # ── App install phase ─────────────────────────────────────
+                # ── App install phase (includes base download if needed) ───
                 _set_phase("Downloading package\u2026")
                 bottle_name = install_app(
                     self._entry,
                     self._archive_uri,
                     self._selected_install,
+                    base_entry=self._base_entry,
+                    base_archive_uri=self._base_archive_uri,
                     download_cb=_dl_progress,
                     download_stats_cb=_dl_stats,
                     install_cb=_inst_progress,
@@ -1795,8 +1817,8 @@ class InstallProgressDialog(Adw.Dialog):
             GLib.source_remove(self._pulse_id)
             self._pulse_id = None
         self._phase_label.set_text(label)
-        if "Copying" in label:
-            # Indeterminate pulse for copytree
+        if "Copying" in label or "Applying delta" in label:
+            # Indeterminate pulse for copytree / rsync delta
             self._progress_bar.set_fraction(0.0)
             self._progress_bar.set_show_text(False)
             self._pulse_id = GLib.timeout_add(80, self._do_pulse)

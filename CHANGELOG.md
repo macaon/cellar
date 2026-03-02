@@ -2,6 +2,16 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.19.7] — 2026-03-02
+
+### Fixed
+- **Desktop shortcut uses bottle display name** — the `-b` argument in the
+  generated `Exec=` line now uses the bottle's `Name` field from `bottle.yml`
+  (e.g. `Adobe Photoshop CC 2018`) rather than the directory name
+  (e.g. `Adobe-Photoshop-CC-2018`).  bottles-cli matches by display name, so
+  directory names with dashes instead of spaces were causing "Bottle not found"
+  errors on launch.
+
 ## [0.19.6] — 2026-03-02
 
 ### Fixed

@@ -388,7 +388,7 @@ class DetailView(Gtk.Box):
         self._gear_btn.set_menu_model(menu)
 
     def _on_create_shortcut(self, _action, _param) -> None:
-        from cellar.backend.bottles import list_bottle_programs
+        from cellar.backend.bottles import _bottle_display_name, list_bottle_programs
         from cellar.utils.desktop import create_desktop_entry
 
         bottle_name = (self._installed_record or {}).get("bottle_name", "")
@@ -400,6 +400,9 @@ class DetailView(Gtk.Box):
             if (inst.data_path / bottle_name).is_dir():
                 install = inst
                 break
+
+        # bottles-cli -b expects the Name from bottle.yml, not the directory name.
+        display_name = _bottle_display_name(install, bottle_name)
 
         programs = list_bottle_programs(install, bottle_name)
         program_name = programs[0]["name"] if programs else None
@@ -413,7 +416,7 @@ class DetailView(Gtk.Box):
         try:
             create_desktop_entry(
                 entry=self._entry,
-                bottle_name=bottle_name,
+                bottle_name=display_name,
                 program_name=program_name,
                 is_flatpak=(install.variant == "flatpak"),
                 icon_source=icon_source,

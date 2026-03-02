@@ -124,7 +124,7 @@ class InstallRunnerDialog(Adw.Dialog):
         box.set_margin_start(24)
         box.set_margin_end(24)
 
-        self._phase_label = Gtk.Label(label="Downloading…", xalign=0)
+        self._phase_label = Gtk.Label(label="Downloading runner…", xalign=0)
         self._phase_label.add_css_class("dim-label")
         box.append(self._phase_label)
 

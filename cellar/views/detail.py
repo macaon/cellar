@@ -1014,9 +1014,7 @@ class RunnerManagerDialog(Adw.Dialog):
         self._required_runner = required_runner
         self._on_confirm = on_confirm
         self._on_install_runner = on_install_runner
-        self._selected: str = current_runner if current_runner in self._installed else (
-            next(iter(sorted(self._installed)), "")
-        )
+        self._selected = required_runner or current_runner or ""
         self._radio_group_anchor: Gtk.CheckButton | None = None
         self._select_btn: Gtk.Button | None = None
         self._build_ui()
@@ -1130,7 +1128,7 @@ class RunnerManagerDialog(Adw.Dialog):
 
         row = Adw.ActionRow(title=runner, subtitle=" · ".join(subtitle_parts))
 
-        # Radio prefix for selection mode (installed runners only).
+        # Radio prefix for selection mode.
         if self._on_confirm:
             radio = Gtk.CheckButton()
             radio.set_valign(Gtk.Align.CENTER)
@@ -1138,13 +1136,10 @@ class RunnerManagerDialog(Adw.Dialog):
                 self._radio_group_anchor = radio
             else:
                 radio.set_group(self._radio_group_anchor)
-            if is_installed:
-                if runner == self._selected:
-                    radio.set_active(True)
-                radio.connect("toggled", self._on_radio_toggled, runner)
-                row.set_activatable_widget(radio)
-            else:
-                radio.set_sensitive(False)
+            if runner == self._selected:
+                radio.set_active(True)
+            radio.connect("toggled", self._on_radio_toggled, runner)
+            row.set_activatable_widget(radio)
             row.add_prefix(radio)
 
         # Suffix buttons.
@@ -1166,7 +1161,7 @@ class RunnerManagerDialog(Adw.Dialog):
                 trash_btn.set_sensitive(self._runners_dir is not None)
                 trash_btn.connect("clicked", self._on_delete, runner)
                 row.add_suffix(trash_btn)
-        else:
+        elif not self._on_confirm:
             dl_btn = Gtk.Button(icon_name="folder-download-symbolic")
             dl_btn.add_css_class("flat")
             dl_btn.set_valign(Gtk.Align.CENTER)
@@ -1183,8 +1178,15 @@ class RunnerManagerDialog(Adw.Dialog):
                 self._select_btn.set_sensitive(True)
 
     def _on_select_clicked(self, _btn) -> None:
-        if self._selected and self._on_confirm:
-            self._on_confirm(self._selected)
+        if not self._selected or not self._on_confirm:
+            self.close()
+            return
+        if self._selected not in self._installed:
+            self.close()
+            if self._on_install_runner:
+                self._on_install_runner(self._selected)
+            return
+        self._on_confirm(self._selected)
         self.close()
 
     def _on_open_folder(self, _btn, runner: str) -> None:

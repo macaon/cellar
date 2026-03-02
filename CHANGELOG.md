@@ -2,6 +2,17 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.16.1] — 2026-03-02
+
+### Fixed
+- **Runner picker UX** — in picker mode, radio buttons are now enabled on all
+  runners (installed and uninstalled) so any runner can be selected. Download
+  arrow buttons are hidden in picker mode to avoid bypassing the selection flow.
+  The required runner is pre-selected by default. Clicking Select on an
+  uninstalled runner triggers the download flow automatically.
+- **Runner install labels** — `InstallRunnerDialog` phase labels now read
+  "Downloading runner…" and "Extracting runner…" for clarity.
+
 ## [0.16.0] — 2026-03-02
 
 ### Changed

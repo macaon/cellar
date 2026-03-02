@@ -450,18 +450,14 @@ class Repo:
     def resolve_asset_uri(self, repo_relative: str) -> str:
         """Return a URI/path string for a repo-relative asset (icon, screenshot…).
 
-        For HTTP(S) repos, image assets (png, jpg, …) are downloaded to a
-        per-session temporary cache directory and the local path is returned.
-        This lets GdkPixbuf load them correctly — it cannot pass an
-        ``Authorization`` header when given a bare http:// URL — and makes
-        ``os.path.isfile()`` return ``True`` for screenshots and hero images.
-
-        Non-image assets (archives) are returned as URLs so the installer's
-        own auth-aware download code handles them.
+        For non-local repos (HTTP, SSH, SMB, NFS), image assets are downloaded
+        to a persistent cache directory and the local path is returned so that
+        Pillow and ``os.path.isfile()`` work correctly.  Archives are returned
+        as-is so the installer's own download code handles them.
         """
         if (
             repo_relative
-            and isinstance(self._fetcher, _HttpFetcher)
+            and not isinstance(self._fetcher, _LocalFetcher)
             and Path(repo_relative).suffix.lower() in _IMAGE_EXTENSIONS
         ):
             return self._fetch_to_cache(repo_relative)
@@ -473,9 +469,9 @@ class Repo:
         Uses ``~/.cache/cellar/assets/<sha256-prefix>/`` keyed on the repo URI.
         If *generated_at* has changed since the cache was last written, the
         entire cache directory is wiped so stale images are never served.
-        Only applies to HTTP(S) repos; other transports use local file paths.
+        Local repos are excluded (files are already on disk).
         """
-        if not isinstance(self._fetcher, _HttpFetcher):
+        if isinstance(self._fetcher, _LocalFetcher):
             return
         key = hashlib.sha256(self.uri.encode()).hexdigest()[:16]
         cache_dir = _ASSET_CACHE_ROOT / key

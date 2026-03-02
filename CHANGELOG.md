@@ -2,6 +2,15 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.19.9] — 2026-03-02
+
+### Changed
+- **Asset cache extended to SSH and SMB/NFS repos** — the persistent image
+  cache (`~/.cache/cellar/assets/`) now applies to all non-local transports.
+  SSH and SMB repos previously re-fetched images on every detail-view open;
+  they now benefit from the same cache-hit fast path as HTTP(S) repos.
+  Local repos are still served directly from disk and remain uncached.
+
 ## [0.19.8] — 2026-03-02
 
 ### Changed

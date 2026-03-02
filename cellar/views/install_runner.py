@@ -182,8 +182,16 @@ class InstallRunnerDialog(Adw.Dialog):
 
         def _phase(text: str) -> None:
             GLib.idle_add(self._phase_label.set_text, text)
-            # Clear stats text when moving to extract phase.
+            # Clear stats/name text when moving to extract phase.
             GLib.idle_add(self._progress_bar.set_text, "")
+
+        _last_name_t = [0.0]
+
+        def _name(filename: str) -> None:
+            now = time.monotonic()
+            if now - _last_name_t[0] >= 0.08:
+                _last_name_t[0] = now
+                GLib.idle_add(self._progress_bar.set_text, filename)
 
         def _run() -> None:
             try:
@@ -194,6 +202,7 @@ class InstallRunnerDialog(Adw.Dialog):
                     progress_cb=_progress,
                     stats_cb=_stats,
                     phase_cb=_phase,
+                    name_cb=_name,
                     cancel_event=self._cancel_event,
                 )
                 GLib.idle_add(self._on_done_ui, self._runner_name)
@@ -234,6 +243,7 @@ def _download_and_extract_runner(
     phase_cb: Callable[[str], None],
     cancel_event: threading.Event,
     stats_cb: Callable[[int, int, float], None] | None = None,
+    name_cb: Callable[[str], None] | None = None,
 ) -> None:
     """Download the runner archive, verify it, and extract it to *target_dir*.
 
@@ -243,6 +253,9 @@ def _download_and_extract_runner(
 
     *stats_cb*, when provided, is called as ``stats_cb(downloaded, total, speed_bps)``
     during the download phase so the UI can show size/speed text.
+
+    *name_cb*, when provided, is called as ``name_cb(filename)`` before each
+    member is extracted so the UI can show the current file name.
 
     Raises ``_Cancelled`` if *cancel_event* is set during the operation.
     """
@@ -310,6 +323,8 @@ def _download_and_extract_runner(
                     for member in tar:
                         if cancel_event.is_set():
                             raise _Cancelled
+                        if name_cb:
+                            name_cb(Path(member.name).name or member.name)
                         if use_filter:
                             tar.extract(member, extract_dir, filter="data")
                         else:

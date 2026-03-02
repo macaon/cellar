@@ -12,6 +12,12 @@ All notable changes to Cellar are documented here.
   Speed is computed as a running average from download start.  `installer.py`
   gains a `download_stats_cb(downloaded, total, speed_bps)` parameter;
   `_download_and_extract_runner` in `install_runner.py` gains the same.
+- **Filename display during extraction** — the progress bar text shows the
+  name of the file currently being extracted (e.g. `ntdll.dll`), updating at
+  up to 12 fps (throttled to avoid flooding the main loop for archives with
+  thousands of members).  Works for both package and runner extraction.
+  `_extract_archive` in `installer.py` gains an `extract_name_cb(filename)`
+  parameter; `_download_and_extract_runner` gains `name_cb`.
 
 ## [0.17.0] — 2026-03-02
 

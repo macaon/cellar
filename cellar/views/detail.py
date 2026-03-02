@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import time
 from pathlib import Path
 from typing import Callable
 
@@ -1520,6 +1521,14 @@ class InstallProgressDialog(Adw.Dialog):
         def _inst_progress(fraction: float) -> None:
             GLib.idle_add(self._progress_bar.set_fraction, fraction)
 
+        _last_name_t: list[float] = [0.0]
+
+        def _extract_name(filename: str) -> None:
+            now = time.monotonic()
+            if now - _last_name_t[0] >= 0.08:
+                _last_name_t[0] = now
+                GLib.idle_add(self._progress_bar.set_text, filename)
+
         def _run() -> None:
             try:
                 # ── Runner download phase (if needed) ─────────────────────
@@ -1537,6 +1546,14 @@ class InstallProgressDialog(Adw.Dialog):
                     def _runner_phase(text: str) -> None:
                         GLib.idle_add(self._on_phase_change, text)
 
+                    _last_runner_name_t: list[float] = [0.0]
+
+                    def _runner_name(filename: str) -> None:
+                        now = time.monotonic()
+                        if now - _last_runner_name_t[0] >= 0.08:
+                            _last_runner_name_t[0] = now
+                            GLib.idle_add(self._progress_bar.set_text, filename)
+
                     try:
                         _download_and_extract_runner(
                             url=self._runner_info["url"],
@@ -1545,6 +1562,7 @@ class InstallProgressDialog(Adw.Dialog):
                             progress_cb=_runner_progress,
                             stats_cb=_runner_stats,
                             phase_cb=_runner_phase,
+                            name_cb=_runner_name,
                             cancel_event=self._cancel_event,
                         )
                     except _Cancelled:
@@ -1563,6 +1581,7 @@ class InstallProgressDialog(Adw.Dialog):
                     download_cb=_dl_progress,
                     download_stats_cb=_dl_stats,
                     install_cb=_inst_progress,
+                    extract_name_cb=_extract_name,
                     phase_cb=_set_phase,
                     verify_cb=_verify_progress,
                     cancel_event=self._cancel_event,

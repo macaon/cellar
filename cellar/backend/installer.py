@@ -75,6 +75,7 @@ def install_app(
     download_cb: Callable[[float], None] | None = None,
     download_stats_cb: Callable[[int, int, float], None] | None = None,
     install_cb: Callable[[float], None] | None = None,
+    extract_name_cb: Callable[[str], None] | None = None,
     phase_cb: Callable[[str], None] | None = None,
     verify_cb: Callable[[float], None] | None = None,
     cancel_event: threading.Event | None = None,
@@ -153,6 +154,7 @@ def install_app(
         _extract_archive(
             archive_path, extract_dir, cancel_event,
             progress_cb=install_cb,
+            name_cb=extract_name_cb,
         )
 
         # ── Step 4: Identify bottle directory ─────────────────────────
@@ -467,6 +469,7 @@ def _extract_archive(
     dest: Path,
     cancel_event: threading.Event | None,
     progress_cb: Callable[[float], None] | None = None,
+    name_cb: Callable[[str], None] | None = None,
 ) -> None:
     """Extract *archive_path* into *dest*, reporting per-member progress.
 
@@ -474,6 +477,9 @@ def _extract_archive(
     Progress is based on compressed bytes consumed (file position) rather
     than calling ``getmembers()`` upfront, which would scan the entire
     archive before extracting anything — unacceptable for large files.
+
+    *name_cb*, when provided, is called as ``name_cb(filename)`` before
+    each member is extracted so the UI can show the current file name.
     """
     _check_cancel(cancel_event)
     use_filter = sys.version_info >= (3, 12)
@@ -483,6 +489,8 @@ def _extract_archive(
             with tarfile.open(fileobj=raw, mode="r:gz") as tf:
                 for member in tf:
                     _check_cancel(cancel_event)
+                    if name_cb:
+                        name_cb(Path(member.name).name or member.name)
                     if use_filter:
                         tf.extract(member, dest, filter="data")
                     else:

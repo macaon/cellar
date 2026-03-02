@@ -181,6 +181,7 @@ class DetailView(Gtk.Box):
             btn.set_tooltip_text("Bottles is not installed")
             self._remove_btn.set_visible(False)
         self._update_btn.set_visible(self._has_update)
+        self._gear_btn.set_visible(self._is_installed)
 
     def _on_install_clicked(self, _btn) -> None:
         if self._is_installed:
@@ -350,11 +351,90 @@ class DetailView(Gtk.Box):
             log.error("No bottle_name for %s; skipping filesystem removal", self._entry.id)
 
         database.remove_installed(self._entry.id)
+        from cellar.utils.desktop import remove_desktop_entry
+        remove_desktop_entry(self._entry.id)
         self._is_installed = False
         self._installed_record = None
         self._update_install_button()
         if self._on_remove_done:
             self._on_remove_done()
+
+    # ------------------------------------------------------------------
+    # Desktop shortcut (gear menu)
+    # ------------------------------------------------------------------
+
+    def _setup_gear_actions(self) -> None:
+        ag = Gio.SimpleActionGroup()
+
+        create_act = Gio.SimpleAction.new("create-shortcut", None)
+        create_act.connect("activate", self._on_create_shortcut)
+        ag.add_action(create_act)
+
+        remove_act = Gio.SimpleAction.new("remove-shortcut", None)
+        remove_act.connect("activate", self._on_remove_shortcut)
+        ag.add_action(remove_act)
+
+        self.insert_action_group("detail", ag)
+        self._refresh_gear_menu()
+
+    def _refresh_gear_menu(self) -> None:
+        from cellar.utils.desktop import has_desktop_entry
+
+        menu = Gio.Menu()
+        if has_desktop_entry(self._entry.id):
+            menu.append("Remove Desktop Shortcut", "detail.remove-shortcut")
+        else:
+            menu.append("Create Desktop Shortcut", "detail.create-shortcut")
+        self._gear_btn.set_menu_model(menu)
+
+    def _on_create_shortcut(self, _action, _param) -> None:
+        from cellar.backend.bottles import list_bottle_programs
+        from cellar.utils.desktop import create_desktop_entry
+
+        bottle_name = (self._installed_record or {}).get("bottle_name", "")
+        if not bottle_name or not self._bottles_installs:
+            return
+
+        install = self._bottles_installs[0]
+        for inst in self._bottles_installs:
+            if (inst.data_path / bottle_name).is_dir():
+                install = inst
+                break
+
+        programs = list_bottle_programs(install, bottle_name)
+        program_name = programs[0]["name"] if programs else None
+
+        icon_source: str | None = None
+        if self._entry.icon:
+            resolved = self._resolve(self._entry.icon)
+            if resolved and Path(resolved).is_file():
+                icon_source = resolved
+
+        try:
+            create_desktop_entry(
+                entry=self._entry,
+                bottle_name=bottle_name,
+                program_name=program_name,
+                is_flatpak=(install.variant == "flatpak"),
+                icon_source=icon_source,
+            )
+            self._refresh_gear_menu()
+            self._add_toast(f"Shortcut created for {self._entry.name}")
+        except Exception as exc:
+            log.error("Failed to create desktop entry: %s", exc)
+            self._add_toast("Failed to create shortcut")
+
+    def _on_remove_shortcut(self, _action, _param) -> None:
+        from cellar.utils.desktop import remove_desktop_entry
+
+        remove_desktop_entry(self._entry.id)
+        self._refresh_gear_menu()
+        self._add_toast(f"Shortcut removed for {self._entry.name}")
+
+    def _add_toast(self, message: str) -> None:
+        root = self.get_root()
+        if hasattr(root, "toast_overlay"):
+            root.toast_overlay.add_toast(Adw.Toast(title=message))
 
     # ------------------------------------------------------------------
     # Runner compatibility
@@ -600,6 +680,12 @@ class DetailView(Gtk.Box):
         self._install_btn.connect("clicked", self._on_install_clicked)
         action_row.append(self._install_btn)
 
+        self._gear_btn = Gtk.MenuButton(icon_name="emblem-system-symbolic")
+        self._gear_btn.set_size_request(34, 34)
+        self._gear_btn.set_tooltip_text("Options")
+        self._gear_btn.set_visible(False)
+        action_row.append(self._gear_btn)
+
         self._remove_btn = Gtk.Button(icon_name="user-trash-symbolic")
         self._remove_btn.set_size_request(34, 34)
         self._remove_btn.add_css_class("destructive-action")
@@ -619,6 +705,7 @@ class DetailView(Gtk.Box):
             right.append(source_widget)
 
         self._update_install_button()
+        self._setup_gear_actions()
 
         return box
 

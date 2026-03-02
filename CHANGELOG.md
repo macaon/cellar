@@ -2,6 +2,19 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.19.4] — 2026-03-02
+
+### Added
+- **Desktop shortcut creation** — a gear icon button now appears between Open
+  and the trash button for installed apps.  Clicking it opens a popover menu
+  with "Create Desktop Shortcut" / "Remove Desktop Shortcut".  Shortcuts are
+  written to `~/.local/share/applications/cellar-<id>.desktop` and the app
+  icon is copied (and converted to 256×256 PNG via Pillow) into
+  `~/.local/share/icons/hicolor/256x256/apps/`.  The correct `bottles-cli` or
+  `flatpak run --command=bottles-cli` exec line is generated automatically
+  based on the detected Bottles variant.  Removing an app also silently cleans
+  up any existing shortcut and icon.  New `cellar/utils/desktop.py` module.
+
 ## [0.19.3] — 2026-03-02
 
 ### Fixed

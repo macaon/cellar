@@ -2,6 +2,18 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.19.6] — 2026-03-02
+
+### Fixed
+- **Desktop shortcut icon rendering** — icons are now stored at 512×512 (matching
+  Bottles) using aspect-ratio scaling with upscaling support (`resize()` replaces
+  `thumbnail()` which was shrink-only).  Transparent padding is cropped before
+  scaling so the logo fills the canvas.  Icon filenames include a CRC32 of the
+  processed PNG bytes (e.g. `inaudible_a3f2c1d4.png`), mirroring
+  `xdg-desktop-portal`, so GNOME Shell always loads the latest icon without a
+  shell restart.  `update-desktop-database` is called after every create/remove
+  so the app grid picks up changes immediately.
+
 ## [0.19.5] — 2026-03-02
 
 ### Fixed

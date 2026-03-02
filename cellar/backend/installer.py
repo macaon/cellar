@@ -119,7 +119,7 @@ def install_app(
 
         # ── Step 1: Acquire archive ────────────────────────────────────
         if phase_cb:
-            phase_cb("Downloading\u2026")
+            phase_cb("Downloading package\u2026")
         if download_cb:
             download_cb(0.0)
         archive_path = _acquire_archive(
@@ -146,7 +146,7 @@ def install_app(
         # ── Step 3: Extract ────────────────────────────────────────────
         _check_cancel(cancel_event)
         if phase_cb:
-            phase_cb("Extracting\u2026")
+            phase_cb("Extracting package\u2026")
         if install_cb:
             install_cb(0.0)
         extract_dir = tmp / "extracted"

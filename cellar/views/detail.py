@@ -1573,7 +1573,7 @@ class InstallProgressDialog(Adw.Dialog):
                         raise InstallCancelled("Runner download cancelled")
 
                 # ── App install phase ─────────────────────────────────────
-                _set_phase("Downloading\u2026")
+                _set_phase("Downloading package\u2026")
                 bottle_name = install_app(
                     self._entry,
                     self._archive_uri,

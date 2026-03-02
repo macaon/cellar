@@ -313,7 +313,7 @@ def _download_and_extract_runner(
             raise _Cancelled
 
         # ── Extract ───────────────────────────────────────────────────────
-        phase_cb("Extracting\u2026")
+        phase_cb("Extracting runner\u2026")
         progress_cb(0.0)
         use_filter = sys.version_info >= (3, 12)
         with tempfile.TemporaryDirectory() as extract_dir:

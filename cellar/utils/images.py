@@ -31,11 +31,30 @@ _JPEG_QUALITY = 85
 # Public helpers for runtime image display (browse / detail views)
 # ---------------------------------------------------------------------------
 
+def _svg_rasterise(path: str, w: int, h: int) -> bytes | None:
+    """Rasterise an SVG to PNG bytes at *w*×*h* via GdkPixbuf (librsvg).
+
+    Called as a fast-path for ``.svg`` files before Pillow is tried, since
+    Pillow has no SVG support.  Returns ``None`` on any failure.
+    """
+    try:
+        import gi
+        gi.require_version("GdkPixbuf", "2.0")
+        from gi.repository import GdkPixbuf
+        pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(path, w, h, False)
+        ok, buf = pb.save_to_bufferv("png", [], [])
+        return bytes(buf) if ok else None
+    except Exception:
+        return None
+
+
 def load_and_crop(path: str, w: int, h: int) -> bytes | None:
     """Scale-to-cover and center-crop to exactly *w* × *h*.
 
     Returns PNG bytes suitable for :func:`to_texture`, or ``None`` on error.
     """
+    if path.lower().endswith(".svg"):
+        return _svg_rasterise(path, w, h)
     try:
         with Image.open(path) as img:
             img = img.convert("RGBA")
@@ -59,6 +78,8 @@ def load_and_fit(path: str, size: int) -> bytes | None:
 
     Returns PNG bytes suitable for :func:`to_texture`, or ``None`` on error.
     """
+    if path.lower().endswith(".svg"):
+        return _svg_rasterise(path, size, size)
     try:
         with Image.open(path) as img:
             img = img.convert("RGBA")

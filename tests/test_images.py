@@ -51,6 +51,18 @@ def large_png(tmp_path: Path) -> Path:
     return p
 
 
+@pytest.fixture()
+def svg_file(tmp_path: Path) -> Path:
+    """Create a minimal valid SVG (64×64 red square)."""
+    p = tmp_path / "icon.svg"
+    p.write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64">'
+        '<rect width="64" height="64" fill="red"/>'
+        "</svg>"
+    )
+    return p
+
+
 # ---------------------------------------------------------------------------
 # load_and_crop
 # ---------------------------------------------------------------------------
@@ -93,6 +105,26 @@ def test_load_and_fit_ico(ico_file):
 
 def test_load_and_fit_missing_file():
     assert load_and_fit("/nonexistent/file.png", 48) is None
+
+
+def test_load_and_fit_missing_svg():
+    assert load_and_fit("/nonexistent/icon.svg", 48) is None
+
+
+def test_load_and_fit_svg(svg_file):
+    pytest.importorskip("gi.repository.GdkPixbuf")
+    data = load_and_fit(str(svg_file), 48)
+    assert data is not None
+    img = Image.open(BytesIO(data))
+    assert img.size == (48, 48)
+
+
+def test_load_and_crop_svg(svg_file):
+    pytest.importorskip("gi.repository.GdkPixbuf")
+    data = load_and_crop(str(svg_file), 75, 96)
+    assert data is not None
+    img = Image.open(BytesIO(data))
+    assert img.size == (75, 96)
 
 
 # ---------------------------------------------------------------------------

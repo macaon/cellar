@@ -2,6 +2,15 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.19.2] — 2026-03-02
+
+### Fixed
+- **SVG icons now display** in the browse grid and detail view.  Pillow has no
+  SVG support, so `.svg` files were silently falling back to the generic
+  placeholder icon.  `load_and_fit` and `load_and_crop` now detect `.svg` by
+  extension and rasterise via `GdkPixbuf` (librsvg) before trying Pillow.
+  Two new tests cover `load_and_fit` and `load_and_crop` with a real SVG file.
+
 ## [0.19.1] — 2026-03-02
 
 ### Fixed

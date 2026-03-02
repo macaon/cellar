@@ -35,7 +35,9 @@ from any thread (the UI layer wraps it in ``GLib.idle_add``).
 
 from __future__ import annotations
 
+import os
 import shutil
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -72,6 +74,8 @@ def install_app(
     archive_uri: str,               # resolved by Repo.resolve_asset_uri(entry.archive)
     bottles_install,                # BottlesInstall from detect_bottles()
     *,
+    base_entry=None,                # BaseEntry if entry.base_win_ver is set
+    base_archive_uri: str = "",     # resolved URI for the base archive
     download_cb: Callable[[float], None] | None = None,
     download_stats_cb: Callable[[int, int, float], None] | None = None,
     install_cb: Callable[[float], None] | None = None,
@@ -116,6 +120,24 @@ def install_app(
 
     with tempfile.TemporaryDirectory(prefix="cellar-install-") as tmp_str:
         tmp = Path(tmp_str)
+
+        # ── Step 0 (delta only): Ensure base image is installed ────────
+        if entry.base_win_ver:
+            _ensure_base_installed(
+                entry.base_win_ver,
+                base_entry=base_entry,
+                base_archive_uri=base_archive_uri,
+                tmp=tmp,
+                phase_cb=phase_cb,
+                download_cb=download_cb,
+                download_stats_cb=download_stats_cb,
+                verify_cb=verify_cb,
+                install_cb=install_cb,
+                cancel_event=cancel_event,
+                token=token,
+                ssl_verify=ssl_verify,
+                ca_cert=ca_cert,
+            )
 
         # ── Step 1: Acquire archive ────────────────────────────────────
         if phase_cb:
@@ -167,15 +189,29 @@ def install_app(
         bottle_name = _safe_bottle_name(bottle_src.name, bottles_install.data_path)
         bottle_dest = bottles_install.data_path / bottle_name
 
-        # ── Step 6: Copy into Bottles ──────────────────────────────────
+        # ── Step 6: Populate bottle directory ─────────────────────────
         _check_cancel(cancel_event)
-        if phase_cb:
-            phase_cb("Copying to Bottles\u2026")
-        try:
-            shutil.copytree(bottle_src, bottle_dest)
-        except Exception:
-            shutil.rmtree(bottle_dest, ignore_errors=True)
-            raise
+        if entry.base_win_ver:
+            # Delta path: seed from base with hardlinks, then overlay delta.
+            from cellar.backend.base_store import base_path  # noqa: PLC0415
+            if phase_cb:
+                phase_cb("Applying delta\u2026")
+            try:
+                bottle_dest.mkdir(parents=True, exist_ok=True)
+                _seed_from_base(base_path(entry.base_win_ver), bottle_dest)
+                _overlay_delta(bottle_src, bottle_dest)
+            except Exception:
+                shutil.rmtree(bottle_dest, ignore_errors=True)
+                raise
+        else:
+            # Full archive path: plain directory copy.
+            if phase_cb:
+                phase_cb("Copying to Bottles\u2026")
+            try:
+                shutil.copytree(bottle_src, bottle_dest)
+            except Exception:
+                shutil.rmtree(bottle_dest, ignore_errors=True)
+                raise
 
         # ── Step 7: Fix absolute paths in bottle.yml ───────────────────
         if phase_cb:
@@ -589,5 +625,147 @@ def _fix_program_paths(bottle_dest: Path, new_data_path: Path) -> None:
 def _check_cancel(cancel_event: threading.Event | None) -> None:
     if cancel_event and cancel_event.is_set():
         raise InstallCancelled("Installation cancelled")
+
+
+# ---------------------------------------------------------------------------
+# Delta helpers
+# ---------------------------------------------------------------------------
+
+def _ensure_base_installed(
+    win_ver: str,
+    *,
+    base_entry,
+    base_archive_uri: str,
+    tmp: Path,
+    phase_cb: Callable[[str], None] | None,
+    download_cb: Callable[[float], None] | None,
+    download_stats_cb: Callable[[int, int, float], None] | None,
+    verify_cb: Callable[[float], None] | None,
+    install_cb: Callable[[float], None] | None,
+    cancel_event: threading.Event | None,
+    token: str | None,
+    ssl_verify: bool,
+    ca_cert: str | None,
+) -> None:
+    """Download and install the base image for *win_ver* if not already present."""
+    from cellar.backend.base_store import BaseStoreError, install_base, is_base_installed  # noqa: PLC0415
+
+    if is_base_installed(win_ver):
+        return
+
+    if not base_archive_uri:
+        raise InstallError(
+            f"No base image installed for {win_ver!r} and no download URI provided."
+        )
+
+    win_label = win_ver.replace("win", "Windows ").title()
+
+    _check_cancel(cancel_event)
+    if phase_cb:
+        phase_cb(f"Downloading base image ({win_label})\u2026")
+    if download_cb:
+        download_cb(0.0)
+
+    expected_size = base_entry.archive_size if base_entry else 0
+    base_archive_path = _acquire_archive(
+        base_archive_uri,
+        tmp / "base.tar.gz",
+        expected_size=expected_size,
+        progress_cb=download_cb,
+        stats_cb=download_stats_cb,
+        cancel_event=cancel_event,
+        token=token,
+        ssl_verify=ssl_verify,
+        ca_cert=ca_cert,
+    )
+    if download_cb:
+        download_cb(1.0)
+
+    if base_entry and base_entry.archive_crc32:
+        _check_cancel(cancel_event)
+        if phase_cb:
+            phase_cb(f"Verifying base image\u2026")
+        _verify_crc32(base_archive_path, base_entry.archive_crc32, progress_cb=verify_cb)
+
+    _check_cancel(cancel_event)
+    if phase_cb:
+        phase_cb(f"Installing base image ({win_label})\u2026")
+    if install_cb:
+        install_cb(0.0)
+
+    try:
+        install_base(
+            base_archive_path, win_ver,
+            progress_cb=install_cb,
+            repo_source=base_archive_uri,
+        )
+    except BaseStoreError as exc:
+        raise InstallError(str(exc)) from exc
+
+    if install_cb:
+        install_cb(1.0)
+
+
+def _seed_from_base(base_dir: Path, bottle_dest: Path) -> None:
+    """Populate *bottle_dest* with hardlinks to every file in *base_dir*.
+
+    Tries ``rsync --link-dest`` first (fastest, handles edge cases well).
+    Falls back to a pure-Python recursive hardlink walk if rsync is not
+    available or if the source and destination are on different filesystems
+    (in which case ``os.link`` falls back to ``shutil.copy2`` per-file).
+    """
+    if shutil.which("rsync"):
+        result = subprocess.run(
+            [
+                "rsync", "-a",
+                f"--link-dest={base_dir}/",
+                f"{base_dir}/",
+                f"{bottle_dest}/",
+            ],
+            capture_output=True,
+        )
+        if result.returncode == 0:
+            return
+        # rsync failed — fall through to the Python path.
+
+    # Python fallback: hardlink file-by-file; copy on cross-device error.
+    for src in base_dir.rglob("*"):
+        rel = src.relative_to(base_dir)
+        dst = bottle_dest / rel
+        if src.is_dir():
+            dst.mkdir(parents=True, exist_ok=True)
+        elif src.is_file():
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                os.link(src, dst)
+            except OSError:
+                shutil.copy2(src, dst)
+
+
+def _overlay_delta(delta_src: Path, bottle_dest: Path) -> None:
+    """Overlay delta files onto *bottle_dest*, breaking hardlinks as needed.
+
+    For each file in *delta_src*, the corresponding hardlinked file in
+    *bottle_dest* (if any) is unlinked before copying so the base inode is
+    not modified.  Directories are created as needed.
+    """
+    if shutil.which("rsync"):
+        result = subprocess.run(
+            ["rsync", "-a", f"{delta_src}/", f"{bottle_dest}/"],
+            capture_output=True,
+        )
+        if result.returncode == 0:
+            return
+
+    # Python fallback.
+    for src in delta_src.rglob("*"):
+        rel = src.relative_to(delta_src)
+        dst = bottle_dest / rel
+        if src.is_dir():
+            dst.mkdir(parents=True, exist_ok=True)
+        elif src.is_file():
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            dst.unlink(missing_ok=True)   # break hardlink to base inode
+            shutil.copy2(src, dst)
 
 

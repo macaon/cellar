@@ -363,3 +363,88 @@ def test_install_app_partial_copy_cleaned_up_on_error(tmp_path):
             ins.install_app(entry, str(archive), bottles)
     # Destination must not exist (cleaned up); archive dir name is "TestBottle"
     assert not (bottles.data_path / "TestBottle").exists()
+
+
+# ---------------------------------------------------------------------------
+# Delta helpers: _seed_from_base / _overlay_delta
+# ---------------------------------------------------------------------------
+
+def test_seed_from_base_creates_hardlinks(tmp_path):
+    """Files seeded from base share inodes with the base."""
+    base = tmp_path / "base"
+    dest = tmp_path / "bottle"
+    dest.mkdir()
+    (base / "drive_c" / "windows").mkdir(parents=True)
+    (base / "drive_c" / "windows" / "notepad.exe").write_bytes(b"notepad")
+
+    ins._seed_from_base(base, dest)
+
+    seeded = dest / "drive_c" / "windows" / "notepad.exe"
+    assert seeded.exists()
+    # Same inode = hardlink (same filesystem guaranteed in tmp_path)
+    assert seeded.stat().st_ino == (base / "drive_c" / "windows" / "notepad.exe").stat().st_ino
+
+
+def test_overlay_delta_breaks_hardlink(tmp_path):
+    """Overlaying a changed file must not modify the base inode."""
+    base = tmp_path / "base"
+    dest = tmp_path / "bottle"
+    delta = tmp_path / "delta"
+    dest.mkdir()
+
+    (base / "drive_c").mkdir(parents=True)
+    base_file = base / "drive_c" / "app.exe"
+    # Use different sizes so rsync's mtime+size heuristic always detects change.
+    base_file.write_bytes(b"original_version_one")
+
+    ins._seed_from_base(base, dest)
+
+    # Delta has a differently-sized updated version of app.exe.
+    (delta / "drive_c").mkdir(parents=True)
+    (delta / "drive_c" / "app.exe").write_bytes(b"updated_version_two_data")
+
+    ins._overlay_delta(delta, dest)
+
+    dest_file = dest / "drive_c" / "app.exe"
+    assert dest_file.read_bytes() == b"updated_version_two_data"
+    # Base must be untouched
+    assert base_file.read_bytes() == b"original_version_one"
+    # Inodes must differ (hardlink was broken)
+    assert dest_file.stat().st_ino != base_file.stat().st_ino
+
+
+def test_overlay_delta_adds_new_files(tmp_path):
+    """Files present only in the delta are added to the bottle."""
+    base = tmp_path / "base"
+    dest = tmp_path / "bottle"
+    delta = tmp_path / "delta"
+    dest.mkdir()
+    base.mkdir()
+
+    ins._seed_from_base(base, dest)
+
+    (delta / "drive_c" / "myapp").mkdir(parents=True)
+    (delta / "drive_c" / "myapp" / "myapp.exe").write_bytes(b"myapp")
+
+    ins._overlay_delta(delta, dest)
+
+    assert (dest / "drive_c" / "myapp" / "myapp.exe").read_bytes() == b"myapp"
+
+
+def test_seed_from_base_unchanged_files_stay_linked(tmp_path):
+    """Files not in the delta remain hardlinked to the base after overlay."""
+    base = tmp_path / "base"
+    dest = tmp_path / "bottle"
+    delta = tmp_path / "delta"
+    dest.mkdir()
+
+    (base / "drive_c" / "windows").mkdir(parents=True)
+    shared = base / "drive_c" / "windows" / "system.dll"
+    shared.write_bytes(b"system")
+
+    ins._seed_from_base(base, dest)
+    delta.mkdir()
+    ins._overlay_delta(delta, dest)  # empty delta — nothing changes
+
+    seeded = dest / "drive_c" / "windows" / "system.dll"
+    assert seeded.stat().st_ino == shared.stat().st_ino

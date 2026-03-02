@@ -74,8 +74,10 @@ def load_and_crop(path: str, w: int, h: int) -> bytes | None:
 
 
 def load_and_fit(path: str, size: int) -> bytes | None:
-    """Fit image into a *size* × *size* square (center-crop if non-square).
+    """Scale image to fit within *size* × *size*, preserving aspect ratio.
 
+    Non-square images are scaled down uniformly and centered on a transparent
+    *size* × *size* canvas — no cropping, no distortion.
     Returns PNG bytes suitable for :func:`to_texture`, or ``None`` on error.
     """
     if path.lower().endswith(".svg"):
@@ -84,13 +86,14 @@ def load_and_fit(path: str, size: int) -> bytes | None:
         with Image.open(path) as img:
             img = img.convert("RGBA")
             src_w, src_h = img.size
-            crop = min(src_w, src_h)
-            x_off = (src_w - crop) // 2
-            y_off = (src_h - crop) // 2
-            img = img.crop((x_off, y_off, x_off + crop, y_off + crop))
-            img = img.resize((size, size), Image.LANCZOS)
+            scale = min(size / src_w, size / src_h)
+            new_w = max(1, int(src_w * scale))
+            new_h = max(1, int(src_h * scale))
+            img = img.resize((new_w, new_h), Image.LANCZOS)
+            canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+            canvas.paste(img, ((size - new_w) // 2, (size - new_h) // 2))
             buf = BytesIO()
-            img.save(buf, format="PNG")
+            canvas.save(buf, format="PNG")
             return buf.getvalue()
     except Exception:
         return None

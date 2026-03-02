@@ -96,6 +96,20 @@ def test_load_and_fit_returns_square(png_100x200):
     assert img.size == (48, 48)
 
 
+def test_load_and_fit_non_square_not_distorted(png_100x200):
+    """A tall image (100×200) fitted into 48×48 should be pillarboxed, not cropped/squished."""
+    data = load_and_fit(str(png_100x200), 48)
+    assert data is not None
+    img = Image.open(BytesIO(data)).convert("RGBA")
+    assert img.size == (48, 48)
+    # The image is red (255,0,0,255); top-left corner should be transparent padding.
+    assert img.getpixel((0, 0))[3] == 0, "corner pixel should be transparent padding"
+    # Centre pixel should be opaque red content.
+    cx, cy = img.size[0] // 2, img.size[1] // 2
+    r, g, b, a = img.getpixel((cx, cy))
+    assert a == 255 and r > 200, "centre pixel should be opaque red content"
+
+
 def test_load_and_fit_ico(ico_file):
     data = load_and_fit(str(ico_file), 52)
     assert data is not None

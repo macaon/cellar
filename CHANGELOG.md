@@ -2,6 +2,15 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.19.3] — 2026-03-02
+
+### Fixed
+- **Non-square raster icons no longer squished** — `load_and_fit` now scales
+  images uniformly to fit within the target square and centers them on a
+  transparent canvas (letterbox/pillarbox), instead of center-cropping to a
+  square first.  Covers and hero images (via `load_and_crop`) are unaffected —
+  they still scale-to-fill as intended.
+
 ## [0.19.2] — 2026-03-02
 
 ### Fixed

@@ -2,6 +2,17 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.18.0] — 2026-03-02
+
+### Added
+- **Download size and speed display** — progress bars during package and runner
+  downloads now show `downloaded / total (speed)` text (e.g.
+  `2.6 MB / 349 MB (1.3 MB/s)`) instead of a bare percentage.  Text is cleared
+  automatically when the phase switches to Verifying, Extracting, or Copying.
+  Speed is computed as a running average from download start.  `installer.py`
+  gains a `download_stats_cb(downloaded, total, speed_bps)` parameter;
+  `_download_and_extract_runner` in `install_runner.py` gains the same.
+
 ## [0.17.0] — 2026-03-02
 
 ### Changed

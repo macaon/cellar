@@ -40,6 +40,7 @@ import sys
 import tarfile
 import tempfile
 import threading
+import time
 import zlib
 from pathlib import Path
 from typing import Callable
@@ -72,6 +73,7 @@ def install_app(
     bottles_install,                # BottlesInstall from detect_bottles()
     *,
     download_cb: Callable[[float], None] | None = None,
+    download_stats_cb: Callable[[int, int, float], None] | None = None,
     install_cb: Callable[[float], None] | None = None,
     phase_cb: Callable[[str], None] | None = None,
     verify_cb: Callable[[float], None] | None = None,
@@ -124,6 +126,7 @@ def install_app(
             tmp / "archive.tar.gz",
             expected_size=entry.archive_size,
             progress_cb=download_cb,
+            stats_cb=download_stats_cb,
             cancel_event=cancel_event,
             token=token,
             ssl_verify=ssl_verify,
@@ -192,6 +195,7 @@ def _acquire_archive(
     *,
     expected_size: int,
     progress_cb: Callable[[float], None] | None,
+    stats_cb: Callable[[int, int, float], None] | None = None,
     cancel_event: threading.Event | None,
     token: str | None = None,
     ssl_verify: bool = True,
@@ -219,6 +223,7 @@ def _acquire_archive(
             dest,
             expected_size=expected_size,
             progress_cb=progress_cb,
+            stats_cb=stats_cb,
             cancel_event=cancel_event,
             token=token,
             ssl_verify=ssl_verify,
@@ -247,6 +252,7 @@ def _acquire_archive(
                 dest,
                 expected_size=expected_size,
                 progress_cb=progress_cb,
+                stats_cb=stats_cb,
                 cancel_event=cancel_event,
             )
         else:
@@ -256,6 +262,7 @@ def _acquire_archive(
                 dest,
                 expected_size=expected_size,
                 progress_cb=progress_cb,
+                stats_cb=stats_cb,
                 cancel_event=cancel_event,
             )
         return dest
@@ -272,6 +279,7 @@ def _file_stream(
     *,
     expected_size: int,
     progress_cb: Callable[[float], None] | None,
+    stats_cb: Callable[[int, int, float], None] | None = None,
     cancel_event: threading.Event | None,
 ) -> None:
     """Copy *src* to *dest* in 1 MB chunks with progress.
@@ -282,6 +290,7 @@ def _file_stream(
     chunk = 1 * 1024 * 1024
     total = expected_size if expected_size > 0 else src.stat().st_size
     copied = 0
+    start = time.monotonic()
     try:
         with open(src, "rb") as fin, open(dest, "wb") as fout:
             while True:
@@ -292,6 +301,10 @@ def _file_stream(
                     break
                 fout.write(buf)
                 copied += len(buf)
+                elapsed = time.monotonic() - start
+                speed = copied / elapsed if elapsed > 0.1 else 0.0
+                if stats_cb:
+                    stats_cb(copied, total, speed)
                 if progress_cb and total > 0:
                     progress_cb(min(copied / total, 1.0))
     except InstallCancelled:
@@ -308,6 +321,7 @@ def _http_stream(
     *,
     expected_size: int,
     progress_cb: Callable[[float], None] | None,
+    stats_cb: Callable[[int, int, float], None] | None = None,
     cancel_event: threading.Event | None,
     token: str | None = None,
     ssl_verify: bool = True,
@@ -316,18 +330,28 @@ def _http_stream(
     """Stream *url* to *dest* in 1 MB chunks."""
     chunk = 1 * 1024 * 1024
     downloaded = 0
+    start = time.monotonic()
     session = make_session(token=token, ssl_verify=ssl_verify, ca_cert=ca_cert)
     try:
         resp = session.get(url, stream=True, timeout=DEFAULT_TIMEOUT)
         resp.raise_for_status()
+        try:
+            total = int(resp.headers.get("Content-Length") or 0)
+        except (TypeError, ValueError):
+            total = 0
+        total = total or expected_size
         with open(dest, "wb") as fh:
             for buf in resp.iter_content(chunk_size=chunk):
                 if cancel_event and cancel_event.is_set():
                     raise InstallCancelled("Download cancelled")
                 fh.write(buf)
                 downloaded += len(buf)
-                if progress_cb and expected_size > 0:
-                    progress_cb(min(downloaded / expected_size, 1.0))
+                elapsed = time.monotonic() - start
+                speed = downloaded / elapsed if elapsed > 0.1 else 0.0
+                if stats_cb:
+                    stats_cb(downloaded, total, speed)
+                if progress_cb and total > 0:
+                    progress_cb(min(downloaded / total, 1.0))
     except InstallCancelled:
         dest.unlink(missing_ok=True)
         raise
@@ -349,6 +373,7 @@ def _gio_stream(
     *,
     expected_size: int,
     progress_cb: Callable[[float], None] | None,
+    stats_cb: Callable[[int, int, float], None] | None = None,
     cancel_event: threading.Event | None,
 ) -> None:
     """Stream *uri* to *dest* via a GIO InputStream (SMB/NFS without FUSE).
@@ -371,6 +396,7 @@ def _gio_stream(
 
     chunk = 1 * 1024 * 1024
     downloaded = 0
+    start = time.monotonic()
     try:
         with open(dest, "wb") as fh:
             while True:
@@ -382,6 +408,10 @@ def _gio_stream(
                     break
                 fh.write(data)
                 downloaded += len(data)
+                elapsed = time.monotonic() - start
+                speed = downloaded / elapsed if elapsed > 0.1 else 0.0
+                if stats_cb:
+                    stats_cb(downloaded, expected_size, speed)
                 if progress_cb and expected_size > 0:
                     progress_cb(min(downloaded / expected_size, 1.0))
     except InstallCancelled:

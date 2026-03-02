@@ -28,6 +28,7 @@ import sys
 import tarfile
 import tempfile
 import threading
+import time
 from pathlib import Path
 from typing import Callable
 
@@ -40,6 +41,22 @@ from gi.repository import Adw, GLib, Gtk
 from cellar.utils.http import DEFAULT_TIMEOUT, make_session
 
 log = logging.getLogger(__name__)
+
+
+def _fmt_dl_stats(downloaded: int, total: int, speed: float) -> str:
+    """Format download progress as e.g. '2.6 MB / 349 MB (1.3 MB/s)'."""
+    def _sz(n: int) -> str:
+        if n < 1024:
+            return f"{n} B"
+        if n < 1024 ** 2:
+            return f"{n / 1024:.1f} KB"
+        if n < 1024 ** 3:
+            return f"{n / 1024 ** 2:.1f} MB"
+        return f"{n / 1024 ** 3:.2f} GB"
+
+    size_str = f"{_sz(downloaded)} / {_sz(total)}" if total > 0 else _sz(downloaded)
+    speed_str = f"{_sz(int(speed))}/s" if speed > 0 else "…"
+    return f"{size_str} ({speed_str})"
 
 
 class InstallRunnerDialog(Adw.Dialog):
@@ -159,8 +176,14 @@ class InstallRunnerDialog(Adw.Dialog):
         def _progress(fraction: float) -> None:
             GLib.idle_add(self._progress_bar.set_fraction, fraction)
 
+        def _stats(downloaded: int, total: int, speed: float) -> None:
+            text = _fmt_dl_stats(downloaded, total, speed)
+            GLib.idle_add(self._progress_bar.set_text, text)
+
         def _phase(text: str) -> None:
             GLib.idle_add(self._phase_label.set_text, text)
+            # Clear stats text when moving to extract phase.
+            GLib.idle_add(self._progress_bar.set_text, "")
 
         def _run() -> None:
             try:
@@ -169,6 +192,7 @@ class InstallRunnerDialog(Adw.Dialog):
                     checksum=self._checksum,
                     target_dir=self._target_dir,
                     progress_cb=_progress,
+                    stats_cb=_stats,
                     phase_cb=_phase,
                     cancel_event=self._cancel_event,
                 )
@@ -209,12 +233,16 @@ def _download_and_extract_runner(
     progress_cb: Callable[[float], None],
     phase_cb: Callable[[str], None],
     cancel_event: threading.Event,
+    stats_cb: Callable[[int, int, float], None] | None = None,
 ) -> None:
     """Download the runner archive, verify it, and extract it to *target_dir*.
 
     Progress is reported via *progress_cb* in distinct phases, each 0 → 1:
       - **Downloading…** — HTTP stream
       - **Extracting…** — per-member tarfile extraction
+
+    *stats_cb*, when provided, is called as ``stats_cb(downloaded, total, speed_bps)``
+    during the download phase so the UI can show size/speed text.
 
     Raises ``_Cancelled`` if *cancel_event* is set during the operation.
     """
@@ -242,6 +270,7 @@ def _download_and_extract_runner(
             resp.raise_for_status()
             total = int(resp.headers.get("Content-Length", 0) or 0)
             downloaded = 0
+            start = time.monotonic()
             with os.fdopen(tmp_fd, "wb") as f:
                 tmp_fd = -1  # ownership transferred
                 for chunk in resp.iter_content(chunk_size=1024 * 1024):
@@ -250,6 +279,10 @@ def _download_and_extract_runner(
                     f.write(chunk)
                     hasher.update(chunk)
                     downloaded += len(chunk)
+                    elapsed = time.monotonic() - start
+                    speed = downloaded / elapsed if elapsed > 0.1 else 0.0
+                    if stats_cb:
+                        stats_cb(downloaded, total, speed)
                     if total:
                         progress_cb(min(downloaded / total, 1.0))
         finally:

@@ -1256,6 +1256,23 @@ class RunnerManagerDialog(Adw.Dialog):
 # Install progress dialog
 # ---------------------------------------------------------------------------
 
+
+def _fmt_dl_stats(downloaded: int, total: int, speed: float) -> str:
+    """Format download progress as e.g. '2.6 MB / 349 MB (1.3 MB/s)'."""
+    def _sz(n: int) -> str:
+        if n < 1024:
+            return f"{n} B"
+        if n < 1024 ** 2:
+            return f"{n / 1024:.1f} KB"
+        if n < 1024 ** 3:
+            return f"{n / 1024 ** 2:.1f} MB"
+        return f"{n / 1024 ** 3:.2f} GB"
+
+    size_str = f"{_sz(downloaded)} / {_sz(total)}" if total > 0 else _sz(downloaded)
+    speed_str = f"{_sz(int(speed))}/s" if speed > 0 else "…"
+    return f"{size_str} ({speed_str})"
+
+
 _VARIANT_LABELS = {
     "flatpak": "Bottles (Flatpak)",
     "native": "Bottles (Native)",
@@ -1494,6 +1511,9 @@ class InstallProgressDialog(Adw.Dialog):
         def _dl_progress(fraction: float) -> None:
             GLib.idle_add(self._progress_bar.set_fraction, fraction)
 
+        def _dl_stats(downloaded: int, total: int, speed: float) -> None:
+            GLib.idle_add(self._progress_bar.set_text, _fmt_dl_stats(downloaded, total, speed))
+
         def _verify_progress(fraction: float) -> None:
             GLib.idle_add(self._progress_bar.set_fraction, fraction)
 
@@ -1511,6 +1531,9 @@ class InstallProgressDialog(Adw.Dialog):
                     def _runner_progress(fraction: float) -> None:
                         GLib.idle_add(self._progress_bar.set_fraction, fraction)
 
+                    def _runner_stats(downloaded: int, total: int, speed: float) -> None:
+                        GLib.idle_add(self._progress_bar.set_text, _fmt_dl_stats(downloaded, total, speed))
+
                     def _runner_phase(text: str) -> None:
                         GLib.idle_add(self._on_phase_change, text)
 
@@ -1520,6 +1543,7 @@ class InstallProgressDialog(Adw.Dialog):
                             checksum=self._runner_info["checksum"],
                             target_dir=self._runner_info["target_dir"],
                             progress_cb=_runner_progress,
+                            stats_cb=_runner_stats,
                             phase_cb=_runner_phase,
                             cancel_event=self._cancel_event,
                         )
@@ -1537,6 +1561,7 @@ class InstallProgressDialog(Adw.Dialog):
                     self._archive_uri,
                     self._selected_install,
                     download_cb=_dl_progress,
+                    download_stats_cb=_dl_stats,
                     install_cb=_inst_progress,
                     phase_cb=_set_phase,
                     verify_cb=_verify_progress,
@@ -1566,6 +1591,8 @@ class InstallProgressDialog(Adw.Dialog):
         else:
             self._progress_bar.set_fraction(0.0)
             self._progress_bar.set_show_text(True)
+            # Clear any download stats text from the previous phase.
+            self._progress_bar.set_text("")
 
     def _do_pulse(self) -> bool:
         self._progress_bar.pulse()

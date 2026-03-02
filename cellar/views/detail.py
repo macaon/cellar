@@ -188,31 +188,53 @@ class DetailView(Gtk.Box):
         bw = self._entry.built_with
         required_runner = (bw.runner if bw else "") or ""
         effective = self._runner_override or required_runner
-        if (
-            required_runner
-            and self._runners_loaded
-            and effective not in self._installed_runners
-        ):
-            def _on_runner_set(runner_name: str) -> None:
-                self._runner_override = runner_name
-                if self._runner_row:
-                    self._runner_row.set_subtitle(runner_name)
-                if self._runner_warning_icon:
-                    self._runner_warning_icon.set_visible(False)
-                self._proceed_to_install()
+        runner_to_install = ""
+        if required_runner and self._runners_loaded and effective not in self._installed_runners:
+            runner_to_install = effective
+        self._proceed_to_install(runner_to_install=runner_to_install)
 
-            self._open_runner_manager(required_runner=required_runner, on_confirm=_on_runner_set)
-            return
-        self._proceed_to_install()
+    def _resolve_runner_info(self, runner_name: str) -> dict | None:
+        """Return download info dict for *runner_name*, or ``None`` if unavailable."""
+        from cellar.backend.components import get_runner_info
+        from cellar.backend.bottles import runners_dir
 
-    def _proceed_to_install(self) -> None:
+        if not self._bottles_installs:
+            return None
+        info = get_runner_info(runner_name)
+        if not info:
+            return None
+        files = info.get("File") or []
+        if not files:
+            return None
+        f = files[0]
+        return {
+            "url": f.get("url", ""),
+            "checksum": f.get("file_checksum", "") or f.get("checksum", ""),
+            "target_dir": runners_dir(self._bottles_installs[0]) / runner_name,
+        }
+
+    def _proceed_to_install(self, *, runner_to_install: str = "") -> None:
         archive_uri = self._resolve(self._entry.archive) if self._entry.archive else ""
+        runner_info = self._resolve_runner_info(runner_to_install) if runner_to_install else None
+
+        def _open_runner_manager(on_change):
+            """Open RunnerManagerDialog from the Change button inside InstallProgressDialog."""
+            self._open_runner_manager(
+                required_runner=(self._entry.built_with.runner if self._entry.built_with else "") or "",
+                on_confirm=on_change,
+            )
+
         dialog = InstallProgressDialog(
             entry=self._entry,
             installs=self._bottles_installs,
             archive_uri=archive_uri,
             on_success=self._on_install_success,
             token=self._token,
+            runner_to_install=runner_to_install,
+            runner_info=runner_info,
+            installed_runners=list(self._installed_runners),
+            open_runner_manager=_open_runner_manager,
+            resolve_runner_info=self._resolve_runner_info,
         )
         dialog.present(self.get_root())
 
@@ -1270,6 +1292,11 @@ class InstallProgressDialog(Adw.Dialog):
         archive_uri: str,
         on_success: Callable[[str], None],
         token: str | None = None,
+        runner_to_install: str = "",
+        runner_info: dict | None = None,
+        installed_runners: list[str] | None = None,
+        open_runner_manager: Callable | None = None,
+        resolve_runner_info: Callable | None = None,
     ) -> None:
         super().__init__(title=f"Install {entry.name}", content_width=360)
         self._entry = entry
@@ -1279,9 +1306,22 @@ class InstallProgressDialog(Adw.Dialog):
         self._token = token
         self._cancel_event = threading.Event()
         self._selected_install = installs[0] if installs else None
+        self._runner_to_install = runner_to_install
+        self._runner_info = runner_info
+        self._installed_runners = installed_runners or []
+        self._open_runner_manager = open_runner_manager
+        self._resolve_runner_info = resolve_runner_info
+        self._runner_row: Adw.ActionRow | None = None
+
+        # Determine whether we need to show the confirm page at all.
+        self._needs_confirm = bool(runner_to_install) or len(installs) > 1
 
         self._build_ui()
         self.connect("closed", lambda _d: self._cancel_event.set())
+
+        # Auto-proceed: skip confirm page when nothing to confirm.
+        if not self._needs_confirm:
+            GLib.idle_add(self._on_proceed_clicked, None)
 
     # ── UI construction ───────────────────────────────────────────────────
 
@@ -1320,6 +1360,26 @@ class InstallProgressDialog(Adw.Dialog):
         page = Adw.PreferencesPage()
         scroll.set_child(page)
 
+        # ── Runner group (shown when a runner needs downloading) ──────────
+        if self._runner_to_install:
+            runner_group = Adw.PreferencesGroup(title="Runner")
+            row = Adw.ActionRow(
+                title=self._runner_to_install,
+                subtitle="Will be downloaded",
+            )
+            row.add_prefix(Gtk.Image.new_from_icon_name("media-playback-start-symbolic"))
+
+            change_btn = Gtk.Button(label="Change")
+            change_btn.add_css_class("suggested-action")
+            change_btn.set_valign(Gtk.Align.CENTER)
+            change_btn.connect("clicked", self._on_runner_change_clicked)
+            row.add_suffix(change_btn)
+
+            runner_group.add(row)
+            page.add(runner_group)
+            self._runner_row = row
+
+        # ── Bottles group ─────────────────────────────────────────────────
         if len(self._installs) == 1:
             group = Adw.PreferencesGroup(title="Bottles Installation")
             install = self._installs[0]
@@ -1354,6 +1414,30 @@ class InstallProgressDialog(Adw.Dialog):
 
         page.add(group)
         return scroll
+
+    def _on_runner_change_clicked(self, _btn) -> None:
+        """Open RunnerManagerDialog from the Change button."""
+        if not self._open_runner_manager:
+            return
+
+        def _on_change(runner_name: str) -> None:
+            if runner_name in self._installed_runners:
+                # Already installed — no download needed.
+                self._runner_to_install = ""
+                self._runner_info = None
+                if self._runner_row:
+                    self._runner_row.set_title(runner_name)
+                    self._runner_row.set_subtitle("Installed")
+            else:
+                # Different uninstalled runner — resolve new download info.
+                self._runner_to_install = runner_name
+                if self._resolve_runner_info:
+                    self._runner_info = self._resolve_runner_info(runner_name)
+                if self._runner_row:
+                    self._runner_row.set_title(runner_name)
+                    self._runner_row.set_subtitle("Will be downloaded")
+
+        self._open_runner_manager(_on_change)
 
     def _build_progress_page(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -1418,6 +1502,36 @@ class InstallProgressDialog(Adw.Dialog):
 
         def _run() -> None:
             try:
+                # ── Runner download phase (if needed) ─────────────────────
+                if self._runner_to_install and self._runner_info:
+                    from cellar.views.install_runner import _Cancelled, _download_and_extract_runner
+
+                    _set_phase("Downloading runner\u2026")
+
+                    def _runner_progress(fraction: float) -> None:
+                        GLib.idle_add(self._progress_bar.set_fraction, fraction)
+
+                    def _runner_phase(text: str) -> None:
+                        GLib.idle_add(self._on_phase_change, text)
+
+                    try:
+                        _download_and_extract_runner(
+                            url=self._runner_info["url"],
+                            checksum=self._runner_info["checksum"],
+                            target_dir=self._runner_info["target_dir"],
+                            progress_cb=_runner_progress,
+                            phase_cb=_runner_phase,
+                            cancel_event=self._cancel_event,
+                        )
+                    except _Cancelled:
+                        from cellar.backend.installer import InstallCancelled as _IC
+                        raise _IC("Runner download cancelled")
+
+                    if self._cancel_event.is_set():
+                        raise InstallCancelled("Runner download cancelled")
+
+                # ── App install phase ─────────────────────────────────────
+                _set_phase("Downloading\u2026")
                 bottle_name = install_app(
                     self._entry,
                     self._archive_uri,

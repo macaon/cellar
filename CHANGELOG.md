@@ -2,6 +2,20 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.17.0] — 2026-03-02
+
+### Changed
+- **Streamlined install flow** — clicking Install on an app with a missing
+  runner no longer opens the full `RunnerManagerDialog` as a separate step.
+  Instead, `InstallProgressDialog` now shows a unified confirmation page with
+  a Runner group ("Will be downloaded" + Change button) above the Bottles
+  picker.  The flow is: confirm → download runner → install package, all in
+  one dialog.  When no runner download is needed and only one Bottles install
+  exists, the confirm page is skipped entirely and installation starts
+  immediately.  The Change button still opens `RunnerManagerDialog` for
+  picking an alternative; selecting an already-installed runner skips the
+  download phase.
+
 ## [0.16.1] — 2026-03-02
 
 ### Fixed

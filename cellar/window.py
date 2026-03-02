@@ -294,14 +294,17 @@ class CellarWindow(Adw.ApplicationWindow):
             repo_uri = str(self._first_repo.uri) if self._first_repo else ""
             database.mark_installed(entry.id, bottle_name, entry.version, repo_uri)
             self._show_toast(f"{entry.name} installed successfully")
+            self._load_catalogue()
 
         def _on_remove_done() -> None:
             self._show_toast(f"{entry.name} removed")
+            self._load_catalogue()
 
         def _on_update_done() -> None:
             repo_uri = str(self._first_repo.uri) if self._first_repo else ""
             database.mark_installed(entry.id, rec["bottle_name"], entry.version, repo_uri)
             self._show_toast(f"{entry.name} updated successfully")
+            self._load_catalogue()
 
         detail = DetailView(
             entry,
@@ -358,7 +361,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="application-x-executable",
-            version="0.19.10",
+            version="0.19.11",
             comments="A GNOME storefront for Bottles-managed Windows apps.",
             license_type=Gtk.License.GPL_3_0,
         )

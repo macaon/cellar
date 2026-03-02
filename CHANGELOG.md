@@ -2,6 +2,14 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.19.11] — 2026-03-02
+
+### Fixed
+- **Browse view auto-refreshes after install, update, or remove** — the catalogue
+  was previously only refreshed on manual refresh button click.  Install badges,
+  the Updates tab count, and the Installed tab now update automatically as soon
+  as each operation completes.
+
 ## [0.19.10] — 2026-03-02
 
 ### Changed

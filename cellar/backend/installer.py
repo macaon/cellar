@@ -748,17 +748,34 @@ def _overlay_delta(delta_src: Path, bottle_dest: Path) -> None:
     For each file in *delta_src*, the corresponding hardlinked file in
     *bottle_dest* (if any) is unlinked before copying so the base inode is
     not modified.  Directories are created as needed.
+
+    After copying, applies the ``.cellar_delete`` manifest (if present) to
+    remove any base files that were absent from the original app backup.
     """
     if shutil.which("rsync"):
         result = subprocess.run(
-            ["rsync", "-a", f"{delta_src}/", f"{bottle_dest}/"],
+            ["rsync", "-a", "--exclude=.cellar_delete", f"{delta_src}/", f"{bottle_dest}/"],
             capture_output=True,
         )
-        if result.returncode == 0:
-            return
+        if result.returncode != 0:
+            _overlay_delta_python(delta_src, bottle_dest)
+    else:
+        _overlay_delta_python(delta_src, bottle_dest)
 
-    # Python fallback.
+    # Apply delete manifest: remove base files absent from the original backup.
+    delete_manifest = delta_src / ".cellar_delete"
+    if delete_manifest.exists():
+        for line in delete_manifest.read_text().splitlines():
+            rel = line.strip()
+            if rel:
+                (bottle_dest / rel).unlink(missing_ok=True)
+
+
+def _overlay_delta_python(delta_src: Path, bottle_dest: Path) -> None:
+    """Python fallback for delta overlay."""
     for src in delta_src.rglob("*"):
+        if src.name == ".cellar_delete":
+            continue
         rel = src.relative_to(delta_src)
         dst = bottle_dest / rel
         if src.is_dir():

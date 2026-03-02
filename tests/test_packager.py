@@ -225,6 +225,47 @@ def test_create_delta_archive_progress_reported(_, tmp_path):
 
 
 @patch("shutil.which", return_value=None)
+def test_compute_delta_writes_delete_manifest(_, tmp_path):
+    """Files in base but absent from full backup appear in .cellar_delete."""
+    full = tmp_path / "full"
+    (full / "drive_c" / "app").mkdir(parents=True)
+    (full / "drive_c" / "app" / "game.exe").write_bytes(b"game")
+
+    base = tmp_path / "base"
+    (base / "drive_c" / "app").mkdir(parents=True)
+    (base / "drive_c" / "app" / "game.exe").write_bytes(b"game")
+    # This base file was deleted before the app backup was taken.
+    (base / "drive_c" / "windows" / "temp").mkdir(parents=True)
+    (base / "drive_c" / "windows" / "temp" / "setup.tmp").write_bytes(b"tempdata")
+
+    out = tmp_path / "delta"
+    out.mkdir()
+    pkg._compute_delta(full, base, out)
+
+    manifest = (out / ".cellar_delete").read_text().splitlines()
+    assert any("setup.tmp" in p for p in manifest)
+
+
+@patch("shutil.which", return_value=None)
+def test_compute_delta_no_manifest_when_nothing_deleted(_, tmp_path):
+    """.cellar_delete is not written when all base files are in the full backup."""
+    full = tmp_path / "full"
+    (full / "drive_c").mkdir(parents=True)
+    (full / "drive_c" / "ntdll.dll").write_bytes(b"ntdll")
+    (full / "drive_c" / "app.exe").write_bytes(b"app longer")
+
+    base = tmp_path / "base"
+    (base / "drive_c").mkdir(parents=True)
+    (base / "drive_c" / "ntdll.dll").write_bytes(b"ntdll")
+
+    out = tmp_path / "delta"
+    out.mkdir()
+    pkg._compute_delta(full, base, out)
+
+    assert not (out / ".cellar_delete").exists()
+
+
+@patch("shutil.which", return_value=None)
 def test_create_delta_archive_bad_source_raises(_, tmp_path):
     """Passing a corrupt archive raises RuntimeError."""
     bad = tmp_path / "bad.tar.gz"

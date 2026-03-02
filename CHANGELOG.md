@@ -2,6 +2,20 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.20.7] — 2026-03-02
+
+### Fixed
+- **Delta install no longer seeds superfluous base files** — `_compute_delta`
+  now writes a `.cellar_delete` manifest into the delta archive listing every
+  file that existed in the base image but was absent from the app backup (e.g.
+  Windows setup temp files cleaned up during app installation).  `_overlay_delta`
+  reads this manifest after seeding and removes the listed paths, so the
+  installed bottle matches the original backup exactly rather than being inflated
+  by base-only files.
+- Added `_compute_delta_python` and `_overlay_delta_python` helpers so the
+  rsync and Python paths are cleanly separated and the delete-manifest logic
+  runs unconditionally regardless of which copy strategy was used.
+
 ## [0.20.6] — 2026-03-02
 
 ### Changed

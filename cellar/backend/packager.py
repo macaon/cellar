@@ -497,9 +497,15 @@ def _compute_delta(full_dir: Path, base_dir: Path, delta_out: Path) -> None:
     Uses ``rsync --checksum --compare-dest`` when rsync is available (content-
     accurate).  Falls back to a Python implementation that uses file size as the
     comparison heuristic (may include some false positives, always correct).
-    """
-    import subprocess
 
+    Also writes a ``.cellar_delete`` manifest listing every file that exists in
+    *base_dir* but is absent from *full_dir*.  These are files that were present
+    in the base image but removed before the app backup was taken (e.g. Windows
+    setup temp files cleaned up by the installer).  ``_overlay_delta`` reads
+    this manifest and removes the listed paths after seeding so the installed
+    bottle matches the original backup exactly.
+    """
+    # ── Step 1: copy changed / new files ──────────────────────────────────
     if shutil.which("rsync"):
         try:
             subprocess.run(
@@ -512,11 +518,23 @@ def _compute_delta(full_dir: Path, base_dir: Path, delta_out: Path) -> None:
                 check=True,
                 capture_output=True,
             )
-            return
         except subprocess.CalledProcessError:
-            pass  # fall through to Python fallback
+            _compute_delta_python(full_dir, base_dir, delta_out)
+    else:
+        _compute_delta_python(full_dir, base_dir, delta_out)
 
-    # Python fallback: include a file if absent from base or a different size.
+    # ── Step 2: write delete manifest (base files absent from full backup) ─
+    delete_paths = sorted(
+        str(p.relative_to(base_dir))
+        for p in base_dir.rglob("*")
+        if p.is_file() and not (full_dir / p.relative_to(base_dir)).exists()
+    )
+    if delete_paths:
+        (delta_out / ".cellar_delete").write_text("\n".join(delete_paths))
+
+
+def _compute_delta_python(full_dir: Path, base_dir: Path, delta_out: Path) -> None:
+    """Python fallback for delta computation (size-based heuristic)."""
     for src in full_dir.rglob("*"):
         if not src.is_file():
             continue

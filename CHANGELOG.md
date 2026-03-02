@@ -2,6 +2,18 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.20.6] — 2026-03-02
+
+### Changed
+- **Much faster archive scan** — `read_bottle_yml` now tries the system `tar`
+  binary first (`tar -xOf --wildcards '*/bottle.yml'`), which uses C-speed gzip
+  and stops reading as soon as the member is found.  Falls back to Python
+  `tarfile` iteration when `tar` is not on PATH (Flatpak sandbox etc.).
+- **Indeterminate progress bar** during archive scan in both the Add App and
+  Upload Base Image dialogs — the old deterministic bar was misleading (jumped
+  to 100% immediately due to gzip block buffering); a pulsing bar correctly
+  signals "working" without implying a known fraction.
+
 ## [0.20.5] — 2026-03-02
 
 ### Changed

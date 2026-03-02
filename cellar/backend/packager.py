@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import subprocess
 import tarfile
 import time
 import zlib
@@ -36,62 +37,39 @@ BASE_CATEGORIES: list[str] = ["Games", "Productivity", "Graphics", "Utility"]
 # bottle.yml extraction
 # ---------------------------------------------------------------------------
 
-class _ProgressFileObj:
-    """Wraps a binary file, calling *cb(fraction)* after each read chunk.
-
-    Used to track how far through the compressed stream tarfile has read,
-    so callers can show a progress bar while scanning for ``bottle.yml``.
-    """
-    __slots__ = ("_f", "_size", "_cb")
-
-    def __init__(self, f, size: int, cb):
-        self._f = f
-        self._size = size
-        self._cb = cb
-
-    def read(self, n=-1):
-        data = self._f.read(n)
-        if self._cb and self._size > 0:
-            self._cb(min(self._f.tell() / self._size, 1.0))
-        return data
-
-    def seek(self, *args): return self._f.seek(*args)
-    def tell(self): return self._f.tell()
-    def readable(self): return True
-    def writable(self): return False
-    def seekable(self): return True
-
-    @property
-    def name(self): return getattr(self._f, "name", "")
-
-
-def read_bottle_yml(archive_path: str, *, progress_cb=None) -> dict:
+def read_bottle_yml(archive_path: str) -> dict:
     """Extract and parse ``bottle.yml`` from a Bottles ``.tar.gz`` backup.
 
-    Searches for ``bottle.yml`` at any depth inside the archive.
-    Iterates members one at a time and stops as soon as the file is found.
-
-    *progress_cb*, if given, is called with a float in ``[0, 1]``
-    representing how far through the compressed stream has been read.
+    Tries the system ``tar`` binary first (C-speed gzip; stops as soon as
+    ``bottle.yml`` is found).  Falls back to Python ``tarfile`` when ``tar``
+    is not available (e.g. inside a restricted Flatpak sandbox).
 
     Returns an empty dict if the file is not found or cannot be parsed.
     """
     import yaml
 
+    # Fast path: system tar stops reading as soon as the member is found.
+    if shutil.which("tar"):
+        try:
+            result = subprocess.run(
+                ["tar", "-xOf", str(archive_path), "--wildcards", "*/bottle.yml"],
+                capture_output=True,
+                timeout=120,
+            )
+            if result.returncode == 0 and result.stdout:
+                data = yaml.safe_load(result.stdout)
+                return data if isinstance(data, dict) else {}
+        except Exception:
+            pass  # fall through to Python path
+
+    # Python fallback (no system tar / wildcard support).
     try:
         with open(archive_path, "rb") as raw:
-            if progress_cb:
-                file_size = Path(archive_path).stat().st_size
-                fileobj = _ProgressFileObj(raw, file_size, progress_cb)
-            else:
-                fileobj = raw
-            with tarfile.open(fileobj=fileobj, mode="r:gz") as tf:
+            with tarfile.open(fileobj=raw, mode="r:gz") as tf:
                 for member in tf:
                     if member.name == "bottle.yml" or member.name.endswith("/bottle.yml"):
                         f = tf.extractfile(member)
                         if f:
-                            if progress_cb:
-                                progress_cb(1.0)
                             data = yaml.safe_load(f.read())
                             return data if isinstance(data, dict) else {}
     except (tarfile.TarError, OSError, yaml.YAMLError):

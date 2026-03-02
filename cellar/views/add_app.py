@@ -84,7 +84,9 @@ class AddAppDialog(Adw.Dialog):
         self._use_delta: bool = False  # True when repo has base AND it's installed locally
         self._base_ok: bool = True     # False blocks the Add button
 
+        self._pulse_id: int | None = None
         self._build_ui()
+        self._pulse_id = GLib.timeout_add(80, self._do_pulse)
         threading.Thread(target=self._prefill, daemon=True).start()
 
     # ── UI construction ───────────────────────────────────────────────────
@@ -306,12 +308,15 @@ class AddAppDialog(Adw.Dialog):
         label.add_css_class("dim-label")
 
         self._scan_bar = Gtk.ProgressBar()
-        self._scan_bar.set_show_text(True)
-        self._scan_bar.set_fraction(0.0)
+        self._scan_bar.set_pulse_step(0.05)
 
         box.append(label)
         box.append(self._scan_bar)
         return box
+
+    def _do_pulse(self) -> bool:
+        self._scan_bar.pulse()
+        return True  # keep firing
 
     def _build_progress(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -342,14 +347,11 @@ class AddAppDialog(Adw.Dialog):
     # ── Pre-fill ──────────────────────────────────────────────────────────
 
     def _prefill(self) -> None:
-        """Read bottle.yml in a background thread, show progress, then reveal the form."""
+        """Read bottle.yml in a background thread, then reveal the form."""
         import tarfile
         from cellar.backend.packager import read_bottle_yml
 
-        def _on_progress(fraction: float) -> None:
-            GLib.idle_add(self._scan_bar.set_fraction, fraction)
-
-        yml = read_bottle_yml(self._archive_path, progress_cb=_on_progress)
+        yml = read_bottle_yml(self._archive_path)
         win_ver = yml.get("Windows", "")
 
         # Sum uncompressed member sizes for the install size estimate.
@@ -360,6 +362,9 @@ class AddAppDialog(Adw.Dialog):
             self._install_size = 0
 
         def _apply() -> None:
+            if self._pulse_id is not None:
+                GLib.source_remove(self._pulse_id)
+                self._pulse_id = None
             name = yml.get("Name", "")
             if name:
                 self._name_entry.set_text(name)

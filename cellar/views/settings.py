@@ -395,7 +395,9 @@ class UploadBaseDialog(Adw.Dialog):
         self._on_done = on_done
         self._win_ver = ""
         self._cancel_event = threading.Event()
+        self._pulse_id: int | None = None
         self._build_ui()
+        self._pulse_id = GLib.timeout_add(80, self._do_pulse)
         threading.Thread(target=self._scan, daemon=True).start()
 
     # ── UI construction ───────────────────────────────────────────────────
@@ -436,9 +438,13 @@ class UploadBaseDialog(Adw.Dialog):
         box.set_margin_end(24)
         box.append(Gtk.Label(label="Reading archive\u2026", css_classes=["dim-label"]))
         self._scan_bar = Gtk.ProgressBar()
-        self._scan_bar.set_show_text(True)
+        self._scan_bar.set_pulse_step(0.05)
         box.append(self._scan_bar)
         return box
+
+    def _do_pulse(self) -> bool:
+        self._scan_bar.pulse()
+        return True  # keep firing
 
     def _build_form_page(self) -> Gtk.Widget:
         scroll = Gtk.ScrolledWindow(
@@ -524,13 +530,13 @@ class UploadBaseDialog(Adw.Dialog):
     def _scan(self) -> None:
         from cellar.backend.packager import read_bottle_yml
 
-        def _prog(f: float) -> None:
-            GLib.idle_add(self._scan_bar.set_fraction, f)
-
-        yml = read_bottle_yml(self._archive_path, progress_cb=_prog)
+        yml = read_bottle_yml(self._archive_path)
         win_ver = yml.get("Windows", "")
 
         def _apply() -> None:
+            if self._pulse_id is not None:
+                GLib.source_remove(self._pulse_id)
+                self._pulse_id = None
             if not win_ver:
                 self._show_scan_error()
                 return

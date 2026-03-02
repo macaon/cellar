@@ -401,3 +401,108 @@ def test_repo_ssh_uri_creates_ssh_fetcher():
 def test_repo_ssh_uri_invalid_no_host_raises():
     with pytest.raises(RepoError, match="no host"):
         Repo("ssh:///path/without/host")
+
+
+# ---------------------------------------------------------------------------
+# Delta / base image support
+# ---------------------------------------------------------------------------
+
+def test_fetch_bases_returns_base_entries():
+    from cellar.models.app_entry import BaseEntry
+    repo = Repo(str(FIXTURES))
+    bases = repo.fetch_bases()
+    assert "win10" in bases
+    b = bases["win10"]
+    assert isinstance(b, BaseEntry)
+    assert b.archive == "bases/win10-base.tar.gz"
+    assert b.archive_size == 712000000
+    assert b.archive_crc32 == "aabbccdd"
+
+
+def test_fetch_bases_empty_when_no_bases_key(tmp_path):
+    cat = tmp_path / "catalogue.json"
+    cat.write_text('{"cellar_version":1,"apps":[]}', encoding="utf-8")
+    repo = Repo(str(tmp_path))
+    assert repo.fetch_bases() == {}
+
+
+def test_fetch_bases_populated_after_fetch_catalogue():
+    from cellar.models.app_entry import BaseEntry
+    repo = Repo(str(FIXTURES))
+    repo.fetch_catalogue()
+    bases = repo.fetch_bases()
+    assert "win10" in bases
+
+
+def test_base_win_ver_parsed_from_catalogue():
+    entries = {e.id: e for e in Repo(str(FIXTURES)).fetch_catalogue()}
+    assert entries["example-app"].base_win_ver == "win10"
+    assert entries["paint-clone"].base_win_ver == ""
+
+
+def test_base_win_ver_round_trips_through_to_dict():
+    from cellar.models.app_entry import AppEntry
+    e = AppEntry(id="x", name="X", version="1", category="C", base_win_ver="win7")
+    d = e.to_dict()
+    assert d["base_win_ver"] == "win7"
+    e2 = AppEntry.from_dict(d)
+    assert e2.base_win_ver == "win7"
+
+
+def test_base_win_ver_omitted_from_to_dict_when_empty():
+    from cellar.models.app_entry import AppEntry
+    e = AppEntry(id="x", name="X", version="1", category="C")
+    assert "base_win_ver" not in e.to_dict()
+
+
+def test_upsert_base_writes_to_catalogue(tmp_path):
+    from cellar.backend.packager import upsert_base
+    import json
+    cat = tmp_path / "catalogue.json"
+    cat.write_text('{"cellar_version":1,"apps":[]}', encoding="utf-8")
+    upsert_base(tmp_path, "win10", "bases/win10-base.tar.gz", "aabb1122", 700000000)
+    raw = json.loads(cat.read_text())
+    assert raw["bases"]["win10"]["archive"] == "bases/win10-base.tar.gz"
+    assert raw["bases"]["win10"]["archive_crc32"] == "aabb1122"
+    assert raw["bases"]["win10"]["archive_size"] == 700000000
+
+
+def test_upsert_base_preserves_existing_apps(tmp_path):
+    from cellar.backend.packager import upsert_base
+    import json
+    cat = tmp_path / "catalogue.json"
+    cat.write_text(
+        '{"cellar_version":1,"apps":[{"id":"a","name":"A","version":"1","category":"C"}]}',
+        encoding="utf-8",
+    )
+    upsert_base(tmp_path, "win10", "bases/win10-base.tar.gz")
+    raw = json.loads(cat.read_text())
+    assert len(raw["apps"]) == 1
+    assert raw["apps"][0]["id"] == "a"
+
+
+def test_remove_base_removes_entry(tmp_path):
+    from cellar.backend.packager import upsert_base, remove_base
+    import json
+    cat = tmp_path / "catalogue.json"
+    cat.write_text('{"cellar_version":1,"apps":[]}', encoding="utf-8")
+    upsert_base(tmp_path, "win10", "bases/win10-base.tar.gz")
+    upsert_base(tmp_path, "win7", "bases/win7-base.tar.gz")
+    remove_base(tmp_path, "win10")
+    raw = json.loads(cat.read_text())
+    assert "win10" not in raw["bases"]
+    assert "win7" in raw["bases"]
+
+
+def test_upsert_catalogue_preserves_bases(tmp_path):
+    from cellar.backend.packager import upsert_base, _upsert_catalogue
+    from cellar.models.app_entry import AppEntry
+    import json
+    cat = tmp_path / "catalogue.json"
+    cat.write_text('{"cellar_version":1,"apps":[]}', encoding="utf-8")
+    upsert_base(tmp_path, "win10", "bases/win10-base.tar.gz")
+    entry = AppEntry(id="x", name="X", version="1", category="C")
+    _upsert_catalogue(tmp_path, entry)
+    raw = json.loads(cat.read_text())
+    assert "win10" in raw["bases"]
+    assert raw["apps"][0]["id"] == "x"

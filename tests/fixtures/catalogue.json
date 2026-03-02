@@ -1,6 +1,13 @@
 {
   "cellar_version": 1,
   "generated_at": "2026-02-25T12:00:00Z",
+  "bases": {
+    "win10": {
+      "archive": "bases/win10-base.tar.gz",
+      "archive_size": 712000000,
+      "archive_crc32": "aabbccdd"
+    }
+  },
   "apps": [
     {
       "id": "example-app",
@@ -36,6 +43,7 @@
         "vkd3d": "2.11"
       },
       "update_strategy": "safe",
+      "base_win_ver": "win10",
       "entry_point": "Program Files/ExampleApp/example.exe",
       "changelog": "Initial release."
     },

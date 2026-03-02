@@ -38,7 +38,7 @@ from urllib.parse import urlparse
 
 import requests
 
-from cellar.models.app_entry import AppEntry
+from cellar.models.app_entry import AppEntry, BaseEntry
 from cellar.utils.http import DEFAULT_TIMEOUT, make_session
 
 log = logging.getLogger(__name__)
@@ -386,6 +386,7 @@ class Repo:
         self.name = name or uri
         self._token = token
         self._cache_dir: Path | None = None
+        self._bases: dict[str, BaseEntry] = {}
         self._fetcher: _Fetcher = _make_fetcher(
             uri,
             ssh_identity=ssh_identity,
@@ -426,6 +427,10 @@ class Repo:
         elif isinstance(raw, dict):
             items = raw.get("apps", [])
             self._init_asset_cache(raw.get("generated_at"))
+            self._bases = {
+                win_ver: BaseEntry.from_dict(win_ver, data)
+                for win_ver, data in raw.get("bases", {}).items()
+            }
         else:
             raise RepoError("catalogue.json has an unexpected top-level type")
 
@@ -439,6 +444,16 @@ class Repo:
                 )
         log.info("Loaded %d entries from %s", len(entries), self.uri)
         return entries
+
+    def fetch_bases(self) -> dict[str, BaseEntry]:
+        """Return the base-image map for this repo.
+
+        Calls ``fetch_catalogue`` if the bases have not been loaded yet.
+        Keys are Windows version strings (e.g. ``"win10"``).
+        """
+        if not self._bases:
+            self.fetch_catalogue()
+        return dict(self._bases)
 
     def fetch_entry_by_id(self, app_id: str) -> AppEntry:
         """Load the catalogue and return the entry matching *app_id*."""

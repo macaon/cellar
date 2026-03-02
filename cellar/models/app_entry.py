@@ -37,6 +37,38 @@ class BuiltWith:
 
 
 @dataclass(frozen=True, slots=True)
+class BaseEntry:
+    """A base bottle image used as the shared foundation for delta packages.
+
+    Keyed by the Windows version string (e.g. ``"win10"``) that matches the
+    ``Windows:`` field in a bottle's ``bottle.yml``.  Stored in the top-level
+    ``bases`` dict of ``catalogue.json``.
+    """
+
+    win_ver: str        # e.g. "win10", "win7"
+    archive: str        # repo-relative path to the base archive
+    archive_size: int = 0
+    archive_crc32: str = ""
+
+    @classmethod
+    def from_dict(cls, win_ver: str, data: dict) -> "BaseEntry":
+        return cls(
+            win_ver=win_ver,
+            archive=data.get("archive", ""),
+            archive_size=int(data.get("archive_size", 0)),
+            archive_crc32=data.get("archive_crc32", ""),
+        )
+
+    def to_dict(self) -> dict:
+        d: dict = {"archive": self.archive}
+        if self.archive_size:
+            d["archive_size"] = self.archive_size
+        if self.archive_crc32:
+            d["archive_crc32"] = self.archive_crc32
+        return d
+
+
+@dataclass(frozen=True, slots=True)
 class AppEntry:
     """Complete record for one app or game in the catalogue.
 
@@ -82,6 +114,9 @@ class AppEntry:
     install_size_estimate: int = 0
     built_with: BuiltWith | None = None
     update_strategy: Literal["safe", "full"] = "safe"
+    # Delta packaging — when set, this archive is a delta against the named
+    # base image; the installer must seed the bottle from that base first.
+    base_win_ver: str = ""
     # Path to the main executable relative to drive_c — used for shortcuts
     # and optional smoke tests after install.
     entry_point: str = ""
@@ -125,6 +160,7 @@ class AppEntry:
             install_size_estimate=int(data.get("install_size_estimate", 0)),
             built_with=BuiltWith.from_dict(built_with_raw) if built_with_raw else None,
             update_strategy=strategy,
+            base_win_ver=data.get("base_win_ver", ""),
             entry_point=data.get("entry_point", ""),
             compatibility_notes=data.get("compatibility_notes", ""),
             changelog=data.get("changelog", ""),
@@ -167,6 +203,7 @@ class AppEntry:
         if self.built_with is not None:
             d["built_with"] = self.built_with.to_dict()
         d["update_strategy"] = self.update_strategy
+        _opt_str(d, "base_win_ver", self.base_win_ver)
         _opt_str(d, "entry_point", self.entry_point)
         _opt_str(d, "compatibility_notes", self.compatibility_notes)
         _opt_str(d, "changelog", self.changelog)

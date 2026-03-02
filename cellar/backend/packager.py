@@ -347,16 +347,18 @@ def _upsert_catalogue(repo_root: Path, entry) -> None:
     """Replace or append *entry* in ``catalogue.json``."""
     cat_path = repo_root / "catalogue.json"
     categories: list[str] | None = None
+    bases: dict | None = None
     if cat_path.exists():
         raw = json.loads(cat_path.read_text())
         apps = raw.get("apps", raw) if isinstance(raw, dict) else raw
         if isinstance(raw, dict):
             categories = raw.get("categories")
+            bases = raw.get("bases")
     else:
         apps = []
     apps = [a for a in apps if a.get("id") != entry.id]
     apps.append(entry.to_dict())
-    _write_catalogue(cat_path, apps, categories)
+    _write_catalogue(cat_path, apps, categories, bases)
 
 
 def _remove_from_catalogue(repo_root: Path, app_id: str) -> None:
@@ -367,14 +369,16 @@ def _remove_from_catalogue(repo_root: Path, app_id: str) -> None:
     raw = json.loads(cat_path.read_text())
     apps = raw.get("apps", raw) if isinstance(raw, dict) else raw
     categories = raw.get("categories") if isinstance(raw, dict) else None
+    bases = raw.get("bases") if isinstance(raw, dict) else None
     apps = [a for a in apps if a.get("id") != app_id]
-    _write_catalogue(cat_path, apps, categories)
+    _write_catalogue(cat_path, apps, categories, bases)
 
 
 def _write_catalogue(
     cat_path: Path,
     apps: list,
     categories: list[str] | None = None,
+    bases: dict | None = None,
 ) -> None:
     data: dict = {
         "cellar_version": 1,
@@ -383,7 +387,53 @@ def _write_catalogue(
     }
     if categories is not None:
         data["categories"] = categories
+    if bases is not None:
+        data["bases"] = bases
     cat_path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+
+
+def upsert_base(
+    repo_root: Path,
+    win_ver: str,
+    archive_path: str,
+    archive_crc32: str = "",
+    archive_size: int = 0,
+) -> None:
+    """Add or replace a base image entry in ``catalogue.json``.
+
+    *archive_path* must be a repo-relative path (e.g.
+    ``"bases/win10-base.tar.gz"``).  The physical archive must already have
+    been copied to the repo before calling this.
+    """
+    cat_path = repo_root / "catalogue.json"
+    if cat_path.exists():
+        raw = json.loads(cat_path.read_text())
+        apps = raw.get("apps", []) if isinstance(raw, dict) else []
+        categories = raw.get("categories") if isinstance(raw, dict) else None
+        bases: dict = dict(raw.get("bases") or {})
+    else:
+        apps, categories, bases = [], None, {}
+    bases[win_ver] = {"archive": archive_path}
+    if archive_size:
+        bases[win_ver]["archive_size"] = archive_size
+    if archive_crc32:
+        bases[win_ver]["archive_crc32"] = archive_crc32
+    _write_catalogue(cat_path, apps, categories, bases)
+
+
+def remove_base(repo_root: Path, win_ver: str) -> None:
+    """Remove a base image entry from ``catalogue.json``."""
+    cat_path = repo_root / "catalogue.json"
+    if not cat_path.exists():
+        return
+    raw = json.loads(cat_path.read_text())
+    if not isinstance(raw, dict):
+        return
+    apps = raw.get("apps", [])
+    categories = raw.get("categories")
+    bases = dict(raw.get("bases") or {})
+    bases.pop(win_ver, None)
+    _write_catalogue(cat_path, apps, categories, bases if bases else None)
 
 
 def add_catalogue_category(repo_root: Path, category: str) -> None:

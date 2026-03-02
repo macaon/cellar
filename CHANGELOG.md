@@ -2,6 +2,17 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.19.10] — 2026-03-02
+
+### Changed
+- **Zero layout shift on cached detail views** — `Repo.peek_asset_cache()` checks
+  whether an image asset is already on disk without triggering a download.  All
+  three asset loaders (`_make_hero`, `_make_icon`, `_make_screenshots`) now take
+  a fast synchronous path when all images are cached, building the full page in
+  one pass with no placeholders and no reflow.  The async placeholder path is
+  kept as a fallback only for the very first open, when a network fetch is
+  actually required.
+
 ## [0.19.9] — 2026-03-02
 
 ### Changed

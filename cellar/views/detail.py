@@ -56,6 +56,7 @@ class DetailView(Gtk.Box):
         self._source_repos = source_repos or []
         _first = self._source_repos[0] if self._source_repos else None
         self._resolve = _first.resolve_asset_uri if _first else (lambda rel: rel)
+        self._peek = _first.peek_asset_cache if _first else (lambda _: "")
         self._token = _first.token if _first else None
         self._is_writable = is_writable
         self._on_edit = on_edit
@@ -594,13 +595,27 @@ class DetailView(Gtk.Box):
     def _make_hero(self) -> Gtk.Widget | None:
         if not self._entry.hero:
             return None
-        # Return the clamp immediately; the picture is filled in asynchronously
-        # so the page opens without waiting for the hero download.
+
         clamp = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         clamp.set_overflow(Gtk.Overflow.HIDDEN)
         clamp.set_size_request(-1, 220)
         clamp.set_vexpand(False)
 
+        def _attach_pic(path: str) -> None:
+            pic = Gtk.Picture.new_for_filename(path)
+            pic.set_content_fit(Gtk.ContentFit.COVER)
+            pic.set_can_shrink(True)
+            pic.set_halign(Gtk.Align.FILL)
+            pic.set_valign(Gtk.Align.CENTER)
+            clamp.append(pic)
+
+        # Fast path: already on disk — attach synchronously, no layout shift.
+        cached = self._peek(self._entry.hero)
+        if cached and os.path.isfile(cached):
+            _attach_pic(cached)
+            return clamp
+
+        # Slow path: needs a network fetch — resolve on a background thread.
         hero_path = self._entry.hero
 
         def _worker() -> None:
@@ -609,12 +624,7 @@ class DetailView(Gtk.Box):
 
         def _on_resolved(path: str) -> bool:
             if os.path.isfile(path):
-                pic = Gtk.Picture.new_for_filename(path)
-                pic.set_content_fit(Gtk.ContentFit.COVER)
-                pic.set_can_shrink(True)
-                pic.set_halign(Gtk.Align.FILL)
-                pic.set_valign(Gtk.Align.CENTER)
-                clamp.append(pic)
+                _attach_pic(path)
             else:
                 clamp.set_visible(False)
             return GLib.SOURCE_REMOVE
@@ -794,13 +804,29 @@ class DetailView(Gtk.Box):
         if not self._entry.screenshots:
             return None
 
-        # Return a wrapper immediately; the carousel is populated asynchronously
-        # so the page opens without blocking on remote image downloads.
+        screenshots = list(self._entry.screenshots)
+
+        # Fast path: peek the cache for every screenshot.  If all are already
+        # on disk, build the carousel synchronously — no placeholders, no shift.
+        cached_paths = []
+        for s in screenshots:
+            p = self._peek(s)
+            if p and os.path.isfile(p):
+                cached_paths.append(p)
+            else:
+                cached_paths = []
+                break
+
         wrapper = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         wrapper.set_margin_bottom(12)
-        wrapper.set_visible(False)
 
-        screenshots = list(self._entry.screenshots)
+        if cached_paths:
+            self._screenshot_paths = cached_paths
+            self._populate_screenshots(wrapper, cached_paths)
+            return wrapper
+
+        # Slow path: some images need fetching — resolve async and fill in later.
+        wrapper.set_visible(False)
 
         def _worker() -> None:
             resolved = []
@@ -812,91 +838,92 @@ class DetailView(Gtk.Box):
 
         def _on_resolved(paths: list[str]) -> bool:
             self._screenshot_paths = paths
-            if not paths:
-                return GLib.SOURCE_REMOVE
-
-            carousel = Adw.Carousel(
-                allow_scroll_wheel=False, reveal_duration=200, spacing=12,
-            )
-            multiple = len(paths) > 1
-            pointer_cursor = Gdk.Cursor.new_from_name("pointer")
-
-            for idx, path in enumerate(paths):
-                pic = Gtk.Picture.new_for_filename(path)
-                pic.set_content_fit(Gtk.ContentFit.CONTAIN)
-                pic.set_can_shrink(True)
-                pic.set_size_request(-1, 300)
-                pic.set_cursor(pointer_cursor)
-                click = Gtk.GestureClick()
-                click.connect("released", self._on_screenshot_clicked, idx)
-                pic.add_controller(click)
-                carousel.append(pic)
-
-            overlay = Gtk.Overlay(child=carousel)
-            wrapper.append(overlay)
-
-            if multiple:
-                prev_btn = Gtk.Button(icon_name="go-previous-symbolic")
-                prev_btn.add_css_class("osd")
-                prev_btn.add_css_class("circular")
-                prev_btn.add_css_class("screenshot-nav")
-                prev_btn.set_halign(Gtk.Align.START)
-                prev_btn.set_valign(Gtk.Align.CENTER)
-                prev_btn.set_margin_start(12)
-                prev_btn.set_opacity(0)
-                prev_btn.set_can_target(False)
-                prev_btn.connect("clicked", lambda _b: carousel.scroll_to(
-                    carousel.get_nth_page(max(0, round(carousel.get_position()) - 1)),
-                    True,
-                ))
-                overlay.add_overlay(prev_btn)
-
-                next_btn = Gtk.Button(icon_name="go-next-symbolic")
-                next_btn.add_css_class("osd")
-                next_btn.add_css_class("circular")
-                next_btn.add_css_class("screenshot-nav")
-                next_btn.set_halign(Gtk.Align.END)
-                next_btn.set_valign(Gtk.Align.CENTER)
-                next_btn.set_margin_end(12)
-                next_btn.set_opacity(0)
-                next_btn.set_can_target(False)
-                next_btn.connect("clicked", lambda _b: carousel.scroll_to(
-                    carousel.get_nth_page(min(
-                        carousel.get_n_pages() - 1,
-                        round(carousel.get_position()) + 1,
-                    )),
-                    True,
-                ))
-                overlay.add_overlay(next_btn)
-
-                def _update_arrow_visibility(*_args) -> None:
-                    page = round(carousel.get_position())
-                    prev_btn.set_opacity(0 if page == 0 else 1)
-                    prev_btn.set_can_target(page != 0)
-                    last = carousel.get_n_pages() - 1
-                    next_btn.set_opacity(0 if page >= last else 1)
-                    next_btn.set_can_target(page < last)
-
-                carousel.connect("page-changed", _update_arrow_visibility)
-
-                motion = Gtk.EventControllerMotion()
-                motion.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
-                motion.connect("enter", lambda *_: _update_arrow_visibility())
-                motion.connect("leave", lambda *_: (
-                    prev_btn.set_opacity(0),
-                    prev_btn.set_can_target(False),
-                    next_btn.set_opacity(0),
-                    next_btn.set_can_target(False),
-                ))
-                overlay.add_controller(motion)
-
-            dots = Adw.CarouselIndicatorDots(carousel=carousel)
-            wrapper.append(dots)
-            wrapper.set_visible(True)
+            if paths:
+                self._populate_screenshots(wrapper, paths)
+                wrapper.set_visible(True)
             return GLib.SOURCE_REMOVE
 
         threading.Thread(target=_worker, daemon=True).start()
         return wrapper
+
+    def _populate_screenshots(self, wrapper: Gtk.Box, paths: list[str]) -> None:
+        """Build and append carousel content into *wrapper*."""
+        carousel = Adw.Carousel(
+            allow_scroll_wheel=False, reveal_duration=200, spacing=12,
+        )
+        multiple = len(paths) > 1
+        pointer_cursor = Gdk.Cursor.new_from_name("pointer")
+
+        for idx, path in enumerate(paths):
+            pic = Gtk.Picture.new_for_filename(path)
+            pic.set_content_fit(Gtk.ContentFit.CONTAIN)
+            pic.set_can_shrink(True)
+            pic.set_size_request(-1, 300)
+            pic.set_cursor(pointer_cursor)
+            click = Gtk.GestureClick()
+            click.connect("released", self._on_screenshot_clicked, idx)
+            pic.add_controller(click)
+            carousel.append(pic)
+
+        overlay = Gtk.Overlay(child=carousel)
+        wrapper.append(overlay)
+
+        if multiple:
+            prev_btn = Gtk.Button(icon_name="go-previous-symbolic")
+            prev_btn.add_css_class("osd")
+            prev_btn.add_css_class("circular")
+            prev_btn.add_css_class("screenshot-nav")
+            prev_btn.set_halign(Gtk.Align.START)
+            prev_btn.set_valign(Gtk.Align.CENTER)
+            prev_btn.set_margin_start(12)
+            prev_btn.set_opacity(0)
+            prev_btn.set_can_target(False)
+            prev_btn.connect("clicked", lambda _b: carousel.scroll_to(
+                carousel.get_nth_page(max(0, round(carousel.get_position()) - 1)),
+                True,
+            ))
+            overlay.add_overlay(prev_btn)
+
+            next_btn = Gtk.Button(icon_name="go-next-symbolic")
+            next_btn.add_css_class("osd")
+            next_btn.add_css_class("circular")
+            next_btn.add_css_class("screenshot-nav")
+            next_btn.set_halign(Gtk.Align.END)
+            next_btn.set_valign(Gtk.Align.CENTER)
+            next_btn.set_margin_end(12)
+            next_btn.set_opacity(0)
+            next_btn.set_can_target(False)
+            next_btn.connect("clicked", lambda _b: carousel.scroll_to(
+                carousel.get_nth_page(min(
+                    carousel.get_n_pages() - 1,
+                    round(carousel.get_position()) + 1,
+                )),
+                True,
+            ))
+            overlay.add_overlay(next_btn)
+
+            def _update_arrow_visibility(*_args) -> None:
+                page = round(carousel.get_position())
+                prev_btn.set_opacity(0 if page == 0 else 1)
+                prev_btn.set_can_target(page != 0)
+                last = carousel.get_n_pages() - 1
+                next_btn.set_opacity(0 if page >= last else 1)
+                next_btn.set_can_target(page < last)
+
+            carousel.connect("page-changed", _update_arrow_visibility)
+
+            motion = Gtk.EventControllerMotion()
+            motion.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+            motion.connect("enter", lambda *_: _update_arrow_visibility())
+            motion.connect("leave", lambda *_: (
+                prev_btn.set_opacity(0),
+                prev_btn.set_can_target(False),
+                next_btn.set_opacity(0),
+                next_btn.set_can_target(False),
+            ))
+            overlay.add_controller(motion)
+
+        wrapper.append(Adw.CarouselIndicatorDots(carousel=carousel))
 
     def _on_screenshot_clicked(self, _gesture, _n, _x, _y, index: int) -> None:
         dialog = ScreenshotDialog(self._screenshot_paths, index)
@@ -998,8 +1025,29 @@ class DetailView(Gtk.Box):
     # ------------------------------------------------------------------
 
     def _make_icon(self, rel_path: str, size: int, *, cover_fallback: str = "") -> Gtk.Widget:
-        # Return a placeholder immediately; swap to the real icon asynchronously
-        # so the detail page opens without blocking on a remote image download.
+        # Fast path: if the image is already on disk, decode and return immediately.
+        for path_arg, is_cover in ((rel_path, False), (cover_fallback, True)):
+            if not path_arg:
+                continue
+            cached = self._peek(path_arg)
+            if cached and os.path.isfile(cached):
+                png_bytes = (
+                    load_and_crop(cached, size, size)
+                    if is_cover
+                    else load_and_fit(cached, size)
+                )
+                if png_bytes is not None:
+                    if is_cover:
+                        w: Gtk.Widget = Gtk.Picture.new_for_paintable(to_texture(png_bytes))
+                        w.set_size_request(size, size)
+                        w.set_content_fit(Gtk.ContentFit.FILL)
+                        w.add_css_class("icon-dropshadow")
+                    else:
+                        w = Gtk.Image.new_from_paintable(to_texture(png_bytes))
+                        w.set_pixel_size(size)
+                    return w
+
+        # Slow path: needs a network fetch — use a placeholder stack and swap async.
         placeholder = Gtk.Image.new_from_icon_name("application-x-executable")
         placeholder.set_pixel_size(size)
 
@@ -1027,7 +1075,6 @@ class DetailView(Gtk.Box):
                     if png_bytes is not None:
                         GLib.idle_add(_on_loaded, png_bytes, True)
                         return
-            # Nothing resolved — keep the placeholder as-is
 
         def _on_loaded(png_bytes: bytes, is_cover: bool) -> bool:
             texture = to_texture(png_bytes)

@@ -515,6 +515,26 @@ class Repo:
             log.warning("Could not cache image asset %r: %s", rel_path, exc)
             return ""
 
+    def peek_asset_cache(self, repo_relative: str) -> str:
+        """Return the local path for *repo_relative* if it is already on disk.
+
+        For local repos this is the file path itself.  For remote repos it is
+        the path inside ``~/.cache/cellar/assets/``, but only if the file has
+        already been downloaded.  Returns an empty string when the asset is not
+        yet cached — the caller should then fetch it asynchronously.  Never
+        triggers a download.
+        """
+        if not repo_relative:
+            return ""
+        if isinstance(self._fetcher, _LocalFetcher):
+            return self._fetcher.resolve_uri(repo_relative)
+        if Path(repo_relative).suffix.lower() not in _IMAGE_EXTENSIONS:
+            return ""
+        if self._cache_dir is None:
+            return ""
+        dest = self._cache_dir.joinpath(*repo_relative.lstrip("/").split("/"))
+        return str(dest) if dest.exists() else ""
+
     def fetch_categories(self) -> list[str]:
         """Return the ordered category list for this repo.
 

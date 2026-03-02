@@ -2,6 +2,16 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.19.5] — 2026-03-02
+
+### Fixed
+- **Desktop shortcut icon now displays immediately** — `Icon=` now contains the
+  absolute path to `~/.local/share/icons/cellar/<id>.png` instead of a theme
+  name, eliminating the need for an icon-cache refresh.  Icon storage moved
+  from `~/.local/share/icons/hicolor/256x256/apps/` to the simpler flat
+  directory `~/.local/share/icons/cellar/`.  Cleanup on shortcut or app
+  removal covers the new path.
+
 ## [0.19.4] — 2026-03-02
 
 ### Added

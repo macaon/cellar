@@ -8,7 +8,7 @@ from pathlib import Path
 log = logging.getLogger(__name__)
 
 _APPS_DIR = Path.home() / ".local/share/applications"
-_ICONS_DIR = Path.home() / ".local/share/icons/hicolor/256x256/apps"
+_ICONS_DIR = Path.home() / ".local/share/icons/cellar"
 
 _CATEGORY_MAP: dict[str, str] = {
     "Games": "Game",
@@ -23,7 +23,7 @@ def desktop_entry_path(app_id: str) -> Path:
 
 
 def icon_dest_path(app_id: str) -> Path:
-    return _ICONS_DIR / f"cellar-{app_id}.png"
+    return _ICONS_DIR / f"{app_id}.png"
 
 
 def has_desktop_entry(app_id: str) -> bool:
@@ -31,10 +31,11 @@ def has_desktop_entry(app_id: str) -> bool:
 
 
 def _install_icon(app_id: str, src: str) -> str:
-    """Copy/convert *src* into the hicolor 256×256 theme directory.
+    """Copy/convert *src* into ~/.local/share/icons/cellar/.
 
-    Returns the icon name to embed in the .desktop file, or the XDG
-    fallback ``application-x-executable`` on failure.
+    Returns the absolute path to the installed icon to embed directly in the
+    .desktop file (avoids icon-cache refresh requirements), or the empty string
+    on failure (caller will omit the Icon= line or use a fallback).
     """
     _ICONS_DIR.mkdir(parents=True, exist_ok=True)
     dest = icon_dest_path(app_id)
@@ -49,10 +50,10 @@ def _install_icon(app_id: str, src: str) -> str:
         canvas.paste(img, ((256 - img.width) // 2, (256 - img.height) // 2))
         canvas.save(dest, "PNG")
         log.debug("Installed icon for %s → %s", app_id, dest)
-        return f"cellar-{app_id}"
+        return str(dest)
     except Exception as exc:
         log.warning("Could not install icon for %s: %s", app_id, exc)
-        return "application-x-executable"
+        return ""
 
 
 def create_desktop_entry(
@@ -65,10 +66,12 @@ def create_desktop_entry(
     """Write a .desktop entry for *entry* to ~/.local/share/applications."""
     _APPS_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Icon
+    # Icon — use absolute path so no icon-cache refresh is needed.
     icon_ref = "application-x-executable"
     if icon_source and Path(icon_source).is_file():
-        icon_ref = _install_icon(entry.id, icon_source)
+        installed = _install_icon(entry.id, icon_source)
+        if installed:
+            icon_ref = installed
 
     # Exec
     cli = (

@@ -98,21 +98,13 @@ class SettingsDialog(Adw.PreferencesDialog):
         access_group.add(gen_row)
 
         # ── Group: Delta Base Images ───────────────────────────────────────
-        self._delta_group = Adw.PreferencesGroup(
-            title="Delta Base Images",
-            description=(
-                "Base images are shared bottle skeletons. Apps built against "
-                "a base only store the files that differ, reducing download and "
-                "storage size. Bases are installed and managed here; clients "
-                "download them automatically on first install."
-            ),
-        )
+        self._delta_group = Adw.PreferencesGroup(title="Delta Base Images")
         page.add(self._delta_group)
 
-        upload_btn = Gtk.Button(label="Upload Base Image\u2026")
-        upload_btn.add_css_class("suggested-action")
-        upload_btn.connect("clicked", self._on_upload_base_clicked)
-        self._delta_group.set_header_suffix(upload_btn)
+        add_base_btn = Gtk.Button(label="Add")
+        add_base_btn.add_css_class("suggested-action")
+        add_base_btn.connect("clicked", self._on_upload_base_clicked)
+        self._delta_group.set_header_suffix(add_base_btn)
 
         self._rebuild_repo_rows()
         self._rebuild_delta_rows()
@@ -193,7 +185,13 @@ class SettingsDialog(Adw.PreferencesDialog):
         bases = database.get_all_installed_bases()
         if not bases:
             empty = Adw.ActionRow(title="No base images installed")
-            empty.set_sensitive(False)
+            upload_btn = Gtk.Button(
+                label="Upload Base Image\u2026",
+                valign=Gtk.Align.CENTER,
+            )
+            upload_btn.add_css_class("suggested-action")
+            upload_btn.connect("clicked", self._on_upload_base_clicked)
+            empty.add_suffix(upload_btn)
             self._delta_rows.append(empty)
             self._delta_group.add(empty)
             return

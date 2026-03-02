@@ -2,6 +2,15 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.20.4] — 2026-03-02
+
+### Changed
+- **Delta Base Images group layout** — removed the verbose description from the
+  group header so the "Add" button is compact and normal-height (matching the
+  Repositories group).  The empty-state row now shows an "Upload Base Image…"
+  `suggested-action` button as its suffix, giving a clear call-to-action inline
+  rather than relying on the header button alone.
+
 ## [0.20.3] — 2026-03-02
 
 ### Changed

@@ -2,6 +2,19 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.20.1] — 2026-03-02
+
+### Added
+- **Delta Base Images group in Preferences** — new `AdwPreferencesGroup` lists
+  all locally installed base images with their Windows version label, install date,
+  and a remove button.  The "Upload Base Image…" button opens a new
+  `UploadBaseDialog` that scans the selected archive for the `Windows:` field,
+  installs the base locally, and optionally copies the archive to a writable
+  repository (updating `catalogue.json` with CRC32 and size).  Remove
+  confirms before deleting.
+- `window.py` passes `writable_repos` to `SettingsDialog` so the upload dialog
+  can show the repo selector only when writable repos are available.
+
 ## [0.20.0] — 2026-03-02
 
 ### Added

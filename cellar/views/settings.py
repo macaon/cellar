@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
+import time
+import zlib
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
@@ -14,11 +17,22 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gtk
+from gi.repository import Adw, GLib, Gtk
 
 from cellar.backend.config import certs_dir, load_repos, save_repos
 
 log = logging.getLogger(__name__)
+
+# Human-readable labels for bottle.yml Windows: values.
+_WIN_VER_LABELS: dict[str, str] = {
+    "win10": "Windows 10",
+    "win11": "Windows 11",
+    "win7": "Windows 7",
+    "win8": "Windows 8",
+    "win81": "Windows 8.1",
+    "winxp": "Windows XP",
+    "win2k": "Windows 2000",
+}
 
 
 class SettingsDialog(Adw.PreferencesDialog):
@@ -32,11 +46,14 @@ class SettingsDialog(Adw.PreferencesDialog):
         self,
         *,
         on_repos_changed: Callable[[], None] | None = None,
+        writable_repos: list | None = None,
         **kwargs,
     ):
         super().__init__(title="Preferences", content_width=560, content_height=500, **kwargs)
         self._on_repos_changed = on_repos_changed
+        self._writable_repos: list = writable_repos or []
         self._repo_rows: list[Adw.PreferencesRow] = []
+        self._delta_rows: list[Adw.PreferencesRow] = []
 
         # ── Page: General ─────────────────────────────────────────────────
         page = Adw.PreferencesPage(
@@ -80,7 +97,25 @@ class SettingsDialog(Adw.PreferencesDialog):
         gen_row.add_suffix(gen_btn)
         access_group.add(gen_row)
 
+        # ── Group: Delta Base Images ───────────────────────────────────────
+        self._delta_group = Adw.PreferencesGroup(
+            title="Delta Base Images",
+            description=(
+                "Base images are shared bottle skeletons. Apps built against "
+                "a base only store the files that differ, reducing download and "
+                "storage size. Bases are installed and managed here; clients "
+                "download them automatically on first install."
+            ),
+        )
+        page.add(self._delta_group)
+
+        upload_btn = Gtk.Button(label="Upload Base Image\u2026")
+        upload_btn.add_css_class("suggested-action")
+        upload_btn.connect("clicked", self._on_upload_base_clicked)
+        self._delta_group.set_header_suffix(upload_btn)
+
         self._rebuild_repo_rows()
+        self._rebuild_delta_rows()
 
     # ------------------------------------------------------------------
     # Repo list management
@@ -142,6 +177,106 @@ class SettingsDialog(Adw.PreferencesDialog):
         row.add_suffix(del_btn)
 
         return row
+
+    # ------------------------------------------------------------------
+    # Delta Base Images
+    # ------------------------------------------------------------------
+
+    def _rebuild_delta_rows(self) -> None:
+        """Sync visible base-image rows with the local database."""
+        for row in self._delta_rows:
+            self._delta_group.remove(row)
+        self._delta_rows.clear()
+
+        from cellar.backend import database
+
+        bases = database.get_all_installed_bases()
+        if not bases:
+            empty = Adw.ActionRow(title="No base images installed")
+            empty.set_sensitive(False)
+            self._delta_rows.append(empty)
+            self._delta_group.add(empty)
+            return
+
+        for rec in bases:
+            row = self._make_base_row(rec)
+            self._delta_rows.append(row)
+            self._delta_group.add(row)
+
+    def _make_base_row(self, rec: dict) -> Adw.ActionRow:
+        win_ver = rec["win_ver"]
+        label = _WIN_VER_LABELS.get(win_ver, win_ver)
+        installed_at = rec.get("installed_at", "")
+        if installed_at:
+            try:
+                dt = datetime.fromisoformat(installed_at)
+                installed_at = dt.strftime("%Y-%m-%d")
+            except ValueError:
+                pass
+        subtitle = f"{win_ver} · installed {installed_at}" if installed_at else win_ver
+
+        row = Adw.ActionRow(title=label, subtitle=subtitle)
+
+        del_btn = Gtk.Button(
+            icon_name="user-trash-symbolic",
+            valign=Gtk.Align.CENTER,
+            has_frame=False,
+            tooltip_text="Remove base image",
+        )
+        del_btn.add_css_class("destructive-action")
+        del_btn.connect("clicked", self._on_remove_base, win_ver, label)
+        row.add_suffix(del_btn)
+        return row
+
+    def _on_upload_base_clicked(self, _btn: Gtk.Button) -> None:
+        chooser = Gtk.FileChooserNative(
+            title="Select Base Image Archive",
+            transient_for=self.get_root(),
+            action=Gtk.FileChooserAction.OPEN,
+        )
+        f = Gtk.FileFilter()
+        f.set_name("Bottles backup archives (*.tar.gz)")
+        f.add_pattern("*.tar.gz")
+        chooser.add_filter(f)
+        chooser.connect("response", self._on_base_archive_chosen, chooser)
+        chooser.show()
+
+    def _on_base_archive_chosen(
+        self, _chooser, response: int, chooser: Gtk.FileChooserNative
+    ) -> None:
+        if response != Gtk.ResponseType.ACCEPT:
+            return
+        path = chooser.get_file().get_path()
+        if not path:
+            return
+        dialog = UploadBaseDialog(
+            archive_path=path,
+            writable_repos=self._writable_repos,
+            on_done=self._rebuild_delta_rows,
+        )
+        dialog.present(self)
+
+    def _on_remove_base(self, _btn: Gtk.Button, win_ver: str, label: str) -> None:
+        alert = Adw.AlertDialog(
+            heading=f"Remove {label} Base?",
+            body=(
+                f"The {label} base image will be removed from this machine. "
+                "Apps that use this base can still be installed — the base "
+                "will be downloaded again automatically."
+            ),
+        )
+        alert.add_response("cancel", "Cancel")
+        alert.add_response("remove", "Remove")
+        alert.set_response_appearance("remove", Adw.ResponseAppearance.DESTRUCTIVE)
+        alert.connect("response", self._on_remove_base_confirmed, win_ver)
+        alert.present(self)
+
+    def _on_remove_base_confirmed(self, _alert, response: str, win_ver: str) -> None:
+        if response != "remove":
+            return
+        from cellar.backend import base_store
+        base_store.remove_base(win_ver)
+        self._rebuild_delta_rows()
 
     # ------------------------------------------------------------------
     # Add / Edit handlers
@@ -223,6 +358,367 @@ class SettingsDialog(Adw.PreferencesDialog):
         dialog = Adw.AlertDialog(heading=heading, body=body)
         dialog.add_response("ok", "OK")
         dialog.present(self)
+
+
+# ---------------------------------------------------------------------------
+# Upload Base Image dialog
+# ---------------------------------------------------------------------------
+
+
+def _fmt_size(n: int) -> str:
+    if n < 1024:
+        return f"{n} B"
+    if n < 1024 ** 2:
+        return f"{n / 1024:.1f} KB"
+    if n < 1024 ** 3:
+        return f"{n / 1024 ** 2:.1f} MB"
+    return f"{n / 1024 ** 3:.2f} GB"
+
+
+def _fmt_ul_stats(copied: int, total: int, speed: float) -> str:
+    size_str = f"{_fmt_size(copied)} / {_fmt_size(total)}" if total > 0 else _fmt_size(copied)
+    speed_str = f"{_fmt_size(int(speed))}/s" if speed > 0 else "\u2026"
+    return f"{size_str} ({speed_str})"
+
+
+class UploadBaseDialog(Adw.Dialog):
+    """Two-phase dialog: scan archive → confirm/upload base image.
+
+    Phase 1 (scan): reads bottle.yml in a background thread, shows a
+    progress bar, then switches to the form page.
+    Phase 2 (upload): installs the base locally and optionally copies
+    the archive to a writable repository.
+    """
+
+    def __init__(
+        self,
+        *,
+        archive_path: str,
+        writable_repos: list,   # list[cellar.backend.repo.Repo]
+        on_done: Callable[[], None],
+    ) -> None:
+        super().__init__(title="Upload Base Image", content_width=480)
+        self._archive_path = archive_path
+        self._writable_repos = writable_repos
+        self._on_done = on_done
+        self._win_ver = ""
+        self._cancel_event = threading.Event()
+        self._build_ui()
+        threading.Thread(target=self._scan, daemon=True).start()
+
+    # ── UI construction ───────────────────────────────────────────────────
+
+    def _build_ui(self) -> None:
+        toolbar = Adw.ToolbarView()
+        header = Adw.HeaderBar()
+        header.set_show_end_title_buttons(False)
+
+        self._cancel_btn = Gtk.Button(label="Cancel")
+        self._cancel_btn.connect("clicked", self._on_cancel)
+        header.pack_start(self._cancel_btn)
+
+        self._upload_btn = Gtk.Button(label="Upload")
+        self._upload_btn.add_css_class("suggested-action")
+        self._upload_btn.set_sensitive(False)
+        self._upload_btn.set_visible(False)
+        self._upload_btn.connect("clicked", self._on_upload_clicked)
+        header.pack_end(self._upload_btn)
+
+        toolbar.add_top_bar(header)
+
+        self._stack = Gtk.Stack()
+        self._stack.add_named(self._build_scan_page(), "scan")
+        self._stack.add_named(self._build_form_page(), "form")
+        self._stack.add_named(self._build_progress_page(), "progress")
+        self._stack.set_visible_child_name("scan")
+
+        toolbar.set_content(self._stack)
+        self.set_child(toolbar)
+
+    def _build_scan_page(self) -> Gtk.Widget:
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        box.set_valign(Gtk.Align.CENTER)
+        box.set_margin_top(48)
+        box.set_margin_bottom(48)
+        box.set_margin_start(24)
+        box.set_margin_end(24)
+        box.append(Gtk.Label(label="Reading archive\u2026", css_classes=["dim-label"]))
+        self._scan_bar = Gtk.ProgressBar()
+        self._scan_bar.set_show_text(True)
+        box.append(self._scan_bar)
+        return box
+
+    def _build_form_page(self) -> Gtk.Widget:
+        scroll = Gtk.ScrolledWindow(
+            hscrollbar_policy=Gtk.PolicyType.NEVER,
+            vscrollbar_policy=Gtk.PolicyType.AUTOMATIC,
+        )
+        scroll.set_propagate_natural_height(True)
+        page = Adw.PreferencesPage()
+        scroll.set_child(page)
+
+        group = Adw.PreferencesGroup()
+        page.add(group)
+
+        self._win_ver_row = Adw.ActionRow(title="Windows version")
+        self._win_ver_row.set_subtitle("")
+        group.add(self._win_ver_row)
+
+        self._already_installed_row = Adw.ActionRow(
+            title="Replaces existing base",
+            subtitle="A base for this Windows version is already installed locally",
+        )
+        icon = Gtk.Image.new_from_icon_name("dialog-warning-symbolic")
+        icon.set_icon_size(Gtk.IconSize.NORMAL)
+        self._already_installed_row.add_prefix(icon)
+        self._already_installed_row.set_visible(False)
+        group.add(self._already_installed_row)
+
+        # Repository upload group — only shown when writable repos exist
+        if self._writable_repos:
+            repo_group = Adw.PreferencesGroup(title="Repository")
+            page.add(repo_group)
+
+            self._upload_repo_row = Adw.SwitchRow(
+                title="Upload archive to repository",
+                subtitle="Clients will download the base automatically when needed",
+                active=True,
+            )
+            self._upload_repo_row.connect("notify::active", self._on_upload_repo_toggled)
+            repo_group.add(self._upload_repo_row)
+
+            if len(self._writable_repos) > 1:
+                self._repo_row = Adw.ComboRow(title="Repository")
+                model = Gtk.StringList()
+                for r in self._writable_repos:
+                    model.append(r.name or r.uri)
+                self._repo_row.set_model(model)
+                repo_group.add(self._repo_row)
+            else:
+                self._repo_row = None
+                single_row = Adw.ActionRow(
+                    title=self._writable_repos[0].name or self._writable_repos[0].uri,
+                )
+                single_row.set_sensitive(False)
+                repo_group.add(single_row)
+        else:
+            self._upload_repo_row = None
+            self._repo_row = None
+
+        return scroll
+
+    def _build_progress_page(self) -> Gtk.Widget:
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.set_valign(Gtk.Align.CENTER)
+        box.set_margin_top(12)
+        box.set_margin_bottom(12)
+        box.set_margin_start(24)
+        box.set_margin_end(24)
+        self._progress_label = Gtk.Label(label="Installing\u2026", xalign=0,
+                                         css_classes=["dim-label"])
+        self._progress_bar = Gtk.ProgressBar()
+        self._progress_bar.set_show_text(True)
+        self._cancel_progress_btn = Gtk.Button(label="Cancel")
+        self._cancel_progress_btn.set_halign(Gtk.Align.CENTER)
+        self._cancel_progress_btn.set_margin_top(6)
+        self._cancel_progress_btn.connect("clicked", self._on_cancel_progress)
+        box.append(self._progress_label)
+        box.append(self._progress_bar)
+        box.append(self._cancel_progress_btn)
+        return box
+
+    # ── Scan phase ───────────────────────────────────────────────────────
+
+    def _scan(self) -> None:
+        from cellar.backend.packager import read_bottle_yml
+
+        def _prog(f: float) -> None:
+            GLib.idle_add(self._scan_bar.set_fraction, f)
+
+        yml = read_bottle_yml(self._archive_path, progress_cb=_prog)
+        win_ver = yml.get("Windows", "")
+
+        def _apply() -> None:
+            if not win_ver:
+                self._show_scan_error()
+                return
+            self._win_ver = win_ver
+            label = _WIN_VER_LABELS.get(win_ver, win_ver)
+            self._win_ver_row.set_subtitle(f"{label} ({win_ver})")
+
+            from cellar.backend.base_store import is_base_installed
+            self._already_installed_row.set_visible(is_base_installed(win_ver))
+
+            self._upload_btn.set_sensitive(True)
+            self._upload_btn.set_visible(True)
+            self._stack.set_visible_child_name("form")
+
+        GLib.idle_add(_apply)
+
+    def _show_scan_error(self) -> None:
+        """Replace content with an error status page when win_ver is undetectable."""
+        status = Adw.StatusPage(
+            title="Cannot Detect Windows Version",
+            description=(
+                "No Windows: field was found in bottle.yml. "
+                "Make sure this is a valid Bottles backup archive."
+            ),
+            icon_name="dialog-error-symbolic",
+        )
+        self._stack.add_named(status, "error")
+        self._stack.set_visible_child_name("error")
+
+    # ── Upload phase ─────────────────────────────────────────────────────
+
+    def _on_upload_repo_toggled(self, row, _param) -> None:
+        if self._repo_row:
+            self._repo_row.set_sensitive(row.get_active())
+
+    def _on_upload_clicked(self, _btn) -> None:
+        self.set_content_height(200)
+        self._cancel_btn.set_visible(False)
+        self._upload_btn.set_visible(False)
+        self._stack.set_visible_child_name("progress")
+        self._progress_bar.set_fraction(0.0)
+        self._cancel_event.clear()
+
+        do_repo_upload = bool(
+            self._upload_repo_row and self._upload_repo_row.get_active()
+        )
+        if do_repo_upload and self._repo_row:
+            repo = self._writable_repos[self._repo_row.get_selected()]
+        elif do_repo_upload and self._writable_repos:
+            repo = self._writable_repos[0]
+        else:
+            repo = None
+
+        win_ver = self._win_ver
+        archive_path = self._archive_path
+
+        def _run() -> None:
+            try:
+                self._do_upload(win_ver, archive_path, repo)
+                GLib.idle_add(self._on_upload_done)
+            except _Cancelled:
+                GLib.idle_add(self._on_upload_cancelled)
+            except Exception as exc:
+                GLib.idle_add(self._on_upload_error, str(exc))
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _do_upload(self, win_ver: str, archive_path: str, repo) -> None:
+        """Install locally, then optionally copy to repo. Runs on background thread."""
+        from cellar.backend import base_store
+
+        # Phase 1: install locally
+        phase_frac = 0.5 if repo else 1.0
+
+        def _local_prog(f: float) -> None:
+            if self._cancel_event.is_set():
+                raise _Cancelled
+            GLib.idle_add(self._progress_label.set_text, "Installing base image locally\u2026")
+            GLib.idle_add(self._progress_bar.set_fraction, f * phase_frac)
+
+        _local_prog(0.0)
+        try:
+            base_store.install_base(archive_path, win_ver, progress_cb=_local_prog)
+        except _Cancelled:
+            raise
+        except Exception as exc:
+            raise RuntimeError(f"Failed to install base locally: {exc}") from exc
+
+        if self._cancel_event.is_set():
+            raise _Cancelled
+
+        if not repo:
+            GLib.idle_add(self._progress_bar.set_fraction, 1.0)
+            return
+
+        # Phase 2: upload archive to repo
+        GLib.idle_add(self._progress_label.set_text, "Uploading to repository\u2026")
+        GLib.idle_add(self._progress_bar.set_text, "")
+
+        from cellar.backend.packager import upsert_base
+
+        repo_root = repo.writable_path()
+        bases_dir = repo_root / "bases"
+        bases_dir.mkdir(parents=True, exist_ok=True)
+        dest = bases_dir / f"{win_ver}-base.tar.gz"
+        archive_rel = f"bases/{win_ver}-base.tar.gz"
+
+        src_size = Path(archive_path).stat().st_size
+        chunk = 1 * 1024 * 1024
+        copied = 0
+        crc = 0
+        start = time.monotonic()
+
+        try:
+            with open(archive_path, "rb") as src_f, open(dest, "wb") as dst_f:
+                while True:
+                    if self._cancel_event.is_set():
+                        dst_f.close()
+                        dest.unlink(missing_ok=True)
+                        raise _Cancelled
+                    buf = src_f.read(chunk)
+                    if not buf:
+                        break
+                    dst_f.write(buf)
+                    crc = zlib.crc32(buf, crc)
+                    copied += len(buf)
+                    elapsed = time.monotonic() - start
+                    speed = copied / elapsed if elapsed > 0.1 else 0.0
+                    GLib.idle_add(
+                        self._progress_bar.set_text,
+                        _fmt_ul_stats(copied, src_size, speed),
+                    )
+                    GLib.idle_add(
+                        self._progress_bar.set_fraction,
+                        0.5 + min(copied / src_size * 0.5, 0.5),
+                    )
+        except _Cancelled:
+            raise
+        except OSError as exc:
+            dest.unlink(missing_ok=True)
+            raise RuntimeError(f"Failed to copy archive to repository: {exc}") from exc
+
+        crc32_hex = format(crc & 0xFFFFFFFF, "08x")
+        upsert_base(repo_root, win_ver, archive_rel, crc32_hex, src_size)
+        GLib.idle_add(self._progress_bar.set_fraction, 1.0)
+
+    # ── Result callbacks ─────────────────────────────────────────────────
+
+    def _on_upload_done(self) -> None:
+        self._on_done()
+        self.close()
+
+    def _on_upload_cancelled(self) -> None:
+        self.set_content_height(-1)
+        self._cancel_btn.set_visible(True)
+        self._upload_btn.set_visible(True)
+        self._cancel_progress_btn.set_sensitive(True)
+        self._stack.set_visible_child_name("form")
+
+    def _on_upload_error(self, message: str) -> None:
+        self.set_content_height(-1)
+        self._cancel_btn.set_visible(True)
+        self._upload_btn.set_visible(True)
+        self._cancel_progress_btn.set_sensitive(True)
+        self._stack.set_visible_child_name("form")
+        alert = Adw.AlertDialog(heading="Upload Failed", body=message)
+        alert.add_response("ok", "OK")
+        alert.present(self)
+
+    def _on_cancel(self, _btn) -> None:
+        self.close()
+
+    def _on_cancel_progress(self, _btn) -> None:
+        self._cancel_event.set()
+        self._progress_label.set_text("Cancelling\u2026")
+        self._cancel_progress_btn.set_sensitive(False)
+
+
+class _Cancelled(Exception):
+    """Internal signal used to abort the upload thread."""
 
 
 # ---------------------------------------------------------------------------

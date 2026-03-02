@@ -354,14 +354,17 @@ class CellarWindow(Adw.ApplicationWindow):
     def _on_preferences_activated(self, _action, _param) -> None:
         from cellar.views.settings import SettingsDialog
 
-        dialog = SettingsDialog(on_repos_changed=self._load_catalogue)
+        dialog = SettingsDialog(
+            on_repos_changed=self._load_catalogue,
+            writable_repos=self._writable_repos,
+        )
         dialog.present(self)
 
     def _on_about_activated(self, _action, _param) -> None:
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="application-x-executable",
-            version="0.20.0",
+            version="0.20.1",
             comments="A GNOME storefront for Bottles-managed Windows apps.",
             license_type=Gtk.License.GPL_3_0,
         )

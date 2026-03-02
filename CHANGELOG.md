@@ -2,6 +2,14 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.19.1] — 2026-03-02
+
+### Fixed
+- **Stay on detail page after editing** — saving changes in the Edit Catalogue
+  Entry dialog no longer pops back to the browse grid.  The detail view is
+  rebuilt in place with the updated `AppEntry` (hero, icon, name, etc. all
+  refresh immediately); the browse grids are reloaded in the background.
+
 ## [0.19.0] — 2026-03-02
 
 ### Added

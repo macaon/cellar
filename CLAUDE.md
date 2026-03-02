@@ -182,7 +182,8 @@ CREATE TABLE installed (
     installed_version TEXT,
     installed_at TIMESTAMP,
     last_updated TIMESTAMP,
-    repo_source TEXT              -- URL or path of the repo it came from
+    repo_source TEXT,             -- URL or path of the repo it came from
+    runner_override TEXT          -- optional runner name override
 );
 
 CREATE TABLE repos (
@@ -191,6 +192,12 @@ CREATE TABLE repos (
     uri TEXT NOT NULL,            -- smb://, nfs://, https://, or local path
     last_refreshed TIMESTAMP,
     enabled INTEGER DEFAULT 1
+);
+
+CREATE TABLE bases (
+    win_ver TEXT PRIMARY KEY,     -- e.g. "win10" — matches bottle.yml Windows field
+    installed_at TIMESTAMP,
+    repo_source TEXT
 );
 ```
 
@@ -294,8 +301,71 @@ cellar/
 6. ~~**Local DB** — track installed apps, wire up Install/Remove button state~~ ✅
 7. ~~**Update logic** — safe rsync overlay (no --delete; AppData/Documents excluded)~~ ✅
 8. ~~**HTTP(S) auth** — bearer token generation, per-request injection, image asset caching~~ ✅
-9. **Flatpak packaging**
-10. **KDE support** — GVFS fallback for SMB/NFS (`smbclient` or `gio mount` subprocess), KWallet credential storage, adaptive styling via `XDG_CURRENT_DESKTOP`
+9. **Delta packages** — base-image deduplication to shrink repo archives (branch: `feature/delta-packages`) — *in progress, see below*
+10. **Flatpak packaging**
+11. **KDE support** — GVFS fallback for SMB/NFS (`smbclient` or `gio mount` subprocess), KWallet credential storage, adaptive styling via `XDG_CURRENT_DESKTOP`
+
+---
+
+## Delta packages (phase 9) — design & status
+
+**Branch:** `feature/delta-packages`
+
+### Concept
+Each Bottles backup contains a ~700 MB `drive_c/windows/` tree that is identical across all bottles of the same Windows version. Delta packages store only the files that differ from a shared "base image" (clean bottle + allfonts, nothing else). The installer seeds a new bottle by hardlinking base files, then overlays the small delta archive on top. Same-filesystem hardlinks cost no extra disk space; if Wine writes to a base file the kernel breaks the hardlink automatically.
+
+### Catalogue format additions
+```json
+{
+  "bases": {
+    "win10": {
+      "archive": "bases/win10-base.tar.gz",
+      "archive_size": 712000000,
+      "archive_crc32": "aabbccdd"
+    }
+  },
+  "apps": [
+    { "id": "myapp", "base_win_ver": "win10", ... }
+  ]
+}
+```
+- `bases` — top-level dict keyed by Windows version string (matches `Windows:` field in `bottle.yml`)
+- `base_win_ver` on app entries — empty string means full archive (backwards compatible)
+- Base archives live at `repo/bases/` and are NOT shown in the browse grid
+
+### Local base store
+Extracted bases live at `~/.local/share/cellar/bases/<win_ver>/` — managed by Cellar, invisible to Bottles.
+`cellar/backend/base_store.py`: `is_base_installed()`, `install_base()`, `remove_base()`
+`database.py`: `bases` table tracks installed win versions + source repo
+
+### Install flow (delta path)
+1. Check `base_store.is_base_installed(win_ver)` — if not: download + verify + install base (auto, no user prompt)
+2. Download + verify delta archive (normal flow)
+3. Extract delta to temp
+4. `_seed_from_base()` — rsync `--link-dest` or Python `os.link` fallback populates bottle with hardlinks
+5. `_overlay_delta()` — rsync overlay or Python fallback writes delta files (unlinks hardlinks before write)
+6. Fix program paths as normal
+
+### Base creation (user workflow)
+1. Create a fresh bottle in Bottles (just set Windows version + install allfonts — no other dependencies)
+2. Make a backup in Bottles
+3. Upload the backup in Cellar → Preferences → **Delta Base Images**
+
+### Status
+| Task | Status |
+|---|---|
+| Catalogue format: `BaseEntry`, `bases` map, `base_win_ver` | ✅ done |
+| Local base store + DB `bases` table | ✅ done |
+| Installer delta path (`_seed_from_base`, `_overlay_delta`, `_ensure_base_installed`) | ✅ done |
+| Packager: `create_delta_archive()` + Add App dialog delta path | ⏳ next |
+| Settings: Delta Base Images preferences group (upload/remove bases) | ⏳ |
+| Install progress dialog: multi-phase labels for base download | ⏳ |
+| Updater: delta update path | ⏳ |
+
+### Key constraints
+- Hardlinks require same filesystem. If base (`~/.local/share/cellar/bases/`) and bottles data dir are on different filesystems, `_seed_from_base` falls back to file copies (correct but no disk savings — warn user).
+- Base version pinning: use versioned IDs (`win10-v2`) if base ever needs updating. Old apps keep their `base_win_ver` and continue to work.
+- `base_win_ver` absent → full-archive install path, unchanged behaviour.
 
 ---
 

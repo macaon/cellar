@@ -18,6 +18,10 @@ All notable changes to Cellar are documented here.
   multi-gigabyte files.  `archive_sha256` field renamed to `archive_crc32` in
   `catalogue.json` and `AppEntry`; old `archive_sha256` keys in existing
   catalogues are read transparently for backward compatibility.
+- **CRC32 computed on upload** — `import_to_repo` and `update_in_repo` now
+  compute CRC32 inline during the chunked archive copy and write it to
+  `catalogue.json`.  Previously the `archive_crc32` field was always empty
+  for newly added apps, silently skipping verification on install.
 
 ### Fixed
 - **urllib3 InsecureRequestWarning on startup** — suppressed the noisy

@@ -12,6 +12,8 @@ import json
 import re
 import shutil
 import tarfile
+import zlib
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
@@ -145,12 +147,13 @@ def import_to_repo(
     app_dir = repo_root / "apps" / entry.id
     app_dir.mkdir(parents=True, exist_ok=True)
 
-    # ── Archive copy (chunked for progress reporting) ─────────────────────
+    # ── Archive copy (chunked for progress reporting + CRC32) ──────────────
     archive_dest = repo_root / entry.archive
     archive_dest.parent.mkdir(parents=True, exist_ok=True)
     src_size = Path(archive_src).stat().st_size
     chunk = 1 * 1024 * 1024  # 1 MB
     copied = 0
+    crc = 0
     try:
         with open(archive_src, "rb") as src_f, open(archive_dest, "wb") as dst_f:
             while True:
@@ -162,6 +165,7 @@ def import_to_repo(
                 if not buf:
                     break
                 dst_f.write(buf)
+                crc = zlib.crc32(buf, crc)
                 copied += len(buf)
                 if progress_cb and src_size > 0:
                     progress_cb(min(copied / src_size * 0.9, 0.9))
@@ -170,6 +174,8 @@ def import_to_repo(
     except OSError as exc:
         archive_dest.unlink(missing_ok=True)
         raise RuntimeError(f"Failed to copy archive: {exc}") from exc
+
+    entry = replace(entry, archive_crc32=format(crc & 0xFFFFFFFF, "08x"))
 
     # ── Single images (icon, cover, hero) ─────────────────────────────────
     for key in ("icon", "cover", "hero"):
@@ -213,13 +219,14 @@ def update_in_repo(
     app_dir = repo_root / "apps" / new_entry.id
     app_dir.mkdir(parents=True, exist_ok=True)
 
-    # ── Archive (optional replacement) ────────────────────────────────────
+    # ── Archive (optional replacement + CRC32) ──────────────────────────────
     if new_archive_src:
         archive_dest = repo_root / new_entry.archive
         archive_dest.parent.mkdir(parents=True, exist_ok=True)
         src_size = Path(new_archive_src).stat().st_size
         chunk = 1 * 1024 * 1024
         copied = 0
+        crc = 0
         try:
             with open(new_archive_src, "rb") as src_f, open(archive_dest, "wb") as dst_f:
                 while True:
@@ -231,6 +238,7 @@ def update_in_repo(
                     if not buf:
                         break
                     dst_f.write(buf)
+                    crc = zlib.crc32(buf, crc)
                     copied += len(buf)
                     if progress_cb and src_size > 0:
                         progress_cb(min(copied / src_size * 0.9, 0.9))
@@ -239,6 +247,8 @@ def update_in_repo(
         except OSError as exc:
             archive_dest.unlink(missing_ok=True)
             raise RuntimeError(f"Failed to copy archive: {exc}") from exc
+
+        new_entry = replace(new_entry, archive_crc32=format(crc & 0xFFFFFFFF, "08x"))
 
         # Remove the old archive file if its path changed
         old_archive = repo_root / old_entry.archive

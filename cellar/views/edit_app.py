@@ -657,7 +657,7 @@ class EditAppDialog(Adw.Dialog):
             screenshots=screenshot_rels,
             archive=archive_rel,
             archive_size=e.archive_size,
-            archive_crc32=e.archive_crc32 if not self._new_archive_src else "",
+            archive_crc32="" if self._new_archive_src else e.archive_crc32,
             install_size_estimate=e.install_size_estimate,
             built_with=built_with,
             update_strategy=strategy,

@@ -351,18 +351,10 @@ class AddAppDialog(Adw.Dialog):
 
     def _prefill(self) -> None:
         """Read bottle.yml in a background thread, then reveal the form."""
-        import tarfile
         from cellar.backend.packager import read_bottle_yml
 
         yml = read_bottle_yml(self._archive_path)
         runner = yml.get("Runner", "")
-
-        # Sum uncompressed member sizes for the install size estimate.
-        try:
-            with tarfile.open(self._archive_path, "r:gz") as tf:
-                self._install_size = sum(m.size for m in tf.getmembers() if m.isfile())
-        except Exception:
-            self._install_size = 0
 
         def _apply() -> None:
             if self._pulse_id is not None:

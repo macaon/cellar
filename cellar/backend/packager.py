@@ -441,8 +441,10 @@ def create_delta_archive(
     for each file processed; *total* is 0 when the total count is not known in
     advance (extraction from a streaming gzip archive).
 
-    Returns the uncompressed size in bytes of the delta content (i.e. the disk
-    space the app's unique files will occupy, excluding hardlinked base files).
+    Returns the uncompressed size in bytes of the delta content (i.e. the
+    additional disk space the app's unique files will occupy beyond the
+    already-installed base image).  Suitable for ``install_size_estimate``
+    in the catalogue entry.
 
     Raises :exc:`RuntimeError` on failure.
     """
@@ -513,7 +515,9 @@ def create_delta_archive(
             progress_end=0.7,
         )
 
-        # Sum uncompressed sizes now — this is the unique on-disk footprint.
+        # Sum uncompressed sizes of the delta files only.  The base image is
+        # already present on the user's system, so only the delta represents
+        # new disk space required.
         delta_uncompressed_size = sum(
             f.stat().st_size for f in delta_bottle.rglob("*") if f.is_file()
         )

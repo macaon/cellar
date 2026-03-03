@@ -43,6 +43,9 @@ class CellarWindow(Adw.ApplicationWindow):
         # All writable repos from the last catalogue load — passed to AddAppDialog
         # so the user can choose which one to add a package to.
         self._writable_repos: list = []
+        # All repos (writable + read-only) — passed to SettingsDialog so it can
+        # list bases available in any repo, not just writable ones.
+        self._all_repos: list = []
         # Maps entry.id → list of Repo objects that carry the entry, for the
         # source selector shown in the detail view.
         self._entry_repos: dict = {}
@@ -148,6 +151,7 @@ class CellarWindow(Adw.ApplicationWindow):
                 log.warning("Configured repo %r invalid: %s", cfg["uri"], exc)
 
         self._writable_repos = [r for r in manager if r.is_writable]
+        self._all_repos = list(manager)
         self.add_button.set_visible(bool(self._writable_repos))
 
         if not list(manager):
@@ -357,6 +361,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = SettingsDialog(
             on_repos_changed=self._load_catalogue,
             writable_repos=self._writable_repos,
+            all_repos=self._all_repos,
         )
         dialog.present(self)
 

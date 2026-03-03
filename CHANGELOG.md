@@ -2,6 +2,19 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.25.0] — 2026-03-03
+
+### Changed
+- **Settings: Delta Base Images shows repo-available bases** — the preferences
+  group now lists bases present in any configured repo that are not yet
+  installed locally, each with a download button (`folder-download-symbolic`)
+  matching the style of the existing trash button for installed bases.  A
+  background thread fetches the base maps from all repos (using cached
+  catalogues where possible) and populates the list without blocking the UI.
+  Installed bases continue to show with the trash/remove button as before.
+- `window.py` now tracks `_all_repos` (all configured repos, not just writable
+  ones) and passes them to `SettingsDialog` as `all_repos`.
+
 ## [0.24.0] — 2026-03-03
 
 ### Changed

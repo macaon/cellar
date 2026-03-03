@@ -36,13 +36,16 @@ class SettingsDialog(Adw.PreferencesDialog):
         *,
         on_repos_changed: Callable[[], None] | None = None,
         writable_repos: list | None = None,
+        all_repos: list | None = None,
         **kwargs,
     ):
         super().__init__(title="Preferences", content_width=560, content_height=500, **kwargs)
         self._on_repos_changed = on_repos_changed
         self._writable_repos: list = writable_repos or []
+        self._all_repos: list = all_repos or []
         self._repo_rows: list[Adw.PreferencesRow] = []
         self._delta_rows: list[Adw.PreferencesRow] = []
+        self._delta_fetch_gen: int = 0
 
         # ── Page: General ─────────────────────────────────────────────────
         page = Adw.PreferencesPage(
@@ -164,28 +167,107 @@ class SettingsDialog(Adw.PreferencesDialog):
     # ------------------------------------------------------------------
 
     def _rebuild_delta_rows(self) -> None:
-        """Sync visible base-image rows with the local database.
+        """Sync visible base-image rows with the database and available repos.
 
-        Shows locally installed bases with a trash button for removal.
+        Installed bases appear immediately with a trash button.  A background
+        thread then fetches the base maps from all configured repos; bases
+        present in a repo but not yet installed locally get a download button.
         """
         for row in self._delta_rows:
             self._delta_group.remove(row)
         self._delta_rows.clear()
 
+        self._delta_fetch_gen += 1
+        gen = self._delta_fetch_gen
+
         from cellar.backend import database
 
         installed = database.get_all_installed_bases()
+        installed_runners: set[str] = {rec["runner"] for rec in installed}
 
         for rec in installed:
             row = self._make_base_row(rec)
             self._delta_rows.append(row)
             self._delta_group.add(row)
 
-        if not installed:
-            empty = Adw.ActionRow(title="No base images installed")
+        if not self._all_repos:
+            # No repos configured — just show installed (or an empty message).
+            if not installed:
+                empty = Adw.ActionRow(title="No base images available")
+                empty.set_sensitive(False)
+                self._delta_rows.append(empty)
+                self._delta_group.add(empty)
+            return
+
+        all_repos = list(self._all_repos)
+
+        def _fetch() -> None:
+            repo_bases: dict[str, tuple] = {}   # runner -> (BaseEntry, Repo)
+            for repo in all_repos:
+                try:
+                    for runner, entry in repo.fetch_bases().items():
+                        if runner not in repo_bases:
+                            repo_bases[runner] = (entry, repo)
+                except Exception:
+                    pass
+            GLib.idle_add(
+                self._on_repo_bases_fetched, repo_bases, installed_runners, gen
+            )
+
+        threading.Thread(target=_fetch, daemon=True).start()
+
+    def _on_repo_bases_fetched(
+        self,
+        repo_bases: dict,
+        installed_runners: set,
+        gen: int,
+    ) -> None:
+        """Called on the main thread once repo bases have been fetched."""
+        if gen != self._delta_fetch_gen:
+            return  # stale — a newer rebuild is already in flight
+
+        available = {
+            runner: data
+            for runner, data in sorted(repo_bases.items())
+            if runner not in installed_runners
+        }
+
+        for runner, (entry, repo) in available.items():
+            row = self._make_available_base_row(runner, entry, repo)
+            self._delta_rows.append(row)
+            self._delta_group.add(row)
+
+        if not self._delta_rows:
+            empty = Adw.ActionRow(title="No base images available")
             empty.set_sensitive(False)
             self._delta_rows.append(empty)
             self._delta_group.add(empty)
+
+    def _make_available_base_row(self, runner: str, entry, repo) -> Adw.ActionRow:
+        """Row for a base that exists in a repo but is not yet installed locally."""
+        repo_name = repo.name or repo.uri
+        row = Adw.ActionRow(title=runner, subtitle=f"Available in {repo_name}")
+
+        dl_btn = Gtk.Button(
+            icon_name="folder-download-symbolic",
+            valign=Gtk.Align.CENTER,
+            has_frame=False,
+            tooltip_text="Download and install",
+        )
+        dl_btn.connect("clicked", self._on_install_repo_base, runner, entry, repo)
+        row.add_suffix(dl_btn)
+        return row
+
+    def _on_install_repo_base(
+        self, _btn: Gtk.Button, runner: str, entry, repo
+    ) -> None:
+        dialog = InstallBaseFromRepoDialog(
+            runner=runner,
+            base_entry=entry,
+            repo=repo,
+            on_done=self._rebuild_delta_rows,
+        )
+        dialog.present(self)
 
     def _make_base_row(self, rec: dict) -> Adw.ActionRow:
         runner = rec["runner"]

@@ -353,11 +353,11 @@ def test_install_app_unsupported_scheme_raises(tmp_path):
 
 
 def test_install_app_partial_copy_cleaned_up_on_error(tmp_path):
-    """If copytree fails mid-way, the partial destination is removed."""
+    """If the file copy loop fails mid-way, the partial destination is removed."""
     archive = _make_archive(tmp_path)
     bottles = _bottles(tmp_path)
     entry = _entry()
-    with patch("cellar.backend.installer.shutil.copytree",
+    with patch("cellar.backend.installer.shutil.copy2",
                side_effect=OSError("disk full")):
         with pytest.raises(OSError, match="disk full"):
             ins.install_app(entry, str(archive), bottles)

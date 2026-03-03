@@ -263,7 +263,10 @@ def update_app_safe(
         if entry.archive_crc32:
             _report(progress_cb, "Verifying…", ver_lo)
             try:
-                _verify_crc32(archive_path, entry.archive_crc32)
+                _verify_crc32(archive_path, entry.archive_crc32,
+                              cancel_event=cancel_event)
+            except InstallCancelled:
+                raise UpdateCancelled
             except InstallError as exc:
                 raise UpdateError(str(exc)) from exc
 

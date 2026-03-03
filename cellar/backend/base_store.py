@@ -49,6 +49,7 @@ def install_base(
     *,
     progress_cb: Callable[[float], None] | None = None,
     repo_source: str = "",
+    cancel_event=None,  # threading.Event | None
 ) -> None:
     """Extract *archive_path* and store it as the base for *runner*.
 
@@ -61,9 +62,13 @@ def install_base(
     stored in the database for informational purposes.
 
     Raises :exc:`BaseStoreError` on failure.
+    Raises :exc:`~cellar.backend.installer.InstallCancelled` if *cancel_event*
+    is set during extraction or the file-copy phase.
     """
     # Import lazily to avoid circular-import issues with installer.py.
-    from cellar.backend.installer import InstallError, _extract_archive, _find_bottle_dir  # noqa: PLC0415
+    from cellar.backend.installer import (  # noqa: PLC0415
+        InstallCancelled, InstallError, _extract_archive, _find_bottle_dir,
+    )
 
     archive_path = Path(archive_path)
     dest = base_path(runner)
@@ -74,7 +79,10 @@ def install_base(
         extract_dir.mkdir()
 
         try:
-            _extract_archive(archive_path, extract_dir, None, progress_cb=progress_cb)
+            _extract_archive(archive_path, extract_dir, cancel_event,
+                             progress_cb=progress_cb)
+        except InstallCancelled:
+            raise
         except InstallError as exc:
             raise BaseStoreError(f"Failed to extract base archive: {exc}") from exc
 
@@ -88,7 +96,19 @@ def install_base(
             shutil.rmtree(dest)
         dest.parent.mkdir(parents=True, exist_ok=True)
         try:
-            shutil.copytree(bottle_src, dest)
+            for src in bottle_src.rglob("*"):
+                if cancel_event and cancel_event.is_set():
+                    shutil.rmtree(dest, ignore_errors=True)
+                    raise InstallCancelled("Base installation cancelled")
+                rel = src.relative_to(bottle_src)
+                dst = dest / rel
+                if src.is_dir():
+                    dst.mkdir(parents=True, exist_ok=True)
+                elif src.is_file():
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(src, dst)
+        except InstallCancelled:
+            raise
         except Exception as exc:
             shutil.rmtree(dest, ignore_errors=True)
             raise BaseStoreError(f"Failed to store base: {exc}") from exc

@@ -163,7 +163,8 @@ def install_app(
             _check_cancel(cancel_event)
             if phase_cb:
                 phase_cb("Verifying download\u2026")
-            _verify_crc32(archive_path, entry.archive_crc32, progress_cb=verify_cb)
+            _verify_crc32(archive_path, entry.archive_crc32,
+                          progress_cb=verify_cb, cancel_event=cancel_event)
 
         # ── Step 3: Extract ────────────────────────────────────────────
         _check_cancel(cancel_event)
@@ -198,17 +199,27 @@ def install_app(
                 phase_cb("Applying delta\u2026")
             try:
                 bottle_dest.mkdir(parents=True, exist_ok=True)
-                _seed_from_base(base_path(entry.base_runner), bottle_dest)
-                _overlay_delta(bottle_src, bottle_dest)
+                _seed_from_base(base_path(entry.base_runner), bottle_dest,
+                                cancel_event=cancel_event)
+                _overlay_delta(bottle_src, bottle_dest,
+                               cancel_event=cancel_event)
             except Exception:
                 shutil.rmtree(bottle_dest, ignore_errors=True)
                 raise
         else:
-            # Full archive path: plain directory copy.
+            # Full archive path: cancellable file-by-file copy.
             if phase_cb:
                 phase_cb("Copying to Bottles\u2026")
             try:
-                shutil.copytree(bottle_src, bottle_dest)
+                for src in bottle_src.rglob("*"):
+                    _check_cancel(cancel_event)
+                    rel = src.relative_to(bottle_src)
+                    dst = bottle_dest / rel
+                    if src.is_dir():
+                        dst.mkdir(parents=True, exist_ok=True)
+                    elif src.is_file():
+                        dst.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(src, dst)
             except Exception:
                 shutil.rmtree(bottle_dest, ignore_errors=True)
                 raise
@@ -491,6 +502,7 @@ def _verify_crc32(
     path: Path,
     expected: str,
     progress_cb: Callable[[float], None] | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> None:
     """Raise ``InstallError`` if *path* does not match *expected* CRC32 hex."""
     crc = 0
@@ -498,6 +510,7 @@ def _verify_crc32(
     read = 0
     with open(path, "rb") as fh:
         for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            _check_cancel(cancel_event)
             crc = zlib.crc32(chunk, crc)
             read += len(chunk)
             if progress_cb:
@@ -762,7 +775,8 @@ def _ensure_base_installed(
         _check_cancel(cancel_event)
         if phase_cb:
             phase_cb(f"Verifying base image\u2026")
-        _verify_crc32(base_archive_path, base_entry.archive_crc32, progress_cb=verify_cb)
+        _verify_crc32(base_archive_path, base_entry.archive_crc32,
+                      progress_cb=verify_cb, cancel_event=cancel_event)
 
     _check_cancel(cancel_event)
     if phase_cb:
@@ -775,6 +789,7 @@ def _ensure_base_installed(
             base_archive_path, runner,
             progress_cb=install_cb,
             repo_source=base_archive_uri,
+            cancel_event=cancel_event,
         )
     except BaseStoreError as exc:
         raise InstallError(str(exc)) from exc
@@ -783,7 +798,11 @@ def _ensure_base_installed(
         install_cb(1.0)
 
 
-def _seed_from_base(base_dir: Path, bottle_dest: Path) -> None:
+def _seed_from_base(
+    base_dir: Path,
+    bottle_dest: Path,
+    cancel_event: threading.Event | None = None,
+) -> None:
     """Populate *bottle_dest* with hardlinks to every file in *base_dir*.
 
     Tries ``rsync --link-dest`` first (fastest, handles edge cases well).
@@ -792,21 +811,29 @@ def _seed_from_base(base_dir: Path, bottle_dest: Path) -> None:
     (in which case ``os.link`` falls back to ``shutil.copy2`` per-file).
     """
     if shutil.which("rsync"):
-        result = subprocess.run(
+        proc = subprocess.Popen(
             [
                 "rsync", "-a",
                 f"--link-dest={base_dir}/",
                 f"{base_dir}/",
                 f"{bottle_dest}/",
             ],
-            capture_output=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
         )
-        if result.returncode == 0:
+        while proc.poll() is None:
+            if cancel_event and cancel_event.is_set():
+                proc.kill()
+                proc.wait()
+                raise InstallCancelled("Cancelled during base seeding")
+            time.sleep(0.05)
+        if proc.returncode == 0:
             return
         # rsync failed — fall through to the Python path.
 
     # Python fallback: hardlink file-by-file; copy on cross-device error.
     for src in base_dir.rglob("*"):
+        _check_cancel(cancel_event)
         rel = src.relative_to(base_dir)
         dst = bottle_dest / rel
         if src.is_dir():
@@ -819,7 +846,11 @@ def _seed_from_base(base_dir: Path, bottle_dest: Path) -> None:
                 shutil.copy2(src, dst)
 
 
-def _overlay_delta(delta_src: Path, bottle_dest: Path) -> None:
+def _overlay_delta(
+    delta_src: Path,
+    bottle_dest: Path,
+    cancel_event: threading.Event | None = None,
+) -> None:
     """Overlay delta files onto *bottle_dest*, breaking hardlinks as needed.
 
     For each file in *delta_src*, the corresponding hardlinked file in
@@ -830,16 +861,25 @@ def _overlay_delta(delta_src: Path, bottle_dest: Path) -> None:
     remove any base files that were absent from the original app backup.
     """
     if shutil.which("rsync"):
-        result = subprocess.run(
-            ["rsync", "-a", "--exclude=.cellar_delete", f"{delta_src}/", f"{bottle_dest}/"],
-            capture_output=True,
+        proc = subprocess.Popen(
+            ["rsync", "-a", "--exclude=.cellar_delete",
+             f"{delta_src}/", f"{bottle_dest}/"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
         )
-        if result.returncode != 0:
-            _overlay_delta_python(delta_src, bottle_dest)
+        while proc.poll() is None:
+            if cancel_event and cancel_event.is_set():
+                proc.kill()
+                proc.wait()
+                raise InstallCancelled("Cancelled during delta overlay")
+            time.sleep(0.05)
+        if proc.returncode != 0:
+            _overlay_delta_python(delta_src, bottle_dest, cancel_event)
     else:
-        _overlay_delta_python(delta_src, bottle_dest)
+        _overlay_delta_python(delta_src, bottle_dest, cancel_event)
 
     # Apply delete manifest: remove base files absent from the original backup.
+    _check_cancel(cancel_event)
     delete_manifest = delta_src / ".cellar_delete"
     if delete_manifest.exists():
         for line in delete_manifest.read_text().splitlines():
@@ -848,9 +888,14 @@ def _overlay_delta(delta_src: Path, bottle_dest: Path) -> None:
                 (bottle_dest / rel).unlink(missing_ok=True)
 
 
-def _overlay_delta_python(delta_src: Path, bottle_dest: Path) -> None:
+def _overlay_delta_python(
+    delta_src: Path,
+    bottle_dest: Path,
+    cancel_event: threading.Event | None = None,
+) -> None:
     """Python fallback for delta overlay."""
     for src in delta_src.rglob("*"):
+        _check_cancel(cancel_event)
         if src.name == ".cellar_delete":
             continue
         rel = src.relative_to(delta_src)

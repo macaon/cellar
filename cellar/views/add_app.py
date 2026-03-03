@@ -718,7 +718,12 @@ class AddAppDialog(Adw.Dialog):
                         progress_cb=lambda f: GLib.idle_add(
                             self._progress_bar.set_fraction, f
                         ),
+                        cancel_event=self._cancel_event,
                     )
+                except CancelledError:
+                    _shutil.rmtree(tmp_delta, ignore_errors=True)
+                    GLib.idle_add(self._on_import_cancelled)
+                    return
                 except Exception as exc:
                     _shutil.rmtree(tmp_delta, ignore_errors=True)
                     GLib.idle_add(

@@ -2,6 +2,38 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.24.0] — 2026-03-03
+
+### Changed
+- **Comprehensive cancellation support** — pressing Cancel now aborts immediately
+  at every stage across all long-running operations and cleans up partial work:
+  - `_verify_crc32` checks cancel between every 1 MB chunk.
+  - `install_app` full-archive copy loop checks cancel per file (replaces the
+    uninterruptible `shutil.copytree`).
+  - `_seed_from_base` and `_overlay_delta`: rsync is now launched via `Popen`
+    with a 50 ms poll loop so the process is killed instantly on cancel;
+    the Python fallbacks check cancel per file.
+  - `create_delta_archive` / `_compute_delta` / `_compute_delta_python`:
+    cancel checked during per-member extraction, hash computation, and
+    per-item packing.
+  - `base_store.install_base`: extraction and file-copy loop are both
+    cancellable; raises `InstallCancelled` (not `BaseStoreError`) on cancel
+    so callers can distinguish cancellation from failure.
+  - `updater.update_app_safe` passes `cancel_event` to `_verify_crc32` and
+    translates `InstallCancelled` → `UpdateCancelled`.
+  - `UploadBaseDialog` and `InstallBaseFromRepoDialog` in Settings propagate
+    `cancel_event` to `install_base` and handle `InstallCancelled` correctly.
+  - `AddAppDialog._run` passes `cancel_event` to `create_delta_archive` and
+    handles `CancelledError` by returning to the form rather than showing an
+    error.
+
+### Fixed
+- `_seed_from_base` / `_overlay_delta`: `subprocess.Popen` was incorrectly
+  passed `capture_output=True` (a `subprocess.run`-only shorthand); corrected
+  to `stdout=subprocess.DEVNULL, stderr=subprocess.PIPE`.
+- Test `test_install_app_partial_copy_cleaned_up_on_error` updated to patch
+  `shutil.copy2` instead of the removed `shutil.copytree` call.
+
 ## [0.23.0] — 2026-03-03
 
 ### Added

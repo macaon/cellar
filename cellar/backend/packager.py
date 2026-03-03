@@ -12,12 +12,14 @@ import json
 import re
 import shutil
 import subprocess
+import sys
 import tarfile
 import time
 import zlib
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
+from threading import Event
 from typing import Callable
 
 from cellar.utils.images import optimize_image as _optimize_image
@@ -420,6 +422,7 @@ def create_delta_archive(
     dest: Path,
     *,
     progress_cb: Callable[[float], None] | None = None,
+    cancel_event: Event | None = None,
 ) -> int:
     """Create a delta ``.tar.zst`` from a full Bottles backup, relative to *base_dir*.
 
@@ -448,12 +451,24 @@ def create_delta_archive(
         delta_dir = tmp / "delta"
         delta_dir.mkdir()
 
-        # 1. Extract full archive
+        def _chk() -> None:
+            if cancel_event and cancel_event.is_set():
+                raise CancelledError("Delta archive creation cancelled")
+
+        # 1. Extract full archive (member-by-member for cancellability)
         if progress_cb:
             progress_cb(0.0)
         try:
+            use_filter = sys.version_info >= (3, 12)
             with tarfile.open(full_archive_path, "r:gz") as tf:
-                tf.extractall(extract_dir)
+                for member in tf:
+                    _chk()
+                    if use_filter:
+                        tf.extract(member, extract_dir, filter="data")
+                    else:
+                        tf.extract(member, extract_dir)  # noqa: S202
+        except CancelledError:
+            raise
         except tarfile.TarError as exc:
             raise RuntimeError(f"Failed to extract full archive: {exc}") from exc
 
@@ -475,7 +490,7 @@ def create_delta_archive(
         delta_bottle.mkdir()
 
         # 3. Compute the delta (files that differ from base_dir)
-        _compute_delta(bottle_dir, base_dir, delta_bottle)
+        _compute_delta(bottle_dir, base_dir, delta_bottle, cancel_event=cancel_event)
 
         # Sum uncompressed sizes now — this is the unique on-disk footprint.
         delta_uncompressed_size = sum(
@@ -494,7 +509,17 @@ def create_delta_archive(
             with open(dest, "wb") as fh:
                 with cctx.stream_writer(fh, closefd=False) as compressor:
                     with tarfile.open(fileobj=compressor, mode="w|") as tf:
-                        tf.add(delta_bottle, arcname=bottle_name)
+                        # Add root dir, then all contents one item at a time
+                        # so cancel_event is checked between each entry.
+                        tf.add(delta_bottle, arcname=bottle_name, recursive=False)
+                        for item in sorted(delta_bottle.rglob("*")):
+                            _chk()
+                            rel = item.relative_to(delta_bottle)
+                            tf.add(item, arcname=f"{bottle_name}/{rel}",
+                                   recursive=False)
+        except CancelledError:
+            dest.unlink(missing_ok=True)
+            raise
         except (tarfile.TarError, OSError) as exc:
             dest.unlink(missing_ok=True)
             raise RuntimeError(f"Failed to create delta archive: {exc}") from exc
@@ -505,7 +530,12 @@ def create_delta_archive(
         return delta_uncompressed_size
 
 
-def _compute_delta(full_dir: Path, base_dir: Path, delta_out: Path) -> None:
+def _compute_delta(
+    full_dir: Path,
+    base_dir: Path,
+    delta_out: Path,
+    cancel_event: Event | None = None,
+) -> None:
     """Copy files from *full_dir* to *delta_out* that differ from *base_dir*.
 
     Uses content hashing (BLAKE2b-128) so that files with identical bytes are
@@ -522,9 +552,11 @@ def _compute_delta(full_dir: Path, base_dir: Path, delta_out: Path) -> None:
     bottle matches the original backup exactly.
     """
     # ── Step 1: copy changed / new files ──────────────────────────────────
-    _compute_delta_python(full_dir, base_dir, delta_out)
+    _compute_delta_python(full_dir, base_dir, delta_out, cancel_event=cancel_event)
 
     # ── Step 2: write delete manifest (base files absent from full backup) ─
+    if cancel_event and cancel_event.is_set():
+        raise CancelledError("Delta archive creation cancelled")
     delete_paths = sorted(
         str(p.relative_to(base_dir))
         for p in base_dir.rglob("*")
@@ -534,7 +566,12 @@ def _compute_delta(full_dir: Path, base_dir: Path, delta_out: Path) -> None:
         (delta_out / ".cellar_delete").write_text("\n".join(delete_paths))
 
 
-def _compute_delta_python(full_dir: Path, base_dir: Path, delta_out: Path) -> None:
+def _compute_delta_python(
+    full_dir: Path,
+    base_dir: Path,
+    delta_out: Path,
+    cancel_event: Event | None = None,
+) -> None:
     """Compute delta via BLAKE2b-128 content hashing.
 
     A file is excluded from the delta only when a file at the same relative
@@ -547,10 +584,14 @@ def _compute_delta_python(full_dir: Path, base_dir: Path, delta_out: Path) -> No
         h = hashlib.blake2b(digest_size=16)
         with open(path, "rb") as f:
             while chunk := f.read(1 * 1024 * 1024):
+                if cancel_event and cancel_event.is_set():
+                    raise CancelledError("Delta archive creation cancelled")
                 h.update(chunk)
         return h.hexdigest()
 
     for src in full_dir.rglob("*"):
+        if cancel_event and cancel_event.is_set():
+            raise CancelledError("Delta archive creation cancelled")
         if not src.is_file():
             continue
         rel = src.relative_to(full_dir)
@@ -559,6 +600,8 @@ def _compute_delta_python(full_dir: Path, base_dir: Path, delta_out: Path) -> No
             try:
                 if _hash_file(src) == _hash_file(base_file):
                     continue  # identical content → exclude from delta
+            except CancelledError:
+                raise
             except OSError:
                 pass  # unreadable → include defensively
         out = delta_out / rel

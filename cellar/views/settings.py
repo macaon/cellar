@@ -597,6 +597,7 @@ class UploadBaseDialog(Adw.Dialog):
     def _do_upload(self, runner: str, archive_path: str, repo) -> None:
         """Install locally, then optionally copy to repo. Runs on background thread."""
         from cellar.backend import base_store
+        from cellar.backend.installer import InstallCancelled
 
         # Phase 1: install locally
         phase_frac = 0.5 if repo else 1.0
@@ -609,9 +610,16 @@ class UploadBaseDialog(Adw.Dialog):
 
         _local_prog(0.0)
         try:
-            base_store.install_base(archive_path, runner, progress_cb=_local_prog)
+            base_store.install_base(
+                archive_path,
+                runner,
+                progress_cb=_local_prog,
+                cancel_event=self._cancel_event,
+            )
         except _Cancelled:
             raise
+        except InstallCancelled:
+            raise _Cancelled
         except Exception as exc:
             raise RuntimeError(f"Failed to install base locally: {exc}") from exc
 
@@ -790,13 +798,14 @@ class InstallBaseFromRepoDialog(Adw.Dialog):
 
     def _run(self) -> None:
         import tempfile
+        from cellar.backend.installer import InstallCancelled
 
         try:
             with tempfile.TemporaryDirectory(prefix="cellar-base-dl-") as tmp_str:
                 tmp = Path(tmp_str)
                 self._do_download_and_install(tmp)
             GLib.idle_add(self._on_success)
-        except _Cancelled:
+        except (_Cancelled, InstallCancelled):
             GLib.idle_add(self.close)
         except Exception as exc:
             GLib.idle_add(self._on_error, str(exc))
@@ -865,6 +874,7 @@ class InstallBaseFromRepoDialog(Adw.Dialog):
             self._runner,
             progress_cb=_install_progress,
             repo_source=self._repo.uri,
+            cancel_event=self._cancel_event,
         )
         GLib.idle_add(self._bar.set_fraction, 1.0)
 

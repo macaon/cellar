@@ -42,19 +42,25 @@ BASE_CATEGORIES: list[str] = ["Games", "Productivity", "Graphics", "Utility"]
 def read_bottle_yml(archive_path: str) -> dict:
     """Extract and parse ``bottle.yml`` from a Bottles ``.tar.gz`` backup.
 
-    Tries the system ``tar`` binary first (C-speed gzip; stops as soon as
-    ``bottle.yml`` is found).  Falls back to Python ``tarfile`` when ``tar``
-    is not available (e.g. inside a restricted Flatpak sandbox).
+    Tries the system ``tar`` binary first with ``--occurrence=1`` so it stops
+    reading immediately after extracting the first match.  Without that flag
+    tar scans the entire archive for further matches, which blocks
+    ``subprocess.run`` for 20+ seconds on a 2 GB archive.  Falls back to
+    Python ``tarfile`` when ``tar`` is not available (e.g. inside a
+    restricted Flatpak sandbox).
 
     Returns an empty dict if the file is not found or cannot be parsed.
     """
     import yaml
 
-    # Fast path: system tar stops reading as soon as the member is found.
+    # Fast path: system tar with --occurrence=1 stops after the first match.
+    # Without --occurrence, tar reads the entire archive looking for further
+    # matches even after printing the file — subprocess.run blocks until exit.
     if shutil.which("tar"):
         try:
             result = subprocess.run(
-                ["tar", "-xOf", str(archive_path), "--wildcards", "*/bottle.yml"],
+                ["tar", "-xOf", str(archive_path),
+                 "--wildcards", "--occurrence=1", "*/bottle.yml"],
                 capture_output=True,
                 timeout=120,
             )

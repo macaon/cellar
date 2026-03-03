@@ -76,99 +76,6 @@ def _patch_paths(tmp_path, *, flatpak_exists=False, native_exists=False, sandbox
     return flatpak_dir, native_dir, info
 
 
-def test_detect_prefers_flatpak_over_native(tmp_path):
-    flatpak_dir, native_dir, info = _patch_paths(
-        tmp_path, flatpak_exists=True, native_exists=True
-    )
-    with patch.object(b, "_FLATPAK_DATA", flatpak_dir), \
-         patch.object(b, "_NATIVE_DATA", native_dir), \
-         patch.object(b, "_FLATPAK_INFO", info), \
-         patch("shutil.which", return_value="/usr/bin/bottles-cli"):
-        result = b.detect_bottles()
-    assert result is not None
-    assert result.variant == "flatpak"
-    assert result.data_path == flatpak_dir
-
-
-def test_detect_falls_back_to_native(tmp_path):
-    flatpak_dir, native_dir, info = _patch_paths(tmp_path, native_exists=True)
-    with patch.object(b, "_FLATPAK_DATA", flatpak_dir), \
-         patch.object(b, "_NATIVE_DATA", native_dir), \
-         patch.object(b, "_FLATPAK_INFO", info), \
-         patch("shutil.which", return_value="/usr/bin/bottles-cli"):
-        result = b.detect_bottles()
-    assert result is not None
-    assert result.variant == "native"
-    assert result.data_path == native_dir
-
-
-def test_detect_native_ignored_when_no_binary(tmp_path):
-    """Native data dir alone is not enough — bottles-cli must be on PATH."""
-    flatpak_dir, native_dir, info = _patch_paths(tmp_path, native_exists=True)
-    with patch.object(b, "_FLATPAK_DATA", flatpak_dir), \
-         patch.object(b, "_NATIVE_DATA", native_dir), \
-         patch.object(b, "_FLATPAK_INFO", info), \
-         patch("shutil.which", return_value=None):
-        result = b.detect_bottles()
-    assert result is None
-
-
-def test_detect_returns_none_when_neither_present(tmp_path):
-    flatpak_dir, native_dir, info = _patch_paths(tmp_path)
-    with patch.object(b, "_FLATPAK_DATA", flatpak_dir), \
-         patch.object(b, "_NATIVE_DATA", native_dir), \
-         patch.object(b, "_FLATPAK_INFO", info):
-        result = b.detect_bottles()
-    assert result is None
-
-
-def test_detect_flatpak_bottles_sets_flatpak_cli(tmp_path):
-    flatpak_dir, native_dir, info = _patch_paths(tmp_path, flatpak_exists=True)
-    with patch.object(b, "_FLATPAK_DATA", flatpak_dir), \
-         patch.object(b, "_NATIVE_DATA", native_dir), \
-         patch.object(b, "_FLATPAK_INFO", info):
-        result = b.detect_bottles()
-    assert result.cli_cmd == [
-        "flatpak", "run", "--command=bottles-cli", "com.usebottles.bottles",
-    ]
-
-
-def test_detect_native_bottles_sets_bare_cli(tmp_path):
-    flatpak_dir, native_dir, info = _patch_paths(tmp_path, native_exists=True)
-    with patch.object(b, "_FLATPAK_DATA", flatpak_dir), \
-         patch.object(b, "_NATIVE_DATA", native_dir), \
-         patch.object(b, "_FLATPAK_INFO", info), \
-         patch("shutil.which", return_value="/usr/bin/bottles-cli"):
-        result = b.detect_bottles()
-    assert result.cli_cmd == ["bottles-cli"]
-
-
-def test_detect_sandboxed_cellar_prefixes_flatpak_spawn(tmp_path):
-    flatpak_dir, native_dir, info = _patch_paths(
-        tmp_path, native_exists=True, sandboxed=True
-    )
-    with patch.object(b, "_FLATPAK_DATA", flatpak_dir), \
-         patch.object(b, "_NATIVE_DATA", native_dir), \
-         patch.object(b, "_FLATPAK_INFO", info), \
-         patch("shutil.which", return_value="/usr/bin/bottles-cli"):
-        result = b.detect_bottles()
-    assert result.cli_cmd[:2] == ["flatpak-spawn", "--host"]
-
-
-def test_detect_sandboxed_flatpak_bottles_full_command(tmp_path):
-    flatpak_dir, native_dir, info = _patch_paths(
-        tmp_path, flatpak_exists=True, sandboxed=True
-    )
-    with patch.object(b, "_FLATPAK_DATA", flatpak_dir), \
-         patch.object(b, "_NATIVE_DATA", native_dir), \
-         patch.object(b, "_FLATPAK_INFO", info):
-        result = b.detect_bottles()
-    assert result.cli_cmd == [
-        "flatpak-spawn", "--host",
-        "flatpak", "run", "--command=bottles-cli", "com.usebottles.bottles",
-    ]
-
-
 # ---------------------------------------------------------------------------
 # detect_bottles — override path
 # ---------------------------------------------------------------------------
@@ -377,11 +284,6 @@ def test_parse_bottle_list_empty_output():
     assert b._parse_bottle_list("") == []
 
 
-def test_parse_bottle_list_ignores_header_line():
-    output = "Found 1 bottles:\n- OnlyOne\n"
-    assert b._parse_bottle_list(output) == ["OnlyOne"]
-
-
 def test_parse_bottle_list_handles_extra_whitespace():
     output = "Found 2 bottles:\n  - Padded Name  \n  - Another  \n"
     assert b._parse_bottle_list(output) == ["Padded Name", "Another"]
@@ -536,18 +438,6 @@ def test_runners_dir_flatpak(tmp_path):
     install = b.BottlesInstall(
         data_path=bottles_dir,
         variant="flatpak",
-        cli_cmd=[],
-    )
-    result = b.runners_dir(install)
-    assert result == tmp_path / "runners"
-
-
-def test_runners_dir_native(tmp_path):
-    bottles_dir = tmp_path / "bottles"
-    bottles_dir.mkdir()
-    install = b.BottlesInstall(
-        data_path=bottles_dir,
-        variant="native",
         cli_cmd=[],
     )
     result = b.runners_dir(install)

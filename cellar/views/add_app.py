@@ -702,9 +702,24 @@ class AddAppDialog(Adw.Dialog):
                 from cellar.backend.packager import create_delta_archive
                 from cellar.backend.base_store import base_path as _base_path
 
-                GLib.idle_add(self._progress_label.set_text, "Creating delta archive\u2026")
                 GLib.idle_add(self._progress_bar.set_fraction, 0.0)
                 GLib.idle_add(self._progress_bar.set_text, "")
+
+                def _delta_phase(label: str) -> None:
+                    GLib.idle_add(self._progress_label.set_text, label)
+                    GLib.idle_add(self._progress_bar.set_text, "")
+
+                def _delta_file(current: int, total: int) -> None:
+                    if total > 0:
+                        GLib.idle_add(
+                            self._progress_bar.set_text,
+                            f"File {current} / {total}",
+                        )
+                    else:
+                        GLib.idle_add(
+                            self._progress_bar.set_text,
+                            f"File {current}",
+                        )
 
                 tmp_delta = tempfile.mkdtemp(prefix="cellar-delta-upload-")
                 # Delta archives are recompressed as .tar.zst (zstd level 3).
@@ -724,6 +739,8 @@ class AddAppDialog(Adw.Dialog):
                         progress_cb=lambda f: GLib.idle_add(
                             self._progress_bar.set_fraction, f
                         ),
+                        phase_cb=_delta_phase,
+                        file_cb=_delta_file,
                         cancel_event=self._cancel_event,
                     )
                 except CancelledError:

@@ -422,6 +422,8 @@ def create_delta_archive(
     dest: Path,
     *,
     progress_cb: Callable[[float], None] | None = None,
+    phase_cb: Callable[[str], None] | None = None,
+    file_cb: Callable[[int, int], None] | None = None,
     cancel_event: Event | None = None,
 ) -> int:
     """Create a delta ``.tar.zst`` from a full Bottles backup, relative to *base_dir*.
@@ -433,7 +435,11 @@ def create_delta_archive(
     The result has the same top-level bottle directory name as the original and
     is suitable for :func:`~cellar.backend.installer._overlay_delta` at install
     time.  *progress_cb* is called at 0.0 (start), 0.3 (extracted), 0.7
-    (diffed), and 1.0 (done).
+    (diffed), and 1.0 (done).  *phase_cb* is called with a human-readable
+    step label at each major phase ("Extracting archive…", "Scanning files…",
+    "Compressing delta…").  *file_cb* is called as ``file_cb(current, total)``
+    for each file processed; *total* is 0 when the total count is not known in
+    advance (extraction from a streaming gzip archive).
 
     Returns the uncompressed size in bytes of the delta content (i.e. the disk
     space the app's unique files will occupy, excluding hardlinked base files).
@@ -456,10 +462,13 @@ def create_delta_archive(
                 raise CancelledError("Delta archive creation cancelled")
 
         # 1. Extract full archive (member-by-member for cancellability)
+        if phase_cb:
+            phase_cb("Extracting archive\u2026")
         if progress_cb:
             progress_cb(0.0)
         try:
             use_filter = sys.version_info >= (3, 12)
+            extracted = 0
             with tarfile.open(full_archive_path, "r:gz") as tf:
                 for member in tf:
                     _chk()
@@ -467,11 +476,16 @@ def create_delta_archive(
                         tf.extract(member, extract_dir, filter="data")
                     else:
                         tf.extract(member, extract_dir)  # noqa: S202
+                    extracted += 1
+                    if file_cb:
+                        file_cb(extracted, 0)
         except CancelledError:
             raise
         except tarfile.TarError as exc:
             raise RuntimeError(f"Failed to extract full archive: {exc}") from exc
 
+        if phase_cb:
+            phase_cb("Scanning files\u2026")
         if progress_cb:
             progress_cb(0.3)
 
@@ -490,33 +504,47 @@ def create_delta_archive(
         delta_bottle.mkdir()
 
         # 3. Compute the delta (files that differ from base_dir)
-        _compute_delta(bottle_dir, base_dir, delta_bottle, cancel_event=cancel_event)
+        _compute_delta(
+            bottle_dir, base_dir, delta_bottle,
+            cancel_event=cancel_event,
+            file_cb=file_cb,
+            progress_cb=progress_cb,
+            progress_start=0.3,
+            progress_end=0.7,
+        )
 
         # Sum uncompressed sizes now — this is the unique on-disk footprint.
         delta_uncompressed_size = sum(
             f.stat().st_size for f in delta_bottle.rglob("*") if f.is_file()
         )
 
-        if progress_cb:
-            progress_cb(0.7)
-
         # 4. Pack the delta into a .tar.zst (zstd level 3: fast compress,
         #    fast decompress, noticeably better ratio than gzip default).
+        if phase_cb:
+            phase_cb("Compressing delta\u2026")
+        if progress_cb:
+            progress_cb(0.7)
         dest.parent.mkdir(parents=True, exist_ok=True)
         try:
             import zstandard as zstd  # noqa: PLC0415
             cctx = zstd.ZstdCompressor(level=3)
+            delta_items = sorted(delta_bottle.rglob("*"))
+            total_items = len(delta_items)
             with open(dest, "wb") as fh:
                 with cctx.stream_writer(fh, closefd=False) as compressor:
                     with tarfile.open(fileobj=compressor, mode="w|") as tf:
                         # Add root dir, then all contents one item at a time
                         # so cancel_event is checked between each entry.
                         tf.add(delta_bottle, arcname=bottle_name, recursive=False)
-                        for item in sorted(delta_bottle.rglob("*")):
+                        for i, item in enumerate(delta_items, 1):
                             _chk()
                             rel = item.relative_to(delta_bottle)
                             tf.add(item, arcname=f"{bottle_name}/{rel}",
                                    recursive=False)
+                            if file_cb:
+                                file_cb(i, total_items)
+                            if progress_cb and total_items > 0:
+                                progress_cb(0.7 + i / total_items * 0.3)
         except CancelledError:
             dest.unlink(missing_ok=True)
             raise
@@ -535,6 +563,10 @@ def _compute_delta(
     base_dir: Path,
     delta_out: Path,
     cancel_event: Event | None = None,
+    file_cb: Callable[[int, int], None] | None = None,
+    progress_cb: Callable[[float], None] | None = None,
+    progress_start: float = 0.3,
+    progress_end: float = 0.7,
 ) -> None:
     """Copy files from *full_dir* to *delta_out* that differ from *base_dir*.
 
@@ -552,7 +584,14 @@ def _compute_delta(
     bottle matches the original backup exactly.
     """
     # ── Step 1: copy changed / new files ──────────────────────────────────
-    _compute_delta_python(full_dir, base_dir, delta_out, cancel_event=cancel_event)
+    _compute_delta_python(
+        full_dir, base_dir, delta_out,
+        cancel_event=cancel_event,
+        file_cb=file_cb,
+        progress_cb=progress_cb,
+        progress_start=progress_start,
+        progress_end=progress_end,
+    )
 
     # ── Step 2: write delete manifest (base files absent from full backup) ─
     if cancel_event and cancel_event.is_set():
@@ -571,6 +610,10 @@ def _compute_delta_python(
     base_dir: Path,
     delta_out: Path,
     cancel_event: Event | None = None,
+    file_cb: Callable[[int, int], None] | None = None,
+    progress_cb: Callable[[float], None] | None = None,
+    progress_start: float = 0.3,
+    progress_end: float = 0.7,
 ) -> None:
     """Compute delta via BLAKE2b-128 content hashing.
 
@@ -589,16 +632,20 @@ def _compute_delta_python(
                 h.update(chunk)
         return h.hexdigest()
 
-    for src in full_dir.rglob("*"):
+    all_files = [src for src in full_dir.rglob("*") if src.is_file()]
+    total = len(all_files)
+    for i, src in enumerate(all_files, 1):
         if cancel_event and cancel_event.is_set():
             raise CancelledError("Delta archive creation cancelled")
-        if not src.is_file():
-            continue
         rel = src.relative_to(full_dir)
         base_file = base_dir / rel
         if base_file.is_file():
             try:
                 if _hash_file(src) == _hash_file(base_file):
+                    if file_cb:
+                        file_cb(i, total)
+                    if progress_cb and total > 0:
+                        progress_cb(progress_start + i / total * (progress_end - progress_start))
                     continue  # identical content → exclude from delta
             except CancelledError:
                 raise
@@ -607,6 +654,10 @@ def _compute_delta_python(
         out = delta_out / rel
         out.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, out)
+        if file_cb:
+            file_cb(i, total)
+        if progress_cb and total > 0:
+            progress_cb(progress_start + i / total * (progress_end - progress_start))
 
 
 def add_catalogue_category(repo_root: Path, category: str) -> None:

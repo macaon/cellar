@@ -2,6 +2,17 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.25.3] — 2026-03-03
+
+### Changed
+- **Add App dialog: verbose delta archive progress** — the progress view now
+  shows descriptive phase labels ("Extracting archive…", "Scanning files…",
+  "Compressing delta…") and per-file counts in the progress bar text
+  ("File N" during extraction, "File N / M" during scan and compression).
+  `create_delta_archive`, `_compute_delta`, and `_compute_delta_python` each
+  accept new `phase_cb` and `file_cb` callbacks; all UI updates are marshalled
+  to the main thread via `GLib.idle_add`.
+
 ## [0.25.2] — 2026-03-03
 
 ### Changed

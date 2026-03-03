@@ -122,6 +122,7 @@ class AppEntry:
     entry_point: str = ""
     compatibility_notes: str = ""
     changelog: str = ""
+    lock_runner: bool = False
 
     # ------------------------------------------------------------------
     # Serialisation
@@ -164,6 +165,7 @@ class AppEntry:
             entry_point=data.get("entry_point", ""),
             compatibility_notes=data.get("compatibility_notes", ""),
             changelog=data.get("changelog", ""),
+            lock_runner=bool(data.get("lock_runner", False)),
         )
 
     def to_dict(self) -> dict:
@@ -207,6 +209,8 @@ class AppEntry:
         _opt_str(d, "entry_point", self.entry_point)
         _opt_str(d, "compatibility_notes", self.compatibility_notes)
         _opt_str(d, "changelog", self.changelog)
+        if self.lock_runner:
+            d["lock_runner"] = True
         return d
 
 

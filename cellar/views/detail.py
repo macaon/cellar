@@ -1009,13 +1009,19 @@ class DetailView(Gtk.Box):
             warning_icon.add_css_class("warning")
             runner_row.add_suffix(warning_icon)
             self._runner_warning_icon = warning_icon
-            if self._is_installed:
-                # Change button only makes sense once the bottle exists on disk.
+            if self._is_installed and not self._entry.lock_runner:
+                # Change button only makes sense once the bottle exists on disk,
+                # and only when the packager hasn't locked the runner.
                 change_btn = Gtk.Button(label="Change")
                 change_btn.add_css_class("suggested-action")
                 change_btn.set_valign(Gtk.Align.CENTER)
                 change_btn.connect("clicked", self._on_change_runner_clicked)
                 runner_row.add_suffix(change_btn)
+            elif self._is_installed and self._entry.lock_runner:
+                lock_icon = Gtk.Image.new_from_icon_name("changes-prevent-symbolic")
+                lock_icon.set_valign(Gtk.Align.CENTER)
+                lock_icon.add_css_class("dim-label")
+                runner_row.add_suffix(lock_icon)
             self._runner_row = runner_row
             group.add(runner_row)
         else:

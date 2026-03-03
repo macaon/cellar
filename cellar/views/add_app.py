@@ -240,6 +240,12 @@ class AddAppDialog(Adw.Dialog):
         self._runner_row = Adw.ActionRow(title="Runner")
         self._runner_row.set_subtitle("")
         self._runner_row.set_subtitle_selectable(True)
+        self._lock_runner_btn = Gtk.ToggleButton()
+        self._lock_runner_btn.set_icon_name("changes-prevent-symbolic")
+        self._lock_runner_btn.set_valign(Gtk.Align.CENTER)
+        self._lock_runner_btn.set_tooltip_text("Lock runner — users cannot change the runner after install")
+        self._lock_runner_btn.connect("toggled", self._on_lock_runner_toggled)
+        self._runner_row.add_suffix(self._lock_runner_btn)
         wine_group.add(self._runner_row)
 
         self._dxvk_row = Adw.ActionRow(title="DXVK")
@@ -388,6 +394,12 @@ class AddAppDialog(Adw.Dialog):
         GLib.idle_add(_apply)
 
     # ── Signal handlers — form fields ─────────────────────────────────────
+
+    def _on_lock_runner_toggled(self, btn) -> None:
+        if btn.get_active():
+            btn.add_css_class("destructive-action")
+        else:
+            btn.remove_css_class("destructive-action")
 
     def _on_repo_changed(self, row, _param) -> None:
         idx = row.get_selected()
@@ -636,6 +648,7 @@ class AddAppDialog(Adw.Dialog):
             update_strategy=strategy,
             entry_point=entry_point,
             base_runner=self._runner if self._use_delta else "",
+            lock_runner=self._lock_runner_btn.get_active(),
         )
 
         images = {

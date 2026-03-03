@@ -66,13 +66,6 @@ class SettingsDialog(Adw.PreferencesDialog):
         # ── Group: Access Control ─────────────────────────────────────────
         access_group = Adw.PreferencesGroup(
             title="Access Control",
-            description=(
-                "Restrict access to an HTTP(S) repository you host by "
-                "requiring a bearer token. Generate one here, add it to "
-                "your web server, then share the URL and token with anyone "
-                "who should have access. See the README for nginx and Caddy "
-                "configuration examples."
-            ),
         )
         page.add(access_group)
 

@@ -2,6 +2,11 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.25.1] — 2026-03-03
+
+### Changed
+- Removed the descriptive paragraph from the **Access Control** preferences group.
+
 ## [0.25.0] — 2026-03-03
 
 ### Changed

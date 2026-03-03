@@ -2,6 +2,17 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.21.0] — 2026-03-03
+
+### Added
+- **Settings shows available base images from repos** — the Delta Base Images
+  section now fetches bases from all configured repositories in the background
+  and shows bases available for download alongside locally installed ones.
+  Each available base gets a "Download" button that downloads, verifies, and
+  installs the base image locally with a progress dialog.
+- `Repo.ssl_verify` and `Repo.ca_cert` properties for accessing SSL settings
+  from outside the fetcher layer (needed by the base download dialog).
+
 ## [0.20.9] — 2026-03-03
 
 ### Fixed

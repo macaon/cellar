@@ -358,7 +358,7 @@ Extracted bases live at `~/.local/share/cellar/bases/<win_ver>/` — managed by 
 | Local base store + DB `bases` table | ✅ done |
 | Installer delta path (`_seed_from_base`, `_overlay_delta`, `_ensure_base_installed`) | ✅ done |
 | Packager: `create_delta_archive()` + Add App dialog delta path | ⏳ next |
-| Settings: Delta Base Images preferences group (upload/remove bases) | ⏳ |
+| Settings: Delta Base Images preferences group (upload/remove/download bases) | ✅ done |
 | Install progress dialog: multi-phase labels for base download | ⏳ |
 | Updater: delta update path | ⏳ |
 

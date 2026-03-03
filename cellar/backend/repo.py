@@ -385,6 +385,8 @@ class Repo:
         self.uri = uri
         self.name = name or uri
         self._token = token
+        self._ssl_verify = ssl_verify
+        self._ca_cert = ca_cert
         self._cache_dir: Path | None = None
         self._bases: dict[str, BaseEntry] = {}
         self._fetcher: _Fetcher = _make_fetcher(
@@ -400,6 +402,16 @@ class Repo:
     def token(self) -> str | None:
         """Bearer token for HTTP(S) authentication, or ``None``."""
         return self._token
+
+    @property
+    def ssl_verify(self) -> bool:
+        """Whether SSL certificate verification is enabled."""
+        return self._ssl_verify
+
+    @property
+    def ca_cert(self) -> str | None:
+        """Path to a custom CA certificate file, or ``None``."""
+        return self._ca_cert
 
     # ------------------------------------------------------------------
     # Properties

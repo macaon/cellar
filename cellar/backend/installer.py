@@ -251,9 +251,24 @@ def _acquire_archive(
     scheme = parsed.scheme.lower()
 
     if scheme in ("", "file"):
+        local = Path(parsed.path if scheme == "file" else uri)
+        # GVFS FUSE paths (e.g. /run/user/1000/gvfs/smb-share:…) look local
+        # but every read is network I/O.  Stream-copy them so the download
+        # phase shows real progress and speed instead of appearing instant
+        # (which pushes all network time into the verify/extract phases).
+        if "/gvfs/" in str(local):
+            _file_stream(
+                local,
+                dest,
+                expected_size=expected_size,
+                progress_cb=progress_cb,
+                stats_cb=stats_cb,
+                cancel_event=cancel_event,
+            )
+            return dest
         if progress_cb:
             progress_cb(1.0)
-        return Path(parsed.path if scheme == "file" else uri)
+        return local
 
     if scheme in ("http", "https"):
         _http_stream(
@@ -509,16 +524,31 @@ def _extract_archive(
 ) -> None:
     """Extract *archive_path* into *dest*, reporting per-member progress.
 
+    Supports ``.tar.gz`` and ``.tar.zst`` (via the ``zstandard`` package).
     Uses ``filter='data'`` on Python 3.12+ to strip unsafe tar entries.
-    Progress is based on compressed bytes consumed (file position) rather
-    than calling ``getmembers()`` upfront, which would scan the entire
-    archive before extracting anything — unacceptable for large files.
+    Progress is based on compressed bytes consumed so that large archives
+    report progress without needing an upfront member scan.
 
     *name_cb*, when provided, is called as ``name_cb(filename)`` before
     each member is extracted so the UI can show the current file name.
     """
     _check_cancel(cancel_event)
     use_filter = sys.version_info >= (3, 12)
+    if str(archive_path).endswith(".tar.zst"):
+        _extract_zst(archive_path, dest, cancel_event, progress_cb, name_cb, use_filter)
+    else:
+        _extract_gz(archive_path, dest, cancel_event, progress_cb, name_cb, use_filter)
+
+
+def _extract_gz(
+    archive_path: Path,
+    dest: Path,
+    cancel_event: threading.Event | None,
+    progress_cb: Callable[[float], None] | None,
+    name_cb: Callable[[str], None] | None,
+    use_filter: bool,
+) -> None:
+    """Extract a .tar.gz archive with progress via compressed file position."""
     try:
         total = archive_path.stat().st_size or 1
         with open(archive_path, "rb") as raw:
@@ -533,6 +563,55 @@ def _extract_archive(
                         tf.extract(member, dest)  # noqa: S202
                     if progress_cb:
                         progress_cb(min(raw.tell() / total, 1.0))
+    except tarfile.TarError as exc:
+        raise InstallError(f"Failed to extract archive: {exc}") from exc
+
+
+def _extract_zst(
+    archive_path: Path,
+    dest: Path,
+    cancel_event: threading.Event | None,
+    progress_cb: Callable[[float], None] | None,
+    name_cb: Callable[[str], None] | None,
+    use_filter: bool,
+) -> None:
+    """Extract a .tar.zst archive with progress via compressed bytes read."""
+    try:
+        import zstandard as zstd  # noqa: PLC0415
+    except ImportError as exc:
+        raise InstallError(
+            "zstandard is not installed; cannot extract .tar.zst archives"
+        ) from exc
+
+    total = archive_path.stat().st_size or 1
+
+    class _CountingReader:
+        """Wraps a binary file and counts compressed bytes read for progress."""
+        def __init__(self, fh):
+            self._fh = fh
+            self.pos = 0
+
+        def read(self, n: int = -1) -> bytes:
+            data = self._fh.read(n)
+            self.pos += len(data)
+            return data
+
+    try:
+        dctx = zstd.ZstdDecompressor()
+        with open(archive_path, "rb") as raw:
+            reader = _CountingReader(raw)
+            with dctx.stream_reader(reader) as decompressed:
+                with tarfile.open(fileobj=decompressed, mode="r|") as tf:
+                    for member in tf:
+                        _check_cancel(cancel_event)
+                        if name_cb:
+                            name_cb(Path(member.name).name or member.name)
+                        if use_filter:
+                            tf.extract(member, dest, filter="data")
+                        else:
+                            tf.extract(member, dest)  # noqa: S202
+                        if progress_cb:
+                            progress_cb(min(reader.pos / total, 1.0))
     except tarfile.TarError as exc:
         raise InstallError(f"Failed to extract archive: {exc}") from exc
 

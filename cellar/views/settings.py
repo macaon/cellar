@@ -164,11 +164,9 @@ class SettingsDialog(Adw.PreferencesDialog):
     # ------------------------------------------------------------------
 
     def _rebuild_delta_rows(self) -> None:
-        """Sync visible base-image rows with the local database and repos.
+        """Sync visible base-image rows with the local database.
 
-        Shows locally installed bases immediately, then spawns a background
-        thread to fetch available bases from all configured repos.  Remote
-        bases that are not installed locally get a "Download" button.
+        Shows locally installed bases with a trash button for removal.
         """
         for row in self._delta_rows:
             self._delta_group.remove(row)
@@ -177,78 +175,17 @@ class SettingsDialog(Adw.PreferencesDialog):
         from cellar.backend import database
 
         installed = database.get_all_installed_bases()
-        installed_runners = {rec["runner"] for rec in installed}
 
         for rec in installed:
             row = self._make_base_row(rec)
             self._delta_rows.append(row)
             self._delta_group.add(row)
 
-        # Add a spinner row while we check repos
-        spinner_row = Adw.ActionRow(title="Checking repositories\u2026")
-        spinner = Gtk.Spinner(spinning=True, valign=Gtk.Align.CENTER)
-        spinner_row.add_suffix(spinner)
-        spinner_row.set_sensitive(False)
-        self._delta_rows.append(spinner_row)
-        self._delta_group.add(spinner_row)
-
-        def _fetch_remote_bases() -> dict:
-            """Build Repo objects from config and collect all available bases."""
-            from cellar.backend.repo import Repo, RepoError
-            from cellar.backend.config import certs_dir as _certs_dir
-
-            remote_bases: dict = {}  # runner → (BaseEntry, repo)
-            for cfg in load_repos():
-                try:
-                    ca_cert_name = cfg.get("ca_cert") or None
-                    ca_cert_path: str | None = None
-                    if ca_cert_name:
-                        resolved = _certs_dir() / ca_cert_name
-                        ca_cert_path = str(resolved) if resolved.exists() else None
-                    repo = Repo(
-                        cfg["uri"],
-                        cfg.get("name", ""),
-                        ssh_identity=cfg.get("ssh_identity"),
-                        ssl_verify=cfg.get("ssl_verify", True),
-                        ca_cert=ca_cert_path,
-                        token=cfg.get("token") or None,
-                    )
-                    for runner, base_entry in repo.fetch_bases().items():
-                        if runner not in remote_bases:
-                            remote_bases[runner] = (base_entry, repo)
-                except (RepoError, Exception) as exc:
-                    log.debug("Could not fetch bases from %s: %s", cfg.get("uri"), exc)
-            return remote_bases
-
-        def _on_fetched(remote_bases: dict) -> None:
-            # Remove spinner
-            if spinner_row in self._delta_rows:
-                self._delta_rows.remove(spinner_row)
-                self._delta_group.remove(spinner_row)
-
-            available_count = 0
-            for runner, (base_entry, repo) in remote_bases.items():
-                if runner not in installed_runners:
-                    row = self._make_available_base_row(runner, base_entry, repo)
-                    self._delta_rows.append(row)
-                    self._delta_group.add(row)
-                    available_count += 1
-
-            # Show empty state only if nothing at all
-            if not installed and available_count == 0:
-                empty = Adw.ActionRow(title="No base images found")
-                empty.set_sensitive(False)
-                self._delta_rows.append(empty)
-                self._delta_group.add(empty)
-
-        def _thread() -> None:
-            try:
-                result = _fetch_remote_bases()
-            except Exception:
-                result = {}
-            GLib.idle_add(_on_fetched, result)
-
-        threading.Thread(target=_thread, daemon=True).start()
+        if not installed:
+            empty = Adw.ActionRow(title="No base images installed")
+            empty.set_sensitive(False)
+            self._delta_rows.append(empty)
+            self._delta_group.add(empty)
 
     def _make_base_row(self, rec: dict) -> Adw.ActionRow:
         runner = rec["runner"]
@@ -273,37 +210,6 @@ class SettingsDialog(Adw.PreferencesDialog):
         del_btn.connect("clicked", self._on_remove_base, runner)
         row.add_suffix(del_btn)
         return row
-
-    def _make_available_base_row(self, runner: str, base_entry, repo) -> Adw.ActionRow:
-        """Create a row for a base available in a repo but not installed locally."""
-        subtitle = f"available from {repo.name or repo.uri}"
-        if base_entry.archive_size:
-            subtitle += f" ({_fmt_size(base_entry.archive_size)})"
-
-        row = Adw.ActionRow(title=runner, subtitle=subtitle)
-
-        icon = Gtk.Image.new_from_icon_name("emblem-downloads-symbolic")
-        icon.set_tooltip_text("Available for download")
-        row.add_prefix(icon)
-
-        dl_btn = Gtk.Button(
-            label="Download",
-            valign=Gtk.Align.CENTER,
-        )
-        dl_btn.add_css_class("suggested-action")
-        dl_btn.connect("clicked", self._on_install_repo_base, runner, base_entry, repo)
-        row.add_suffix(dl_btn)
-        return row
-
-    def _on_install_repo_base(self, _btn, runner: str, base_entry, repo) -> None:
-        """Launch a dialog to download and install a base from a repo."""
-        dialog = InstallBaseFromRepoDialog(
-            runner=runner,
-            base_entry=base_entry,
-            repo=repo,
-            on_done=self._rebuild_delta_rows,
-        )
-        dialog.present(self)
 
     def _on_upload_base_clicked(self, _btn: Gtk.Button) -> None:
         chooser = Gtk.FileChooserNative(
@@ -811,7 +717,9 @@ class _Cancelled(Exception):
 class InstallBaseFromRepoDialog(Adw.Dialog):
     """Download a base image from a repo and install it locally.
 
-    Shows a progress bar during download + extraction, with a cancel button.
+    Multi-phase progress matching the package install dialog: each phase
+    (download, verify, extract) resets the bar and shows its own label.
+    Download shows MB/total/speed stats text.
     """
 
     def __init__(
@@ -828,6 +736,7 @@ class InstallBaseFromRepoDialog(Adw.Dialog):
         self._repo = repo
         self._on_done = on_done
         self._cancel_event = threading.Event()
+        self._pulse_id: int | None = None
         self._build_ui()
         threading.Thread(target=self._run, daemon=True).start()
 
@@ -851,6 +760,7 @@ class InstallBaseFromRepoDialog(Adw.Dialog):
         )
         self._bar = Gtk.ProgressBar()
         self._bar.set_show_text(True)
+        self._bar.set_size_request(0, -1)
 
         self._cancel_btn = Gtk.Button(label="Cancel")
         self._cancel_btn.set_halign(Gtk.Align.CENTER)
@@ -867,6 +777,16 @@ class InstallBaseFromRepoDialog(Adw.Dialog):
         self._cancel_event.set()
         self._label.set_text("Cancelling\u2026")
         self._cancel_btn.set_sensitive(False)
+
+    def _set_phase(self, label: str) -> None:
+        """Reset bar and update label on phase transition (called via idle_add)."""
+        if self._pulse_id is not None:
+            GLib.source_remove(self._pulse_id)
+            self._pulse_id = None
+        self._label.set_text(label)
+        self._bar.set_fraction(0.0)
+        self._bar.set_show_text(True)
+        self._bar.set_text("")
 
     def _run(self) -> None:
         import tempfile
@@ -888,16 +808,16 @@ class InstallBaseFromRepoDialog(Adw.Dialog):
         archive_uri = self._repo.resolve_asset_uri(self._base_entry.archive)
         dest = tmp / f"{self._runner}-base.tar.gz"
 
-        # Phase 1: download (0.0 → 0.5)
+        # Phase 1: download
         def _dl_progress(f: float) -> None:
             if self._cancel_event.is_set():
                 raise _Cancelled
-            GLib.idle_add(self._bar.set_fraction, f * 0.5)
+            GLib.idle_add(self._bar.set_fraction, f)
 
         def _dl_stats(copied: int, total: int, speed: float) -> None:
             GLib.idle_add(self._bar.set_text, _fmt_ul_stats(copied, total, speed))
 
-        GLib.idle_add(self._label.set_text, f"Downloading {self._runner}\u2026")
+        GLib.idle_add(self._set_phase, f"Downloading {self._runner}\u2026")
         try:
             local_archive = _acquire_archive(
                 archive_uri,
@@ -916,22 +836,30 @@ class InstallBaseFromRepoDialog(Adw.Dialog):
         if self._cancel_event.is_set():
             raise _Cancelled
 
-        # Verify CRC32 if available
+        # Phase 2: verify CRC32
         if self._base_entry.archive_crc32:
-            GLib.idle_add(self._label.set_text, "Verifying\u2026")
+            def _verify_progress(f: float) -> None:
+                if self._cancel_event.is_set():
+                    raise _Cancelled
+                GLib.idle_add(self._bar.set_fraction, f)
+
+            GLib.idle_add(self._set_phase, "Verifying download\u2026")
             try:
-                _verify_crc32(local_archive, self._base_entry.archive_crc32)
+                _verify_crc32(local_archive, self._base_entry.archive_crc32,
+                              progress_cb=_verify_progress)
             except InstallError as exc:
                 raise RuntimeError(f"Verification failed: {exc}") from exc
 
-        # Phase 2: install locally (0.5 → 1.0)
+        if self._cancel_event.is_set():
+            raise _Cancelled
+
+        # Phase 3: extract / install
         def _install_progress(f: float) -> None:
             if self._cancel_event.is_set():
                 raise _Cancelled
-            GLib.idle_add(self._bar.set_fraction, 0.5 + f * 0.5)
-            GLib.idle_add(self._bar.set_text, "")
+            GLib.idle_add(self._bar.set_fraction, f)
 
-        GLib.idle_add(self._label.set_text, "Installing base image\u2026")
+        GLib.idle_add(self._set_phase, "Extracting base image\u2026")
         base_store.install_base(
             local_archive,
             self._runner,
@@ -945,6 +873,9 @@ class InstallBaseFromRepoDialog(Adw.Dialog):
         self.close()
 
     def _on_error(self, message: str) -> None:
+        if self._pulse_id is not None:
+            GLib.source_remove(self._pulse_id)
+            self._pulse_id = None
         self._cancel_btn.set_sensitive(True)
         self._cancel_btn.set_label("Close")
         self._cancel_btn.connect("clicked", lambda _: self.close())

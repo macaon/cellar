@@ -83,6 +83,9 @@ class AddAppDialog(Adw.Dialog):
         self._runner: str = ""         # Runner: field from bottle.yml, e.g. "soda-9.0-1"
         self._use_delta: bool = False  # True when repo has base AND it's installed locally
         self._base_ok: bool = True     # False blocks the Add button
+        self._delta_dl_btn: Gtk.Button | None = None  # Download button on delta row
+        self._pending_base_entry = None  # BaseEntry for download dialog
+        self._pending_base_repo = None   # Repo for download dialog
 
         self._pulse_id: int | None = None
         self._build_ui()
@@ -411,6 +414,11 @@ class AddAppDialog(Adw.Dialog):
         except Exception:
             pass
 
+        # Remove any previous download button from the delta row
+        if hasattr(self, "_delta_dl_btn") and self._delta_dl_btn is not None:
+            self._delta_row.remove(self._delta_dl_btn)
+            self._delta_dl_btn = None
+
         if runner not in bases:
             # No base in this repo — fall back to full archive upload.
             self._use_delta = False
@@ -432,12 +440,37 @@ class AddAppDialog(Adw.Dialog):
             self._base_ok = False
             self._delta_icon.set_from_icon_name("dialog-warning-symbolic")
             self._delta_row.set_title(f"{runner} base not installed locally")
-            self._delta_row.set_subtitle(
-                "Install it via Settings \u2192 Delta Base Images before adding this app"
+            self._delta_row.set_subtitle("Download the base image to enable delta packaging")
+            # Store base entry + repo for the download dialog
+            self._pending_base_entry = bases[runner]
+            self._pending_base_repo = self._repo
+            # Add a download button to the row
+            self._delta_dl_btn = Gtk.Button(
+                label="Download",
+                valign=Gtk.Align.CENTER,
             )
+            self._delta_dl_btn.add_css_class("suggested-action")
+            self._delta_dl_btn.connect("clicked", self._on_download_base_clicked)
+            self._delta_row.add_suffix(self._delta_dl_btn)
 
         self._delta_row.set_visible(True)
         self._update_add_button()
+
+    def _on_download_base_clicked(self, _btn: Gtk.Button) -> None:
+        """Open the base download dialog, then re-check delta state on success."""
+        from cellar.views.settings import InstallBaseFromRepoDialog
+
+        def _on_base_downloaded() -> None:
+            if self._runner:
+                self._check_delta_base(self._runner)
+
+        dialog = InstallBaseFromRepoDialog(
+            runner=self._runner,
+            base_entry=self._pending_base_entry,
+            repo=self._pending_base_repo,
+            on_done=_on_base_downloaded,
+        )
+        dialog.present(self)
 
     def _on_name_changed(self, _entry) -> None:
         name = self._name_entry.get_text().strip()
@@ -668,7 +701,14 @@ class AddAppDialog(Adw.Dialog):
                 GLib.idle_add(self._progress_bar.set_text, "")
 
                 tmp_delta = tempfile.mkdtemp(prefix="cellar-delta-upload-")
-                delta_path = Path(tmp_delta) / Path(self._archive_path).name
+                # Delta archives are recompressed as .tar.zst (zstd level 3).
+                orig_name = Path(self._archive_path).name
+                delta_name = (
+                    orig_name[: -len(".tar.gz")] + ".tar.zst"
+                    if orig_name.endswith(".tar.gz")
+                    else orig_name
+                )
+                delta_path = Path(tmp_delta) / delta_name
 
                 try:
                     create_delta_archive(
@@ -690,6 +730,7 @@ class AddAppDialog(Adw.Dialog):
                 archive_to_upload = str(delta_path)
                 entry_to_upload = _replace(
                     entry_to_upload,
+                    archive=f"apps/{entry_to_upload.id}/{delta_name}",
                     archive_size=delta_path.stat().st_size,
                 )
 

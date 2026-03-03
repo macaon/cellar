@@ -13,6 +13,7 @@ dependencies = [
     "dulwich",
     "Pillow",
     "requests",
+    "zstandard",
 ]
 
 [project.scripts]

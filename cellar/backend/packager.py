@@ -478,12 +478,17 @@ def create_delta_archive(
         if progress_cb:
             progress_cb(0.7)
 
-        # 4. Pack the delta into a .tar.gz
+        # 4. Pack the delta into a .tar.zst (zstd level 3: fast compress,
+        #    fast decompress, noticeably better ratio than gzip default).
         dest.parent.mkdir(parents=True, exist_ok=True)
         try:
-            with tarfile.open(dest, "w:gz") as tf:
-                tf.add(delta_bottle, arcname=bottle_name)
-        except tarfile.TarError as exc:
+            import zstandard as zstd  # noqa: PLC0415
+            cctx = zstd.ZstdCompressor(level=3)
+            with open(dest, "wb") as fh:
+                with cctx.stream_writer(fh, closefd=False) as compressor:
+                    with tarfile.open(fileobj=compressor, mode="w|") as tf:
+                        tf.add(delta_bottle, arcname=bottle_name)
+        except (tarfile.TarError, OSError) as exc:
             dest.unlink(missing_ok=True)
             raise RuntimeError(f"Failed to create delta archive: {exc}") from exc
 

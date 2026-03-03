@@ -2,6 +2,41 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.23.0] — 2026-03-03
+
+### Added
+- **zstd compression for delta archives** — delta archives are now written as
+  `.tar.zst` (zstd level 3) instead of `.tar.gz`.  Full archives from Bottles
+  are still copied verbatim as `.tar.gz` (no recompression).  The installer
+  auto-detects the format by extension and decompresses via the `zstandard`
+  Python package (added as a dependency), keeping everything self-contained
+  with no subprocess dependency on the `zstd` binary.  Level 3 compresses
+  faster than gzip while achieving a noticeably better ratio and decompress
+  speed.
+
+### Fixed
+- **SMB/NFS download progress** — archives served via GVFS FUSE paths
+  (e.g. `/run/user/1000/gvfs/smb-share:…`) were treated as local files,
+  making the download phase appear instant while all network I/O happened
+  during "Verifying download…" with no speed or progress display.  GVFS paths
+  are now stream-copied to a temp file with full download progress and speed
+  stats, matching the HTTP download experience.
+
+### Changed
+- **Base image download progress** — `InstallBaseFromRepoDialog` now shows
+  proper multi-phase progress (download with MB/total/speed stats, verify,
+  extract) matching the package install dialog, instead of a crude 0-50-100%
+  split that sat on "Verifying" for the entire download.
+- **Settings: Delta Base Images simplified** — removed the repo-scanning
+  background thread and "Download" buttons from the base images section.
+  Settings now only shows locally installed bases with a trash button for
+  removal.  Base downloads are triggered contextually from the Add App dialog.
+- **Add App dialog prompts for base download** — when uploading a package
+  whose runner has a matching base in the repo but it is not installed locally,
+  the delta status row now shows a "Download" button instead of blocking with
+  a "go to Settings" message.  Clicking it opens the download dialog inline;
+  on success the delta check re-runs and enables delta packaging automatically.
+
 ## [0.21.0] — 2026-03-03
 
 ### Added

@@ -2,6 +2,19 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.20.9] — 2026-03-03
+
+### Fixed
+- **Delta archive creation now correctly excludes base files** — `_compute_delta`
+  previously used rsync `--compare-dest` (which relies on mtime comparison) and
+  a Python size-only fallback, both of which could include files that are
+  byte-for-byte identical to the base.  The root cause: a base installed on one
+  day and an app bottle created on another day share identical Windows system
+  DLLs but with different mtimes, so rsync treated them as changed.  Both paths
+  are replaced by a single BLAKE2b-128 content-hash comparison — a file is
+  excluded from the delta only when a file at the same relative path in the base
+  has identical bytes, regardless of timestamps or size.
+
 ## [0.20.8] — 2026-03-03
 
 ### Changed

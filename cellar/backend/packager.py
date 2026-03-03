@@ -494,9 +494,11 @@ def create_delta_archive(
 def _compute_delta(full_dir: Path, base_dir: Path, delta_out: Path) -> None:
     """Copy files from *full_dir* to *delta_out* that differ from *base_dir*.
 
-    Uses ``rsync --checksum --compare-dest`` when rsync is available (content-
-    accurate).  Falls back to a Python implementation that uses file size as the
-    comparison heuristic (may include some false positives, always correct).
+    Uses content hashing (BLAKE2b-128) so that files with identical bytes are
+    excluded from the delta regardless of their timestamps.  This is important
+    because a base image installed on one day and an app bottle created on
+    another day will share identical Windows system files but with different
+    mtimes — a size-or-mtime heuristic would incorrectly include them.
 
     Also writes a ``.cellar_delete`` manifest listing every file that exists in
     *base_dir* but is absent from *full_dir*.  These are files that were present
@@ -506,22 +508,7 @@ def _compute_delta(full_dir: Path, base_dir: Path, delta_out: Path) -> None:
     bottle matches the original backup exactly.
     """
     # ── Step 1: copy changed / new files ──────────────────────────────────
-    if shutil.which("rsync"):
-        try:
-            subprocess.run(
-                [
-                    "rsync", "-a", "--checksum",
-                    f"--compare-dest={base_dir}/",
-                    f"{full_dir}/",
-                    f"{delta_out}/",
-                ],
-                check=True,
-                capture_output=True,
-            )
-        except subprocess.CalledProcessError:
-            _compute_delta_python(full_dir, base_dir, delta_out)
-    else:
-        _compute_delta_python(full_dir, base_dir, delta_out)
+    _compute_delta_python(full_dir, base_dir, delta_out)
 
     # ── Step 2: write delete manifest (base files absent from full backup) ─
     delete_paths = sorted(
@@ -534,16 +521,35 @@ def _compute_delta(full_dir: Path, base_dir: Path, delta_out: Path) -> None:
 
 
 def _compute_delta_python(full_dir: Path, base_dir: Path, delta_out: Path) -> None:
-    """Python fallback for delta computation (size-based heuristic)."""
+    """Compute delta via BLAKE2b-128 content hashing.
+
+    A file is excluded from the delta only when a file at the same relative
+    path exists in *base_dir* **and** has byte-for-byte identical content.
+    Files that differ in content (even if the same size) are always included.
+    """
+    import hashlib
+
+    def _hash_file(path: Path) -> str:
+        h = hashlib.blake2b(digest_size=16)
+        with open(path, "rb") as f:
+            while chunk := f.read(1 * 1024 * 1024):
+                h.update(chunk)
+        return h.hexdigest()
+
     for src in full_dir.rglob("*"):
         if not src.is_file():
             continue
         rel = src.relative_to(full_dir)
         base_file = base_dir / rel
-        if not base_file.exists() or src.stat().st_size != base_file.stat().st_size:
-            out = delta_out / rel
-            out.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, out)
+        if base_file.is_file():
+            try:
+                if _hash_file(src) == _hash_file(base_file):
+                    continue  # identical content → exclude from delta
+            except OSError:
+                pass  # unreadable → include defensively
+        out = delta_out / rel
+        out.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, out)
 
 
 def add_catalogue_category(repo_root: Path, category: str) -> None:

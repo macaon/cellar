@@ -420,18 +420,20 @@ def create_delta_archive(
     dest: Path,
     *,
     progress_cb: Callable[[float], None] | None = None,
-) -> None:
-    """Create a delta ``.tar.gz`` from a full Bottles backup, relative to *base_dir*.
+) -> int:
+    """Create a delta ``.tar.zst`` from a full Bottles backup, relative to *base_dir*.
 
     Extracts *full_archive_path* to a temp directory, identifies files that
-    differ from *base_dir* using ``rsync --checksum --compare-dest`` (or a
-    Python size-based fallback), and packs only those files into a new archive
-    at *dest*.
+    differ from *base_dir* by content hash, and packs only those files into a
+    new zstd-compressed archive at *dest*.
 
     The result has the same top-level bottle directory name as the original and
     is suitable for :func:`~cellar.backend.installer._overlay_delta` at install
     time.  *progress_cb* is called at 0.0 (start), 0.3 (extracted), 0.7
     (diffed), and 1.0 (done).
+
+    Returns the uncompressed size in bytes of the delta content (i.e. the disk
+    space the app's unique files will occupy, excluding hardlinked base files).
 
     Raises :exc:`RuntimeError` on failure.
     """
@@ -475,6 +477,11 @@ def create_delta_archive(
         # 3. Compute the delta (files that differ from base_dir)
         _compute_delta(bottle_dir, base_dir, delta_bottle)
 
+        # Sum uncompressed sizes now — this is the unique on-disk footprint.
+        delta_uncompressed_size = sum(
+            f.stat().st_size for f in delta_bottle.rglob("*") if f.is_file()
+        )
+
         if progress_cb:
             progress_cb(0.7)
 
@@ -494,6 +501,8 @@ def create_delta_archive(
 
         if progress_cb:
             progress_cb(1.0)
+
+        return delta_uncompressed_size
 
 
 def _compute_delta(full_dir: Path, base_dir: Path, delta_out: Path) -> None:

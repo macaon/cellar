@@ -241,6 +241,21 @@ def test_create_delta_archive_progress_reported(tmp_path):
     assert all(0.0 <= f <= 1.0 for f in calls)
 
 
+def test_create_delta_archive_returns_uncompressed_size(tmp_path):
+    """Return value is the uncompressed size of unique delta content only."""
+    extra = {"drive_c/Program Files/MyApp/myapp.exe": b"x" * 4096}
+    archive = _make_full_archive(tmp_path, bottle_name="TestBottle", extra_files=extra)
+    base = _make_base_dir(tmp_path)
+    dest = tmp_path / "delta.tar.zst"
+
+    size = pkg.create_delta_archive(archive, base, dest)
+
+    # Must be positive and smaller than the full install size (base excluded).
+    assert size > 0
+    # ntdll.dll (shared with base) must not be counted.
+    assert size < 1024 * 1024  # well under 1 MB — only app-unique files
+
+
 def test_compute_delta_writes_delete_manifest(tmp_path):
     """Files in base but absent from full backup appear in .cellar_delete."""
     full = tmp_path / "full"

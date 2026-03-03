@@ -711,7 +711,7 @@ class AddAppDialog(Adw.Dialog):
                 delta_path = Path(tmp_delta) / delta_name
 
                 try:
-                    create_delta_archive(
+                    delta_uncompressed_size = create_delta_archive(
                         self._archive_path,
                         _base_path(runner),
                         delta_path,
@@ -732,6 +732,7 @@ class AddAppDialog(Adw.Dialog):
                     entry_to_upload,
                     archive=f"apps/{entry_to_upload.id}/{delta_name}",
                     archive_size=delta_path.stat().st_size,
+                    install_size_estimate=delta_uncompressed_size,
                 )
 
             # ── Import into repo ───────────────────────────────────────────

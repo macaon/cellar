@@ -5,6 +5,12 @@ All notable changes to Cellar are documented here.
 ## [0.23.0] — 2026-03-03
 
 ### Added
+- **Delta install size reflects unique content** — for delta packages the
+  "Install size" shown in the detail view now reports only the uncompressed
+  size of files unique to the app (i.e. what the delta actually contributes),
+  not the full bottle size including hardlinked base files.
+  ``create_delta_archive`` returns the uncompressed delta size after diffing
+  and ``AddAppDialog`` uses it to override ``install_size_estimate``.
 - **zstd compression for delta archives** — delta archives are now written as
   `.tar.zst` (zstd level 3) instead of `.tar.gz`.  Full archives from Bottles
   are still copied verbatim as `.tar.gz` (no recompression).  The installer

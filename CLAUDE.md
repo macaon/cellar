@@ -138,9 +138,8 @@ cellar/
 
 ## Development priorities
 
-1–8. ~~Repo backend, Browse UI, Network transports, Detail view, Bottles backend, Local DB, Update logic, HTTP(S) auth~~ ✅ all done
-9. **Delta packages** — base-image deduplication (`feature/delta-packages`) — *in progress, see `docs/DELTA_PACKAGES.md`*
-10. **Flatpak packaging**
+1–9. ~~Repo backend, Browse UI, Network transports, Detail view, Bottles backend, Local DB, Update logic, HTTP(S) auth, Delta packages~~ ✅ all done
+10. **Flatpak packaging** — `flatpak/io.github.cellar.json`
 11. **KDE support** — GVFS/smbclient fallback, KWallet, `XDG_CURRENT_DESKTOP`
 
 ---

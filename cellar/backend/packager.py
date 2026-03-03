@@ -9,6 +9,7 @@ This module handles:
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -458,7 +459,12 @@ def create_delta_archive(
 
     full_archive_path = Path(full_archive_path)
 
-    with tempfile.TemporaryDirectory(prefix="cellar-delta-") as tmp_str:
+    # Use ~/.cache/cellar for extraction — /tmp is typically a small tmpfs
+    # (often 8 GB) that cannot hold a multi-GB extracted bottle.
+    cache_base = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "cellar"
+    cache_base.mkdir(parents=True, exist_ok=True)
+
+    with tempfile.TemporaryDirectory(prefix="cellar-delta-", dir=cache_base) as tmp_str:
         tmp = Path(tmp_str)
         extract_dir = tmp / "full"
         extract_dir.mkdir()

@@ -2,6 +2,25 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.25.6] — 2026-03-03
+
+### Fixed
+- **Upload Base dialog: stale bases cache hid delta option** — `fetch_bases()`
+  skipped re-reading `catalogue.json` if `_bases` was already populated from an
+  earlier catalogue fetch.  Uploading a base image and then adding an app in the
+  same session left the new base invisible to `_check_delta_base`, silently
+  hiding the delta row even though the base was present on disk.  `fetch_bases()`
+  now always calls `fetch_catalogue()`.
+
+## [0.25.5] — 2026-03-03
+
+### Changed
+- **Upload Base dialog: sequential per-phase progress bars** — instead of
+  splitting a single bar 50/50 between local install and repo upload, each phase
+  now resets the bar and fills it independently from 0 to 100 %, consistent with
+  how `InstallBaseFromRepoDialog` handles its download/verify/extract phases.
+  Introduces `_set_phase()` to reset the bar and label on each transition.
+
 ## [0.25.4] — 2026-03-03
 
 ### Fixed

@@ -96,6 +96,37 @@ def load_and_fit_width(path: str, max_width: int) -> bytes | None:
         return None
 
 
+def load_logo(path: str, target_height: int, max_width: int = 300) -> bytes | None:
+    """Crop transparent logo to content bounds, then scale to *target_height*.
+
+    Steps:
+    1. Open the image and convert to RGBA.
+    2. ``getbbox()`` → crop to the tight non-transparent bounds.
+    3. Scale so the height is exactly *target_height* (preserving aspect ratio).
+    4. If the resulting width exceeds *max_width*, clamp with ``thumbnail()``.
+
+    Returns PNG bytes suitable for :func:`to_texture`, or ``None`` on error.
+    """
+    try:
+        with Image.open(path) as img:
+            img = img.convert("RGBA")
+            bbox = img.getbbox()
+            if bbox:
+                img = img.crop(bbox)
+            src_w, src_h = img.size
+            if src_h == 0:
+                return None
+            new_w = max(1, int(src_w * target_height / src_h))
+            img = img.resize((new_w, target_height), Image.LANCZOS)
+            if new_w > max_width:
+                img.thumbnail((max_width, target_height), Image.LANCZOS)
+            buf = BytesIO()
+            img.save(buf, format="PNG")
+            return buf.getvalue()
+    except Exception:
+        return None
+
+
 def load_and_fit(path: str, size: int) -> bytes | None:
     """Scale image to fit within *size* × *size*, preserving aspect ratio.
 

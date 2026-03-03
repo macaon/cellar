@@ -16,7 +16,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, GLib, Gio, Gtk, Pango
 
 from cellar.models.app_entry import AppEntry
-from cellar.utils.images import load_and_crop, load_and_fit, load_and_fit_width, to_texture
+from cellar.utils.images import load_and_crop, load_and_fit, load_logo, to_texture
 
 log = logging.getLogger(__name__)
 
@@ -78,7 +78,7 @@ class DetailView(Gtk.Box):
         self._runner_override: str | None = (
             (installed_record or {}).get("runner_override") if is_installed else None
         )
-        self._runner_row: Adw.ActionRow | None = None
+        self._runner_label: Gtk.Label | None = None
         self._runner_warning_icon: Gtk.Image | None = None
         self._runners_loaded: bool = False
 
@@ -96,8 +96,6 @@ class DetailView(Gtk.Box):
         # ── Header bar ────────────────────────────────────────────────────
         header = Adw.HeaderBar()
 
-        # Edit button (pencil) stays in the header bar; Install/Remove/Update
-        # move to the app header row alongside the title.
         if self._is_writable and self._on_edit:
             edit_btn = Gtk.Button(
                 icon_name="document-edit-symbolic",
@@ -116,47 +114,42 @@ class DetailView(Gtk.Box):
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         scroll.set_child(outer)
 
-        # Hero banner — full-width, outside the clamp.
-        hero_widget = self._make_hero()
-        if hero_widget:
-            outer.append(hero_widget)
-            # When a logo is present, pull the clamp up slightly so the logo
-            # overlaps the very bottom of the hero (Steam-style effect).
-            # overlap_px = abs(margin) - box.margin_top(18) = 30-18 = 12 px.
-            if e.logo:
-                hero_widget.set_margin_bottom(-30)
+        # App header (width-clamped).
+        header_clamp = Adw.Clamp(maximum_size=860, tightening_threshold=600)
+        header_clamp.set_child(self._make_app_header())
+        outer.append(header_clamp)
 
-        # Everything else is width-clamped for readability.
-        clamp = Adw.Clamp(maximum_size=860, tightening_threshold=600)
-        clamp.set_margin_bottom(32)
-        outer.append(clamp)
+        # Separator between header and screenshots/content (always shown).
+        outer.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
 
-        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        clamp.set_child(body)
+        # Screenshots band — full-width, flanked by a second separator.
+        screenshots_widget = self._make_screenshots()
+        if screenshots_widget:
+            outer.append(screenshots_widget)
+            second_sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+            second_sep.set_visible(screenshots_widget.get_visible())
+            outer.append(second_sep)
 
-        body.append(self._make_app_header())
+            def _on_screenshots_visible(widget, _pspec):
+                second_sep.set_visible(widget.get_visible())
+
+            screenshots_widget.connect("notify::visible", _on_screenshots_visible)
+
+        # Content (width-clamped).
+        content_clamp = Adw.Clamp(maximum_size=860, tightening_threshold=600)
+        content_clamp.set_margin_bottom(32)
+        outer.append(content_clamp)
+
+        content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
+        content_box.set_margin_top(18)
+        content_box.set_margin_start(18)
+        content_box.set_margin_end(18)
+        content_clamp.set_child(content_box)
 
         if e.description:
-            body.append(self._make_description())
+            content_box.append(self._make_description())
 
-        screenshots = self._make_screenshots()
-        if screenshots:
-            body.append(screenshots)
-
-        details = self._make_details_group()
-        if details is not None:
-            body.append(details)
-
-        if e.built_with:
-            body.append(self._make_components_group())
-
-        body.append(self._make_package_group())
-
-        if e.compatibility_notes:
-            body.append(self._make_notes_group())
-
-        if e.changelog:
-            body.append(self._make_changelog_group())
+        content_box.append(self._make_info_cards())
 
         # Kick off async runner compatibility check.
         self._check_runners_async()
@@ -609,8 +602,8 @@ class DetailView(Gtk.Box):
 
     def _on_runner_selected(self, runner_name: str) -> None:
         self._runner_override = runner_name
-        if self._runner_row:
-            self._runner_row.set_subtitle(runner_name)
+        if self._runner_label:
+            self._runner_label.set_label(runner_name)
         if self._runner_warning_icon and runner_name in self._installed_runners:
             self._runner_warning_icon.set_visible(False)
         # If already installed, apply runner change immediately via bottle.yml.
@@ -630,46 +623,6 @@ class DetailView(Gtk.Box):
     # Section builders
     # ------------------------------------------------------------------
 
-    def _make_hero(self) -> Gtk.Widget | None:
-        if not self._entry.hero:
-            return None
-
-        clamp = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        clamp.set_overflow(Gtk.Overflow.HIDDEN)
-        clamp.set_size_request(-1, 220)
-        clamp.set_vexpand(False)
-
-        def _attach_pic(path: str) -> None:
-            pic = Gtk.Picture.new_for_filename(path)
-            pic.set_content_fit(Gtk.ContentFit.COVER)
-            pic.set_can_shrink(True)
-            pic.set_halign(Gtk.Align.FILL)
-            pic.set_valign(Gtk.Align.CENTER)
-            clamp.append(pic)
-
-        # Fast path: already on disk — attach synchronously, no layout shift.
-        cached = self._peek(self._entry.hero)
-        if cached and os.path.isfile(cached):
-            _attach_pic(cached)
-            return clamp
-
-        # Slow path: needs a network fetch — resolve on a background thread.
-        hero_path = self._entry.hero
-
-        def _worker() -> None:
-            path = self._resolve(hero_path)
-            GLib.idle_add(_on_resolved, path)
-
-        def _on_resolved(path: str) -> bool:
-            if os.path.isfile(path):
-                _attach_pic(path)
-            else:
-                clamp.set_visible(False)
-            return GLib.SOURCE_REMOVE
-
-        threading.Thread(target=_worker, daemon=True).start()
-        return clamp
-
     def _make_app_header(self) -> Gtk.Widget:
         e = self._entry
         box = Gtk.Box(
@@ -678,60 +631,54 @@ class DetailView(Gtk.Box):
             margin_start=18,
             margin_end=18,
             margin_top=18,
-            margin_bottom=12,
+            margin_bottom=18,
         )
 
+        # Logo (96px tall, cropped) or square icon (96×96).
         if e.logo:
-            logo = self._make_logo_widget(e.logo, 300)
+            logo = self._make_logo_widget(e.logo, _ICON_SIZE)
             logo.set_valign(Gtk.Align.CENTER)
             box.append(logo)
         else:
             icon = self._make_icon(e.icon, _ICON_SIZE)
-            icon.set_valign(Gtk.Align.START)
+            icon.set_valign(Gtk.Align.CENTER)
             box.append(icon)
 
-        meta = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        meta.set_valign(Gtk.Align.CENTER)
+        # Meta column: name, version/year, developer/publisher.
+        meta = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         meta.set_hexpand(True)
+        meta.set_valign(Gtk.Align.CENTER)
         box.append(meta)
 
-        if not e.logo:
-            name_lbl = Gtk.Label(label=e.name)
-            name_lbl.add_css_class("title-1")
-            name_lbl.set_halign(Gtk.Align.START)
-            name_lbl.set_wrap(True)
-            meta.append(name_lbl)
+        name_lbl = Gtk.Label(label=e.name)
+        name_lbl.add_css_class("title-1")
+        name_lbl.set_halign(Gtk.Align.START)
+        name_lbl.set_wrap(True)
+        meta.append(name_lbl)
 
-        # "Developer · Publisher · Year · Version" byline.
-        byline_parts: list[str] = []
+        if e.version or e.release_year:
+            ver_parts: list[str] = []
+            if e.version:
+                ver_parts.append(e.version)
+            if e.release_year:
+                ver_parts.append(f"({e.release_year})")
+            ver_lbl = Gtk.Label(label="  ".join(ver_parts))
+            ver_lbl.add_css_class("dim-label")
+            ver_lbl.set_halign(Gtk.Align.START)
+            meta.append(ver_lbl)
+
+        dev_parts: list[str] = []
         if e.developer:
-            byline_parts.append(e.developer)
+            dev_parts.append(e.developer)
         if e.publisher and e.publisher != e.developer:
-            byline_parts.append(e.publisher)
-        if e.release_year:
-            byline_parts.append(str(e.release_year))
-        if e.version:
-            byline_parts.append(e.version)
-        if e.archive_size:
-            byline_parts.append(_fmt_bytes(e.archive_size))
-        if byline_parts:
-            byline = Gtk.Label(label=" · ".join(byline_parts))
-            byline.add_css_class("dim-label")
-            byline.set_halign(Gtk.Align.START)
-            byline.set_wrap(True)
-            meta.append(byline)
+            dev_parts.append(e.publisher)
+        if dev_parts:
+            dev_lbl = Gtk.Label(label=" · ".join(dev_parts))
+            dev_lbl.add_css_class("dim-label")
+            dev_lbl.set_halign(Gtk.Align.START)
+            meta.append(dev_lbl)
 
-        # Category + content-rating chips.
-        chips = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        chips.set_margin_top(4)
-        for text in filter(None, [e.category, e.content_rating]):
-            lbl = Gtk.Label(label=text)
-            lbl.add_css_class("tag")
-            chips.append(lbl)
-        if chips.get_first_child():
-            meta.append(chips)
-
-        # Right column: action row + update + source selector.
+        # Right column: action buttons + update + repo button.
         right = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL,
             spacing=6,
@@ -740,7 +687,7 @@ class DetailView(Gtk.Box):
         )
         box.append(right)
 
-        # Action row: primary button (Install / Open) + trash (visible when installed).
+        # Action row: Install/Open + Gear + Remove.
         action_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         right.append(action_row)
 
@@ -769,60 +716,82 @@ class DetailView(Gtk.Box):
         self._update_btn.connect("clicked", self._on_update_clicked)
         right.append(self._update_btn)
 
-        source_widget = self._make_source_selector()
-        if source_widget:
-            right.append(source_widget)
+        right.append(self._make_repo_button())
 
         self._update_install_button()
         self._setup_gear_actions()
 
         return box
 
-    def _make_source_selector(self) -> Gtk.Widget | None:
-        """Return a GNOME-Software-style source MenuButton, or None for ≤1 repo."""
-        if len(self._source_repos) < 2:
-            return None
+    def _make_repo_button(self) -> Gtk.Widget:
+        """Return a flat MenuButton showing the current source repo.
 
-        # Label + arrow inside the button, matching GNOME Software's layout.
-        self._source_label = Gtk.Label(label=self._source_repos[0].name)
-        self._source_label.set_ellipsize(Pango.EllipsizeMode.END)
-        self._source_label.set_hexpand(True)
-        self._source_label.set_xalign(0)
+        Single repo: popover shows name (heading) + URI (dim-label, selectable).
+        Multiple repos: popover shows radio buttons for source selection.
+        Always shown (even with a single repo), so the user knows the source.
+        """
+        first = self._source_repos[0] if self._source_repos else None
 
-        arrow = Gtk.Image.new_from_icon_name("pan-down-symbolic")
+        self._source_label = Gtk.Label(
+            label=first.name if first else "No source",
+        )
+        self._source_label.add_css_class("dim-label")
+        self._source_label.set_halign(Gtk.Align.END)
 
         btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         btn_box.append(self._source_label)
-        btn_box.append(arrow)
+        btn_box.append(Gtk.Image.new_from_icon_name("pan-down-symbolic"))
 
-        # Popover with radio rows — one per repo.
-        pop_box = Gtk.Box(
-            orientation=Gtk.Orientation.VERTICAL,
-            spacing=2,
-            margin_top=6,
-            margin_bottom=6,
-            margin_start=6,
-            margin_end=6,
-        )
-        radio_group: Gtk.CheckButton | None = None
-        for idx, repo in enumerate(self._source_repos):
-            radio = Gtk.CheckButton(label=repo.name)
-            if radio_group is None:
-                radio_group = radio
-                radio.set_active(True)
-            else:
-                radio.set_group(radio_group)
-            radio.connect("toggled", self._on_source_radio_toggled, idx)
-            pop_box.append(radio)
+        if len(self._source_repos) <= 1:
+            # Single-repo popover: show name + URI info.
+            pop_box = Gtk.Box(
+                orientation=Gtk.Orientation.VERTICAL,
+                spacing=4,
+                margin_top=12,
+                margin_bottom=12,
+                margin_start=12,
+                margin_end=12,
+            )
+            if first:
+                name_lbl = Gtk.Label(label=first.name)
+                name_lbl.add_css_class("heading")
+                name_lbl.set_xalign(0)
+                pop_box.append(name_lbl)
+
+                uri_lbl = Gtk.Label(label=getattr(first, "uri", ""))
+                uri_lbl.add_css_class("dim-label")
+                uri_lbl.set_xalign(0)
+                uri_lbl.set_selectable(True)
+                uri_lbl.set_wrap(True)
+                pop_box.append(uri_lbl)
+        else:
+            # Multi-repo popover: radio buttons for source selection.
+            pop_box = Gtk.Box(
+                orientation=Gtk.Orientation.VERTICAL,
+                spacing=2,
+                margin_top=6,
+                margin_bottom=6,
+                margin_start=6,
+                margin_end=6,
+            )
+            radio_group: Gtk.CheckButton | None = None
+            for idx, repo in enumerate(self._source_repos):
+                radio = Gtk.CheckButton(label=repo.name)
+                if radio_group is None:
+                    radio_group = radio
+                    radio.set_active(True)
+                else:
+                    radio.set_group(radio_group)
+                radio.connect("toggled", self._on_source_radio_toggled, idx)
+                pop_box.append(radio)
 
         popover = Gtk.Popover()
         popover.set_child(pop_box)
+        self._source_popover = popover
 
         menu_btn = Gtk.MenuButton(popover=popover)
         menu_btn.set_child(btn_box)
-        menu_btn.set_size_request(105, 34)
-
-        self._source_popover = popover
+        menu_btn.add_css_class("flat")
         return menu_btn
 
     def _on_source_radio_toggled(self, radio: Gtk.CheckButton, idx: int) -> None:
@@ -839,9 +808,6 @@ class DetailView(Gtk.Box):
         lbl.set_wrap(True)
         lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
         lbl.set_xalign(0)
-        lbl.set_margin_start(18)
-        lbl.set_margin_end(18)
-        lbl.set_margin_bottom(12)
         return lbl
 
     def _make_screenshots(self) -> Gtk.Widget | None:
@@ -862,6 +828,8 @@ class DetailView(Gtk.Box):
                 break
 
         wrapper = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        wrapper.add_css_class("screenshots-band")
+        wrapper.set_margin_top(12)
         wrapper.set_margin_bottom(12)
 
         if cached_paths:
@@ -973,102 +941,124 @@ class DetailView(Gtk.Box):
         dialog = ScreenshotDialog(self._screenshot_paths, index)
         dialog.present(self.get_root())
 
-    def _make_details_group(self) -> Adw.PreferencesGroup | None:
+    def _make_info_cards(self) -> Gtk.Box:
+        """Return a horizontal row of info cards (download, install, wine, category)."""
         e = self._entry
-        has_any = bool(
-            e.developer
-            or (e.publisher and e.publisher != e.developer)
-            or e.release_year
-            or e.languages
-            or e.content_rating
-            or e.tags
-            or e.website
-            or e.store_links
-        )
-        if not has_any:
-            return None
-        group = _group("Details")
-        if e.developer:
-            group.add(_info_row("Developer", e.developer))
-        if e.publisher and e.publisher != e.developer:
-            group.add(_info_row("Publisher", e.publisher))
-        if e.release_year:
-            group.add(_info_row("Released", str(e.release_year)))
-        if e.languages:
-            group.add(_info_row("Languages", ", ".join(e.languages)))
-        if e.content_rating:
-            group.add(_info_row("Content rating", e.content_rating))
-        if e.tags:
-            group.add(_info_row("Tags", ", ".join(e.tags)))
-        if e.website:
-            group.add(_link_row("Website", e.website))
-        for store, url in (e.store_links or {}).items():
-            group.add(_link_row(store.capitalize(), url))
-        return group
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
 
-    def _make_components_group(self) -> Gtk.Widget:
+        def _simple_card(icon_name: str, value: str, label: str) -> Gtk.Box:
+            card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+            card.add_css_class("card")
+            card.set_hexpand(True)
+            card.set_margin_top(8)
+            card.set_margin_bottom(8)
+            card.set_margin_start(8)
+            card.set_margin_end(8)
+
+            icon = Gtk.Image.new_from_icon_name(icon_name)
+            icon.set_pixel_size(24)
+            icon.set_halign(Gtk.Align.CENTER)
+            card.append(icon)
+
+            val_lbl = Gtk.Label(label=value)
+            val_lbl.add_css_class("heading")
+            val_lbl.set_halign(Gtk.Align.CENTER)
+            val_lbl.set_wrap(True)
+            card.append(val_lbl)
+
+            sub_lbl = Gtk.Label(label=label)
+            sub_lbl.add_css_class("dim-label")
+            sub_lbl.add_css_class("caption")
+            sub_lbl.set_halign(Gtk.Align.CENTER)
+            card.append(sub_lbl)
+
+            return card
+
+        if e.archive_size > 0:
+            row.append(_simple_card(
+                "folder-download-symbolic", _fmt_bytes(e.archive_size), "Download",
+            ))
+
+        if e.install_size_estimate > 0:
+            row.append(_simple_card(
+                "drive-harddisk-symbolic",
+                _fmt_bytes(e.install_size_estimate),
+                "Installed size",
+            ))
+
+        if e.built_with:
+            row.append(self._make_wine_card())
+
+        if e.category:
+            cat_text = e.category
+            if e.tags:
+                cat_text = cat_text + "\n" + ", ".join(e.tags)
+            row.append(_simple_card("tag-symbolic", cat_text, "Category"))
+
+        return row
+
+    def _make_wine_card(self) -> Gtk.Box:
+        """Return a card showing Wine runner, DXVK/VKD3D, and a change button."""
         bw = self._entry.built_with
-        group = _group("Wine Components")
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        card.add_css_class("card")
+        card.set_hexpand(True)
+        card.set_margin_top(8)
+        card.set_margin_bottom(8)
+        card.set_margin_start(8)
+        card.set_margin_end(8)
 
-        if bw.runner:
-            runner_subtitle = self._runner_override or bw.runner
-            runner_row = Adw.ActionRow(title="Runner", subtitle=runner_subtitle)
-            runner_row.set_subtitle_selectable(True)
-            warning_icon = Gtk.Image.new_from_icon_name("dialog-warning-symbolic")
-            warning_icon.set_valign(Gtk.Align.CENTER)
-            warning_icon.set_visible(False)
-            warning_icon.add_css_class("warning")
-            runner_row.add_suffix(warning_icon)
-            self._runner_warning_icon = warning_icon
-            if self._is_installed and not self._entry.lock_runner:
-                # Change button only makes sense once the bottle exists on disk,
-                # and only when the packager hasn't locked the runner.
-                change_btn = Gtk.Button(label="Change")
-                change_btn.add_css_class("suggested-action")
-                change_btn.set_valign(Gtk.Align.CENTER)
-                change_btn.connect("clicked", self._on_change_runner_clicked)
-                runner_row.add_suffix(change_btn)
-            elif self._is_installed and self._entry.lock_runner:
-                lock_icon = Gtk.Image.new_from_icon_name("changes-prevent-symbolic")
-                lock_icon.set_valign(Gtk.Align.CENTER)
-                lock_icon.add_css_class("dim-label")
-                runner_row.add_suffix(lock_icon)
-            self._runner_row = runner_row
-            group.add(runner_row)
-        else:
-            group.add(_info_row("Runner", bw.runner))
+        icon = Gtk.Image.new_from_icon_name("system-run-symbolic")
+        icon.set_pixel_size(24)
+        icon.set_halign(Gtk.Align.CENTER)
+        card.append(icon)
 
-        if bw.dxvk:
-            group.add(_info_row("DXVK", bw.dxvk))
-        if bw.vkd3d:
-            group.add(_info_row("VKD3D", bw.vkd3d))
-        return group
+        runner_name = self._runner_override or (bw.runner if bw else "") or ""
+        runner_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        runner_row.set_halign(Gtk.Align.CENTER)
+        card.append(runner_row)
 
-    def _make_package_group(self) -> Gtk.Widget:
-        e = self._entry
-        group = _group("Package")
-        if e.archive_size:
-            group.add(_info_row("Download size", _fmt_bytes(e.archive_size)))
-        if e.install_size_estimate:
-            group.add(_info_row("Install size", _fmt_bytes(e.install_size_estimate)))
-        if e.update_strategy:
-            label = (
-                "Safe — preserves user data"
-                if e.update_strategy == "safe"
-                else "Full replacement"
-            )
-            group.add(_info_row("Update strategy", label))
-        return group
+        self._runner_label = Gtk.Label(label=runner_name)
+        self._runner_label.add_css_class("heading")
+        runner_row.append(self._runner_label)
 
-    def _make_notes_group(self) -> Gtk.Widget:
-        group = _group("Compatibility Notes")
-        group.add(_text_row(self._entry.compatibility_notes))
-        return group
+        self._runner_warning_icon = Gtk.Image.new_from_icon_name("dialog-warning-symbolic")
+        self._runner_warning_icon.add_css_class("warning")
+        self._runner_warning_icon.set_visible(False)
+        runner_row.append(self._runner_warning_icon)
 
-    def _make_changelog_group(self) -> Gtk.Widget:
-        group = _group("What's New")
-        group.add(_text_row(self._entry.changelog))
-        return group
+        if bw and (bw.dxvk or bw.vkd3d):
+            sub_parts: list[str] = []
+            if bw.dxvk:
+                sub_parts.append(f"DXVK {bw.dxvk}")
+            if bw.vkd3d:
+                sub_parts.append(f"VKD3D {bw.vkd3d}")
+            sub_lbl = Gtk.Label(label=" · ".join(sub_parts))
+            sub_lbl.add_css_class("dim-label")
+            sub_lbl.add_css_class("caption")
+            sub_lbl.set_halign(Gtk.Align.CENTER)
+            card.append(sub_lbl)
+
+        if self._is_installed and not self._entry.lock_runner:
+            change_btn = Gtk.Button(label="Change")
+            change_btn.add_css_class("suggested-action")
+            change_btn.add_css_class("flat")
+            change_btn.set_halign(Gtk.Align.CENTER)
+            change_btn.connect("clicked", self._on_change_runner_clicked)
+            card.append(change_btn)
+        elif self._is_installed and self._entry.lock_runner:
+            lock_icon = Gtk.Image.new_from_icon_name("changes-prevent-symbolic")
+            lock_icon.set_halign(Gtk.Align.CENTER)
+            lock_icon.add_css_class("dim-label")
+            card.append(lock_icon)
+
+        bottom_lbl = Gtk.Label(label="Wine")
+        bottom_lbl.add_css_class("dim-label")
+        bottom_lbl.add_css_class("caption")
+        bottom_lbl.set_halign(Gtk.Align.CENTER)
+        card.append(bottom_lbl)
+
+        return card
 
     # ------------------------------------------------------------------
     # Asset helpers
@@ -1143,34 +1133,33 @@ class DetailView(Gtk.Box):
         threading.Thread(target=_worker, daemon=True).start()
         return stack
 
-    def _make_logo_widget(self, rel_path: str, max_width: int) -> Gtk.Widget:
-        """Return a widget displaying the transparent logo image.
+    def _make_logo_widget(self, rel_path: str, target_height: int) -> Gtk.Widget:
+        """Return a widget displaying the transparent logo at *target_height* px tall.
 
-        Fast path if cached; otherwise loads on a background thread and swaps
-        in with a crossfade.  The logo replaces the icon and name label in the
-        detail view header.
+        Crops to tight non-transparent bounds via :func:`load_logo`, so the
+        result always has the natural width of the logo content.  Fast path if
+        cached; otherwise loads on a background thread and swaps in with a
+        crossfade.
         """
         def _build_picture(png_bytes: bytes) -> Gtk.Picture:
             texture = to_texture(png_bytes)
             pic = Gtk.Picture.new_for_paintable(texture)
             pic.set_content_fit(Gtk.ContentFit.CONTAIN)
             pic.set_halign(Gtk.Align.START)
-            # Pin both dimensions explicitly so the widget always occupies its
-            # true size regardless of which path (fast/slow) created it.
-            # Gtk.Picture with CONTAIN can report minimum height=0, which causes
-            # the horizontal box to squash it when a sibling has hexpand=True.
+            # Pin both dimensions explicitly so GTK never squashes the widget
+            # when a sibling has hexpand=True.
             pic.set_size_request(texture.get_width(), texture.get_height())
             return pic
 
         cached = self._peek(rel_path)
         if cached and os.path.isfile(cached):
-            png_bytes = load_and_fit_width(cached, max_width)
+            png_bytes = load_logo(cached, target_height)
             if png_bytes is not None:
                 return _build_picture(png_bytes)
 
         # Slow path: invisible placeholder, swap in after background load.
         placeholder = Gtk.Box()
-        placeholder.set_size_request(max_width, max_width // 2)
+        placeholder.set_size_request(target_height * 2, target_height)
 
         stack = Gtk.Stack()
         stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
@@ -1183,7 +1172,7 @@ class DetailView(Gtk.Box):
         def _worker() -> None:
             path = self._resolve(logo_path)
             if os.path.isfile(path):
-                png_bytes = load_and_fit_width(path, max_width)
+                png_bytes = load_logo(path, target_height)
                 if png_bytes is not None:
                     GLib.idle_add(_on_loaded, png_bytes)
 

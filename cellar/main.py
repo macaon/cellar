@@ -35,6 +35,9 @@ class CellarApplication(Adw.Application):
                 ".screenshot-nav {"
                 "  transition: opacity 150ms ease-in-out;"
                 "}"
+                ".screenshots-band {"
+                "  background-color: alpha(@window_fg_color, 0.04);"
+                "}"
             )
             Gtk.StyleContext.add_provider_for_display(
                 display, css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION

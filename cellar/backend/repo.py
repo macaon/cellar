@@ -460,11 +460,11 @@ class Repo:
     def fetch_bases(self) -> dict[str, BaseEntry]:
         """Return the base-image map for this repo.
 
-        Calls ``fetch_catalogue`` if the bases have not been loaded yet.
+        Always re-reads catalogue.json so callers see bases that were
+        uploaded after the catalogue was first fetched.
         Keys are runner name strings (e.g. ``"soda-9.0-1"``).
         """
-        if not self._bases:
-            self.fetch_catalogue()
+        self.fetch_catalogue()
         return dict(self._bases)
 
     def fetch_entry_by_id(self, app_id: str) -> AppEntry:

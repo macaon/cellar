@@ -591,6 +591,12 @@ class UploadBaseDialog(Adw.Dialog):
         box.append(self._cancel_progress_btn)
         return box
 
+    def _set_phase(self, label: str) -> None:
+        """Reset the progress bar and update the phase label. Call via idle_add."""
+        self._progress_label.set_text(label)
+        self._progress_bar.set_fraction(0.0)
+        self._progress_bar.set_text("")
+
     # ── Scan phase ───────────────────────────────────────────────────────
 
     def _scan(self) -> None:
@@ -674,14 +680,13 @@ class UploadBaseDialog(Adw.Dialog):
         from cellar.backend import base_store
         from cellar.backend.installer import InstallCancelled
 
-        # Phase 1: install locally
-        phase_frac = 0.5 if repo else 1.0
+        # Phase 1: install locally (bar goes 0→1)
+        GLib.idle_add(self._set_phase, "Installing base image locally\u2026")
 
         def _local_prog(f: float) -> None:
             if self._cancel_event.is_set():
                 raise _Cancelled
-            GLib.idle_add(self._progress_label.set_text, "Installing base image locally\u2026")
-            GLib.idle_add(self._progress_bar.set_fraction, f * phase_frac)
+            GLib.idle_add(self._progress_bar.set_fraction, f)
 
         _local_prog(0.0)
         try:
@@ -705,9 +710,8 @@ class UploadBaseDialog(Adw.Dialog):
             GLib.idle_add(self._progress_bar.set_fraction, 1.0)
             return
 
-        # Phase 2: upload archive to repo
-        GLib.idle_add(self._progress_label.set_text, "Uploading to repository\u2026")
-        GLib.idle_add(self._progress_bar.set_text, "")
+        # Phase 2: upload archive to repo (bar resets and goes 0→1)
+        GLib.idle_add(self._set_phase, "Uploading to repository\u2026")
 
         from cellar.backend.packager import upsert_base
 
@@ -744,7 +748,7 @@ class UploadBaseDialog(Adw.Dialog):
                     )
                     GLib.idle_add(
                         self._progress_bar.set_fraction,
-                        0.5 + min(copied / src_size * 0.5, 0.5),
+                        min(copied / src_size, 1.0),
                     )
         except _Cancelled:
             raise

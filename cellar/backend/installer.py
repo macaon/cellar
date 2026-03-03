@@ -35,7 +35,6 @@ from any thread (the UI layer wraps it in ``GLib.idle_add``).
 
 from __future__ import annotations
 
-import os
 import shutil
 import subprocess
 import sys
@@ -804,21 +803,19 @@ def _seed_from_base(
     bottle_dest: Path,
     cancel_event: threading.Event | None = None,
 ) -> None:
-    """Populate *bottle_dest* with hardlinks to every file in *base_dir*.
+    """Populate *bottle_dest* with copies of every file in *base_dir*.
 
-    Tries ``rsync --link-dest`` first (fastest, handles edge cases well).
-    Falls back to a pure-Python recursive hardlink walk if rsync is not
-    available or if the source and destination are on different filesystems
-    (in which case ``os.link`` falls back to ``shutil.copy2`` per-file).
+    Uses ``cp --reflink=auto`` which creates copy-on-write clones on btrfs
+    and XFS, so Wine can freely update system files after a runner change
+    without touching the shared base image.  On other filesystems
+    ``--reflink=auto`` silently falls back to a regular copy.
+
+    Falls back to a pure-Python copy walk if ``cp`` is unavailable.
     """
-    if shutil.which("rsync"):
+    cp = shutil.which("cp")
+    if cp:
         proc = subprocess.Popen(
-            [
-                "rsync", "-a",
-                f"--link-dest={base_dir}/",
-                f"{base_dir}/",
-                f"{bottle_dest}/",
-            ],
+            [cp, "-a", "--reflink=auto", f"{base_dir}/.", f"{bottle_dest}/"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
         )
@@ -830,9 +827,9 @@ def _seed_from_base(
             time.sleep(0.05)
         if proc.returncode == 0:
             return
-        # rsync failed — fall through to the Python path.
+        # cp failed — fall through to the Python path.
 
-    # Python fallback: hardlink file-by-file; copy on cross-device error.
+    # Python fallback: copy file-by-file.
     for src in base_dir.rglob("*"):
         _check_cancel(cancel_event)
         rel = src.relative_to(base_dir)
@@ -841,10 +838,7 @@ def _seed_from_base(
             dst.mkdir(parents=True, exist_ok=True)
         elif src.is_file():
             dst.parent.mkdir(parents=True, exist_ok=True)
-            try:
-                os.link(src, dst)
-            except OSError:
-                shutil.copy2(src, dst)
+            shutil.copy2(src, dst)
 
 
 def _overlay_delta(
@@ -852,11 +846,11 @@ def _overlay_delta(
     bottle_dest: Path,
     cancel_event: threading.Event | None = None,
 ) -> None:
-    """Overlay delta files onto *bottle_dest*, breaking hardlinks as needed.
+    """Overlay delta files onto *bottle_dest*.
 
-    For each file in *delta_src*, the corresponding hardlinked file in
-    *bottle_dest* (if any) is unlinked before copying so the base inode is
-    not modified.  Directories are created as needed.
+    For each file in *delta_src*, any existing file at the destination is
+    removed before copying so the base content is not modified in-place.
+    Directories are created as needed.
 
     After copying, applies the ``.cellar_delete`` manifest (if present) to
     remove any base files that were absent from the original app backup.

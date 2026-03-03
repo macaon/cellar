@@ -120,10 +120,11 @@ class DetailView(Gtk.Box):
         hero_widget = self._make_hero()
         if hero_widget:
             outer.append(hero_widget)
-            # When a logo is present, pull the clamp up so the logo overlaps
-            # the bottom ~25% of the hero (Steam-style overlay effect).
+            # When a logo is present, pull the clamp up slightly so the logo
+            # overlaps the very bottom of the hero (Steam-style effect).
+            # overlap_px = abs(margin) - box.margin_top(18) = 30-18 = 12 px.
             if e.logo:
-                hero_widget.set_margin_bottom(-60)
+                hero_widget.set_margin_bottom(-30)
 
         # Everything else is width-clamped for readability.
         clamp = Adw.Clamp(maximum_size=860, tightening_threshold=600)
@@ -1150,10 +1151,15 @@ class DetailView(Gtk.Box):
         detail view header.
         """
         def _build_picture(png_bytes: bytes) -> Gtk.Picture:
-            pic = Gtk.Picture.new_for_paintable(to_texture(png_bytes))
+            texture = to_texture(png_bytes)
+            pic = Gtk.Picture.new_for_paintable(texture)
             pic.set_content_fit(Gtk.ContentFit.CONTAIN)
             pic.set_halign(Gtk.Align.START)
-            pic.set_size_request(max_width, -1)
+            # Pin both dimensions explicitly so the widget always occupies its
+            # true size regardless of which path (fast/slow) created it.
+            # Gtk.Picture with CONTAIN can report minimum height=0, which causes
+            # the horizontal box to squash it when a sibling has hexpand=True.
+            pic.set_size_request(texture.get_width(), texture.get_height())
             return pic
 
         cached = self._peek(rel_path)

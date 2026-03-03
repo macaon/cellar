@@ -2,6 +2,15 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.25.4] — 2026-03-03
+
+### Fixed
+- **Delta package install failing with "not a gzip file"** — `install_app` was
+  hardcoding the temp download destination to `archive.tar.gz`, so
+  `_extract_archive`'s extension-based dispatch always chose the gzip path even
+  for `.tar.zst` delta archives downloaded over HTTP or GVFS.  The temp
+  filename now mirrors the source extension.
+
 ## [0.25.3] — 2026-03-03
 
 ### Changed

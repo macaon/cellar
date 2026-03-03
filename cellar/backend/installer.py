@@ -144,9 +144,10 @@ def install_app(
             phase_cb("Downloading package\u2026")
         if download_cb:
             download_cb(0.0)
+        _arch_ext = ".tar.zst" if archive_uri.endswith(".tar.zst") else ".tar.gz"
         archive_path = _acquire_archive(
             archive_uri,
-            tmp / "archive.tar.gz",
+            tmp / f"archive{_arch_ext}",
             expected_size=entry.archive_size,
             progress_cb=download_cb,
             stats_cb=download_stats_cb,

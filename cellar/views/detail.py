@@ -120,6 +120,10 @@ class DetailView(Gtk.Box):
         hero_widget = self._make_hero()
         if hero_widget:
             outer.append(hero_widget)
+            # When a logo is present, pull the clamp up so the logo overlaps
+            # the bottom ~25% of the hero (Steam-style overlay effect).
+            if e.logo:
+                hero_widget.set_margin_bottom(-60)
 
         # Everything else is width-clamped for readability.
         clamp = Adw.Clamp(maximum_size=860, tightening_threshold=600)
@@ -1149,6 +1153,7 @@ class DetailView(Gtk.Box):
             pic = Gtk.Picture.new_for_paintable(to_texture(png_bytes))
             pic.set_content_fit(Gtk.ContentFit.CONTAIN)
             pic.set_halign(Gtk.Align.START)
+            pic.set_size_request(max_width, -1)
             return pic
 
         cached = self._peek(rel_path)

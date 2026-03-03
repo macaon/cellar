@@ -676,7 +676,7 @@ class DetailView(Gtk.Box):
             margin_bottom=12,
         )
 
-        icon = self._make_icon(e.icon, _ICON_SIZE, cover_fallback=e.cover)
+        icon = self._make_icon(e.icon, _ICON_SIZE)
         icon.set_valign(Gtk.Align.START)
         box.append(icon)
 

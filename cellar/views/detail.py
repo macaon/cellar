@@ -16,7 +16,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, GLib, Gio, Gtk, Pango
 
 from cellar.models.app_entry import AppEntry
-from cellar.utils.images import load_and_crop, load_and_fit, to_texture
+from cellar.utils.images import load_and_crop, load_and_fit, load_and_fit_width, to_texture
 
 log = logging.getLogger(__name__)
 
@@ -676,20 +676,26 @@ class DetailView(Gtk.Box):
             margin_bottom=12,
         )
 
-        icon = self._make_icon(e.icon, _ICON_SIZE)
-        icon.set_valign(Gtk.Align.START)
-        box.append(icon)
+        if e.logo:
+            logo = self._make_logo_widget(e.logo, 300)
+            logo.set_valign(Gtk.Align.CENTER)
+            box.append(logo)
+        else:
+            icon = self._make_icon(e.icon, _ICON_SIZE)
+            icon.set_valign(Gtk.Align.START)
+            box.append(icon)
 
         meta = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         meta.set_valign(Gtk.Align.CENTER)
         meta.set_hexpand(True)
         box.append(meta)
 
-        name_lbl = Gtk.Label(label=e.name)
-        name_lbl.add_css_class("title-1")
-        name_lbl.set_halign(Gtk.Align.START)
-        name_lbl.set_wrap(True)
-        meta.append(name_lbl)
+        if not e.logo:
+            name_lbl = Gtk.Label(label=e.name)
+            name_lbl.add_css_class("title-1")
+            name_lbl.set_halign(Gtk.Align.START)
+            name_lbl.set_wrap(True)
+            meta.append(name_lbl)
 
         # "Developer · Publisher · Year · Version" byline.
         byline_parts: list[str] = []
@@ -1126,6 +1132,53 @@ class DetailView(Gtk.Box):
                 real = Gtk.Image.new_from_paintable(texture)
                 real.set_pixel_size(size)
             stack.add_named(real, "real")
+            stack.set_visible_child_name("real")
+            return GLib.SOURCE_REMOVE
+
+        threading.Thread(target=_worker, daemon=True).start()
+        return stack
+
+    def _make_logo_widget(self, rel_path: str, max_width: int) -> Gtk.Widget:
+        """Return a widget displaying the transparent logo image.
+
+        Fast path if cached; otherwise loads on a background thread and swaps
+        in with a crossfade.  The logo replaces the icon and name label in the
+        detail view header.
+        """
+        def _build_picture(png_bytes: bytes) -> Gtk.Picture:
+            pic = Gtk.Picture.new_for_paintable(to_texture(png_bytes))
+            pic.set_content_fit(Gtk.ContentFit.CONTAIN)
+            pic.set_halign(Gtk.Align.START)
+            return pic
+
+        cached = self._peek(rel_path)
+        if cached and os.path.isfile(cached):
+            png_bytes = load_and_fit_width(cached, max_width)
+            if png_bytes is not None:
+                return _build_picture(png_bytes)
+
+        # Slow path: invisible placeholder, swap in after background load.
+        placeholder = Gtk.Box()
+        placeholder.set_size_request(max_width, max_width // 2)
+
+        stack = Gtk.Stack()
+        stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+        stack.set_transition_duration(150)
+        stack.add_named(placeholder, "placeholder")
+        stack.set_halign(Gtk.Align.START)
+
+        logo_path = rel_path
+
+        def _worker() -> None:
+            path = self._resolve(logo_path)
+            if os.path.isfile(path):
+                png_bytes = load_and_fit_width(path, max_width)
+                if png_bytes is not None:
+                    GLib.idle_add(_on_loaded, png_bytes)
+
+        def _on_loaded(png_bytes: bytes) -> bool:
+            pic = _build_picture(png_bytes)
+            stack.add_named(pic, "real")
             stack.set_visible_child_name("real")
             return GLib.SOURCE_REMOVE
 

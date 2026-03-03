@@ -73,6 +73,7 @@ class AddAppDialog(Adw.Dialog):
         self._icon_path: str = ""
         self._cover_path: str = ""
         self._hero_path: str = ""
+        self._logo_path: str = ""
         self._screenshot_paths: list[str] = []
 
         # Track whether the user has manually edited the ID field
@@ -266,6 +267,7 @@ class AddAppDialog(Adw.Dialog):
         self._icon_row = self._make_image_row("Icon", self._pick_icon)
         self._cover_row = self._make_image_row("Cover", self._pick_cover)
         self._hero_row = self._make_image_row("Hero", self._pick_hero)
+        self._logo_row = self._make_image_row("Logo", self._pick_logo)
         self._screenshots_row = self._make_image_row(
             "Screenshots", self._pick_screenshots, multi=True
         )
@@ -273,6 +275,7 @@ class AddAppDialog(Adw.Dialog):
         images_group.add(self._icon_row)
         images_group.add(self._cover_row)
         images_group.add(self._hero_row)
+        images_group.add(self._logo_row)
         images_group.add(self._screenshots_row)
         page.add(images_group)
 
@@ -566,6 +569,14 @@ class AddAppDialog(Adw.Dialog):
             self._hero_path = chooser.get_file().get_path()
             self._hero_row.set_subtitle(Path(self._hero_path).name)
 
+    def _pick_logo(self, _btn) -> None:
+        self._pick_image("Select Logo (transparent PNG)", False, self._on_logo_chosen)
+
+    def _on_logo_chosen(self, _chooser, response, chooser) -> None:
+        if response == Gtk.ResponseType.ACCEPT:
+            self._logo_path = chooser.get_file().get_path()
+            self._logo_row.set_subtitle(Path(self._logo_path).name)
+
     def _pick_screenshots(self, _btn) -> None:
         self._pick_image("Select Screenshots", True, self._on_screenshots_chosen)
 
@@ -618,6 +629,7 @@ class AddAppDialog(Adw.Dialog):
         icon_rel = f"apps/{app_id}/icon{icon_ext}" if self._icon_path else ""
         cover_rel = f"apps/{app_id}/cover{Path(self._cover_path).suffix}" if self._cover_path else ""
         hero_rel = f"apps/{app_id}/hero{Path(self._hero_path).suffix}" if self._hero_path else ""
+        logo_rel = f"apps/{app_id}/logo.png" if self._logo_path else ""
         screenshot_rels = tuple(
             f"apps/{app_id}/screenshots/{i + 1:02d}{Path(p).suffix}"
             for i, p in enumerate(self._screenshot_paths)
@@ -640,6 +652,7 @@ class AddAppDialog(Adw.Dialog):
             icon=icon_rel,
             cover=cover_rel,
             hero=hero_rel,
+            logo=logo_rel,
             screenshots=screenshot_rels,
             archive=archive_rel,
             archive_size=archive_size,
@@ -655,6 +668,7 @@ class AddAppDialog(Adw.Dialog):
             "icon": self._icon_path,
             "cover": self._cover_path,
             "hero": self._hero_path,
+            "logo": self._logo_path,
             "screenshots": self._screenshot_paths,
         }
 

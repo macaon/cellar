@@ -103,8 +103,9 @@ class AppEntry:
 
     # ── Media (repo-relative paths) ───────────────────────────────────────
     icon: str = ""       # square icon — browse grid
-    cover: str = ""      # portrait cover — detail view
+    cover: str = ""      # portrait cover — browse grid (games)
     hero: str = ""       # wide banner — detail view header
+    logo: str = ""       # transparent logo (Steam-style) — replaces icon+name in detail view
     screenshots: tuple[str, ...] = ()
 
     # ── Installation ──────────────────────────────────────────────────────
@@ -154,6 +155,7 @@ class AppEntry:
             icon=data.get("icon", ""),
             cover=data.get("cover", ""),
             hero=data.get("hero", ""),
+            logo=data.get("logo", ""),
             screenshots=tuple(data.get("screenshots", [])),
             archive=data.get("archive", ""),
             archive_size=int(data.get("archive_size", 0)),
@@ -195,6 +197,7 @@ class AppEntry:
         _opt_str(d, "icon", self.icon)
         _opt_str(d, "cover", self.cover)
         _opt_str(d, "hero", self.hero)
+        _opt_str(d, "logo", self.logo)
         _opt_seq(d, "screenshots", self.screenshots)
         _opt_str(d, "archive", self.archive)
         if self.archive_size:

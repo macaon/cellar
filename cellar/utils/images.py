@@ -21,6 +21,7 @@ _IMAGE_MAX_SIZE: dict[str, tuple[int, int]] = {
     "icon":       (256, 256),
     "cover":      (300, 400),
     "hero":       (1920, 620),
+    "logo":       (300, 300),   # Steam-style transparent logo; output always PNG
     "screenshot": (1920, 1080),
 }
 
@@ -66,6 +67,28 @@ def load_and_crop(path: str, w: int, h: int) -> bytes | None:
             x_off = (scaled_w - w) // 2
             y_off = (scaled_h - h) // 2
             img = img.crop((x_off, y_off, x_off + w, y_off + h))
+            buf = BytesIO()
+            img.save(buf, format="PNG")
+            return buf.getvalue()
+    except Exception:
+        return None
+
+
+def load_and_fit_width(path: str, max_width: int) -> bytes | None:
+    """Scale image to fit within *max_width*, preserving aspect ratio and alpha.
+
+    Unlike :func:`load_and_fit`, no square canvas is used — the output image
+    has the natural (possibly non-square) dimensions of the scaled image.
+    Suitable for transparent logo images where height varies by content.
+    Returns PNG bytes suitable for :func:`to_texture`, or ``None`` on error.
+    """
+    try:
+        with Image.open(path) as img:
+            img = img.convert("RGBA")
+            src_w, src_h = img.size
+            if src_w > max_width:
+                new_h = max(1, int(src_h * max_width / src_w))
+                img = img.resize((max_width, new_h), Image.LANCZOS)
             buf = BytesIO()
             img.save(buf, format="PNG")
             return buf.getvalue()
@@ -141,6 +164,22 @@ def optimize_image(src: str | Path, dest: Path, role: str) -> None:
             return
 
     max_dims = _IMAGE_MAX_SIZE.get(role)
+
+    # Logo: always convert to PNG to preserve transparency; always run through
+    # Pillow so the dest extension (.png) is valid regardless of source format.
+    if role == "logo" and max_dims:
+        try:
+            with Image.open(src) as img:
+                img = img.convert("RGBA")
+                img.thumbnail(max_dims, Image.LANCZOS)
+                png_dest = dest.with_suffix(".png")
+                img.save(png_dest, format="PNG", optimize=True)
+                if png_dest != dest:
+                    png_dest.rename(dest)
+        except Exception:
+            shutil.copyfile(src, dest)
+        return
+
     if not max_dims or role == "icon":
         shutil.copyfile(src, dest)
         return

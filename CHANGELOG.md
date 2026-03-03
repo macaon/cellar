@@ -2,6 +2,22 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.20.8] — 2026-03-03
+
+### Changed
+- **Delta bases keyed by runner, not Windows version** — different Wine runners
+  (`soda-9.0-1`, `ge-proton10-32`, `sys-wine`, …) each ship completely different
+  `system32` DLL sets, so matching on Windows version produced useless deltas
+  when the base and app bottles used different runners.  The base image system
+  is now keyed by runner name throughout:
+  - `AppEntry.base_win_ver` → `AppEntry.base_runner`
+  - `BaseEntry.win_ver` → `BaseEntry.runner`
+  - `bases` map in `catalogue.json` keyed by runner name (e.g. `"soda-9.0-1"`)
+  - `_WIN_VER_LABELS` removed — runner names are already human-readable
+  - `UploadBaseDialog` scans `Runner:` field instead of `Windows:`
+  - Database migration renames `bases.win_ver` column to `bases.runner`
+  - Backwards-compatible: `AppEntry.from_dict` still reads old `base_win_ver`
+
 ## [0.20.7] — 2026-03-02
 
 ### Fixed

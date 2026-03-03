@@ -372,7 +372,7 @@ def _write_catalogue(
 
 def upsert_base(
     repo_root: Path,
-    win_ver: str,
+    runner: str,
     archive_path: str,
     archive_crc32: str = "",
     archive_size: int = 0,
@@ -380,8 +380,8 @@ def upsert_base(
     """Add or replace a base image entry in ``catalogue.json``.
 
     *archive_path* must be a repo-relative path (e.g.
-    ``"bases/win10-base.tar.gz"``).  The physical archive must already have
-    been copied to the repo before calling this.
+    ``"bases/soda-9.0-1-base.tar.gz"``).  The physical archive must already
+    have been copied to the repo before calling this.
     """
     cat_path = repo_root / "catalogue.json"
     if cat_path.exists():
@@ -391,15 +391,15 @@ def upsert_base(
         bases: dict = dict(raw.get("bases") or {})
     else:
         apps, categories, bases = [], None, {}
-    bases[win_ver] = {"archive": archive_path}
+    bases[runner] = {"archive": archive_path}
     if archive_size:
-        bases[win_ver]["archive_size"] = archive_size
+        bases[runner]["archive_size"] = archive_size
     if archive_crc32:
-        bases[win_ver]["archive_crc32"] = archive_crc32
+        bases[runner]["archive_crc32"] = archive_crc32
     _write_catalogue(cat_path, apps, categories, bases)
 
 
-def remove_base(repo_root: Path, win_ver: str) -> None:
+def remove_base(repo_root: Path, runner: str) -> None:
     """Remove a base image entry from ``catalogue.json``."""
     cat_path = repo_root / "catalogue.json"
     if not cat_path.exists():
@@ -410,7 +410,7 @@ def remove_base(repo_root: Path, win_ver: str) -> None:
     apps = raw.get("apps", [])
     categories = raw.get("categories")
     bases = dict(raw.get("bases") or {})
-    bases.pop(win_ver, None)
+    bases.pop(runner, None)
     _write_catalogue(cat_path, apps, categories, bases if bases else None)
 
 

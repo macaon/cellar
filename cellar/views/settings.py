@@ -23,17 +23,6 @@ from cellar.backend.config import certs_dir, load_repos, save_repos
 
 log = logging.getLogger(__name__)
 
-# Human-readable labels for bottle.yml Windows: values.
-_WIN_VER_LABELS: dict[str, str] = {
-    "win10": "Windows 10",
-    "win11": "Windows 11",
-    "win7": "Windows 7",
-    "win8": "Windows 8",
-    "win81": "Windows 8.1",
-    "winxp": "Windows XP",
-    "win2k": "Windows 2000",
-}
-
 
 class SettingsDialog(Adw.PreferencesDialog):
     """Application preferences window.
@@ -196,8 +185,7 @@ class SettingsDialog(Adw.PreferencesDialog):
             self._delta_group.add(row)
 
     def _make_base_row(self, rec: dict) -> Adw.ActionRow:
-        win_ver = rec["win_ver"]
-        label = _WIN_VER_LABELS.get(win_ver, win_ver)
+        runner = rec["runner"]
         installed_at = rec.get("installed_at", "")
         if installed_at:
             try:
@@ -205,9 +193,9 @@ class SettingsDialog(Adw.PreferencesDialog):
                 installed_at = dt.strftime("%Y-%m-%d")
             except ValueError:
                 pass
-        subtitle = f"{win_ver} · installed {installed_at}" if installed_at else win_ver
+        subtitle = f"installed {installed_at}" if installed_at else ""
 
-        row = Adw.ActionRow(title=label, subtitle=subtitle)
+        row = Adw.ActionRow(title=runner, subtitle=subtitle)
 
         del_btn = Gtk.Button(
             icon_name="user-trash-symbolic",
@@ -216,7 +204,7 @@ class SettingsDialog(Adw.PreferencesDialog):
             tooltip_text="Remove base image",
         )
         del_btn.add_css_class("destructive-action")
-        del_btn.connect("clicked", self._on_remove_base, win_ver, label)
+        del_btn.connect("clicked", self._on_remove_base, runner)
         row.add_suffix(del_btn)
         return row
 
@@ -248,11 +236,11 @@ class SettingsDialog(Adw.PreferencesDialog):
         )
         dialog.present(self)
 
-    def _on_remove_base(self, _btn: Gtk.Button, win_ver: str, label: str) -> None:
+    def _on_remove_base(self, _btn: Gtk.Button, runner: str) -> None:
         alert = Adw.AlertDialog(
-            heading=f"Remove {label} Base?",
+            heading=f"Remove {runner} Base?",
             body=(
-                f"The {label} base image will be removed from this machine. "
+                f"The {runner} base image will be removed from this machine. "
                 "Apps that use this base can still be installed — the base "
                 "will be downloaded again automatically."
             ),
@@ -260,14 +248,14 @@ class SettingsDialog(Adw.PreferencesDialog):
         alert.add_response("cancel", "Cancel")
         alert.add_response("remove", "Remove")
         alert.set_response_appearance("remove", Adw.ResponseAppearance.DESTRUCTIVE)
-        alert.connect("response", self._on_remove_base_confirmed, win_ver)
+        alert.connect("response", self._on_remove_base_confirmed, runner)
         alert.present(self)
 
-    def _on_remove_base_confirmed(self, _alert, response: str, win_ver: str) -> None:
+    def _on_remove_base_confirmed(self, _alert, response: str, runner: str) -> None:
         if response != "remove":
             return
         from cellar.backend import base_store
-        base_store.remove_base(win_ver)
+        base_store.remove_base(runner)
         self._rebuild_delta_rows()
 
     # ------------------------------------------------------------------
@@ -393,7 +381,7 @@ class UploadBaseDialog(Adw.Dialog):
         self._archive_path = archive_path
         self._writable_repos = writable_repos
         self._on_done = on_done
-        self._win_ver = ""
+        self._runner = ""
         self._cancel_event = threading.Event()
         self._pulse_id: int | None = None
         self._build_ui()
@@ -458,9 +446,9 @@ class UploadBaseDialog(Adw.Dialog):
         group = Adw.PreferencesGroup()
         page.add(group)
 
-        self._win_ver_row = Adw.ActionRow(title="Windows version")
-        self._win_ver_row.set_subtitle("")
-        group.add(self._win_ver_row)
+        self._runner_row = Adw.ActionRow(title="Runner")
+        self._runner_row.set_subtitle("")
+        group.add(self._runner_row)
 
         self._already_installed_row = Adw.ActionRow(
             title="Replaces existing base",
@@ -531,21 +519,20 @@ class UploadBaseDialog(Adw.Dialog):
         from cellar.backend.packager import read_bottle_yml
 
         yml = read_bottle_yml(self._archive_path)
-        win_ver = yml.get("Windows", "")
+        runner = yml.get("Runner", "")
 
         def _apply() -> None:
             if self._pulse_id is not None:
                 GLib.source_remove(self._pulse_id)
                 self._pulse_id = None
-            if not win_ver:
+            if not runner:
                 self._show_scan_error()
                 return
-            self._win_ver = win_ver
-            label = _WIN_VER_LABELS.get(win_ver, win_ver)
-            self._win_ver_row.set_subtitle(f"{label} ({win_ver})")
+            self._runner = runner
+            self._runner_row.set_subtitle(runner)
 
             from cellar.backend.base_store import is_base_installed
-            self._already_installed_row.set_visible(is_base_installed(win_ver))
+            self._already_installed_row.set_visible(is_base_installed(runner))
 
             self._upload_btn.set_sensitive(True)
             self._upload_btn.set_visible(True)
@@ -554,11 +541,11 @@ class UploadBaseDialog(Adw.Dialog):
         GLib.idle_add(_apply)
 
     def _show_scan_error(self) -> None:
-        """Replace content with an error status page when win_ver is undetectable."""
+        """Replace content with an error status page when runner is undetectable."""
         status = Adw.StatusPage(
-            title="Cannot Detect Windows Version",
+            title="Cannot Detect Runner",
             description=(
-                "No Windows: field was found in bottle.yml. "
+                "No Runner: field was found in bottle.yml. "
                 "Make sure this is a valid Bottles backup archive."
             ),
             icon_name="dialog-error-symbolic",
@@ -590,12 +577,12 @@ class UploadBaseDialog(Adw.Dialog):
         else:
             repo = None
 
-        win_ver = self._win_ver
+        runner = self._runner
         archive_path = self._archive_path
 
         def _run() -> None:
             try:
-                self._do_upload(win_ver, archive_path, repo)
+                self._do_upload(runner, archive_path, repo)
                 GLib.idle_add(self._on_upload_done)
             except _Cancelled:
                 GLib.idle_add(self._on_upload_cancelled)
@@ -604,7 +591,7 @@ class UploadBaseDialog(Adw.Dialog):
 
         threading.Thread(target=_run, daemon=True).start()
 
-    def _do_upload(self, win_ver: str, archive_path: str, repo) -> None:
+    def _do_upload(self, runner: str, archive_path: str, repo) -> None:
         """Install locally, then optionally copy to repo. Runs on background thread."""
         from cellar.backend import base_store
 
@@ -619,7 +606,7 @@ class UploadBaseDialog(Adw.Dialog):
 
         _local_prog(0.0)
         try:
-            base_store.install_base(archive_path, win_ver, progress_cb=_local_prog)
+            base_store.install_base(archive_path, runner, progress_cb=_local_prog)
         except _Cancelled:
             raise
         except Exception as exc:
@@ -641,8 +628,8 @@ class UploadBaseDialog(Adw.Dialog):
         repo_root = repo.writable_path()
         bases_dir = repo_root / "bases"
         bases_dir.mkdir(parents=True, exist_ok=True)
-        dest = bases_dir / f"{win_ver}-base.tar.gz"
-        archive_rel = f"bases/{win_ver}-base.tar.gz"
+        dest = bases_dir / f"{runner}-base.tar.gz"
+        archive_rel = f"bases/{runner}-base.tar.gz"
 
         src_size = Path(archive_path).stat().st_size
         chunk = 1 * 1024 * 1024
@@ -680,7 +667,7 @@ class UploadBaseDialog(Adw.Dialog):
             raise RuntimeError(f"Failed to copy archive to repository: {exc}") from exc
 
         crc32_hex = format(crc & 0xFFFFFFFF, "08x")
-        upsert_base(repo_root, win_ver, archive_rel, crc32_hex, src_size)
+        upsert_base(repo_root, runner, archive_rel, crc32_hex, src_size)
         GLib.idle_add(self._progress_bar.set_fraction, 1.0)
 
     # ── Result callbacks ─────────────────────────────────────────────────

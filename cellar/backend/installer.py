@@ -74,7 +74,7 @@ def install_app(
     archive_uri: str,               # resolved by Repo.resolve_asset_uri(entry.archive)
     bottles_install,                # BottlesInstall from detect_bottles()
     *,
-    base_entry=None,                # BaseEntry if entry.base_win_ver is set
+    base_entry=None,                # BaseEntry if entry.base_runner is set
     base_archive_uri: str = "",     # resolved URI for the base archive
     download_cb: Callable[[float], None] | None = None,
     download_stats_cb: Callable[[int, int, float], None] | None = None,
@@ -122,9 +122,9 @@ def install_app(
         tmp = Path(tmp_str)
 
         # ── Step 0 (delta only): Ensure base image is installed ────────
-        if entry.base_win_ver:
+        if entry.base_runner:
             _ensure_base_installed(
-                entry.base_win_ver,
+                entry.base_runner,
                 base_entry=base_entry,
                 base_archive_uri=base_archive_uri,
                 tmp=tmp,
@@ -191,14 +191,14 @@ def install_app(
 
         # ── Step 6: Populate bottle directory ─────────────────────────
         _check_cancel(cancel_event)
-        if entry.base_win_ver:
+        if entry.base_runner:
             # Delta path: seed from base with hardlinks, then overlay delta.
             from cellar.backend.base_store import base_path  # noqa: PLC0415
             if phase_cb:
                 phase_cb("Applying delta\u2026")
             try:
                 bottle_dest.mkdir(parents=True, exist_ok=True)
-                _seed_from_base(base_path(entry.base_win_ver), bottle_dest)
+                _seed_from_base(base_path(entry.base_runner), bottle_dest)
                 _overlay_delta(bottle_src, bottle_dest)
             except Exception:
                 shutil.rmtree(bottle_dest, ignore_errors=True)
@@ -632,7 +632,7 @@ def _check_cancel(cancel_event: threading.Event | None) -> None:
 # ---------------------------------------------------------------------------
 
 def _ensure_base_installed(
-    win_ver: str,
+    runner: str,
     *,
     base_entry,
     base_archive_uri: str,
@@ -647,22 +647,20 @@ def _ensure_base_installed(
     ssl_verify: bool,
     ca_cert: str | None,
 ) -> None:
-    """Download and install the base image for *win_ver* if not already present."""
+    """Download and install the base image for *runner* if not already present."""
     from cellar.backend.base_store import BaseStoreError, install_base, is_base_installed  # noqa: PLC0415
 
-    if is_base_installed(win_ver):
+    if is_base_installed(runner):
         return
 
     if not base_archive_uri:
         raise InstallError(
-            f"No base image installed for {win_ver!r} and no download URI provided."
+            f"No base image installed for {runner!r} and no download URI provided."
         )
-
-    win_label = win_ver.replace("win", "Windows ").title()
 
     _check_cancel(cancel_event)
     if phase_cb:
-        phase_cb(f"Downloading base image ({win_label})\u2026")
+        phase_cb(f"Downloading base image ({runner})\u2026")
     if download_cb:
         download_cb(0.0)
 
@@ -689,13 +687,13 @@ def _ensure_base_installed(
 
     _check_cancel(cancel_event)
     if phase_cb:
-        phase_cb(f"Installing base image ({win_label})\u2026")
+        phase_cb(f"Installing base image ({runner})\u2026")
     if install_cb:
         install_cb(0.0)
 
     try:
         install_base(
-            base_archive_path, win_ver,
+            base_archive_path, runner,
             progress_cb=install_cb,
             repo_source=base_archive_uri,
         )

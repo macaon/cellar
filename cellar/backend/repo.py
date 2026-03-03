@@ -428,8 +428,8 @@ class Repo:
             items = raw.get("apps", [])
             self._init_asset_cache(raw.get("generated_at"))
             self._bases = {
-                win_ver: BaseEntry.from_dict(win_ver, data)
-                for win_ver, data in raw.get("bases", {}).items()
+                runner: BaseEntry.from_dict(runner, data)
+                for runner, data in raw.get("bases", {}).items()
             }
         else:
             raise RepoError("catalogue.json has an unexpected top-level type")
@@ -449,7 +449,7 @@ class Repo:
         """Return the base-image map for this repo.
 
         Calls ``fetch_catalogue`` if the bases have not been loaded yet.
-        Keys are Windows version strings (e.g. ``"win10"``).
+        Keys are runner name strings (e.g. ``"soda-9.0-1"``).
         """
         if not self._bases:
             self.fetch_catalogue()

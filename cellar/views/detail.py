@@ -224,12 +224,12 @@ class DetailView(Gtk.Box):
         # Resolve base archive for delta installs.
         base_entry = None
         base_archive_uri = ""
-        if self._entry.base_win_ver:
+        if self._entry.base_runner:
             for repo in self._source_repos:
                 try:
                     bases = repo.fetch_bases()
-                    if self._entry.base_win_ver in bases:
-                        base_entry = bases[self._entry.base_win_ver]
+                    if self._entry.base_runner in bases:
+                        base_entry = bases[self._entry.base_runner]
                         base_archive_uri = repo.resolve_asset_uri(base_entry.archive)
                         break
                 except Exception:
@@ -335,12 +335,12 @@ class DetailView(Gtk.Box):
         # Resolve base archive for delta updates (same pattern as _proceed_to_install).
         base_entry = None
         base_archive_uri = ""
-        if self._entry.base_win_ver:
+        if self._entry.base_runner:
             for repo in self._source_repos:
                 try:
                     bases = repo.fetch_bases()
-                    if self._entry.base_win_ver in bases:
-                        base_entry = bases[self._entry.base_win_ver]
+                    if self._entry.base_runner in bases:
+                        base_entry = bases[self._entry.base_runner]
                         base_archive_uri = repo.resolve_asset_uri(base_entry.archive)
                         break
                 except Exception:

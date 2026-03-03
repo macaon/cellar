@@ -80,7 +80,7 @@ class AddAppDialog(Adw.Dialog):
         self._install_size: int = 0
 
         # Delta packaging state (set after prefill reads bottle.yml)
-        self._win_ver: str = ""       # Windows: field from bottle.yml, e.g. "win10"
+        self._runner: str = ""         # Runner: field from bottle.yml, e.g. "soda-9.0-1"
         self._use_delta: bool = False  # True when repo has base AND it's installed locally
         self._base_ok: bool = True     # False blocks the Add button
 
@@ -352,7 +352,7 @@ class AddAppDialog(Adw.Dialog):
         from cellar.backend.packager import read_bottle_yml
 
         yml = read_bottle_yml(self._archive_path)
-        win_ver = yml.get("Windows", "")
+        runner = yml.get("Runner", "")
 
         # Sum uncompressed member sizes for the install size estimate.
         try:
@@ -369,7 +369,6 @@ class AddAppDialog(Adw.Dialog):
             if name:
                 self._name_entry.set_text(name)
 
-            runner = yml.get("Runner", "")
             if runner:
                 self._runner_row.set_subtitle(runner)
 
@@ -385,9 +384,9 @@ class AddAppDialog(Adw.Dialog):
             if env.lower() == "game" and "Games" in self._categories:
                 self._category_row.set_selected(self._categories.index("Games"))
 
-            if win_ver:
-                self._win_ver = win_ver
-                self._check_delta_base(win_ver)
+            if runner:
+                self._runner = runner
+                self._check_delta_base(runner)
 
             self._stack.set_visible_child_name("form")
 
@@ -399,24 +398,12 @@ class AddAppDialog(Adw.Dialog):
         idx = row.get_selected()
         if 0 <= idx < len(self._repos):
             self._repo = self._repos[idx]
-            if self._win_ver:
-                self._check_delta_base(self._win_ver)
+            if self._runner:
+                self._check_delta_base(self._runner)
 
-    _WIN_VER_LABELS: dict[str, str] = {
-        "win10": "Windows 10",
-        "win11": "Windows 11",
-        "win7": "Windows 7",
-        "win8": "Windows 8",
-        "win81": "Windows 8.1",
-        "winxp": "Windows XP",
-        "win2k": "Windows 2000",
-    }
-
-    def _check_delta_base(self, win_ver: str) -> None:
+    def _check_delta_base(self, runner: str) -> None:
         """Determine delta eligibility; update the delta status row accordingly."""
         from cellar.backend.base_store import is_base_installed
-
-        label = self._WIN_VER_LABELS.get(win_ver, win_ver)
 
         bases: dict = {}
         try:
@@ -424,7 +411,7 @@ class AddAppDialog(Adw.Dialog):
         except Exception:
             pass
 
-        if win_ver not in bases:
+        if runner not in bases:
             # No base in this repo — fall back to full archive upload.
             self._use_delta = False
             self._base_ok = True
@@ -432,19 +419,19 @@ class AddAppDialog(Adw.Dialog):
             self._update_add_button()
             return
 
-        if is_base_installed(win_ver):
+        if is_base_installed(runner):
             self._use_delta = True
             self._base_ok = True
             self._delta_icon.set_from_icon_name("emblem-ok-symbolic")
             self._delta_row.set_title("Delta archive")
             self._delta_row.set_subtitle(
-                f"Only files that differ from the {label} base will be stored"
+                f"Only files that differ from the {runner} base will be stored"
             )
         else:
             self._use_delta = False
             self._base_ok = False
             self._delta_icon.set_from_icon_name("dialog-warning-symbolic")
-            self._delta_row.set_title(f"{label} base not installed locally")
+            self._delta_row.set_title(f"{runner} base not installed locally")
             self._delta_row.set_subtitle(
                 "Install it via Settings \u2192 Delta Base Images before adding this app"
             )
@@ -617,7 +604,7 @@ class AddAppDialog(Adw.Dialog):
             built_with=built_with,
             update_strategy=strategy,
             entry_point=entry_point,
-            base_win_ver=self._win_ver if self._use_delta else "",
+            base_runner=self._runner if self._use_delta else "",
         )
 
         images = {
@@ -639,7 +626,7 @@ class AddAppDialog(Adw.Dialog):
         repo_root = self._repo.writable_path()
 
         use_delta = self._use_delta
-        win_ver = self._win_ver
+        runner = self._runner
 
         def _run():
             import shutil as _shutil
@@ -686,7 +673,7 @@ class AddAppDialog(Adw.Dialog):
                 try:
                     create_delta_archive(
                         self._archive_path,
-                        _base_path(win_ver),
+                        _base_path(runner),
                         delta_path,
                         progress_cb=lambda f: GLib.idle_add(
                             self._progress_bar.set_fraction, f

@@ -2,6 +2,15 @@
 
 All notable changes to Cellar are documented here.
 
+## [0.25.2] — 2026-03-03
+
+### Changed
+- **Add App dialog: delta status icon** now uses `branch-fork-symbolic` (with
+  fallback to `emblem-synchronizing-symbolic` → `system-run-symbolic`) instead
+  of `emblem-ok-symbolic`, which was unreliable outside the Adwaita icon theme.
+  Theme resolution uses `Gtk.IconTheme.has_icon` so the first available icon is
+  picked at runtime — no bundled assets or gresource changes required.
+
 ## [0.25.1] — 2026-03-03
 
 ### Changed

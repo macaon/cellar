@@ -430,7 +430,13 @@ class AddAppDialog(Adw.Dialog):
         if is_base_installed(runner):
             self._use_delta = True
             self._base_ok = True
-            self._delta_icon.set_from_icon_name("emblem-ok-symbolic")
+            _theme = Gtk.IconTheme.get_for_display(self.get_display())
+            _icon_name = next(
+                (n for n in ("branch-fork-symbolic", "emblem-synchronizing-symbolic", "system-run-symbolic")
+                 if _theme.has_icon(n)),
+                "system-run-symbolic",
+            )
+            self._delta_icon.set_from_icon_name(_icon_name)
             self._delta_row.set_title("Delta archive")
             self._delta_row.set_subtitle(
                 f"Only files that differ from the {runner} base will be stored"

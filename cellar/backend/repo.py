@@ -431,9 +431,14 @@ class Repo:
 
         Accepts both the current wrapper format
         ``{"cellar_version": …, "apps": […]}`` and a legacy bare JSON array.
+        Category icons from ``category_icons`` are injected into each entry.
         """
+        import dataclasses
+        from cellar.backend.packager import BASE_CATEGORY_ICONS
+
         raw = self._fetch_json("catalogue.json")
 
+        category_icons_raw: dict[str, str] = {}
         if isinstance(raw, list):
             items = raw
         elif isinstance(raw, dict):
@@ -443,13 +448,18 @@ class Repo:
                 runner: BaseEntry.from_dict(runner, data)
                 for runner, data in raw.get("bases", {}).items()
             }
+            category_icons_raw = raw.get("category_icons") or {}
         else:
             raise RepoError("catalogue.json has an unexpected top-level type")
 
         entries: list[AppEntry] = []
         for item in items:
             try:
-                entries.append(AppEntry.from_dict(item))
+                e = AppEntry.from_dict(item)
+                icon = category_icons_raw.get(e.category) or BASE_CATEGORY_ICONS.get(e.category, "")
+                if icon:
+                    e = dataclasses.replace(e, category_icon=icon)
+                entries.append(e)
             except (KeyError, TypeError, ValueError) as exc:
                 log.warning(
                     "Skipping malformed catalogue entry %r: %s", item.get("id"), exc
@@ -581,6 +591,21 @@ class Repo:
         seen: set[str] = set(BASE_CATEGORIES)
         custom = [c for c in stored if c not in seen]
         return BASE_CATEGORIES + custom
+
+    def fetch_category_icons(self) -> dict[str, str]:
+        """Return the category→icon-name mapping for this repo.
+
+        :data:`~cellar.backend.packager.BASE_CATEGORY_ICONS` defaults are
+        merged with any overrides stored in ``category_icons`` of
+        ``catalogue.json``, with stored values taking precedence.
+        """
+        from cellar.backend.packager import BASE_CATEGORY_ICONS
+        try:
+            raw = self._fetch_json("catalogue.json")
+            stored: dict[str, str] = raw.get("category_icons", {}) if isinstance(raw, dict) else {}
+        except RepoError:
+            stored = {}
+        return {**BASE_CATEGORY_ICONS, **stored}
 
     def iter_categories(self) -> Iterator[str]:
         """Yield the distinct categories present in the catalogue."""

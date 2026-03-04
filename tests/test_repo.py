@@ -93,7 +93,8 @@ def test_to_dict_round_trip():
     entries = {e.id: e for e in Repo(str(FIXTURES)).fetch_catalogue()}
     original = entries["example-app"]
     restored = AppEntry.from_dict(original.to_dict())
-    assert restored == original
+    # category_icon is repo-injected metadata and not serialised; compare dicts only
+    assert restored.to_dict() == original.to_dict()
 
 
 def test_to_dict_omits_empty_fields():

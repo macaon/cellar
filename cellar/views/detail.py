@@ -1118,7 +1118,7 @@ class DetailView(Gtk.Box):
             _add(_simple_card("x-office-calendar-symbolic", str(e.release_year), "Released")[0])
 
         if e.category:
-            _add(_simple_card("tag-symbolic", e.category, "Category")[0])
+            _add(_simple_card(e.category_icon or "tag-symbolic", e.category, "Category")[0])
 
         first = outer.get_first_child()
         last = outer.get_last_child()

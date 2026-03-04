@@ -62,12 +62,17 @@ class EditAppDialog(Adw.Dialog):
         self._screenshot_paths: list[str] = []   # effective local paths
         self._screenshots_dirty: bool = False    # True once user adds or removes anything
 
-        # Load category list from repo (includes custom categories from catalogue.json)
-        from cellar.backend.packager import BASE_CATEGORIES as _BASE_CATS
+        # Load category list and icon hints from repo
+        from cellar.backend.packager import BASE_CATEGORIES as _BASE_CATS, BASE_CATEGORY_ICONS
         try:
             self._categories = self._repo.fetch_categories()
         except Exception:
             self._categories = list(_BASE_CATS)
+        try:
+            self._category_icon_hints = self._repo.fetch_category_icons()
+        except Exception:
+            self._category_icon_hints = dict(BASE_CATEGORY_ICONS)
+        self._category_icon: str = self._category_icon_hints.get(entry.category, "")
 
         self._build_ui()
         self._prefill()
@@ -151,6 +156,8 @@ class EditAppDialog(Adw.Dialog):
         self._custom_category_entry.set_visible(False)
         self._custom_category_entry.connect("changed", lambda _: self._update_save_button())
         identity_group.add(self._custom_category_entry)
+
+        identity_group.add(self._build_icon_picker_row())
 
         # ── Details ───────────────────────────────────────────────────────
         details_group = Adw.PreferencesGroup(title="Details")
@@ -428,10 +435,67 @@ class EditAppDialog(Adw.Dialog):
 
     # ── Form validation ───────────────────────────────────────────────────
 
+    def _build_icon_picker_row(self) -> Adw.ActionRow:
+        from cellar.backend.packager import CATEGORY_ICON_OPTIONS
+        row = Adw.ActionRow(title="Category Icon")
+
+        self._cat_icon_image = Gtk.Image.new_from_icon_name(
+            self._category_icon or "tag-symbolic"
+        )
+        self._cat_icon_image.set_pixel_size(24)
+        self._cat_icon_image.set_valign(Gtk.Align.CENTER)
+
+        btn = Gtk.Button()
+        btn.add_css_class("flat")
+        btn.set_valign(Gtk.Align.CENTER)
+        btn.set_child(self._cat_icon_image)
+        btn.set_tooltip_text("Choose icon")
+
+        flow = Gtk.FlowBox()
+        flow.set_max_children_per_line(4)
+        flow.set_min_children_per_line(4)
+        flow.set_selection_mode(Gtk.SelectionMode.NONE)
+        flow.set_margin_top(6)
+        flow.set_margin_bottom(6)
+        flow.set_margin_start(6)
+        flow.set_margin_end(6)
+        flow.set_column_spacing(4)
+        flow.set_row_spacing(4)
+
+        popover = Gtk.Popover()
+        popover.set_child(flow)
+        popover.set_parent(btn)
+
+        for icon_name in CATEGORY_ICON_OPTIONS:
+            icon_btn = Gtk.Button()
+            icon_btn.add_css_class("flat")
+            img = Gtk.Image.new_from_icon_name(icon_name)
+            img.set_pixel_size(24)
+            icon_btn.set_child(img)
+            icon_btn.set_tooltip_text(
+                icon_name.removesuffix("-symbolic").replace("-", " ").title()
+            )
+            def _on_icon_clicked(_b, name=icon_name):
+                self._category_icon = name
+                self._cat_icon_image.set_from_icon_name(name)
+                popover.popdown()
+            icon_btn.connect("clicked", _on_icon_clicked)
+            flow.append(icon_btn)
+
+        btn.connect("clicked", lambda _: popover.popup())
+        row.add_suffix(btn)
+        row.set_activatable_widget(btn)
+        return row
+
     def _on_category_selected(self, row, _param) -> None:
         is_other = row.get_selected() == len(self._categories)
         self._custom_category_entry.set_visible(is_other)
         self._update_save_button()
+        if not is_other:
+            hint = self._category_icon_hints.get(self._get_category(), "")
+            if hint:
+                self._category_icon = hint
+                self._cat_icon_image.set_from_icon_name(hint)
 
     def _get_category(self) -> str:
         idx = self._category_row.get_selected()
@@ -717,6 +781,7 @@ class EditAppDialog(Adw.Dialog):
         self._progress_label.set_text("Saving changes\u2026")
 
         repo_root = self._repo.writable_path()
+        category_icon = self._category_icon
 
         def _run():
             from cellar.backend.packager import (
@@ -751,6 +816,9 @@ class EditAppDialog(Adw.Dialog):
                     stats_cb=_stats,
                     cancel_event=self._cancel_event,
                 )
+                if category_icon:
+                    from cellar.backend.packager import save_category_icon
+                    save_category_icon(repo_root, new_entry.category, category_icon)
                 GLib.idle_add(self._on_save_done)
             except CancelledError:
                 GLib.idle_add(self._on_save_cancelled)

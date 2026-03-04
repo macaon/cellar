@@ -86,6 +86,9 @@ class AppEntry:
     name: str
     version: str
     category: str
+    # Injected by Repo.fetch_catalogue() from catalogue.json category_icons;
+    # never written to per-app JSON.
+    category_icon: str = ""
 
     # ── Display ───────────────────────────────────────────────────────────
     summary: str = ""

@@ -62,6 +62,13 @@ class EditAppDialog(Adw.Dialog):
         self._screenshot_paths: list[str] = []   # effective local paths
         self._screenshots_dirty: bool = False    # True once user adds or removes anything
 
+        # Load category list from repo (includes custom categories from catalogue.json)
+        from cellar.backend.packager import BASE_CATEGORIES as _BASE_CATS
+        try:
+            self._categories = self._repo.fetch_categories()
+        except Exception:
+            self._categories = list(_BASE_CATS)
+
         self._build_ui()
         self._prefill()
 
@@ -135,10 +142,15 @@ class EditAppDialog(Adw.Dialog):
         page.add(identity_group)
 
         # ── Category ──────────────────────────────────────────────────────
-        from cellar.backend.packager import BASE_CATEGORIES
         self._category_row = Adw.ComboRow(title="Category")
-        self._category_row.set_model(Gtk.StringList.new(BASE_CATEGORIES))
+        self._category_row.set_model(Gtk.StringList.new(self._categories + ["Other"]))
+        self._category_row.connect("notify::selected", self._on_category_selected)
         identity_group.add(self._category_row)
+
+        self._custom_category_entry = Adw.EntryRow(title="New Category Name")
+        self._custom_category_entry.set_visible(False)
+        self._custom_category_entry.connect("changed", lambda _: self._update_save_button())
+        identity_group.add(self._custom_category_entry)
 
         # ── Details ───────────────────────────────────────────────────────
         details_group = Adw.PreferencesGroup(title="Details")
@@ -355,9 +367,11 @@ class EditAppDialog(Adw.Dialog):
 
         self._name_entry.set_text(e.name)
         self._version_entry.set_text(e.version)
-        from cellar.backend.packager import BASE_CATEGORIES
-        if e.category in BASE_CATEGORIES:
-            self._category_row.set_selected(BASE_CATEGORIES.index(e.category))
+        if e.category in self._categories:
+            self._category_row.set_selected(self._categories.index(e.category))
+        elif e.category:
+            self._category_row.set_selected(len(self._categories))  # "Other"
+            self._custom_category_entry.set_text(e.category)
         self._summary_entry.set_text(e.summary or "")
 
         if e.description:
@@ -414,10 +428,16 @@ class EditAppDialog(Adw.Dialog):
 
     # ── Form validation ───────────────────────────────────────────────────
 
+    def _on_category_selected(self, row, _param) -> None:
+        is_other = row.get_selected() == len(self._categories)
+        self._custom_category_entry.set_visible(is_other)
+        self._update_save_button()
+
     def _get_category(self) -> str:
-        from cellar.backend.packager import BASE_CATEGORIES
         idx = self._category_row.get_selected()
-        return BASE_CATEGORIES[idx] if 0 <= idx < len(BASE_CATEGORIES) else ""
+        if idx == len(self._categories):
+            return self._custom_category_entry.get_text().strip()
+        return self._categories[idx] if 0 <= idx < len(self._categories) else ""
 
     def _on_lock_runner_toggled(self, btn) -> None:
         if btn.get_active():
@@ -430,7 +450,11 @@ class EditAppDialog(Adw.Dialog):
 
     def _update_save_button(self) -> None:
         name_ok = bool(self._name_entry.get_text().strip())
-        self._save_btn.set_sensitive(name_ok)
+        cat_ok = (
+            self._category_row.get_selected() != len(self._categories)
+            or bool(self._custom_category_entry.get_text().strip())
+        )
+        self._save_btn.set_sensitive(name_ok and cat_ok)
 
     # ── Archive picker ────────────────────────────────────────────────────
 

@@ -515,6 +515,13 @@ def _upsert_catalogue(repo_root: Path, entry) -> None:
         apps = []
     apps = [a for a in apps if a.get("id") != entry.id]
     apps.append(entry.to_dict())
+    # Auto-register custom category into the top-level categories list
+    category = entry.category if hasattr(entry, "category") else ""
+    if category and category not in BASE_CATEGORIES:
+        if categories is None:
+            categories = []
+        if category not in categories:
+            categories.append(category)
     _write_catalogue(cat_path, apps, categories, bases)
 
 

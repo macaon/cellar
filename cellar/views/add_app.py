@@ -86,6 +86,14 @@ class AddAppDialog(Adw.Dialog):
 
         self._pulse_id: int | None = None
         self._progress_pulse_id: int | None = None
+
+        # Load category list from repo (includes custom categories from catalogue.json)
+        from cellar.backend.packager import BASE_CATEGORIES as _BASE_CATS
+        try:
+            self._categories = self._repo.fetch_categories()
+        except Exception:
+            self._categories = list(_BASE_CATS)
+
         self._build_ui()
         self._pulse_id = GLib.timeout_add(80, self._do_pulse)
         threading.Thread(target=self._prefill, daemon=True).start()
@@ -181,10 +189,15 @@ class AddAppDialog(Adw.Dialog):
         page.add(identity_group)
 
         # ── Category ──────────────────────────────────────────────────────
-        from cellar.backend.packager import BASE_CATEGORIES
         self._category_row = Adw.ComboRow(title="Category")
-        self._category_row.set_model(Gtk.StringList.new(BASE_CATEGORIES))
+        self._category_row.set_model(Gtk.StringList.new(self._categories + ["Other"]))
+        self._category_row.connect("notify::selected", self._on_category_selected)
         identity_group.add(self._category_row)
+
+        self._custom_category_entry = Adw.EntryRow(title="New Category Name")
+        self._custom_category_entry.set_visible(False)
+        self._custom_category_entry.connect("changed", self._on_field_changed)
+        identity_group.add(self._custom_category_entry)
 
         # ── Details ───────────────────────────────────────────────────────
         details_group = Adw.PreferencesGroup(title="Details")
@@ -456,10 +469,9 @@ class AddAppDialog(Adw.Dialog):
 
                 env = yml.get("Environment", "")
                 if env.lower() == "game":
-                    from cellar.backend.packager import BASE_CATEGORIES
                     GLib.idle_add(
                         self._category_row.set_selected,
-                        BASE_CATEGORIES.index("Games") if "Games" in BASE_CATEGORIES else 0,
+                        self._categories.index("Games") if "Games" in self._categories else 0,
                     )
 
                 if runner:
@@ -485,9 +497,8 @@ class AddAppDialog(Adw.Dialog):
         )
         self._ep_pick_btn.set_visible(True)
         # Default category to Games since most Linux native packages are games
-        from cellar.backend.packager import BASE_CATEGORIES
-        if "Games" in BASE_CATEGORIES:
-            self._category_row.set_selected(BASE_CATEGORIES.index("Games"))
+        if "Games" in self._categories:
+            self._category_row.set_selected(self._categories.index("Games"))
         self._update_add_button()
 
     # ── Signal handlers — form fields ─────────────────────────────────────
@@ -502,8 +513,20 @@ class AddAppDialog(Adw.Dialog):
         idx = row.get_selected()
         if 0 <= idx < len(self._repos):
             self._repo = self._repos[idx]
+            self._refresh_categories()
             if self._runner:
                 self._check_delta_base(self._runner)
+
+    def _refresh_categories(self) -> None:
+        from cellar.backend.packager import BASE_CATEGORIES as _BASE_CATS
+        try:
+            self._categories = self._repo.fetch_categories()
+        except Exception:
+            self._categories = list(_BASE_CATS)
+        self._category_row.set_model(Gtk.StringList.new(self._categories + ["Other"]))
+        if self._category_row.get_selected() > len(self._categories):
+            self._category_row.set_selected(0)
+            self._custom_category_entry.set_visible(False)
 
     def _check_delta_base(self, runner: str) -> None:
         """Determine delta eligibility; update the delta status row accordingly."""
@@ -599,15 +622,25 @@ class AddAppDialog(Adw.Dialog):
     def _on_field_changed(self, *_args) -> None:
         self._update_add_button()
 
+    def _on_category_selected(self, row, _param) -> None:
+        is_other = row.get_selected() == len(self._categories)
+        self._custom_category_entry.set_visible(is_other)
+        self._update_add_button()
+
     def _get_category(self) -> str:
-        from cellar.backend.packager import BASE_CATEGORIES
         idx = self._category_row.get_selected()
-        return BASE_CATEGORIES[idx] if 0 <= idx < len(BASE_CATEGORIES) else ""
+        if idx == len(self._categories):
+            return self._custom_category_entry.get_text().strip()
+        return self._categories[idx] if 0 <= idx < len(self._categories) else ""
 
     def _update_add_button(self) -> None:
         name_ok = bool(self._name_entry.get_text().strip())
         ep_ok = not self._is_linux or bool(self._entry_point_entry.get_text().strip())
-        self._add_btn.set_sensitive(name_ok and ep_ok and self._base_ok)
+        cat_ok = (
+            self._category_row.get_selected() != len(self._categories)
+            or bool(self._custom_category_entry.get_text().strip())
+        )
+        self._add_btn.set_sensitive(name_ok and ep_ok and self._base_ok and cat_ok)
 
     def _on_pick_entry_point(self, _btn) -> None:
         """Open a native file chooser to pick the entry point from the source directory."""

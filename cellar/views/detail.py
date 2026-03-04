@@ -1013,7 +1013,10 @@ class DetailView(Gtk.Box):
             )[0])
 
         if e.built_with:
-            _add(self._make_wine_card())
+            wine_card = self._make_wine_card()
+            if e.built_with.dxvk or e.built_with.vkd3d:
+                _make_interactive(wine_card, self._show_wine_dialog)
+            _add(wine_card)
 
         if e.version:
             _add(_simple_card("software-update-available-symbolic", e.version, "Version")[0])
@@ -1034,7 +1037,7 @@ class DetailView(Gtk.Box):
         return outer
 
     def _make_wine_card(self) -> Gtk.Box:
-        """Return a card showing Wine runner, DXVK/VKD3D, and a change button."""
+        """Return a card showing Wine runner and a change button."""
         bw = self._entry.built_with
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         card.add_css_class("info-cell")
@@ -1058,18 +1061,6 @@ class DetailView(Gtk.Box):
         self._runner_warning_icon.add_css_class("warning")
         self._runner_warning_icon.set_visible(False)
         runner_row.append(self._runner_warning_icon)
-
-        if bw and (bw.dxvk or bw.vkd3d):
-            sub_parts: list[str] = []
-            if bw.dxvk:
-                sub_parts.append(f"DXVK {bw.dxvk}")
-            if bw.vkd3d:
-                sub_parts.append(f"VKD3D {bw.vkd3d}")
-            sub_lbl = Gtk.Label(label=" · ".join(sub_parts))
-            sub_lbl.add_css_class("dim-label")
-            sub_lbl.add_css_class("caption")
-            sub_lbl.set_halign(Gtk.Align.CENTER)
-            card.append(sub_lbl)
 
         if self._is_installed and not self._entry.lock_runner:
             change_btn = Gtk.Button(label="Change")
@@ -1229,6 +1220,66 @@ class DetailView(Gtk.Box):
                     _t.set_label(_fmt_bytes(total) if total else _fmt_bytes(_app))
 
                 self._base_resolve_cbs.append(_on_resolved)
+
+    def _show_wine_dialog(self) -> None:
+        """Show Wine component details: runner, DXVK, VKD3D."""
+        bw = self._entry.built_with
+        if not bw:
+            return
+
+        runner_name = self._runner_override or bw.runner or ""
+
+        # ── Header: runner name pill + "Wine" label ──────────────────
+        runner_pill = Gtk.Label(label=runner_name or "—")
+        runner_pill.add_css_class("download-pill")
+        runner_pill.add_css_class("download-pill-large")
+        runner_pill.set_halign(Gtk.Align.CENTER)
+        header = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        header.set_halign(Gtk.Align.CENTER)
+        header.append(runner_pill)
+        wine_lbl = Gtk.Label(label="Wine")
+        wine_lbl.add_css_class("heading")
+        header.append(wine_lbl)
+
+        # ── Component rows ───────────────────────────────────────────
+        listbox = Gtk.ListBox()
+        listbox.set_selection_mode(Gtk.SelectionMode.NONE)
+        listbox.add_css_class("boxed-list")
+
+        def _row(title: str, value: str) -> Adw.ActionRow:
+            r = Adw.ActionRow(title=title)
+            lbl = Gtk.Label(label=value)
+            lbl.add_css_class("dim-label")
+            lbl.set_valign(Gtk.Align.CENTER)
+            r.add_suffix(lbl)
+            return r
+
+        if bw.dxvk:
+            listbox.append(_row("DXVK", bw.dxvk))
+        if bw.vkd3d:
+            listbox.append(_row("VKD3D", bw.vkd3d))
+
+        # ── Layout ───────────────────────────────────────────────────
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
+        content.set_margin_top(18)
+        content.set_margin_bottom(18)
+        content.set_margin_start(18)
+        content.set_margin_end(18)
+        content.append(header)
+        content.append(listbox)
+
+        toolbar = Adw.ToolbarView()
+        toolbar.add_top_bar(Adw.HeaderBar())
+        toolbar.set_content(content)
+
+        win = Adw.Window()
+        win.set_title("Wine")
+        win.set_transient_for(self.get_root())
+        win.set_modal(True)
+        win.set_default_size(340, -1)
+        win.set_resizable(False)
+        win.set_content(toolbar)
+        win.present()
 
     # ------------------------------------------------------------------
     # Asset helpers

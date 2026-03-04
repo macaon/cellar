@@ -2190,7 +2190,10 @@ class InstallProgressDialog(Adw.Dialog):
             now = time.monotonic()
             if now - _last_name_t[0] >= 0.08:
                 _last_name_t[0] = now
-                GLib.idle_add(self._progress_bar.set_text, f"file {_file_count[0]}")
+                GLib.idle_add(
+                    self._progress_bar.set_text,
+                    f"{_trunc_filename(filename)} ({_file_count[0]})",
+                )
 
         def _run() -> None:
             try:
@@ -2290,7 +2293,10 @@ class InstallProgressDialog(Adw.Dialog):
             now = time.monotonic()
             if now - _last_name_t[0] >= 0.08:
                 _last_name_t[0] = now
-                GLib.idle_add(self._progress_bar.set_text, f"file {_file_count[0]}")
+                GLib.idle_add(
+                    self._progress_bar.set_text,
+                    f"{_trunc_filename(filename)} ({_file_count[0]})",
+                )
 
         def _run() -> None:
             try:

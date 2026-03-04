@@ -41,11 +41,12 @@ class _FixedBox(Gtk.Widget):
 
     __gtype_name__ = "CellarFixedBox"
 
-    def __init__(self, width: int, height: int) -> None:
+    def __init__(self, width: int, height: int, *, clip: bool = True) -> None:
         super().__init__()
         self._w = width
         self._h = height
-        self.set_overflow(Gtk.Overflow.HIDDEN)
+        if clip:
+            self.set_overflow(Gtk.Overflow.HIDDEN)
 
     def set_child(self, child: Gtk.Widget | None) -> None:
         # Unparent through GTK's own child list — avoids a Python-level strong
@@ -113,6 +114,7 @@ class AppCard(Gtk.FlowBoxChild):
         # Outer card — horizontal box with .card styling.
         card = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         card.add_css_class("card")
+        card.add_css_class("app-card")
         card.set_overflow(Gtk.Overflow.HIDDEN)
 
         # ── Left: image column ────────────────────────────────────────────
@@ -191,7 +193,7 @@ class AppCard(Gtk.FlowBoxChild):
             check.add_css_class("success")
             overlay.add_overlay(check)
 
-        fixed = _FixedBox(_CARD_WIDTH, _CARD_HEIGHT)
+        fixed = _FixedBox(_CARD_WIDTH, _CARD_HEIGHT, clip=False)
         fixed.set_child(overlay)
         self.set_child(fixed)
 

@@ -866,12 +866,19 @@ class DetailView(Gtk.Box):
             pic = Gtk.Picture.new_for_filename(path)
             pic.set_content_fit(Gtk.ContentFit.CONTAIN)
             pic.set_can_shrink(True)
-            pic.set_size_request(-1, 300)
+            pic.set_hexpand(True)
             pic.set_cursor(pointer_cursor)
             click = Gtk.GestureClick()
             click.connect("released", self._on_screenshot_clicked, idx)
             pic.add_controller(click)
-            carousel.append(pic)
+
+            frame = Gtk.Box()
+            frame.add_css_class("screenshot-frame")
+            frame.set_overflow(Gtk.Overflow.HIDDEN)
+            frame.set_hexpand(True)
+            frame.set_size_request(-1, 300)
+            frame.append(pic)
+            carousel.append(frame)
 
         overlay = Gtk.Overlay(child=carousel)
         wrapper.append(overlay)
@@ -1312,6 +1319,7 @@ class DetailView(Gtk.Box):
             # Pin both dimensions explicitly so GTK never squashes the widget
             # when a sibling has hexpand=True.
             pic.set_size_request(texture.get_width(), texture.get_height())
+            pic.add_css_class("logo-pic")
             return pic
 
         cached = self._peek(rel_path)

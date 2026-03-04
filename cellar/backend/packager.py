@@ -162,6 +162,57 @@ def list_archive_members(archive_path: str) -> list[tuple[str, bool]]:
 
 
 # ---------------------------------------------------------------------------
+# Directory compression
+# ---------------------------------------------------------------------------
+
+def compress_directory_zst(
+    src_dir: Path,
+    dest_path: Path,
+    *,
+    cancel_event=None,
+    progress_cb: Callable[[float], None] | None = None,
+) -> int:
+    """Compress *src_dir* into a ``.tar.zst`` archive at *dest_path*.
+
+    Uses zstandard level 3 (fast compression, good ratio).  Preserves Unix
+    permissions and symlinks via ``tarfile``.
+
+    Returns the size of the resulting archive in bytes.
+    Raises ``CancelledError`` if *cancel_event* is set during compression.
+    """
+    import zstandard as zstd  # noqa: PLC0415
+
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
+
+    total = sum(1 for _, _, fns in os.walk(src_dir) for _ in fns)
+    done = [0]
+
+    def _filter(ti: tarfile.TarInfo) -> tarfile.TarInfo:
+        if cancel_event and cancel_event.is_set():
+            raise CancelledError("Compression cancelled by user")
+        if ti.isfile():
+            done[0] += 1
+            if progress_cb and total:
+                progress_cb(done[0] / total)
+        return ti
+
+    cctx = zstd.ZstdCompressor(level=3)
+    try:
+        with open(dest_path, "wb") as out_f:
+            with cctx.stream_writer(out_f, closefd=False) as compressor:
+                with tarfile.open(fileobj=compressor, mode="w|") as tf:
+                    tf.add(str(src_dir), arcname=src_dir.name, recursive=True, filter=_filter)
+    except CancelledError:
+        dest_path.unlink(missing_ok=True)
+        raise
+    except (tarfile.TarError, OSError) as exc:
+        dest_path.unlink(missing_ok=True)
+        raise RuntimeError(f"Failed to compress directory: {exc}") from exc
+
+    return dest_path.stat().st_size
+
+
+# ---------------------------------------------------------------------------
 # ID generation
 # ---------------------------------------------------------------------------
 

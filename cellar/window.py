@@ -414,19 +414,43 @@ class CellarWindow(Adw.ApplicationWindow):
         self._load_catalogue()
 
     def _on_add_app_clicked(self, _button) -> None:
+        dialog = Adw.AlertDialog(
+            heading="Add App to Catalogue",
+            body="Choose the type of app to add.",
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("bottles", "Bottles App")
+        dialog.add_response("linux", "Linux Native App")
+        dialog.set_default_response("bottles")
+        dialog.connect("response", self._on_add_type_chosen)
+        dialog.present(self)
+
+    def _on_add_type_chosen(self, _dialog, response) -> None:
+        if response == "bottles":
+            self._open_bottles_chooser()
+        elif response == "linux":
+            self._open_linux_dir_chooser()
+
+    def _open_bottles_chooser(self) -> None:
         chooser = Gtk.FileChooserNative(
-            title="Select App Archive",
+            title="Select Bottles Backup",
             transient_for=self,
             action=Gtk.FileChooserAction.OPEN,
         )
         f = Gtk.FileFilter()
-        f.set_name("App archive (*.tar.gz, *.tar.bz2, *.tar.xz, *.tar.zst)")
+        f.set_name("Bottles backup (*.tar.gz)")
         f.add_pattern("*.tar.gz")
-        f.add_pattern("*.tar.bz2")
-        f.add_pattern("*.tar.xz")
-        f.add_pattern("*.tar.zst")
         chooser.add_filter(f)
         chooser.connect("response", self._on_archive_chosen, chooser)
+        chooser.show()
+
+    def _open_linux_dir_chooser(self) -> None:
+        chooser = Gtk.FileChooserNative(
+            title="Select App Directory",
+            transient_for=self,
+            action=Gtk.FileChooserAction.SELECT_FOLDER,
+        )
+        chooser.connect("response", self._on_linux_dir_chosen, chooser)
         chooser.show()
 
     def _on_archive_chosen(self, _chooser, response, chooser) -> None:
@@ -437,6 +461,19 @@ class CellarWindow(Adw.ApplicationWindow):
 
         dialog = AddAppDialog(
             archive_path=archive_path,
+            repos=self._writable_repos,
+            on_done=self._load_catalogue,
+        )
+        dialog.present(self)
+
+    def _on_linux_dir_chosen(self, _chooser, response, chooser) -> None:
+        if response != Gtk.ResponseType.ACCEPT:
+            return
+        dir_path = chooser.get_file().get_path()
+        from cellar.views.add_app import AddAppDialog
+
+        dialog = AddAppDialog(
+            source_dir=dir_path,
             repos=self._writable_repos,
             on_done=self._load_catalogue,
         )
@@ -456,7 +493,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="application-x-executable",
-            version="0.30.1",
+            version="0.31.0",
             comments="A GNOME storefront for Bottles-managed Windows apps.",
             license_type=Gtk.License.GPL_3_0,
         )

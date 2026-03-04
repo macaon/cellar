@@ -1,7 +1,7 @@
-"""Add-app dialog — lets the user add a Bottles backup to a local Cellar repo.
+"""Add-app dialog — lets the user add an app to a local Cellar repo.
 
-Flow
-----
+Flow — Bottles backup
+---------------------
 1. User opens a ``.tar.gz`` Bottles backup via a file chooser in the main window.
 2. This dialog opens, pre-filling what we can from ``bottle.yml`` inside the
    archive (Name, Runner, DXVK, VKD3D, Environment → category suggestion).
@@ -9,10 +9,20 @@ Flow
 4. On "Add to Catalogue" the form is replaced by a progress view while a
    background thread copies the archive and writes the catalogue entry.
 5. On success the dialog closes and the main window reloads the browse view.
+
+Flow — Linux native app
+-----------------------
+1. User selects a directory via a folder chooser in the main window.
+2. This dialog opens in Linux mode (Wine fields hidden, entry point required).
+3. User picks the entry point binary from a synchronous directory tree, fills
+   in metadata, and attaches images.
+4. On "Add to Catalogue" the directory is compressed to ``.tar.zst`` on a
+   background thread, then imported into the repo.
 """
 
 from __future__ import annotations
 
+import os
 import threading
 import time
 from pathlib import Path
@@ -28,39 +38,41 @@ _STRATEGIES = ["safe", "full"]
 _STRATEGY_LABELS = ["Safe (preserve user data)", "Full (complete replacement)"]
 
 # ---------------------------------------------------------------------------
-# Entry-point archive browser
+# Entry-point directory browser
 # ---------------------------------------------------------------------------
 
 
-def _read_archive_members(archive_path: str) -> list[tuple[str, bool]]:
-    """Return ``(path, is_executable)`` for all regular files in *archive_path*.
-
-    Delegates to ``packager.list_archive_members`` which uses the system
-    ``tar`` fast path when available.
-    """
-    from cellar.backend.packager import list_archive_members
-    return list_archive_members(archive_path)
+def _walk_dir_members(src_dir: str) -> list[tuple[str, bool]]:
+    """Return ``(relative_path, is_executable)`` for every file under *src_dir*."""
+    root = Path(src_dir)
+    members: list[tuple[str, bool]] = []
+    for dirpath, _dirnames, filenames in os.walk(root):
+        for fname in filenames:
+            fpath = Path(dirpath) / fname
+            rel = str(fpath.relative_to(root))
+            try:
+                is_exec = bool(fpath.stat().st_mode & 0o111)
+            except OSError:
+                is_exec = False
+            members.append((rel, is_exec))
+    return sorted(members)
 
 
 class EntryPointPickerDialog(Adw.Dialog):
-    """Browse archive contents and select the main executable.
+    """Browse a directory and select the main executable.
 
-    Presents a tree view built from the archive's member list.  Files that
-    carry an execute bit in their tar header are highlighted with an
-    executable icon to make the right choice obvious.  Double-clicking a
-    file is equivalent to clicking Select.
+    Presents a tree view populated synchronously from ``os.walk()``.
+    Double-clicking a file is equivalent to clicking Select.
     """
 
-    def __init__(self, archive_path: str, on_selected) -> None:
+    def __init__(self, source_dir: str, on_selected) -> None:
         super().__init__(title="Select Entry Point", content_width=520)
         self.set_content_height(480)
-        self._archive_path = archive_path
         self._on_selected = on_selected
         self._selected_path: str = ""
-        self._pulse_id: int | None = None
         self._build_ui()
-        import threading as _threading
-        _threading.Thread(target=self._load, daemon=True).start()
+        members = _walk_dir_members(source_dir)
+        self._populate_tree(members)
 
     def _build_ui(self) -> None:
         toolbar = Adw.ToolbarView()
@@ -80,24 +92,6 @@ class EntryPointPickerDialog(Adw.Dialog):
 
         toolbar.add_top_bar(header)
 
-        self._stack = Gtk.Stack()
-
-        # Loading page
-        loading_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        loading_box.set_valign(Gtk.Align.CENTER)
-        loading_box.set_margin_top(48)
-        loading_box.set_margin_bottom(48)
-        loading_box.set_margin_start(24)
-        loading_box.set_margin_end(24)
-        loading_label = Gtk.Label(label="Reading archive\u2026")
-        loading_label.add_css_class("dim-label")
-        self._loading_bar = Gtk.ProgressBar()
-        self._loading_bar.set_pulse_step(0.05)
-        loading_box.append(loading_label)
-        loading_box.append(self._loading_bar)
-        self._stack.add_named(loading_box, "loading")
-
-        # Tree page
         scroll = Gtk.ScrolledWindow(vexpand=True)
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
 
@@ -122,70 +116,37 @@ class EntryPointPickerDialog(Adw.Dialog):
         self._tree.append_column(col)
 
         scroll.set_child(self._tree)
-        self._stack.add_named(scroll, "tree")
-
-        self._stack.set_visible_child_name("loading")
-        toolbar.set_content(self._stack)
+        toolbar.set_content(scroll)
         self.set_child(toolbar)
 
-        self._pulse_id = GLib.timeout_add(80, self._do_pulse)
-
-    def _do_pulse(self) -> bool:
-        self._loading_bar.pulse()
-        return True
-
-    def _load(self) -> None:
-        members = _read_archive_members(self._archive_path)
-        GLib.idle_add(self._populate_tree, members)
-
     def _populate_tree(self, members: list[tuple[str, bool]]) -> None:
-        if self._pulse_id is not None:
-            GLib.source_remove(self._pulse_id)
-            self._pulse_id = None
-
-        if not members:
-            self._stack.set_visible_child_name("tree")
-            return
-
-        # Detect common top-level directory so we can strip it from entry points.
-        from pathlib import Path as _Path
-        top_dirs = {_Path(p).parts[0] for p, _ in members if _Path(p).parts}
-        strip_top = len(top_dirs) == 1
-
         nodes: dict[str, object] = {}  # path_key → TreeIter
 
-        for raw_path, is_exec in sorted(members):
-            parts = _Path(raw_path).parts
+        for raw_path, is_exec in members:
+            parts = Path(raw_path).parts
             if not parts:
                 continue
-            display_parts = parts[1:] if strip_top and len(parts) > 1 else parts
-            if not display_parts:
-                continue
-
-            entry_point = "/".join(display_parts)
 
             parent_iter = None
-            for depth in range(len(display_parts) - 1):
-                key = "/".join(display_parts[: depth + 1])
+            for depth in range(len(parts) - 1):
+                key = "/".join(parts[: depth + 1])
                 if key not in nodes:
                     it = self._store.append(
                         parent_iter,
-                        [display_parts[depth], "folder-symbolic", "", False],
+                        [parts[depth], "folder-symbolic", "", False],
                     )
                     nodes[key] = it
                 parent_iter = nodes[key]
 
-            filename = display_parts[-1]
+            filename = parts[-1]
             icon = (
                 "application-x-executable-symbolic"
                 if is_exec
                 else "text-x-generic-symbolic"
             )
-            self._store.append(parent_iter, [filename, icon, entry_point, True])
+            self._store.append(parent_iter, [filename, icon, raw_path, True])
 
         self._tree.expand_all()
-
-        self._stack.set_visible_child_name("tree")
 
     def _on_selection_changed(self, sel) -> None:
         model, it = sel.get_selected()
@@ -226,18 +187,24 @@ def _fmt_ul_stats(copied: int, total: int, speed: float) -> str:
 
 
 class AddAppDialog(Adw.Dialog):
-    """Dialog for adding a Bottles backup archive to a local Cellar repo."""
+    """Dialog for adding an app to a local Cellar repo.
+
+    Pass *archive_path* for a Bottles ``.tar.gz`` backup, or *source_dir* for
+    a Linux native app directory.  Exactly one must be non-empty.
+    """
 
     def __init__(
         self,
         *,
-        archive_path: str,
+        archive_path: str = "",
+        source_dir: str = "",
         repos,          # list[cellar.backend.repo.Repo] — all writable repos
         on_done,        # callable()
     ) -> None:
         super().__init__(title="Add App to Catalogue", content_width=560)
 
         self._archive_path = archive_path
+        self._source_dir = source_dir
         self._repos = repos
         self._repo = repos[0]
         self._on_done = on_done
@@ -253,8 +220,8 @@ class AddAppDialog(Adw.Dialog):
         self._id_user_edited = False
         self._install_size: int = 0
 
-        # Platform mode — set by _prefill after inspecting the archive
-        self._is_linux: bool = False  # True when no bottle.yml found
+        # Platform mode — set by _prefill
+        self._is_linux: bool = bool(source_dir)  # directories are always Linux mode
 
         # Delta packaging state (set after prefill reads bottle.yml)
         self._runner: str = ""         # Runner: field from bottle.yml, e.g. "soda-9.0-1"
@@ -323,9 +290,12 @@ class AddAppDialog(Adw.Dialog):
             self._repo_row.connect("notify::selected", self._on_repo_changed)
             archive_group.add(self._repo_row)
 
+        source_label = (
+            Path(self._source_dir).name if self._source_dir else Path(self._archive_path).name
+        )
         self._archive_row = Adw.ActionRow(
-            title="File",
-            subtitle=GLib.markup_escape_text(Path(self._archive_path).name),
+            title="Directory" if self._source_dir else "File",
+            subtitle=GLib.markup_escape_text(source_label),
         )
         archive_group.add(self._archive_row)
 
@@ -549,22 +519,45 @@ class AddAppDialog(Adw.Dialog):
     # ── Pre-fill ──────────────────────────────────────────────────────────
 
     def _prefill(self) -> None:
-        """Read bottle.yml in a background thread, then reveal the form.
+        """Inspect the source in a background thread, then reveal the form.
 
-        If no ``bottle.yml`` is found the archive is treated as a Linux native
-        app: Wine-specific fields are hidden, the Entry Point field becomes
-        required, and a "Pick…" button lets the user browse the archive tree.
+        For a directory source: immediately switches to Linux mode.
+        For an archive source: reads ``bottle.yml``; if absent, shows a
+        rejection dialog (only Bottles backups are accepted as archives).
         """
         from cellar.backend.packager import read_bottle_yml
 
-        yml = read_bottle_yml(self._archive_path)
-        is_linux = not bool(yml)
+        if self._source_dir:
+            # Directory — always Linux native mode, no inspection needed.
+            yml: dict = {}
+            is_linux = True
+        else:
+            yml = read_bottle_yml(self._archive_path)
+            is_linux = not bool(yml)
+
         runner = yml.get("Runner", "")
 
         def _apply() -> None:
             if self._pulse_id is not None:
                 GLib.source_remove(self._pulse_id)
                 self._pulse_id = None
+
+            if is_linux and not self._source_dir:
+                # Archive without bottle.yml — reject it.
+                self._stack.set_visible_child_name("form")
+                alert = Adw.AlertDialog(
+                    heading="Not a Bottles Backup",
+                    body=(
+                        "This archive contains no bottle.yml. "
+                        "Only Bottles full backup archives (.tar.gz) are accepted here.\n\n"
+                        "To add a Linux native app, use \u201cAdd Linux App\u201d and select "
+                        "the app\u2019s directory instead."
+                    ),
+                )
+                alert.add_response("ok", "OK")
+                alert.connect("response", lambda *_: self.close())
+                alert.present(self)
+                return
 
             if is_linux:
                 self._switch_to_linux_mode()
@@ -740,13 +733,13 @@ class AddAppDialog(Adw.Dialog):
         self._add_btn.set_sensitive(name_ok and ep_ok and self._base_ok)
 
     def _on_pick_entry_point(self, _btn) -> None:
-        """Open the archive tree picker so the user can select the entry point."""
+        """Open the directory tree picker so the user can select the entry point."""
         def _on_selected(path: str) -> None:
             GLib.idle_add(self._entry_point_entry.set_text, path)
             GLib.idle_add(self._update_add_button)
 
         EntryPointPickerDialog(
-            archive_path=self._archive_path,
+            source_dir=self._source_dir,
             on_selected=_on_selected,
         ).present(self)
 
@@ -838,10 +831,14 @@ class AddAppDialog(Adw.Dialog):
             from cellar.backend.packager import slugify
             app_id = slugify(name)
 
-        # Build archive filename: apps/<id>/<basename of source>
-        archive_filename = Path(self._archive_path).name
+        # Build archive filename: apps/<id>/<name>.tar.zst for dirs, else source basename
+        if self._source_dir:
+            archive_filename = f"{Path(self._source_dir).name}.tar.zst"
+            archive_size = 0  # unknown until compression; updated in background thread
+        else:
+            archive_filename = Path(self._archive_path).name
+            archive_size = Path(self._archive_path).stat().st_size
         archive_rel = f"apps/{app_id}/{archive_filename}"
-        archive_size = Path(self._archive_path).stat().st_size
 
         # Build image relative paths (only for images the user picked)
         icon_ext = ".png" if self._icon_path and Path(self._icon_path).suffix.lower() == ".ico" else (Path(self._icon_path).suffix if self._icon_path else "")
@@ -908,12 +905,15 @@ class AddAppDialog(Adw.Dialog):
         self._add_btn.set_visible(False)
         self._stack.set_visible_child_name("progress")
         self._progress_bar.set_fraction(0.0)
-        self._progress_label.set_text("Copying archive\u2026")
+        self._progress_label.set_text(
+            "Compressing\u2026" if self._source_dir else "Copying archive\u2026"
+        )
 
         repo_root = self._repo.writable_path()
 
         use_delta = self._use_delta
         runner = self._runner
+        source_dir = self._source_dir
 
         def _run():
             import shutil as _shutil
@@ -921,6 +921,7 @@ class AddAppDialog(Adw.Dialog):
             from dataclasses import replace as _replace
             from cellar.backend.packager import (
                 CancelledError,
+                compress_directory_zst,
                 import_to_repo,
             )
 
@@ -939,12 +940,39 @@ class AddAppDialog(Adw.Dialog):
             def _progress(fraction: float) -> None:
                 GLib.idle_add(self._progress_bar.set_fraction, fraction)
 
-            # ── Delta archive creation (Windows/Wine only) ─────────────────
             archive_to_upload = self._archive_path
             entry_to_upload = entry
             tmp_delta: str | None = None
 
-            if use_delta and not self._is_linux:
+            # ── Directory compression (Linux native) ───────────────────────
+            if source_dir:
+                tmp_delta = tempfile.mkdtemp(prefix="cellar-linux-compress-")
+                compressed_path = Path(tmp_delta) / archive_filename
+                try:
+                    compressed_size = compress_directory_zst(
+                        Path(source_dir),
+                        compressed_path,
+                        cancel_event=self._cancel_event,
+                        progress_cb=_progress,
+                    )
+                except CancelledError:
+                    _shutil.rmtree(tmp_delta, ignore_errors=True)
+                    GLib.idle_add(self._on_import_cancelled)
+                    return
+                except Exception as exc:
+                    _shutil.rmtree(tmp_delta, ignore_errors=True)
+                    GLib.idle_add(self._on_import_error, f"Failed to compress directory: {exc}")
+                    return
+
+                archive_to_upload = str(compressed_path)
+                entry_to_upload = _replace(
+                    entry_to_upload,
+                    archive_size=compressed_size,
+                )
+                _phase("Copying archive\u2026")
+
+            # ── Delta archive creation (Windows/Wine only) ─────────────────
+            elif use_delta and not self._is_linux:
                 from cellar.backend.packager import create_delta_archive
                 from cellar.backend.base_store import base_path as _base_path
 

@@ -33,7 +33,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gio, GLib, Gtk
 
-from cellar.utils.progress import fmt_stats as _fmt_stats
+from cellar.utils.progress import fmt_file_count as _fmt_file_count, fmt_stats as _fmt_stats
 
 _STRATEGIES = ["safe", "full"]
 _STRATEGY_LABELS = ["Safe (preserve user data)", "Full (complete replacement)"]
@@ -877,16 +877,7 @@ class AddAppDialog(Adw.Dialog):
                     GLib.idle_add(self._on_delta_phase, label)
 
                 def _delta_file(current: int, total: int) -> None:
-                    if total > 0:
-                        GLib.idle_add(
-                            self._progress_bar.set_text,
-                            f"File {current} / {total}",
-                        )
-                    else:
-                        GLib.idle_add(
-                            self._progress_bar.set_text,
-                            f"File {current}",
-                        )
+                    GLib.idle_add(self._progress_bar.set_text, _fmt_file_count(current, total))
 
                 tmp_delta = tempfile.mkdtemp(prefix="cellar-delta-upload-")
                 # Delta archives are recompressed as .tar.zst (zstd level 3).

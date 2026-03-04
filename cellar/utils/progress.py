@@ -25,6 +25,13 @@ def fmt_stats(done: int, total: int, speed: float) -> str:
     return f"{size_str} ({speed_str})"
 
 
+def fmt_file_count(current: int, total: int) -> str:
+    """Format a file-count position as e.g. 'File 42 / 156' or 'File 42' when total unknown."""
+    if total > 0:
+        return f"File {current} / {total}"
+    return f"File {current}"
+
+
 def trunc_middle(name: str, max_chars: int = 40) -> str:
     """Middle-truncate *name* so it fits in a progress bar without reflowing."""
     if len(name) <= max_chars:

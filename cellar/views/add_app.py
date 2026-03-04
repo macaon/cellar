@@ -879,7 +879,6 @@ class AddAppDialog(Adw.Dialog):
                 def _delta_file(current: int, total: int) -> None:
                     GLib.idle_add(self._progress_bar.set_text, _fmt_file_count(current, total))
 
-                tmp_delta = tempfile.mkdtemp(prefix="cellar-delta-upload-")
                 # Delta archives are recompressed as .tar.zst (zstd level 3).
                 orig_name = Path(self._archive_path).name
                 delta_name = (
@@ -887,13 +886,15 @@ class AddAppDialog(Adw.Dialog):
                     if orig_name.endswith(".tar.gz")
                     else orig_name
                 )
-                delta_path = Path(tmp_delta) / delta_name
+                archive_dest = repo_root / "apps" / entry_to_upload.id / delta_name
+                archive_dest.parent.mkdir(parents=True, exist_ok=True)
+                tmp_archive = archive_dest.parent / (archive_dest.name + ".tmp")
 
                 try:
-                    delta_uncompressed_size = create_delta_archive(
+                    delta_uncompressed_size, crc32 = create_delta_archive(
                         self._archive_path,
                         _base_path(runner),
-                        delta_path,
+                        tmp_archive,
                         progress_cb=lambda f: GLib.idle_add(
                             self._progress_bar.set_fraction, f
                         ),
@@ -901,23 +902,26 @@ class AddAppDialog(Adw.Dialog):
                         file_cb=_delta_file,
                         cancel_event=self._cancel_event,
                     )
+                    tmp_archive.rename(archive_dest)
                 except CancelledError:
-                    _shutil.rmtree(tmp_delta, ignore_errors=True)
+                    tmp_archive.unlink(missing_ok=True)
                     GLib.idle_add(self._on_import_cancelled)
                     return
                 except Exception as exc:
-                    _shutil.rmtree(tmp_delta, ignore_errors=True)
+                    tmp_archive.unlink(missing_ok=True)
                     GLib.idle_add(
                         self._on_import_error,
                         f"Failed to create delta archive: {exc}",
                     )
                     return
 
-                archive_to_upload = str(delta_path)
+                archive_to_upload = str(archive_dest)
+                archive_in_place = True
                 entry_to_upload = _replace(
                     entry_to_upload,
                     archive=f"apps/{entry_to_upload.id}/{delta_name}",
-                    archive_size=delta_path.stat().st_size,
+                    archive_size=archive_dest.stat().st_size,
+                    archive_crc32=crc32,
                     install_size_estimate=delta_uncompressed_size,
                 )
 

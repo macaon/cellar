@@ -602,7 +602,7 @@ def create_delta_archive(
     phase_cb: Callable[[str], None] | None = None,
     file_cb: Callable[[int, int], None] | None = None,
     cancel_event: Event | None = None,
-) -> int:
+) -> tuple[int, str]:
     """Create a delta ``.tar.zst`` from a full Bottles backup, relative to *base_dir*.
 
     Extracts *full_archive_path* to a temp directory, identifies files that
@@ -620,10 +620,11 @@ def create_delta_archive(
     *file_cb* is called as ``file_cb(current, total)`` for each file processed;
     *total* is 0 when the count is not known in advance.
 
-    Returns the uncompressed size in bytes of the delta content (i.e. the
-    additional disk space the app's unique files will occupy beyond the
-    already-installed base image).  Suitable for ``install_size_estimate``
-    in the catalogue entry.
+    Returns ``(uncompressed_size, crc32_hex)`` where *uncompressed_size* is
+    the total size of the delta content in bytes (additional disk space beyond
+    the already-installed base image, suitable for ``install_size_estimate``)
+    and *crc32_hex* is the CRC32 of the compressed archive file as an
+    8-character lowercase hex string.
 
     Raises :exc:`RuntimeError` on failure.
     """
@@ -716,7 +717,8 @@ def create_delta_archive(
             delta_items = sorted(delta_bottle.rglob("*"))
             total_items = len(delta_items)
             with open(dest, "wb") as fh:
-                with cctx.stream_writer(fh, closefd=False) as compressor:
+                crc_writer = _CRCWriter(fh)
+                with cctx.stream_writer(crc_writer, closefd=False) as compressor:
                     with tarfile.open(fileobj=compressor, mode="w|") as tf:
                         # Add root dir, then all contents one item at a time
                         # so cancel_event is checked between each entry.
@@ -730,6 +732,7 @@ def create_delta_archive(
                                 file_cb(i, total_items)
                             if progress_cb and total_items > 0:
                                 progress_cb(i / total_items)
+                crc32_hex = format(crc_writer.crc & 0xFFFFFFFF, "08x")
         except CancelledError:
             dest.unlink(missing_ok=True)
             raise
@@ -737,7 +740,7 @@ def create_delta_archive(
             dest.unlink(missing_ok=True)
             raise RuntimeError(f"Failed to create delta archive: {exc}") from exc
 
-        return delta_uncompressed_size
+        return delta_uncompressed_size, crc32_hex
 
 
 def _compute_delta(

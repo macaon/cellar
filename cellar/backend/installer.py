@@ -43,6 +43,7 @@ import tempfile
 import threading
 import time
 import zlib
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import Callable
 from urllib.parse import urlparse
@@ -62,6 +63,266 @@ class InstallError(Exception):
 
 class InstallCancelled(Exception):
     """Raised when the user cancels a running install."""
+
+
+# ---------------------------------------------------------------------------
+# Streaming pipeline
+# ---------------------------------------------------------------------------
+
+class _PipedSource:
+    """File-like wrapper around a bytes-chunk iterator.
+
+    Accumulates a running CRC32 as chunks are consumed and fires
+    *progress_cb* / *stats_cb* after each chunk is ingested.
+    Passed directly to ``tarfile.open(fileobj=…)`` or
+    ``zstd.ZstdDecompressor().stream_reader(…)``.
+    """
+
+    def __init__(
+        self,
+        chunks: Iterator[bytes],
+        total: int,
+        progress_cb: Callable[[float], None] | None,
+        stats_cb: Callable[[int, int, float], None] | None,
+        cancel_event: threading.Event | None,
+    ) -> None:
+        self._chunks = chunks
+        self._total = total
+        self._progress_cb = progress_cb
+        self._stats_cb = stats_cb
+        self._cancel_event = cancel_event
+        self._buf = bytearray()
+        self._crc = 0
+        self._received = 0
+        self._start = time.monotonic()
+
+    def read(self, n: int = -1) -> bytes:
+        if n == -1:
+            while True:
+                try:
+                    self._ingest(next(self._chunks))
+                except StopIteration:
+                    break
+            data = bytes(self._buf)
+            del self._buf[:]
+            return data
+        while len(self._buf) < n:
+            if self._cancel_event and self._cancel_event.is_set():
+                raise InstallCancelled("Download cancelled")
+            try:
+                self._ingest(next(self._chunks))
+            except StopIteration:
+                break
+        data = bytes(self._buf[:n])
+        del self._buf[:n]
+        return data
+
+    def _ingest(self, chunk: bytes) -> None:
+        self._crc = zlib.crc32(chunk, self._crc)
+        self._buf.extend(chunk)
+        self._received += len(chunk)
+        elapsed = time.monotonic() - self._start
+        speed = self._received / elapsed if elapsed > 0.1 else 0.0
+        if self._stats_cb:
+            self._stats_cb(self._received, self._total, speed)
+        if self._progress_cb and self._total > 0:
+            self._progress_cb(min(self._received / self._total, 1.0))
+
+    @property
+    def crc(self) -> int:
+        return self._crc & 0xFFFFFFFF
+
+
+def _file_chunks(path: Path) -> Iterator[bytes]:
+    """Yield 1 MB chunks from a local *path*."""
+    _CHUNK = 1 * 1024 * 1024
+    try:
+        with open(path, "rb") as fh:
+            for chunk in iter(lambda: fh.read(_CHUNK), b""):
+                yield chunk
+    except OSError as exc:
+        raise InstallError(f"Could not read archive: {exc}") from exc
+
+
+def _http_source(
+    url: str,
+    *,
+    expected_size: int,
+    token: str | None,
+    ssl_verify: bool,
+    ca_cert: str | None,
+) -> tuple[Iterator[bytes], int]:
+    """Open *url* and return ``(chunk_iterator, content_length)``."""
+    session = make_session(token=token, ssl_verify=ssl_verify, ca_cert=ca_cert)
+    try:
+        resp = session.get(url, stream=True, timeout=DEFAULT_TIMEOUT)
+        resp.raise_for_status()
+    except requests.HTTPError as exc:
+        code = exc.response.status_code if exc.response is not None else "?"
+        raise InstallError(f"HTTP {code} downloading archive") from exc
+    except requests.RequestException as exc:
+        raise InstallError(f"Network error downloading archive: {exc}") from exc
+    try:
+        total = int(resp.headers.get("Content-Length") or 0)
+    except (TypeError, ValueError):
+        total = 0
+    total = total or expected_size
+
+    def _iter() -> Iterator[bytes]:
+        try:
+            for chunk in resp.iter_content(chunk_size=1 * 1024 * 1024):
+                yield chunk
+        except requests.RequestException as exc:
+            raise InstallError(f"Network error downloading archive: {exc}") from exc
+
+    return _iter(), total
+
+
+def _gio_chunks(uri: str) -> Iterator[bytes]:
+    """Yield 1 MB chunks from *uri* via a GIO InputStream (SMB/NFS without FUSE)."""
+    try:
+        import gi
+        gi.require_version("Gio", "2.0")
+        from gi.repository import Gio, GLib
+    except (ImportError, ValueError) as exc:
+        raise InstallError("GIO is unavailable; cannot stream from SMB/NFS") from exc
+
+    gfile = Gio.File.new_for_uri(uri)
+    try:
+        stream = gfile.read(None)
+    except GLib.Error as exc:
+        raise InstallError(f"Could not open {uri}: {exc.message}") from exc
+
+    try:
+        while True:
+            buf = stream.read_bytes(1 * 1024 * 1024, None)
+            data = buf.get_data()
+            if not data:
+                break
+            yield data
+    except GLib.Error as exc:
+        raise InstallError(f"GIO read error: {exc.message}") from exc
+    finally:
+        try:
+            stream.close(None)
+        except Exception:
+            pass
+
+
+def _build_source(
+    uri: str,
+    *,
+    expected_size: int,
+    token: str | None = None,
+    ssl_verify: bool = True,
+    ca_cert: str | None = None,
+) -> tuple[Iterator[bytes], int]:
+    """Return ``(chunk_iterator, total_bytes)`` for *uri*.
+
+    Raises ``InstallError`` for unsupported schemes (e.g. SSH).
+    """
+    parsed = urlparse(uri)
+    scheme = parsed.scheme.lower()
+
+    if scheme in ("", "file"):
+        local = Path(parsed.path if scheme == "file" else uri)
+        size = expected_size if expected_size > 0 else local.stat().st_size
+        return _file_chunks(local), size
+
+    if scheme in ("http", "https"):
+        return _http_source(
+            uri,
+            expected_size=expected_size,
+            token=token,
+            ssl_verify=ssl_verify,
+            ca_cert=ca_cert,
+        )
+
+    if scheme in ("smb", "nfs"):
+        fuse_path: str | None = None
+        try:
+            import gi
+            gi.require_version("Gio", "2.0")
+            from gi.repository import Gio
+            fuse_path = Gio.File.new_for_uri(uri).get_path()
+        except (ImportError, ValueError):
+            pass
+        if fuse_path:
+            local = Path(fuse_path)
+            size = expected_size if expected_size > 0 else local.stat().st_size
+            return _file_chunks(local), size
+        else:
+            return _gio_chunks(uri), expected_size
+
+    raise InstallError(
+        f"Downloading from {scheme!r} repos is not yet supported. "
+        "Use a local, HTTP(S), SMB, or NFS repo."
+    )
+
+
+def _stream_and_extract(
+    chunks: Iterable[bytes],
+    total_bytes: int,
+    is_zst: bool,
+    dest: Path,
+    expected_crc32: str,
+    cancel_event: threading.Event | None,
+    progress_cb: Callable[[float], None] | None,
+    stats_cb: Callable[[int, int, float], None] | None,
+    name_cb: Callable[[str], None] | None,
+) -> None:
+    """Stream *chunks* through CRC32 → decompressor → tarfile in a single pass.
+
+    *expected_crc32* can be ``""`` to skip the checksum comparison.
+    Raises ``InstallError`` on extraction failure or checksum mismatch.
+    Raises ``InstallCancelled`` if *cancel_event* is set mid-stream.
+    """
+    use_filter = sys.version_info >= (3, 12)
+    pipe = _PipedSource(chunks, total_bytes, progress_cb, stats_cb, cancel_event)
+    try:
+        if is_zst:
+            try:
+                import zstandard as zstd  # noqa: PLC0415
+            except ImportError as exc:
+                raise InstallError(
+                    "zstandard is not installed; cannot extract .tar.zst archives"
+                ) from exc
+            dctx = zstd.ZstdDecompressor()
+            with dctx.stream_reader(pipe) as decompressed:
+                with tarfile.open(fileobj=decompressed, mode="r|") as tf:
+                    for member in tf:
+                        if cancel_event and cancel_event.is_set():
+                            raise InstallCancelled("Cancelled during extraction")
+                        if name_cb:
+                            name_cb(Path(member.name).name or member.name)
+                        if use_filter:
+                            tf.extract(member, dest, filter="data")
+                        else:
+                            tf.extract(member, dest)  # noqa: S202
+        else:
+            with tarfile.open(fileobj=pipe, mode="r:gz") as tf:
+                for member in tf:
+                    if cancel_event and cancel_event.is_set():
+                        raise InstallCancelled("Cancelled during extraction")
+                    if name_cb:
+                        name_cb(Path(member.name).name or member.name)
+                    if use_filter:
+                        tf.extract(member, dest, filter="data")
+                    else:
+                        tf.extract(member, dest)  # noqa: S202
+    except InstallCancelled:
+        raise
+    except tarfile.TarError as exc:
+        raise InstallError(f"Failed to extract archive: {exc}") from exc
+
+    if expected_crc32:
+        actual = format(pipe.crc, "08x")
+        if actual != expected_crc32:
+            raise InstallError(
+                f"CRC32 mismatch — archive may be corrupt or tampered.\n"
+                f"  expected: {expected_crc32}\n"
+                f"  actual:   {actual}"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -138,45 +399,31 @@ def install_app(
                 ca_cert=ca_cert,
             )
 
-        # ── Step 1: Acquire archive ────────────────────────────────────
+        # ── Steps 1-3: Stream, verify CRC32, extract (single pass) ───────
         if phase_cb:
-            phase_cb("Downloading package\u2026")
+            phase_cb("Downloading & extracting\u2026")
         if download_cb:
             download_cb(0.0)
-        _arch_ext = ".tar.zst" if archive_uri.endswith(".tar.zst") else ".tar.gz"
-        archive_path = _acquire_archive(
+        if install_cb:
+            install_cb(0.0)
+        _check_cancel(cancel_event)
+        extract_dir = tmp / "extracted"
+        extract_dir.mkdir()
+        chunks, total = _build_source(
             archive_uri,
-            tmp / f"archive{_arch_ext}",
             expected_size=entry.archive_size,
-            progress_cb=download_cb,
-            stats_cb=download_stats_cb,
-            cancel_event=cancel_event,
             token=token,
             ssl_verify=ssl_verify,
             ca_cert=ca_cert,
         )
-        if download_cb:
-            download_cb(1.0)
-
-        # ── Step 2: Verify CRC32 ──────────────────────────────────────
-        if entry.archive_crc32:
-            _check_cancel(cancel_event)
-            if phase_cb:
-                phase_cb("Verifying download\u2026")
-            _verify_crc32(archive_path, entry.archive_crc32,
-                          progress_cb=verify_cb, cancel_event=cancel_event)
-
-        # ── Step 3: Extract ────────────────────────────────────────────
-        _check_cancel(cancel_event)
-        if phase_cb:
-            phase_cb("Extracting package\u2026")
-        if install_cb:
-            install_cb(0.0)
-        extract_dir = tmp / "extracted"
-        extract_dir.mkdir()
-        _extract_archive(
-            archive_path, extract_dir, cancel_event,
-            progress_cb=install_cb,
+        _stream_and_extract(
+            chunks, total,
+            is_zst=archive_uri.endswith(".tar.zst"),
+            dest=extract_dir,
+            expected_crc32=entry.archive_crc32,
+            cancel_event=cancel_event,
+            progress_cb=download_cb,
+            stats_cb=download_stats_cb,
             name_cb=extract_name_cb,
         )
 
@@ -269,45 +516,31 @@ def install_linux_app(
     with tempfile.TemporaryDirectory(prefix="cellar-linux-install-") as tmp_str:
         tmp = Path(tmp_str)
 
-        # ── Step 1: Acquire archive ────────────────────────────────────
+        # ── Steps 1-3: Stream, verify CRC32, extract (single pass) ───────
         if phase_cb:
-            phase_cb("Downloading package\u2026")
+            phase_cb("Downloading & extracting\u2026")
         if download_cb:
             download_cb(0.0)
-        _arch_ext = ".tar.zst" if archive_uri.endswith(".tar.zst") else ".tar.gz"
-        archive_path = _acquire_archive(
+        if install_cb:
+            install_cb(0.0)
+        _check_cancel(cancel_event)
+        extract_dir = tmp / "extracted"
+        extract_dir.mkdir()
+        chunks, total = _build_source(
             archive_uri,
-            tmp / f"archive{_arch_ext}",
             expected_size=entry.archive_size,
-            progress_cb=download_cb,
-            stats_cb=download_stats_cb,
-            cancel_event=cancel_event,
             token=token,
             ssl_verify=ssl_verify,
             ca_cert=ca_cert,
         )
-        if download_cb:
-            download_cb(1.0)
-
-        # ── Step 2: Verify CRC32 ──────────────────────────────────────
-        if entry.archive_crc32:
-            _check_cancel(cancel_event)
-            if phase_cb:
-                phase_cb("Verifying download\u2026")
-            _verify_crc32(archive_path, entry.archive_crc32,
-                          progress_cb=verify_cb, cancel_event=cancel_event)
-
-        # ── Step 3: Extract ────────────────────────────────────────────
-        _check_cancel(cancel_event)
-        if phase_cb:
-            phase_cb("Extracting package\u2026")
-        if install_cb:
-            install_cb(0.0)
-        extract_dir = tmp / "extracted"
-        extract_dir.mkdir()
-        _extract_archive(
-            archive_path, extract_dir, cancel_event,
-            progress_cb=install_cb,
+        _stream_and_extract(
+            chunks, total,
+            is_zst=archive_uri.endswith(".tar.zst"),
+            dest=extract_dir,
+            expected_crc32=entry.archive_crc32,
+            cancel_event=cancel_event,
+            progress_cb=download_cb,
+            stats_cb=download_stats_cb,
             name_cb=extract_name_cb,
         )
 

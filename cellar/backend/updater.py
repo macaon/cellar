@@ -199,11 +199,7 @@ def update_app_safe(
     # Fraction ranges shift when a backup phase is present.
     has_backup = backup_path is not None
     dl_lo  = 0.20 if has_backup else 0.00
-    dl_hi  = 0.60 if has_backup else 0.50
-    ver_lo = dl_hi
-    ver_hi = ver_lo + 0.05
-    ext_lo = ver_hi
-    ext_hi = ext_lo + 0.15
+    ext_hi = 0.80 if has_backup else 0.70
     ov_lo  = ext_hi
     ov_hi  = 1.00
 
@@ -225,58 +221,37 @@ def update_app_safe(
     with tempfile.TemporaryDirectory(prefix="cellar-update-") as tmp_str:
         tmp = Path(tmp_str)
 
-        # ── Phase 2: Acquire ───────────────────────────────────────────────
-        _report(progress_cb, "Downloading…", dl_lo)
+        # ── Phases 2-4: Stream, verify CRC32, extract (single pass) ──────────
+        _report(progress_cb, "Downloading & extracting\u2026", dl_lo)
         try:
             from cellar.backend.installer import (  # noqa: PLC0415
                 InstallCancelled,
                 InstallError,
-                _acquire_archive,
-                _check_cancel as _inst_check,
-                _extract_archive,
+                _build_source,
                 _find_bottle_dir,
-                _verify_crc32,
+                _stream_and_extract,
             )
         except ImportError as exc:
             raise UpdateError(f"Internal error: {exc}") from exc
 
-        def _wrap_cancel(e: threading.Event | None) -> None:
-            if e and e.is_set():
-                raise UpdateCancelled
-
-        try:
-            archive_path = _acquire_archive(
-                archive_uri,
-                tmp / "archive.tar.gz",
-                expected_size=entry.archive_size,
-                token=token,
-                progress_cb=_sub("Downloading…", dl_lo, dl_hi),
-                cancel_event=cancel_event,
-            )
-        except InstallCancelled:
-            raise UpdateCancelled
-        except InstallError as exc:
-            raise UpdateError(str(exc)) from exc
-
-        # ── Phase 3: Verify ────────────────────────────────────────────────
-        _check_cancel(cancel_event)
-        if entry.archive_crc32:
-            _report(progress_cb, "Verifying…", ver_lo)
-            try:
-                _verify_crc32(archive_path, entry.archive_crc32,
-                              cancel_event=cancel_event)
-            except InstallCancelled:
-                raise UpdateCancelled
-            except InstallError as exc:
-                raise UpdateError(str(exc)) from exc
-
-        # ── Phase 4: Extract ───────────────────────────────────────────────
-        _check_cancel(cancel_event)
-        _report(progress_cb, "Extracting…", ext_lo)
         extract_dir = tmp / "extracted"
         extract_dir.mkdir()
         try:
-            _extract_archive(archive_path, extract_dir, cancel_event)
+            chunks, total = _build_source(
+                archive_uri,
+                expected_size=entry.archive_size,
+                token=token,
+            )
+            _stream_and_extract(
+                chunks, total,
+                is_zst=archive_uri.endswith(".tar.zst"),
+                dest=extract_dir,
+                expected_crc32=entry.archive_crc32,
+                cancel_event=cancel_event,
+                progress_cb=_sub("Downloading & extracting\u2026", dl_lo, ext_hi),
+                stats_cb=None,
+                name_cb=None,
+            )
             bottle_src = _find_bottle_dir(extract_dir)
         except InstallCancelled:
             raise UpdateCancelled

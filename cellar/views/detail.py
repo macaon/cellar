@@ -2176,9 +2176,6 @@ class InstallProgressDialog(Adw.Dialog):
         def _dl_stats(downloaded: int, total: int, speed: float) -> None:
             GLib.idle_add(self._progress_bar.set_text, _fmt_dl_stats(downloaded, total, speed))
 
-        def _verify_progress(fraction: float) -> None:
-            GLib.idle_add(self._progress_bar.set_fraction, fraction)
-
         def _inst_progress(fraction: float) -> None:
             GLib.idle_add(self._progress_bar.set_fraction, fraction)
 
@@ -2239,7 +2236,7 @@ class InstallProgressDialog(Adw.Dialog):
                         raise InstallCancelled("Runner download cancelled")
 
                 # ── App install phase (includes base download if needed) ───
-                _set_phase("Downloading package\u2026")
+                _set_phase("Downloading & extracting\u2026")
                 bottle_name = install_app(
                     self._entry,
                     self._archive_uri,
@@ -2251,7 +2248,6 @@ class InstallProgressDialog(Adw.Dialog):
                     install_cb=_inst_progress,
                     extract_name_cb=_extract_name,
                     phase_cb=_set_phase,
-                    verify_cb=_verify_progress,
                     cancel_event=self._cancel_event,
                     token=self._token,
                 )
@@ -2278,9 +2274,6 @@ class InstallProgressDialog(Adw.Dialog):
 
         def _dl_stats(downloaded: int, total: int, speed: float) -> None:
             GLib.idle_add(self._progress_bar.set_text, _fmt_dl_stats(downloaded, total, speed))
-
-        def _verify_progress(fraction: float) -> None:
-            GLib.idle_add(self._progress_bar.set_fraction, fraction)
 
         def _inst_progress(fraction: float) -> None:
             GLib.idle_add(self._progress_bar.set_fraction, fraction)
@@ -2309,7 +2302,6 @@ class InstallProgressDialog(Adw.Dialog):
                     install_cb=_inst_progress,
                     extract_name_cb=_extract_name,
                     phase_cb=_set_phase,
-                    verify_cb=_verify_progress,
                     cancel_event=self._cancel_event,
                     token=self._token,
                 )

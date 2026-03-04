@@ -319,11 +319,13 @@ def test_compress_directory_zst_roundtrip(tmp_path):
     (src / "data" / "assets.pak").write_bytes(b"assets")
 
     dest = tmp_path / "mygame.tar.zst"
-    size = pkg.compress_directory_zst(src, dest)
+    size, crc32 = pkg.compress_directory_zst(src, dest)
 
     assert dest.exists()
     assert size == dest.stat().st_size
     assert size > 0
+    assert len(crc32) == 8
+    assert all(c in "0123456789abcdef" for c in crc32)
 
     # Decompress and verify contents
     dctx = zstd.ZstdDecompressor()

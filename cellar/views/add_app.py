@@ -823,33 +823,37 @@ class AddAppDialog(Adw.Dialog):
             archive_to_upload = self._archive_path
             entry_to_upload = entry
             tmp_delta: str | None = None
+            archive_in_place = False
 
             # ── Directory compression (Linux native) ───────────────────────
             if source_dir:
-                tmp_delta = tempfile.mkdtemp(prefix="cellar-linux-compress-")
-                compressed_path = Path(tmp_delta) / archive_filename
+                archive_dest = repo_root / entry_to_upload.archive
+                archive_dest.parent.mkdir(parents=True, exist_ok=True)
+                tmp_archive = archive_dest.parent / (archive_dest.name + ".tmp")
                 try:
-                    compressed_size = compress_directory_zst(
+                    compressed_size, crc32 = compress_directory_zst(
                         Path(source_dir),
-                        compressed_path,
+                        tmp_archive,
                         cancel_event=self._cancel_event,
                         progress_cb=_progress,
                     )
+                    tmp_archive.rename(archive_dest)
                 except CancelledError:
-                    _shutil.rmtree(tmp_delta, ignore_errors=True)
+                    tmp_archive.unlink(missing_ok=True)
                     GLib.idle_add(self._on_import_cancelled)
                     return
                 except Exception as exc:
-                    _shutil.rmtree(tmp_delta, ignore_errors=True)
+                    tmp_archive.unlink(missing_ok=True)
                     GLib.idle_add(self._on_import_error, f"Failed to compress directory: {exc}")
                     return
 
-                archive_to_upload = str(compressed_path)
+                archive_to_upload = str(archive_dest)
+                archive_in_place = True
                 entry_to_upload = _replace(
                     entry_to_upload,
                     archive_size=compressed_size,
+                    archive_crc32=crc32,
                 )
-                _phase("Copying archive\u2026")
 
             # ── Delta archive creation (Windows/Wine only) ─────────────────
             elif use_delta and not self._is_linux:
@@ -928,6 +932,7 @@ class AddAppDialog(Adw.Dialog):
                     phase_cb=_phase,
                     stats_cb=_stats,
                     cancel_event=self._cancel_event,
+                    archive_in_place=archive_in_place,
                 )
                 GLib.idle_add(self._on_import_done)
             except CancelledError:

@@ -165,19 +165,34 @@ def list_archive_members(archive_path: str) -> list[tuple[str, bool]]:
 # Directory compression
 # ---------------------------------------------------------------------------
 
+class _CRCWriter:
+    """Wraps a writable file object and accumulates CRC32 of all written bytes."""
+
+    __slots__ = ("_fp", "crc")
+
+    def __init__(self, fp):
+        self._fp = fp
+        self.crc = 0
+
+    def write(self, data: bytes) -> int:
+        self.crc = zlib.crc32(data, self.crc)
+        return self._fp.write(data)
+
+
 def compress_directory_zst(
     src_dir: Path,
     dest_path: Path,
     *,
     cancel_event=None,
     progress_cb: Callable[[float], None] | None = None,
-) -> int:
+) -> tuple[int, str]:
     """Compress *src_dir* into a ``.tar.zst`` archive at *dest_path*.
 
     Uses zstandard level 3 (fast compression, good ratio).  Preserves Unix
     permissions and symlinks via ``tarfile``.
 
-    Returns the size of the resulting archive in bytes.
+    Returns ``(size_bytes, crc32_hex)`` where *crc32_hex* is the CRC32 of the
+    compressed archive as an 8-character lowercase hex string.
     Raises ``CancelledError`` if *cancel_event* is set during compression.
     """
     import zstandard as zstd  # noqa: PLC0415
@@ -199,9 +214,11 @@ def compress_directory_zst(
     cctx = zstd.ZstdCompressor(level=3)
     try:
         with open(dest_path, "wb") as out_f:
-            with cctx.stream_writer(out_f, closefd=False) as compressor:
+            crc_writer = _CRCWriter(out_f)
+            with cctx.stream_writer(crc_writer, closefd=False) as compressor:
                 with tarfile.open(fileobj=compressor, mode="w|") as tf:
                     tf.add(str(src_dir), arcname=src_dir.name, recursive=True, filter=_filter)
+            crc32_hex = format(crc_writer.crc & 0xFFFFFFFF, "08x")
     except CancelledError:
         dest_path.unlink(missing_ok=True)
         raise
@@ -209,7 +226,7 @@ def compress_directory_zst(
         dest_path.unlink(missing_ok=True)
         raise RuntimeError(f"Failed to compress directory: {exc}") from exc
 
-    return dest_path.stat().st_size
+    return dest_path.stat().st_size, crc32_hex
 
 
 # ---------------------------------------------------------------------------
@@ -249,6 +266,7 @@ def import_to_repo(
     phase_cb: Callable[[str], None] | None = None,
     stats_cb: Callable[[int, int, float], None] | None = None,
     cancel_event=None,          # threading.Event — checked during archive copy
+    archive_in_place: bool = False,
 ) -> None:
     """Copy archive + images into *repo_root* and update ``catalogue.json``.
 
@@ -263,46 +281,50 @@ def import_to_repo(
     during the archive copy so the UI can show size/speed text.
     *cancel_event* is a ``threading.Event``; when set the copy is aborted and
     the partial destination file is removed.
+    *archive_in_place*, when ``True``, skips the archive copy: the file is
+    assumed to already exist at ``repo_root / entry.archive`` and
+    ``entry.archive_crc32`` must already be set.
     """
     app_dir = repo_root / "apps" / entry.id
     app_dir.mkdir(parents=True, exist_ok=True)
 
-    # ── Archive copy (chunked for progress reporting + CRC32) ──────────────
-    if phase_cb:
-        phase_cb("Copying archive\u2026")
-    archive_dest = repo_root / entry.archive
-    archive_dest.parent.mkdir(parents=True, exist_ok=True)
-    src_size = Path(archive_src).stat().st_size
-    chunk = 1 * 1024 * 1024  # 1 MB
-    copied = 0
-    crc = 0
-    start = time.monotonic()
-    try:
-        with open(archive_src, "rb") as src_f, open(archive_dest, "wb") as dst_f:
-            while True:
-                if cancel_event and cancel_event.is_set():
-                    dst_f.close()
-                    archive_dest.unlink(missing_ok=True)
-                    raise CancelledError("Import cancelled by user")
-                buf = src_f.read(chunk)
-                if not buf:
-                    break
-                dst_f.write(buf)
-                crc = zlib.crc32(buf, crc)
-                copied += len(buf)
-                elapsed = time.monotonic() - start
-                speed = copied / elapsed if elapsed > 0.1 else 0.0
-                if stats_cb and src_size > 0:
-                    stats_cb(copied, src_size, speed)
-                if progress_cb and src_size > 0:
-                    progress_cb(min(copied / src_size * 0.9, 0.9))
-    except CancelledError:
-        raise
-    except OSError as exc:
-        archive_dest.unlink(missing_ok=True)
-        raise RuntimeError(f"Failed to copy archive: {exc}") from exc
+    if not archive_in_place:
+        # ── Archive copy (chunked for progress reporting + CRC32) ──────────────
+        if phase_cb:
+            phase_cb("Copying archive\u2026")
+        archive_dest = repo_root / entry.archive
+        archive_dest.parent.mkdir(parents=True, exist_ok=True)
+        src_size = Path(archive_src).stat().st_size
+        chunk = 1 * 1024 * 1024  # 1 MB
+        copied = 0
+        crc = 0
+        start = time.monotonic()
+        try:
+            with open(archive_src, "rb") as src_f, open(archive_dest, "wb") as dst_f:
+                while True:
+                    if cancel_event and cancel_event.is_set():
+                        dst_f.close()
+                        archive_dest.unlink(missing_ok=True)
+                        raise CancelledError("Import cancelled by user")
+                    buf = src_f.read(chunk)
+                    if not buf:
+                        break
+                    dst_f.write(buf)
+                    crc = zlib.crc32(buf, crc)
+                    copied += len(buf)
+                    elapsed = time.monotonic() - start
+                    speed = copied / elapsed if elapsed > 0.1 else 0.0
+                    if stats_cb and src_size > 0:
+                        stats_cb(copied, src_size, speed)
+                    if progress_cb and src_size > 0:
+                        progress_cb(min(copied / src_size * 0.9, 0.9))
+        except CancelledError:
+            raise
+        except OSError as exc:
+            archive_dest.unlink(missing_ok=True)
+            raise RuntimeError(f"Failed to copy archive: {exc}") from exc
 
-    entry = replace(entry, archive_crc32=format(crc & 0xFFFFFFFF, "08x"))
+        entry = replace(entry, archive_crc32=format(crc & 0xFFFFFFFF, "08x"))
 
     # ── Single images (icon, cover, hero, logo) ───────────────────────────
     for key in ("icon", "cover", "hero", "logo"):

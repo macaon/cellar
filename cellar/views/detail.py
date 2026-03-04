@@ -976,11 +976,8 @@ class DetailView(Gtk.Box):
 
         def _simple_card(icon_name: str, value: str, label: str) -> Gtk.Box:
             card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+            card.add_css_class("info-cell")
             card.set_hexpand(True)
-            card.set_margin_top(14)
-            card.set_margin_bottom(14)
-            card.set_margin_start(14)
-            card.set_margin_end(14)
 
             icon = Gtk.Image.new_from_icon_name(icon_name)
             icon.set_pixel_size(24)
@@ -1024,17 +1021,21 @@ class DetailView(Gtk.Box):
                 cat_text = cat_text + "\n" + ", ".join(e.tags)
             _add(_simple_card("tag-symbolic", cat_text, "Category"))
 
+        first = outer.get_first_child()
+        last = outer.get_last_child()
+        if first:
+            first.add_css_class("info-cell-first")
+        if last and last is not first:
+            last.add_css_class("info-cell-last")
+
         return outer
 
     def _make_wine_card(self) -> Gtk.Box:
         """Return a card showing Wine runner, DXVK/VKD3D, and a change button."""
         bw = self._entry.built_with
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        card.add_css_class("info-cell")
         card.set_hexpand(True)
-        card.set_margin_top(14)
-        card.set_margin_bottom(14)
-        card.set_margin_start(14)
-        card.set_margin_end(14)
 
         icon = Gtk.Image.new_from_icon_name("system-run-symbolic")
         icon.set_pixel_size(24)
@@ -1089,55 +1090,61 @@ class DetailView(Gtk.Box):
         return card
 
     def _show_download_dialog(self) -> None:
-        """Show a popover-style dialog with archive + optional base image sizes."""
+        """Show a closeable window with archive and base image sizes."""
         e = self._entry
 
-        body = Gtk.Box(
-            orientation=Gtk.Orientation.VERTICAL,
-            spacing=10,
-            margin_top=6,
+        listbox = Gtk.ListBox()
+        listbox.set_selection_mode(Gtk.SelectionMode.NONE)
+        listbox.add_css_class("boxed-list")
+
+        app_row = Adw.ActionRow(
+            title="App archive",
+            subtitle=_fmt_bytes(e.archive_size) if e.archive_size else "Unknown",
         )
+        listbox.append(app_row)
 
-        def _size_row(label: str, size_label: Gtk.Label, sublabel: str = "") -> None:
-            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-            left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-            left.set_hexpand(True)
-            lbl = Gtk.Label(label=label)
-            lbl.set_xalign(0)
-            left.append(lbl)
-            if sublabel:
-                sub = Gtk.Label(label=sublabel)
-                sub.add_css_class("dim-label")
-                sub.add_css_class("caption")
-                sub.set_xalign(0)
-                sub.set_wrap(True)
-                left.append(sub)
-            row.append(left)
-            size_label.set_halign(Gtk.Align.END)
-            size_label.set_valign(Gtk.Align.START)
-            row.append(size_label)
-            body.append(row)
-
-        app_size_lbl = Gtk.Label(label=_fmt_bytes(e.archive_size))
-        _size_row("App archive", app_size_lbl)
-
-        base_size_lbl: Gtk.Label | None = None
+        base_row: Adw.ActionRow | None = None
         if e.base_runner:
-            base_size_lbl = Gtk.Label(label="…")
-            _size_row(
-                f"Base image ({e.base_runner})",
-                base_size_lbl,
-                "Only downloaded if not already installed on this system.",
+            base_row = Adw.ActionRow(
+                title=f"Base image ({e.base_runner})",
+                subtitle="…",
             )
+            listbox.append(base_row)
 
-        dialog = Adw.AlertDialog(heading="Download", body="")
-        dialog.add_response("ok", "OK")
-        dialog.set_default_response("ok")
-        dialog.set_extra_child(body)
-        dialog.present(self.get_root())
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        content.set_margin_top(18)
+        content.set_margin_bottom(18)
+        content.set_margin_start(18)
+        content.set_margin_end(18)
+        content.append(listbox)
 
-        if base_size_lbl is not None:
-            lbl_ref = base_size_lbl
+        if e.base_runner:
+            note = Gtk.Label(
+                label="The base image is only downloaded if not already"
+                      " installed on this system.",
+            )
+            note.add_css_class("dim-label")
+            note.add_css_class("caption")
+            note.set_wrap(True)
+            note.set_xalign(0)
+            note.set_margin_top(8)
+            content.append(note)
+
+        toolbar = Adw.ToolbarView()
+        toolbar.add_top_bar(Adw.HeaderBar())
+        toolbar.set_content(content)
+
+        win = Adw.Window()
+        win.set_title("Download")
+        win.set_transient_for(self.get_root())
+        win.set_modal(True)
+        win.set_default_size(360, -1)
+        win.set_resizable(False)
+        win.set_child(toolbar)
+        win.present()
+
+        if base_row is not None:
+            row_ref = base_row
 
             def _worker() -> None:
                 for repo in self._source_repos:
@@ -1146,13 +1153,13 @@ class DetailView(Gtk.Box):
                         if e.base_runner in bases:
                             sz = bases[e.base_runner].archive_size
                             GLib.idle_add(
-                                lbl_ref.set_label,
+                                row_ref.set_subtitle,
                                 _fmt_bytes(sz) if sz else "Unknown",
                             )
                             return
                     except Exception:
                         pass
-                GLib.idle_add(lbl_ref.set_label, "Unknown")
+                GLib.idle_add(row_ref.set_subtitle, "Unknown")
 
             threading.Thread(target=_worker, daemon=True).start()
 

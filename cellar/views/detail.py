@@ -625,8 +625,9 @@ class DetailView(Gtk.Box):
         if e.publisher and e.publisher != e.developer:
             dev_parts.append(e.publisher)
 
-        # Logo column: logo image with developer credit centered below it.
+        # Logo column: logo image, with developer credit below when title is hidden.
         # Falls back to a square icon when no logo is set.
+        dev_below_logo = e.logo and e.hide_title
         if e.logo:
             logo_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
             logo_col.set_halign(Gtk.Align.START)
@@ -634,7 +635,7 @@ class DetailView(Gtk.Box):
             logo = self._make_logo_widget(e.logo, _ICON_SIZE)
             logo.set_halign(Gtk.Align.CENTER)
             logo_col.append(logo)
-            if dev_parts:
+            if dev_below_logo and dev_parts:
                 dev_lbl = Gtk.Label(label=" · ".join(dev_parts))
                 dev_lbl.add_css_class("dim-label")
                 dev_lbl.add_css_class("caption")
@@ -647,7 +648,7 @@ class DetailView(Gtk.Box):
             icon.set_valign(Gtk.Align.CENTER)
             box.append(icon)
 
-        # Meta column: name (and developer when no logo).
+        # Meta column: name + developer (when title is visible).
         meta = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         meta.set_hexpand(True)
         meta.set_valign(Gtk.Align.CENTER)
@@ -660,7 +661,7 @@ class DetailView(Gtk.Box):
             name_lbl.set_wrap(True)
             meta.append(name_lbl)
 
-        if not e.logo and dev_parts:
+        if not dev_below_logo and dev_parts:
             dev_lbl = Gtk.Label(label=" · ".join(dev_parts))
             dev_lbl.add_css_class("dim-label")
             dev_lbl.set_halign(Gtk.Align.START)

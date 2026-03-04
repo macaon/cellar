@@ -37,30 +37,31 @@ BASE_CATEGORIES: list[str] = ["Games", "Productivity", "Graphics", "Utility"]
 
 #: Default symbolic icon name for each built-in category.
 BASE_CATEGORY_ICONS: dict[str, str] = {
-    "Games": "gamepad-symbolic",
-    "Productivity": "note2-symbolic",
-    "Graphics": "camera-shutter-symbolic",
-    "Utility": "code-symbolic",
+    "Games": "input-gaming-symbolic",
+    "Productivity": "document-edit-symbolic",
+    "Graphics": "applications-graphics-symbolic",
+    "Utility": "applications-utilities-symbolic",
 }
 
 #: Curated set of symbolic icon names offered in the category icon picker.
+#: All icons are from the standard Adwaita theme.
 CATEGORY_ICON_OPTIONS: list[str] = [
-    "camera-shutter-symbolic",
-    "license-symbolic",
-    "code-symbolic",
-    "cd-symbolic",
-    "display-with-window-symbolic",
-    "gamepad-symbolic",
-    "file-manager-symbolic",
-    "meeting-symbolic",
-    "ticket-special-symbolic",
-    "baseball-symbolic",
-    "noodles-symbolic",
-    "note2-symbolic",
+    "input-gaming-symbolic",
+    "applications-graphics-symbolic",
+    "document-edit-symbolic",
+    "applications-utilities-symbolic",
+    "audio-x-generic-symbolic",
+    "video-x-generic-symbolic",
     "mail-unread-symbolic",
-    "globe-symbolic",
-    "library-music-symbolic",
-    "video-reel2-symbolic",
+    "applications-science-symbolic",
+    "image-x-generic-symbolic",
+    "application-x-executable-symbolic",
+    "applications-system-symbolic",
+    "folder-symbolic",
+    "camera-photo-symbolic",
+    "media-optical-cd-symbolic",
+    "accessories-text-editor-symbolic",
+    "applications-multimedia-symbolic",
 ]
 
 

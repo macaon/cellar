@@ -1002,8 +1002,12 @@ class DetailView(Gtk.Box):
             dl_card = _simple_card(
                 "folder-download-symbolic", _fmt_bytes(e.archive_size), "Download",
             )
+            # Keep a reference to the value label (second child of the card)
+            # so we can update it once the base-installed check resolves.
+            _dl_val_lbl = dl_card.get_first_child().get_next_sibling()
             _make_interactive(dl_card, self._show_download_dialog)
             _add(dl_card)
+            self._update_download_card_async(_dl_val_lbl)
 
         if e.install_size_estimate > 0:
             _add(_simple_card(
@@ -1088,6 +1092,32 @@ class DetailView(Gtk.Box):
         card.append(bottom_lbl)
 
         return card
+
+    def _update_download_card_async(self, val_lbl: Gtk.Label) -> None:
+        """If the base image is not installed, update the card to show app+base size."""
+        e = self._entry
+        base_runner = e.base_runner or (e.built_with.runner if e.built_with else "")
+        if not base_runner:
+            return
+        app_size = e.archive_size
+
+        def _worker() -> None:
+            from cellar.backend.base_store import is_base_installed
+            if is_base_installed(base_runner):
+                return
+            base_sz = 0
+            for repo in self._source_repos:
+                try:
+                    bases = repo.fetch_bases()
+                    if base_runner in bases:
+                        base_sz = bases[base_runner].archive_size
+                        break
+                except Exception:
+                    pass
+            if base_sz:
+                GLib.idle_add(val_lbl.set_label, _fmt_bytes(app_size + base_sz))
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     def _show_download_dialog(self) -> None:
         """Show a download size breakdown: header pill + per-component rows."""

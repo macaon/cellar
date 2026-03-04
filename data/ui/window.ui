@@ -30,9 +30,8 @@
                     </child>
                     <child type="start">
                       <object class="GtkMenuButton" id="filter_button">
-                        <property name="icon-name">view-filter-symbolic</property>
+                        <property name="icon-name">funnel-symbolic</property>
                         <property name="tooltip-text" translatable="yes">Filter by tag</property>
-                        <property name="sensitive">false</property>
                       </object>
                     </child>
                     <child type="end">

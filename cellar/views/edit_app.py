@@ -64,13 +64,6 @@ class EditAppDialog(Adw.Dialog):
         self._on_deleted = on_deleted
         self._cancel_event = threading.Event()
 
-        # Category list: base categories + any custom ones stored in the repo
-        from cellar.backend.packager import BASE_CATEGORIES
-        try:
-            self._categories: list[str] = repo.fetch_categories()
-        except Exception:
-            self._categories = list(BASE_CATEGORIES)
-
         # Optional archive replacement
         self._new_archive_src: str = ""
 
@@ -160,19 +153,9 @@ class EditAppDialog(Adw.Dialog):
         # ── Details ───────────────────────────────────────────────────────
         details_group = Adw.PreferencesGroup(title="Details")
 
-        self._category_row = Adw.ComboRow(title="Category *")
-        cat_model = Gtk.StringList()
-        for c in self._categories:
-            cat_model.append(c)
-        cat_model.append("Custom…")
-        self._category_row.set_model(cat_model)
-        self._category_row.connect("notify::selected", self._on_category_changed)
-        details_group.add(self._category_row)
-
-        self._custom_category_row = Adw.EntryRow(title="Custom category")
-        self._custom_category_row.set_visible(False)
-        self._custom_category_row.connect("changed", self._on_name_changed)
-        details_group.add(self._custom_category_row)
+        self._tags_entry = Adw.EntryRow(title="Tags")
+        self._tags_entry.set_tooltip_text("Comma-separated, e.g. Games, Action, RPG")
+        details_group.add(self._tags_entry)
 
         self._summary_entry = Adw.EntryRow(title="Summary")
         details_group.add(self._summary_entry)
@@ -384,16 +367,7 @@ class EditAppDialog(Adw.Dialog):
 
         self._name_entry.set_text(e.name)
         self._version_entry.set_text(e.version)
-
-        cat = e.category
-        if cat in self._categories:
-            self._category_row.set_selected(self._categories.index(cat))
-        else:
-            # Category not in the stored list (edge case) — show custom entry
-            self._category_row.set_selected(len(self._categories))  # "Custom…"
-            self._custom_category_row.set_text(cat)
-            self._custom_category_row.set_visible(True)
-
+        self._tags_entry.set_text(", ".join(e.tags))
         self._summary_entry.set_text(e.summary or "")
 
         if e.description:
@@ -444,20 +418,9 @@ class EditAppDialog(Adw.Dialog):
 
     # ── Form validation ───────────────────────────────────────────────────
 
-    def _on_category_changed(self, _row, _param) -> None:
-        is_custom = self._category_row.get_selected() == len(self._categories)
-        self._custom_category_row.set_visible(is_custom)
-        if is_custom:
-            self._custom_category_row.grab_focus()
-        self._update_save_button()
-
-    def _get_category(self) -> str:
-        idx = self._category_row.get_selected()
-        if idx == len(self._categories):  # "Custom…" sentinel
-            return self._custom_category_row.get_text().strip()
-        if 0 <= idx < len(self._categories):
-            return self._categories[idx]
-        return ""
+    def _get_tags(self) -> list[str]:
+        raw = self._tags_entry.get_text()
+        return [t.strip() for t in raw.split(",") if t.strip()]
 
     def _on_lock_runner_toggled(self, btn) -> None:
         if btn.get_active():
@@ -470,8 +433,7 @@ class EditAppDialog(Adw.Dialog):
 
     def _update_save_button(self) -> None:
         name_ok = bool(self._name_entry.get_text().strip())
-        category_ok = bool(self._get_category())
-        self._save_btn.set_sensitive(name_ok and category_ok)
+        self._save_btn.set_sensitive(name_ok)
 
     # ── Archive picker ────────────────────────────────────────────────────
 
@@ -640,7 +602,8 @@ class EditAppDialog(Adw.Dialog):
         app_id = e.id
         name = self._name_entry.get_text().strip()
         version = self._version_entry.get_text().strip() or e.version
-        category = self._get_category()
+        tags = self._get_tags()
+        category = tags[0] if tags else e.category
         summary = self._summary_entry.get_text().strip()
         desc_buf = self._desc_view.get_buffer()
         description = desc_buf.get_text(
@@ -710,6 +673,7 @@ class EditAppDialog(Adw.Dialog):
             name=name,
             version=version,
             category=category,
+            tags=tuple(tags),
             summary=summary,
             description=description,
             developer=developer,
@@ -750,9 +714,7 @@ class EditAppDialog(Adw.Dialog):
 
         def _run():
             from cellar.backend.packager import (
-                BASE_CATEGORIES,
                 CancelledError,
-                add_catalogue_category,
                 update_in_repo,
             )
 
@@ -783,14 +745,6 @@ class EditAppDialog(Adw.Dialog):
                     stats_cb=_stats,
                     cancel_event=self._cancel_event,
                 )
-                if category not in BASE_CATEGORIES:
-                    try:
-                        add_catalogue_category(repo_root, category)
-                    except Exception as exc:
-                        import logging
-                        logging.getLogger(__name__).warning(
-                            "Could not persist custom category %r: %s", category, exc
-                        )
                 GLib.idle_add(self._on_save_done)
             except CancelledError:
                 GLib.idle_add(self._on_save_cancelled)

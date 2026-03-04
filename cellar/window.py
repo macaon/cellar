@@ -122,7 +122,6 @@ class CellarWindow(Adw.ApplicationWindow):
         self._writable_repos = []
         self._tag_checks = {}
         self.filter_button.remove_css_class("suggested-action")
-        self.filter_button.set_sensitive(False)
 
         env_uri = os.environ.get("CELLAR_REPO", "")
         if env_uri:
@@ -170,6 +169,7 @@ class CellarWindow(Adw.ApplicationWindow):
             self._browse_installed.load_entries([])
             self._browse_updates.load_entries([])
             self.updates_page.set_badge_number(0)
+            self._rebuild_filter_popover([])
             return
 
         self.refresh_button.set_sensitive(False)
@@ -232,6 +232,7 @@ class CellarWindow(Adw.ApplicationWindow):
                 self._browse_installed.load_entries([])
                 self._browse_updates.load_entries([])
                 self.updates_page.set_badge_number(0)
+                self._rebuild_filter_popover([])
         except Exception as exc:
             log.error("Failed to load catalogue: %s", exc)
             self._browse_explore.show_error("Could Not Load Repository", str(exc))
@@ -248,48 +249,52 @@ class CellarWindow(Adw.ApplicationWindow):
         all_tags = sorted({tag for e in entries for tag in e.tags})
         self._tag_checks = {}
 
-        if not all_tags:
-            self.filter_button.set_sensitive(False)
-            self.filter_button.set_popover(None)
-            return
-
-        # Checkboxes
-        checks_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        for tag in all_tags:
-            check = Gtk.CheckButton(label=tag)
-            check.connect("toggled", self._on_tag_toggled)
-            self._tag_checks[tag] = check
-            checks_box.append(check)
-
-        scrolled = Gtk.ScrolledWindow()
-        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scrolled.set_max_content_height(320)
-        scrolled.set_propagate_natural_height(True)
-        scrolled.set_child(checks_box)
-        scrolled.set_margin_top(4)
-        scrolled.set_margin_bottom(4)
-        scrolled.set_margin_start(4)
-        scrolled.set_margin_end(4)
-
-        # "Clear" button at the bottom
-        separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
-        clear_btn = Gtk.Button(label="Clear")
-        clear_btn.add_css_class("flat")
-        clear_btn.connect("clicked", self._on_filter_clear)
-        clear_btn.set_margin_top(4)
-        clear_btn.set_margin_bottom(4)
-        clear_btn.set_margin_start(4)
-        clear_btn.set_margin_end(4)
-
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        outer.append(scrolled)
-        outer.append(separator)
-        outer.append(clear_btn)
+
+        if not all_tags:
+            empty_lbl = Gtk.Label(label="No tags available")
+            empty_lbl.add_css_class("dim-label")
+            empty_lbl.set_margin_top(12)
+            empty_lbl.set_margin_bottom(12)
+            empty_lbl.set_margin_start(12)
+            empty_lbl.set_margin_end(12)
+            outer.append(empty_lbl)
+        else:
+            # Checkboxes
+            checks_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            for tag in all_tags:
+                check = Gtk.CheckButton(label=tag)
+                check.connect("toggled", self._on_tag_toggled)
+                self._tag_checks[tag] = check
+                checks_box.append(check)
+
+            scrolled = Gtk.ScrolledWindow()
+            scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+            scrolled.set_max_content_height(320)
+            scrolled.set_propagate_natural_height(True)
+            scrolled.set_child(checks_box)
+            scrolled.set_margin_top(4)
+            scrolled.set_margin_bottom(4)
+            scrolled.set_margin_start(4)
+            scrolled.set_margin_end(4)
+
+            # "Clear" button at the bottom
+            separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+            clear_btn = Gtk.Button(label="Clear")
+            clear_btn.add_css_class("flat")
+            clear_btn.connect("clicked", self._on_filter_clear)
+            clear_btn.set_margin_top(4)
+            clear_btn.set_margin_bottom(4)
+            clear_btn.set_margin_start(4)
+            clear_btn.set_margin_end(4)
+
+            outer.append(scrolled)
+            outer.append(separator)
+            outer.append(clear_btn)
 
         popover = Gtk.Popover()
         popover.set_child(outer)
         self.filter_button.set_popover(popover)
-        self.filter_button.set_sensitive(True)
 
     def _on_tag_toggled(self, _check: Gtk.CheckButton) -> None:
         active = frozenset(tag for tag, chk in self._tag_checks.items() if chk.get_active())
@@ -444,7 +449,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="application-x-executable",
-            version="0.25.0",
+            version="0.25.1",
             comments="A GNOME storefront for Bottles-managed Windows apps.",
             license_type=Gtk.License.GPL_3_0,
         )

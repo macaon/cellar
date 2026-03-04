@@ -62,13 +62,6 @@ class AddAppDialog(Adw.Dialog):
         self._on_done = on_done
         self._cancel_event = threading.Event()
 
-        # Category list: base categories + any custom ones stored in the repo
-        from cellar.backend.packager import BASE_CATEGORIES
-        try:
-            self._categories: list[str] = self._repo.fetch_categories()
-        except Exception:
-            self._categories = list(BASE_CATEGORIES)
-
         # Image selections
         self._icon_path: str = ""
         self._cover_path: str = ""
@@ -183,19 +176,10 @@ class AddAppDialog(Adw.Dialog):
         # ── Details ───────────────────────────────────────────────────────
         details_group = Adw.PreferencesGroup(title="Details")
 
-        self._category_row = Adw.ComboRow(title="Category *")
-        cat_model = Gtk.StringList()
-        for c in self._categories:
-            cat_model.append(c)
-        cat_model.append("Custom…")
-        self._category_row.set_model(cat_model)
-        self._category_row.connect("notify::selected", self._on_category_changed)
-        details_group.add(self._category_row)
-
-        self._custom_category_row = Adw.EntryRow(title="Custom category")
-        self._custom_category_row.set_visible(False)
-        self._custom_category_row.connect("changed", self._on_field_changed)
-        details_group.add(self._custom_category_row)
+        self._tags_entry = Adw.EntryRow(title="Tags")
+        self._tags_entry.set_tooltip_text("Comma-separated, e.g. Games, Action, RPG")
+        self._tags_entry.connect("changed", self._on_field_changed)
+        details_group.add(self._tags_entry)
 
         self._summary_entry = Adw.EntryRow(title="Summary")
         details_group.add(self._summary_entry)
@@ -385,8 +369,8 @@ class AddAppDialog(Adw.Dialog):
                 self._vkd3d_row.set_subtitle(vkd3d)
 
             env = yml.get("Environment", "")
-            if env.lower() == "game" and "Games" in self._categories:
-                self._category_row.set_selected(self._categories.index("Games"))
+            if env.lower() == "game":
+                GLib.idle_add(self._tags_entry.set_text, "Games")
 
             if runner:
                 self._runner = runner
@@ -502,28 +486,16 @@ class AddAppDialog(Adw.Dialog):
             self._id_user_edited = bool(self._id_entry.get_text())
         self._update_add_button()
 
-    def _on_category_changed(self, _row, _param) -> None:
-        is_custom = self._category_row.get_selected() == len(self._categories)
-        self._custom_category_row.set_visible(is_custom)
-        if is_custom:
-            self._custom_category_row.grab_focus()
-        self._update_add_button()
-
     def _on_field_changed(self, *_args) -> None:
         self._update_add_button()
 
-    def _get_category(self) -> str:
-        idx = self._category_row.get_selected()
-        if idx == len(self._categories):  # "Custom…" sentinel
-            return self._custom_category_row.get_text().strip()
-        if 0 <= idx < len(self._categories):
-            return self._categories[idx]
-        return ""
+    def _get_tags(self) -> list[str]:
+        raw = self._tags_entry.get_text()
+        return [t.strip() for t in raw.split(",") if t.strip()]
 
     def _update_add_button(self) -> None:
         name_ok = bool(self._name_entry.get_text().strip())
-        category_ok = bool(self._get_category())
-        self._add_btn.set_sensitive(name_ok and category_ok and self._base_ok)
+        self._add_btn.set_sensitive(name_ok and self._base_ok)
 
     # ── Image pickers ─────────────────────────────────────────────────────
 
@@ -599,7 +571,8 @@ class AddAppDialog(Adw.Dialog):
         name = self._name_entry.get_text().strip()
         app_id = self._id_entry.get_text().strip()
         version = self._version_entry.get_text().strip() or "1.0"
-        category = self._get_category()
+        tags = self._get_tags()
+        category = tags[0] if tags else ""
         summary = self._summary_entry.get_text().strip()
         desc_buf = self._desc_view.get_buffer()
         description = desc_buf.get_text(
@@ -644,6 +617,7 @@ class AddAppDialog(Adw.Dialog):
             name=name,
             version=version,
             category=category,
+            tags=tuple(tags),
             summary=summary,
             description=description,
             developer=developer,
@@ -691,9 +665,7 @@ class AddAppDialog(Adw.Dialog):
             import tempfile
             from dataclasses import replace as _replace
             from cellar.backend.packager import (
-                BASE_CATEGORIES,
                 CancelledError,
-                add_catalogue_category,
                 import_to_repo,
             )
 
@@ -794,14 +766,6 @@ class AddAppDialog(Adw.Dialog):
                     stats_cb=_stats,
                     cancel_event=self._cancel_event,
                 )
-                if category not in BASE_CATEGORIES:
-                    try:
-                        add_catalogue_category(repo_root, category)
-                    except Exception as exc:
-                        import logging
-                        logging.getLogger(__name__).warning(
-                            "Could not persist custom category %r: %s", category, exc
-                        )
                 GLib.idle_add(self._on_import_done)
             except CancelledError:
                 GLib.idle_add(self._on_import_cancelled)

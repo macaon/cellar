@@ -107,7 +107,16 @@ def sync_index() -> None:
     try:
         if git_dir.is_dir():
             log.debug("Pulling components index from %s", REPO_URL)
-            porcelain.pull(str(target), remote_location=REPO_URL)
+            try:
+                porcelain.pull(str(target), remote_location=REPO_URL)
+            except Exception:  # noqa: BLE001
+                # Pull failed (e.g. diverged history after upstream rebase/force-push).
+                # Wipe the stale clone and re-clone from scratch.
+                log.debug("Pull failed; re-cloning components index")
+                import shutil
+                shutil.rmtree(str(target), ignore_errors=True)
+                target.mkdir(parents=True, exist_ok=True)
+                porcelain.clone(REPO_URL, str(target), depth=1)
         else:
             log.debug("Cloning components index from %s", REPO_URL)
             target.mkdir(parents=True, exist_ok=True)

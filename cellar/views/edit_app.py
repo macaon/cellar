@@ -150,12 +150,23 @@ class EditAppDialog(Adw.Dialog):
 
         page.add(identity_group)
 
+        # ── Tags (chip input card) ────────────────────────────────────────
+        from cellar.views.tag_entry import TagEntry
+        tags_header = Adw.ActionRow(title="Tags")
+        tags_header.set_activatable(False)
+        tags_header.set_subtitle("Press Enter after each tag to add it")
+        self._tag_entry = TagEntry()
+        tags_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        tags_card.add_css_class("card")
+        tags_card.append(tags_header)
+        tags_card.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
+        tags_card.append(self._tag_entry)
+        tags_wrapper = Adw.PreferencesGroup()
+        tags_wrapper.add(tags_card)
+        page.add(tags_wrapper)
+
         # ── Details ───────────────────────────────────────────────────────
         details_group = Adw.PreferencesGroup(title="Details")
-
-        self._tags_entry = Adw.EntryRow(title="Tags")
-        self._tags_entry.set_tooltip_text("Comma-separated, e.g. Games, Action, RPG")
-        details_group.add(self._tags_entry)
 
         self._summary_entry = Adw.EntryRow(title="Summary")
         details_group.add(self._summary_entry)
@@ -367,7 +378,7 @@ class EditAppDialog(Adw.Dialog):
 
         self._name_entry.set_text(e.name)
         self._version_entry.set_text(e.version)
-        self._tags_entry.set_text(", ".join(e.tags))
+        self._tag_entry.set_tags(list(e.tags))
         self._summary_entry.set_text(e.summary or "")
 
         if e.description:
@@ -419,8 +430,7 @@ class EditAppDialog(Adw.Dialog):
     # ── Form validation ───────────────────────────────────────────────────
 
     def _get_tags(self) -> list[str]:
-        raw = self._tags_entry.get_text()
-        return [t.strip() for t in raw.split(",") if t.strip()]
+        return self._tag_entry.get_tags()
 
     def _on_lock_runner_toggled(self, btn) -> None:
         if btn.get_active():

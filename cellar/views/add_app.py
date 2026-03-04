@@ -173,13 +173,23 @@ class AddAppDialog(Adw.Dialog):
 
         page.add(identity_group)
 
+        # ── Tags (chip input card) ────────────────────────────────────────
+        from cellar.views.tag_entry import TagEntry
+        tags_header = Adw.ActionRow(title="Tags")
+        tags_header.set_activatable(False)
+        tags_header.set_subtitle("Press Enter after each tag to add it")
+        self._tag_entry = TagEntry()
+        tags_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        tags_card.add_css_class("card")
+        tags_card.append(tags_header)
+        tags_card.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
+        tags_card.append(self._tag_entry)
+        tags_wrapper = Adw.PreferencesGroup()
+        tags_wrapper.add(tags_card)
+        page.add(tags_wrapper)
+
         # ── Details ───────────────────────────────────────────────────────
         details_group = Adw.PreferencesGroup(title="Details")
-
-        self._tags_entry = Adw.EntryRow(title="Tags")
-        self._tags_entry.set_tooltip_text("Comma-separated, e.g. Games, Action, RPG")
-        self._tags_entry.connect("changed", self._on_field_changed)
-        details_group.add(self._tags_entry)
 
         self._summary_entry = Adw.EntryRow(title="Summary")
         details_group.add(self._summary_entry)
@@ -370,7 +380,7 @@ class AddAppDialog(Adw.Dialog):
 
             env = yml.get("Environment", "")
             if env.lower() == "game":
-                GLib.idle_add(self._tags_entry.set_text, "Games")
+                GLib.idle_add(self._tag_entry.set_tags, ["Games"])
 
             if runner:
                 self._runner = runner
@@ -490,8 +500,7 @@ class AddAppDialog(Adw.Dialog):
         self._update_add_button()
 
     def _get_tags(self) -> list[str]:
-        raw = self._tags_entry.get_text()
-        return [t.strip() for t in raw.split(",") if t.strip()]
+        return self._tag_entry.get_tags()
 
     def _update_add_button(self) -> None:
         name_ok = bool(self._name_entry.get_text().strip())

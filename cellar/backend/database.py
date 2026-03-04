@@ -70,6 +70,14 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE installed ADD COLUMN runner_override TEXT")
     except sqlite3.OperationalError:
         pass  # column already exists
+    try:
+        conn.execute("ALTER TABLE installed ADD COLUMN platform TEXT DEFAULT 'windows'")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        conn.execute("ALTER TABLE installed ADD COLUMN install_path TEXT")
+    except sqlite3.OperationalError:
+        pass
     # Rename win_ver → runner in bases table for existing databases (SQLite 3.25+).
     try:
         conn.execute("ALTER TABLE bases RENAME COLUMN win_ver TO runner")
@@ -86,12 +94,18 @@ def mark_installed(
     bottle_name: str,
     version: str,
     repo_source: str = "",
+    platform: str = "windows",
+    install_path: str = "",
 ) -> None:
     """Record (or update) an installed app.
 
     Uses an upsert so calling this on an already-installed app updates the
     ``bottle_name``, ``installed_version``, ``last_updated``, and
     ``repo_source`` without changing ``installed_at``.
+
+    ``platform`` is ``"windows"`` for Bottles/Wine apps or ``"linux"`` for
+    native Linux apps.  ``install_path`` is the base directory under which
+    the app directory was installed (Linux apps only; empty for Wine apps).
     """
     now = datetime.now(timezone.utc).isoformat()
     with _connect() as conn:
@@ -99,15 +113,18 @@ def mark_installed(
         conn.execute(
             """
             INSERT INTO installed
-                (id, bottle_name, installed_version, installed_at, last_updated, repo_source)
-            VALUES (?, ?, ?, ?, ?, ?)
+                (id, bottle_name, installed_version, installed_at, last_updated,
+                 repo_source, platform, install_path)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 bottle_name       = excluded.bottle_name,
                 installed_version = excluded.installed_version,
                 last_updated      = excluded.last_updated,
-                repo_source       = excluded.repo_source
+                repo_source       = excluded.repo_source,
+                platform          = excluded.platform,
+                install_path      = excluded.install_path
             """,
-            (app_id, bottle_name, version, now, now, repo_source),
+            (app_id, bottle_name, version, now, now, repo_source, platform, install_path),
         )
 
 

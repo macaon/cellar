@@ -374,9 +374,13 @@ class CellarWindow(Adw.ApplicationWindow):
                 on_deleted=self._on_entry_deleted,
             ).present(self)
 
-        def _on_install_done(bottle_name: str) -> None:
+        def _on_install_done(bottle_name: str, install_path: str = "") -> None:
             repo_uri = str(self._first_repo.uri) if self._first_repo else ""
-            database.mark_installed(entry.id, bottle_name, entry.version, repo_uri)
+            database.mark_installed(
+                entry.id, bottle_name, entry.version, repo_uri,
+                platform=entry.platform,
+                install_path=install_path,
+            )
             self._show_toast(f"{entry.name} installed successfully")
             self._load_catalogue()
 
@@ -411,13 +415,16 @@ class CellarWindow(Adw.ApplicationWindow):
 
     def _on_add_app_clicked(self, _button) -> None:
         chooser = Gtk.FileChooserNative(
-            title="Select Bottles Backup",
+            title="Select App Archive",
             transient_for=self,
             action=Gtk.FileChooserAction.OPEN,
         )
         f = Gtk.FileFilter()
-        f.set_name("Bottles backup (*.tar.gz)")
+        f.set_name("App archive (*.tar.gz, *.tar.bz2, *.tar.xz, *.tar.zst)")
         f.add_pattern("*.tar.gz")
+        f.add_pattern("*.tar.bz2")
+        f.add_pattern("*.tar.xz")
+        f.add_pattern("*.tar.zst")
         chooser.add_filter(f)
         chooser.connect("response", self._on_archive_chosen, chooser)
         chooser.show()
@@ -449,7 +456,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="application-x-executable",
-            version="0.29.7",
+            version="0.30.0",
             comments="A GNOME storefront for Bottles-managed Windows apps.",
             license_type=Gtk.License.GPL_3_0,
         )

@@ -197,7 +197,7 @@ class EditAppDialog(Adw.Dialog):
         page.add(attr_group)
 
         # ── Wine Components ───────────────────────────────────────────────
-        wine_group = Adw.PreferencesGroup(title="Wine Components")
+        self._wine_group = Adw.PreferencesGroup(title="Wine Components")
 
         self._runner_row = Adw.ActionRow(title="Runner")
         self._runner_row.set_subtitle_selectable(True)
@@ -207,17 +207,17 @@ class EditAppDialog(Adw.Dialog):
         self._lock_runner_btn.set_tooltip_text("Lock runner — users cannot change the runner after install")
         self._lock_runner_btn.connect("toggled", self._on_lock_runner_toggled)
         self._runner_row.add_suffix(self._lock_runner_btn)
-        wine_group.add(self._runner_row)
+        self._wine_group.add(self._runner_row)
 
         self._dxvk_row = Adw.ActionRow(title="DXVK")
         self._dxvk_row.set_subtitle_selectable(True)
-        wine_group.add(self._dxvk_row)
+        self._wine_group.add(self._dxvk_row)
 
         self._vkd3d_row = Adw.ActionRow(title="VKD3D")
         self._vkd3d_row.set_subtitle_selectable(True)
-        wine_group.add(self._vkd3d_row)
+        self._wine_group.add(self._vkd3d_row)
 
-        page.add(wine_group)
+        page.add(self._wine_group)
 
         # ── Images ────────────────────────────────────────────────────────
         images_group = Adw.PreferencesGroup(title="Images")
@@ -383,13 +383,20 @@ class EditAppDialog(Adw.Dialog):
         if e.release_year:
             self._year_entry.set_text(str(e.release_year))
 
-        bw = e.built_with
-        if bw:
-            self._runner_row.set_subtitle(bw.runner or "")
-            self._dxvk_row.set_subtitle(bw.dxvk or "")
-            self._vkd3d_row.set_subtitle(bw.vkd3d or "")
-        if e.lock_runner:
-            self._lock_runner_btn.set_active(True)
+        if e.platform == "linux":
+            self._wine_group.set_visible(False)
+            self._entry_point_entry.set_title("Entry Point")
+            self._entry_point_entry.set_tooltip_text(
+                "Executable path within the app directory, e.g. \u201cbin/mygame\u201d"
+            )
+        else:
+            bw = e.built_with
+            if bw:
+                self._runner_row.set_subtitle(bw.runner or "")
+                self._dxvk_row.set_subtitle(bw.dxvk or "")
+                self._vkd3d_row.set_subtitle(bw.vkd3d or "")
+            if e.lock_runner:
+                self._lock_runner_btn.set_active(True)
 
         # Single images — show current filename + enable clear button
         if e.icon:
@@ -653,7 +660,10 @@ class EditAppDialog(Adw.Dialog):
 
         from cellar.models.app_entry import AppEntry, BuiltWith
 
-        built_with = BuiltWith(runner=runner, dxvk=dxvk, vkd3d=vkd3d) if runner else None
+        if e.platform == "linux":
+            built_with = None
+        else:
+            built_with = BuiltWith(runner=runner, dxvk=dxvk, vkd3d=vkd3d) if runner else None
 
         new_entry = AppEntry(
             id=app_id,
@@ -681,6 +691,7 @@ class EditAppDialog(Adw.Dialog):
             compatibility_notes=e.compatibility_notes,
             changelog=e.changelog,
             lock_runner=self._lock_runner_btn.get_active(),
+            platform=e.platform,
         )
 
         images = {

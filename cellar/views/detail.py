@@ -167,13 +167,14 @@ class DetailView(Gtk.Box):
         btn = self._install_btn
         for cls in ("suggested-action", "success", "destructive-action"):
             btn.remove_css_class(cls)
+        is_linux = self._entry.platform == "linux"
         if self._is_installed:
             btn.set_label("Open")
             btn.add_css_class("suggested-action")
             btn.set_sensitive(True)
             btn.set_tooltip_text("")
             self._remove_btn.set_visible(True)
-        elif self._bottles_installs:
+        elif is_linux or self._bottles_installs:
             btn.set_label("Install")
             btn.add_css_class("suggested-action")
             btn.set_sensitive(True)
@@ -191,6 +192,9 @@ class DetailView(Gtk.Box):
     def _on_install_clicked(self, _btn) -> None:
         if self._is_installed:
             self._on_open_clicked()
+            return
+        if self._entry.platform == "linux":
+            self._proceed_to_install()
             return
         bw = self._entry.built_with
         required_runner = (bw.runner if bw else "") or ""
@@ -251,12 +255,12 @@ class DetailView(Gtk.Box):
         )
         dialog.present(self.get_root())
 
-    def _on_install_success(self, bottle_name: str) -> None:
+    def _on_install_success(self, bottle_name: str, install_path: str = "") -> None:
         self._is_installed = True
-        self._installed_record = {"bottle_name": bottle_name}
+        self._installed_record = {"bottle_name": bottle_name, "install_path": install_path}
         self._update_install_button()
         if self._on_install_done:
-            self._on_install_done(bottle_name)
+            self._on_install_done(bottle_name, install_path)
         # Apply runner override when the user pre-selected a different runner.
         built_with_runner = (self._entry.built_with.runner if self._entry.built_with else "") or ""
         if self._runner_override and self._runner_override != built_with_runner and self._bottles_installs:
@@ -270,6 +274,9 @@ class DetailView(Gtk.Box):
                 log.error("Failed to apply runner override after install: %s", exc)
 
     def _on_open_clicked(self) -> None:
+        if self._entry.platform == "linux":
+            self._launch_linux_app()
+            return
         from cellar.backend.bottles import launch_bottle, list_bottle_programs
         bottle_name = (self._installed_record or {}).get("bottle_name", "")
         if not bottle_name or not self._bottles_installs:
@@ -292,6 +299,21 @@ class DetailView(Gtk.Box):
                 install=install,
                 programs=programs,
             ).present(self.get_root())
+
+    def _launch_linux_app(self) -> None:
+        """Launch a native Linux app by executing its entry_point directly."""
+        import subprocess as _sp
+        rec = self._installed_record or {}
+        bottle_name = rec.get("bottle_name", "")
+        install_path = rec.get("install_path", "")
+        if not install_path:
+            from cellar.backend import database
+            db_rec = database.get_installed(self._entry.id)
+            install_path = (db_rec or {}).get("install_path", "") or ""
+        if not bottle_name or not install_path or not self._entry.entry_point:
+            return
+        exe = Path(install_path) / bottle_name / self._entry.entry_point
+        _sp.Popen([str(exe)], start_new_session=True)
 
     def _on_remove_clicked(self) -> None:
         bottle_name = (self._installed_record or {}).get("bottle_name", "")
@@ -384,6 +406,10 @@ class DetailView(Gtk.Box):
     def _setup_gear_actions(self) -> None:
         ag = Gio.SimpleActionGroup()
 
+        open_folder_act = Gio.SimpleAction.new("open-folder", None)
+        open_folder_act.connect("activate", self._on_open_folder_action)
+        ag.add_action(open_folder_act)
+
         create_act = Gio.SimpleAction.new("create-shortcut", None)
         create_act.connect("activate", self._on_create_shortcut)
         ag.add_action(create_act)
@@ -399,15 +425,79 @@ class DetailView(Gtk.Box):
         from cellar.utils.desktop import has_desktop_entry
 
         menu = Gio.Menu()
+        menu.append("Open Install Folder", "detail.open-folder")
         if has_desktop_entry(self._entry.id):
             menu.append("Remove Desktop Shortcut", "detail.remove-shortcut")
         else:
             menu.append("Create Desktop Shortcut", "detail.create-shortcut")
         self._gear_btn.set_menu_model(menu)
 
+    def _on_open_folder_action(self, _action, _param) -> None:
+        folder = self._get_install_folder()
+        if folder:
+            Gio.AppInfo.launch_default_for_uri(f"file://{folder}", None)
+
+    def _get_install_folder(self) -> str | None:
+        """Return the install folder path for the current entry, or None."""
+        rec = self._installed_record or {}
+        bottle_name = rec.get("bottle_name", "")
+        if not bottle_name:
+            from cellar.backend import database
+            db_rec = database.get_installed(self._entry.id)
+            bottle_name = (db_rec or {}).get("bottle_name", "") or ""
+        if not bottle_name:
+            return None
+        if self._entry.platform == "linux":
+            install_path = rec.get("install_path", "")
+            if not install_path:
+                from cellar.backend import database
+                db_rec = database.get_installed(self._entry.id)
+                install_path = (db_rec or {}).get("install_path", "") or ""
+            return str(Path(install_path) / bottle_name) if install_path else None
+        # Wine/Bottles app — look up the bottle directory
+        for inst in self._bottles_installs:
+            p = inst.data_path / bottle_name
+            if p.is_dir():
+                return str(p)
+        if self._bottles_installs:
+            return str(self._bottles_installs[0].data_path / bottle_name)
+        return None
+
     def _on_create_shortcut(self, _action, _param) -> None:
-        from cellar.backend.bottles import _bottle_display_name, list_bottle_programs
         from cellar.utils.desktop import create_desktop_entry
+
+        icon_source: str | None = None
+        if self._entry.icon:
+            resolved = self._resolve(self._entry.icon)
+            if resolved and Path(resolved).is_file():
+                icon_source = resolved
+
+        if self._entry.platform == "linux":
+            rec = self._installed_record or {}
+            bottle_name = rec.get("bottle_name", "")
+            install_path = rec.get("install_path", "")
+            if not install_path or not bottle_name:
+                from cellar.backend import database
+                db_rec = database.get_installed(self._entry.id) or {}
+                bottle_name = bottle_name or db_rec.get("bottle_name", "")
+                install_path = install_path or db_rec.get("install_path", "") or ""
+            try:
+                create_desktop_entry(
+                    entry=self._entry,
+                    bottle_name=bottle_name,
+                    program_name=None,
+                    is_flatpak=False,
+                    icon_source=icon_source,
+                    install_path=install_path,
+                )
+                self._refresh_gear_menu()
+                self._add_toast(f"Shortcut created for {self._entry.name}")
+            except Exception as exc:
+                log.error("Failed to create desktop entry: %s", exc)
+                self._add_toast("Failed to create shortcut")
+            return
+
+        from cellar.backend.bottles import _bottle_display_name, list_bottle_programs
 
         bottle_name = (self._installed_record or {}).get("bottle_name", "")
         if not bottle_name or not self._bottles_installs:
@@ -424,12 +514,6 @@ class DetailView(Gtk.Box):
 
         programs = list_bottle_programs(install, bottle_name)
         program_name = programs[0]["name"] if programs else None
-
-        icon_source: str | None = None
-        if self._entry.icon:
-            resolved = self._resolve(self._entry.icon)
-            if resolved and Path(resolved).is_file():
-                icon_source = resolved
 
         try:
             create_desktop_entry(
@@ -1832,7 +1916,7 @@ class InstallProgressDialog(Adw.Dialog):
         entry: AppEntry,
         installs: list,        # list[BottlesInstall]
         archive_uri: str,
-        on_success: Callable[[str], None],
+        on_success: Callable,  # (bottle_name: str, install_path: str = "") -> None
         token: str | None = None,
         runner_to_install: str = "",
         runner_info: dict | None = None,
@@ -1858,9 +1942,16 @@ class InstallProgressDialog(Adw.Dialog):
         self._runner_row: Adw.ActionRow | None = None
         self._base_entry = base_entry
         self._base_archive_uri = base_archive_uri
+        # Linux install path (pre-filled to ~/Games; user may change via Browse)
+        self._linux_install_path: str = str(Path.home() / "Games")
 
         # Determine whether we need to show the confirm page at all.
-        self._needs_confirm = bool(runner_to_install) or len(installs) > 1
+        # Linux apps always show confirm so the user can set the install path.
+        self._needs_confirm = (
+            entry.platform == "linux"
+            or bool(runner_to_install)
+            or len(installs) > 1
+        )
 
         self._build_ui()
         self.connect("closed", lambda _d: self._cancel_event.set())
@@ -1905,6 +1996,23 @@ class InstallProgressDialog(Adw.Dialog):
 
         page = Adw.PreferencesPage()
         scroll.set_child(page)
+
+        # ── Linux install path ────────────────────────────────────────────
+        if self._entry.platform == "linux":
+            linux_group = Adw.PreferencesGroup(
+                title="Install Location",
+                description="A subfolder named after the app will be created here.",
+            )
+            self._linux_path_row = Adw.ActionRow(
+                title="Install to",
+                subtitle=self._linux_install_path,
+            )
+            browse_btn = Gtk.Button(label="Browse\u2026")
+            browse_btn.set_valign(Gtk.Align.CENTER)
+            browse_btn.connect("clicked", self._on_browse_install_path)
+            self._linux_path_row.add_suffix(browse_btn)
+            linux_group.add(self._linux_path_row)
+            page.add(linux_group)
 
         # ── Runner group (shown when a runner needs downloading) ──────────
         if self._runner_to_install:
@@ -2015,6 +2123,24 @@ class InstallProgressDialog(Adw.Dialog):
 
     # ── Signal handlers ───────────────────────────────────────────────────
 
+    def _on_browse_install_path(self, _btn) -> None:
+        """Open a folder chooser to select the Linux install base path."""
+        chooser = Gtk.FileChooserNative(
+            title="Select Install Location",
+            transient_for=self.get_root(),
+            action=Gtk.FileChooserAction.SELECT_FOLDER,
+        )
+        chooser.set_current_folder(Gio.File.new_for_path(str(Path.home())))
+        chooser.connect("response", self._on_browse_response, chooser)
+        chooser.show()
+
+    def _on_browse_response(self, _chooser, response, chooser) -> None:
+        if response == Gtk.ResponseType.ACCEPT:
+            f = chooser.get_file()
+            if f:
+                self._linux_install_path = f.get_path()
+                self._linux_path_row.set_subtitle(self._linux_install_path)
+
     def _on_radio_toggled(self, btn: Gtk.CheckButton, install) -> None:
         if btn.get_active():
             self._selected_install = install
@@ -2033,6 +2159,9 @@ class InstallProgressDialog(Adw.Dialog):
     # ── Install thread ────────────────────────────────────────────────────
 
     def _start_install(self) -> None:
+        if self._entry.platform == "linux":
+            self._start_linux_install()
+            return
         from cellar.backend.installer import InstallCancelled, install_app
 
         self._pulse_id: int | None = None
@@ -2120,7 +2249,59 @@ class InstallProgressDialog(Adw.Dialog):
                     cancel_event=self._cancel_event,
                     token=self._token,
                 )
-                GLib.idle_add(self._on_done, bottle_name)
+                GLib.idle_add(self._on_done, bottle_name, "")
+            except InstallCancelled:
+                GLib.idle_add(self._on_cancelled)
+            except Exception as exc:  # noqa: BLE001
+                GLib.idle_add(self._on_error, str(exc))
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _start_linux_install(self) -> None:
+        """Background install for Linux native apps."""
+        from cellar.backend.installer import InstallCancelled, install_linux_app
+
+        install_base = Path(self._linux_install_path).expanduser()
+
+        def _set_phase(label: str) -> None:
+            GLib.idle_add(self._on_phase_change, label)
+
+        def _dl_progress(fraction: float) -> None:
+            GLib.idle_add(self._progress_bar.set_fraction, fraction)
+
+        def _dl_stats(downloaded: int, total: int, speed: float) -> None:
+            GLib.idle_add(self._progress_bar.set_text, _fmt_dl_stats(downloaded, total, speed))
+
+        def _verify_progress(fraction: float) -> None:
+            GLib.idle_add(self._progress_bar.set_fraction, fraction)
+
+        def _inst_progress(fraction: float) -> None:
+            GLib.idle_add(self._progress_bar.set_fraction, fraction)
+
+        _last_name_t: list[float] = [0.0]
+
+        def _extract_name(filename: str) -> None:
+            now = time.monotonic()
+            if now - _last_name_t[0] >= 0.08:
+                _last_name_t[0] = now
+                GLib.idle_add(self._progress_bar.set_text, _trunc_filename(filename))
+
+        def _run() -> None:
+            try:
+                dir_name, _full_path = install_linux_app(
+                    self._entry,
+                    self._archive_uri,
+                    install_base,
+                    download_cb=_dl_progress,
+                    download_stats_cb=_dl_stats,
+                    install_cb=_inst_progress,
+                    extract_name_cb=_extract_name,
+                    phase_cb=_set_phase,
+                    verify_cb=_verify_progress,
+                    cancel_event=self._cancel_event,
+                    token=self._token,
+                )
+                GLib.idle_add(self._on_done, dir_name, str(install_base))
             except InstallCancelled:
                 GLib.idle_add(self._on_cancelled)
             except Exception as exc:  # noqa: BLE001
@@ -2150,9 +2331,9 @@ class InstallProgressDialog(Adw.Dialog):
         self._progress_bar.pulse()
         return True  # keep calling
 
-    def _on_done(self, bottle_name: str) -> None:
+    def _on_done(self, bottle_name: str, install_path: str = "") -> None:
         self.close()
-        self._on_success(bottle_name)
+        self._on_success(bottle_name, install_path)
 
     def _on_cancelled(self) -> None:
         self.close()

@@ -87,6 +87,81 @@ def read_bottle_yml(archive_path: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Archive member listing (for Linux app entry-point picker)
+# ---------------------------------------------------------------------------
+
+def list_archive_members(archive_path: str) -> list[tuple[str, bool]]:
+    """Return ``(path, is_executable)`` for every regular file in the archive.
+
+    *path* is the member path exactly as stored in the archive (including any
+    top-level directory prefix).  *is_executable* is ``True`` when the Unix
+    permission bits in the tar header include any execute bit.
+
+    Supports ``.tar.gz``, ``.tar.bz2``, ``.tar.xz``, and ``.tar.zst``
+    (zstandard package required for the last format).  Returns an empty list
+    on any error.
+
+    Uses the system ``tar -tvf`` fast path when available so large archives
+    are read without decompressing the whole stream in Python.
+    """
+    # Fast path: system tar is much faster for large archives because it is
+    # implemented in C and avoids Python's per-member overhead.
+    if shutil.which("tar"):
+        try:
+            result = subprocess.run(
+                ["tar", "--list", "--verbose", "--file", archive_path],
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            if result.returncode == 0:
+                members: list[tuple[str, bool]] = []
+                for line in result.stdout.splitlines():
+                    # Verbose line: "-rwxr-xr-x user/group size date time name"
+                    parts = line.split(None, 5)
+                    if len(parts) < 6:
+                        continue
+                    perms = parts[0]
+                    # Only include regular files (perms[0] == '-')
+                    if not perms or perms[0] != "-":
+                        continue
+                    name = parts[5]
+                    # Strip trailing " -> target" for symlinks that sneak through
+                    name = name.split(" -> ")[0]
+                    is_exec = len(perms) > 3 and perms[3] == "x"
+                    members.append((name, is_exec))
+                return members
+        except Exception:
+            pass  # fall through to Python path
+
+    # Python tarfile fallback.
+    try:
+        if archive_path.endswith(".tar.zst"):
+            try:
+                import zstandard as zstd  # noqa: PLC0415
+                dctx = zstd.ZstdDecompressor()
+                with open(archive_path, "rb") as raw:
+                    with dctx.stream_reader(raw) as decompressed:
+                        with tarfile.open(fileobj=decompressed, mode="r|") as tf:
+                            return [
+                                (m.name, bool(m.mode & 0o111))
+                                for m in tf.getmembers()
+                                if m.isfile()
+                            ]
+            except ImportError:
+                return []
+        else:
+            with tarfile.open(archive_path, "r:*") as tf:
+                return [
+                    (m.name, bool(m.mode & 0o111))
+                    for m in tf.getmembers()
+                    if m.isfile()
+                ]
+    except tarfile.TarError:
+        return []
+
+
+# ---------------------------------------------------------------------------
 # ID generation
 # ---------------------------------------------------------------------------
 

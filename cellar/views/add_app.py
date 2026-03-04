@@ -27,6 +27,191 @@ from gi.repository import Adw, GLib, Gtk
 _STRATEGIES = ["safe", "full"]
 _STRATEGY_LABELS = ["Safe (preserve user data)", "Full (complete replacement)"]
 
+# ---------------------------------------------------------------------------
+# Entry-point archive browser
+# ---------------------------------------------------------------------------
+
+
+def _read_archive_members(archive_path: str) -> list[tuple[str, bool]]:
+    """Return ``(path, is_executable)`` for all regular files in *archive_path*.
+
+    Delegates to ``packager.list_archive_members`` which uses the system
+    ``tar`` fast path when available.
+    """
+    from cellar.backend.packager import list_archive_members
+    return list_archive_members(archive_path)
+
+
+class EntryPointPickerDialog(Adw.Dialog):
+    """Browse archive contents and select the main executable.
+
+    Presents a tree view built from the archive's member list.  Files that
+    carry an execute bit in their tar header are highlighted with an
+    executable icon to make the right choice obvious.  Double-clicking a
+    file is equivalent to clicking Select.
+    """
+
+    def __init__(self, archive_path: str, on_selected) -> None:
+        super().__init__(title="Select Entry Point", content_width=520)
+        self.set_content_height(480)
+        self._archive_path = archive_path
+        self._on_selected = on_selected
+        self._selected_path: str = ""
+        self._pulse_id: int | None = None
+        self._build_ui()
+        import threading as _threading
+        _threading.Thread(target=self._load, daemon=True).start()
+
+    def _build_ui(self) -> None:
+        toolbar = Adw.ToolbarView()
+
+        header = Adw.HeaderBar()
+        header.set_show_end_title_buttons(False)
+
+        cancel_btn = Gtk.Button(label="Cancel")
+        cancel_btn.connect("clicked", lambda _: self.close())
+        header.pack_start(cancel_btn)
+
+        self._select_btn = Gtk.Button(label="Select")
+        self._select_btn.add_css_class("suggested-action")
+        self._select_btn.set_sensitive(False)
+        self._select_btn.connect("clicked", self._on_select_clicked)
+        header.pack_end(self._select_btn)
+
+        toolbar.add_top_bar(header)
+
+        self._stack = Gtk.Stack()
+
+        # Loading page
+        loading_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        loading_box.set_valign(Gtk.Align.CENTER)
+        loading_box.set_margin_top(48)
+        loading_box.set_margin_bottom(48)
+        loading_box.set_margin_start(24)
+        loading_box.set_margin_end(24)
+        loading_label = Gtk.Label(label="Reading archive\u2026")
+        loading_label.add_css_class("dim-label")
+        self._loading_bar = Gtk.ProgressBar()
+        self._loading_bar.set_pulse_step(0.05)
+        loading_box.append(loading_label)
+        loading_box.append(self._loading_bar)
+        self._stack.add_named(loading_box, "loading")
+
+        # Tree page
+        scroll = Gtk.ScrolledWindow(vexpand=True)
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+
+        # TreeStore columns: display_name, icon_name, entry_point, is_file
+        self._store = Gtk.TreeStore(str, str, str, bool)
+
+        self._tree = Gtk.TreeView(model=self._store)
+        self._tree.set_headers_visible(False)
+        self._tree.set_activate_on_single_click(False)
+        self._tree.connect("row-activated", self._on_row_activated)
+
+        sel = self._tree.get_selection()
+        sel.connect("changed", self._on_selection_changed)
+
+        col = Gtk.TreeViewColumn()
+        icon_r = Gtk.CellRendererPixbuf()
+        col.pack_start(icon_r, False)
+        col.add_attribute(icon_r, "icon-name", 1)
+        text_r = Gtk.CellRendererText()
+        col.pack_start(text_r, True)
+        col.add_attribute(text_r, "text", 0)
+        self._tree.append_column(col)
+
+        scroll.set_child(self._tree)
+        self._stack.add_named(scroll, "tree")
+
+        self._stack.set_visible_child_name("loading")
+        toolbar.set_content(self._stack)
+        self.set_child(toolbar)
+
+        self._pulse_id = GLib.timeout_add(80, self._do_pulse)
+
+    def _do_pulse(self) -> bool:
+        self._loading_bar.pulse()
+        return True
+
+    def _load(self) -> None:
+        members = _read_archive_members(self._archive_path)
+        GLib.idle_add(self._populate_tree, members)
+
+    def _populate_tree(self, members: list[tuple[str, bool]]) -> None:
+        if self._pulse_id is not None:
+            GLib.source_remove(self._pulse_id)
+            self._pulse_id = None
+
+        if not members:
+            self._stack.set_visible_child_name("tree")
+            return
+
+        # Detect common top-level directory so we can strip it from entry points.
+        from pathlib import Path as _Path
+        top_dirs = {_Path(p).parts[0] for p, _ in members if _Path(p).parts}
+        strip_top = len(top_dirs) == 1
+
+        nodes: dict[str, object] = {}  # path_key → TreeIter
+
+        for raw_path, is_exec in sorted(members):
+            parts = _Path(raw_path).parts
+            if not parts:
+                continue
+            display_parts = parts[1:] if strip_top and len(parts) > 1 else parts
+            if not display_parts:
+                continue
+
+            entry_point = "/".join(display_parts)
+
+            parent_iter = None
+            for depth in range(len(display_parts) - 1):
+                key = "/".join(display_parts[: depth + 1])
+                if key not in nodes:
+                    it = self._store.append(
+                        parent_iter,
+                        [display_parts[depth], "folder-symbolic", "", False],
+                    )
+                    nodes[key] = it
+                parent_iter = nodes[key]
+
+            filename = display_parts[-1]
+            icon = (
+                "application-x-executable-symbolic"
+                if is_exec
+                else "text-x-generic-symbolic"
+            )
+            self._store.append(parent_iter, [filename, icon, entry_point, True])
+
+        # Expand: all nodes for small archives, first level only for large ones.
+        if len(members) < 200:
+            self._tree.expand_all()
+        else:
+            self._tree.expand_to_depth(0)
+
+        self._stack.set_visible_child_name("tree")
+
+    def _on_selection_changed(self, sel) -> None:
+        model, it = sel.get_selected()
+        if it and model[it][3]:  # is_file
+            self._selected_path = model[it][2]
+            self._select_btn.set_sensitive(True)
+        else:
+            self._selected_path = ""
+            self._select_btn.set_sensitive(False)
+
+    def _on_row_activated(self, tree, path, _col) -> None:
+        model = tree.get_model()
+        it = model.get_iter(path)
+        if it and model[it][3]:  # is_file
+            self._selected_path = model[it][2]
+            self._on_select_clicked(None)
+
+    def _on_select_clicked(self, _btn) -> None:
+        if self._selected_path:
+            self._on_selected(self._selected_path)
+        self.close()
+
 
 def _fmt_ul_stats(copied: int, total: int, speed: float) -> str:
     """Format upload progress as e.g. '2.6 MB / 349 MB (1.3 MB/s)'."""
@@ -71,6 +256,9 @@ class AddAppDialog(Adw.Dialog):
         # Track whether the user has manually edited the ID field
         self._id_user_edited = False
         self._install_size: int = 0
+
+        # Platform mode — set by _prefill after inspecting the archive
+        self._is_linux: bool = False  # True when no bottle.yml found
 
         # Delta packaging state (set after prefill reads bottle.yml)
         self._runner: str = ""         # Runner: field from bottle.yml, e.g. "soda-9.0-1"
@@ -220,7 +408,7 @@ class AddAppDialog(Adw.Dialog):
         page.add(attr_group)
 
         # ── Wine Components ───────────────────────────────────────────────
-        wine_group = Adw.PreferencesGroup(title="Wine Components")
+        self._wine_group = Adw.PreferencesGroup(title="Wine Components")
 
         self._runner_row = Adw.ActionRow(title="Runner")
         self._runner_row.set_subtitle("")
@@ -231,19 +419,19 @@ class AddAppDialog(Adw.Dialog):
         self._lock_runner_btn.set_tooltip_text("Lock runner — users cannot change the runner after install")
         self._lock_runner_btn.connect("toggled", self._on_lock_runner_toggled)
         self._runner_row.add_suffix(self._lock_runner_btn)
-        wine_group.add(self._runner_row)
+        self._wine_group.add(self._runner_row)
 
         self._dxvk_row = Adw.ActionRow(title="DXVK")
         self._dxvk_row.set_subtitle("")
         self._dxvk_row.set_subtitle_selectable(True)
-        wine_group.add(self._dxvk_row)
+        self._wine_group.add(self._dxvk_row)
 
         self._vkd3d_row = Adw.ActionRow(title="VKD3D")
         self._vkd3d_row.set_subtitle("")
         self._vkd3d_row.set_subtitle_selectable(True)
-        wine_group.add(self._vkd3d_row)
+        self._wine_group.add(self._vkd3d_row)
 
-        page.add(wine_group)
+        page.add(self._wine_group)
 
         # ── Images ────────────────────────────────────────────────────────
         images_group = Adw.PreferencesGroup(title="Images (optional)")
@@ -268,22 +456,40 @@ class AddAppDialog(Adw.Dialog):
         page.add(images_group)
 
         # ── Install ───────────────────────────────────────────────────────
-        install_group = Adw.PreferencesGroup(title="Install")
+        self._install_group = Adw.PreferencesGroup(title="Install")
 
         self._strategy_row = Adw.ComboRow(title="Update Strategy")
         strat_model = Gtk.StringList()
         for label in _STRATEGY_LABELS:
             strat_model.append(label)
         self._strategy_row.set_model(strat_model)
-        install_group.add(self._strategy_row)
+        self._install_group.add(self._strategy_row)
+
+        # Linux platform badge — shown in place of Wine Components when Linux
+        self._linux_badge_row = Adw.ActionRow(
+            title="Platform",
+            subtitle="Linux (native)",
+        )
+        self._linux_badge_row.add_prefix(
+            Gtk.Image.new_from_icon_name("computer-symbolic")
+        )
+        self._linux_badge_row.set_visible(False)
+        self._install_group.add(self._linux_badge_row)
 
         self._entry_point_entry = Adw.EntryRow(title="Entry Point (optional)")
         self._entry_point_entry.set_tooltip_text(
             "Relative path from drive_c to the main .exe, e.g. Program Files/App/app.exe"
         )
-        install_group.add(self._entry_point_entry)
+        self._entry_point_entry.connect("changed", self._on_field_changed)
+        # "Pick from archive" button — shown only in Linux mode
+        self._ep_pick_btn = Gtk.Button(label="Pick\u2026")
+        self._ep_pick_btn.set_valign(Gtk.Align.CENTER)
+        self._ep_pick_btn.set_visible(False)
+        self._ep_pick_btn.connect("clicked", self._on_pick_entry_point)
+        self._entry_point_entry.add_suffix(self._ep_pick_btn)
+        self._install_group.add(self._entry_point_entry)
 
-        page.add(install_group)
+        page.add(self._install_group)
 
         return scroll
 
@@ -347,43 +553,76 @@ class AddAppDialog(Adw.Dialog):
     # ── Pre-fill ──────────────────────────────────────────────────────────
 
     def _prefill(self) -> None:
-        """Read bottle.yml in a background thread, then reveal the form."""
+        """Read bottle.yml in a background thread, then reveal the form.
+
+        If no ``bottle.yml`` is found the archive is treated as a Linux native
+        app: Wine-specific fields are hidden, the Entry Point field becomes
+        required, and a "Pick…" button lets the user browse the archive tree.
+        """
         from cellar.backend.packager import read_bottle_yml
 
         yml = read_bottle_yml(self._archive_path)
+        is_linux = not bool(yml)
         runner = yml.get("Runner", "")
 
         def _apply() -> None:
             if self._pulse_id is not None:
                 GLib.source_remove(self._pulse_id)
                 self._pulse_id = None
-            name = yml.get("Name", "")
-            if name:
-                self._name_entry.set_text(name)
 
-            if runner:
-                self._runner_row.set_subtitle(runner)
+            if is_linux:
+                self._switch_to_linux_mode()
+            else:
+                name = yml.get("Name", "")
+                if name:
+                    self._name_entry.set_text(name)
 
-            dxvk = yml.get("DXVK", "")
-            if dxvk:
-                self._dxvk_row.set_subtitle(dxvk)
+                if runner:
+                    self._runner_row.set_subtitle(runner)
 
-            vkd3d = yml.get("VKD3D", "")
-            if vkd3d:
-                self._vkd3d_row.set_subtitle(vkd3d)
+                dxvk = yml.get("DXVK", "")
+                if dxvk:
+                    self._dxvk_row.set_subtitle(dxvk)
 
-            env = yml.get("Environment", "")
-            if env.lower() == "game":
-                from cellar.backend.packager import BASE_CATEGORIES
-                GLib.idle_add(self._category_row.set_selected, BASE_CATEGORIES.index("Games") if "Games" in BASE_CATEGORIES else 0)
+                vkd3d = yml.get("VKD3D", "")
+                if vkd3d:
+                    self._vkd3d_row.set_subtitle(vkd3d)
 
-            if runner:
-                self._runner = runner
-                self._check_delta_base(runner)
+                env = yml.get("Environment", "")
+                if env.lower() == "game":
+                    from cellar.backend.packager import BASE_CATEGORIES
+                    GLib.idle_add(
+                        self._category_row.set_selected,
+                        BASE_CATEGORIES.index("Games") if "Games" in BASE_CATEGORIES else 0,
+                    )
+
+                if runner:
+                    self._runner = runner
+                    self._check_delta_base(runner)
 
             self._stack.set_visible_child_name("form")
 
         GLib.idle_add(_apply)
+
+    def _switch_to_linux_mode(self) -> None:
+        """Reconfigure the form for a Linux native app archive."""
+        self._is_linux = True
+        # Hide Wine-specific sections
+        self._wine_group.set_visible(False)
+        self._delta_row.set_visible(False)
+        self._strategy_row.set_visible(True)  # update strategy still applies
+        # Show Linux badge and make entry point required
+        self._linux_badge_row.set_visible(True)
+        self._entry_point_entry.set_title("Entry Point \u2731")
+        self._entry_point_entry.set_tooltip_text(
+            "Executable path within the archive, e.g. \u201cbin/mygame\u201d or \u201cMyGame.x86_64\u201d"
+        )
+        self._ep_pick_btn.set_visible(True)
+        # Default category to Games since most Linux native packages are games
+        from cellar.backend.packager import BASE_CATEGORIES
+        if "Games" in BASE_CATEGORIES:
+            self._category_row.set_selected(BASE_CATEGORIES.index("Games"))
+        self._update_add_button()
 
     # ── Signal handlers — form fields ─────────────────────────────────────
 
@@ -501,7 +740,19 @@ class AddAppDialog(Adw.Dialog):
 
     def _update_add_button(self) -> None:
         name_ok = bool(self._name_entry.get_text().strip())
-        self._add_btn.set_sensitive(name_ok and self._base_ok)
+        ep_ok = not self._is_linux or bool(self._entry_point_entry.get_text().strip())
+        self._add_btn.set_sensitive(name_ok and ep_ok and self._base_ok)
+
+    def _on_pick_entry_point(self, _btn) -> None:
+        """Open the archive tree picker so the user can select the entry point."""
+        def _on_selected(path: str) -> None:
+            GLib.idle_add(self._entry_point_entry.set_text, path)
+            GLib.idle_add(self._update_add_button)
+
+        EntryPointPickerDialog(
+            archive_path=self._archive_path,
+            on_selected=_on_selected,
+        ).present(self)
 
     # ── Image pickers ─────────────────────────────────────────────────────
 
@@ -609,7 +860,16 @@ class AddAppDialog(Adw.Dialog):
 
         from cellar.models.app_entry import AppEntry, BuiltWith
 
-        built_with = BuiltWith(runner=runner, dxvk=dxvk, vkd3d=vkd3d) if runner else None
+        if self._is_linux:
+            built_with = None
+            base_runner_val = ""
+            lock_runner_val = False
+            platform_val = "linux"
+        else:
+            built_with = BuiltWith(runner=runner, dxvk=dxvk, vkd3d=vkd3d) if runner else None
+            base_runner_val = self._runner if self._use_delta else ""
+            lock_runner_val = self._lock_runner_btn.get_active()
+            platform_val = "windows"
 
         entry = AppEntry(
             id=app_id,
@@ -633,8 +893,9 @@ class AddAppDialog(Adw.Dialog):
             built_with=built_with,
             update_strategy=strategy,
             entry_point=entry_point,
-            base_runner=self._runner if self._use_delta else "",
-            lock_runner=self._lock_runner_btn.get_active(),
+            base_runner=base_runner_val,
+            lock_runner=lock_runner_val,
+            platform=platform_val,
         )
 
         images = {
@@ -682,12 +943,12 @@ class AddAppDialog(Adw.Dialog):
             def _progress(fraction: float) -> None:
                 GLib.idle_add(self._progress_bar.set_fraction, fraction)
 
-            # ── Delta archive creation ─────────────────────────────────────
+            # ── Delta archive creation (Windows/Wine only) ─────────────────
             archive_to_upload = self._archive_path
             entry_to_upload = entry
             tmp_delta: str | None = None
 
-            if use_delta:
+            if use_delta and not self._is_linux:
                 from cellar.backend.packager import create_delta_archive
                 from cellar.backend.base_store import base_path as _base_path
 

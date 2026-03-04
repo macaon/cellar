@@ -235,6 +235,141 @@ def install_app(
 
 
 # ---------------------------------------------------------------------------
+# Linux native app installer
+# ---------------------------------------------------------------------------
+
+def install_linux_app(
+    entry,                          # AppEntry with platform == "linux"
+    archive_uri: str,
+    install_base_path: "Path",
+    *,
+    download_cb: Callable[[float], None] | None = None,
+    download_stats_cb: Callable[[int, int, float], None] | None = None,
+    install_cb: Callable[[float], None] | None = None,
+    extract_name_cb: Callable[[str], None] | None = None,
+    phase_cb: Callable[[str], None] | None = None,
+    verify_cb: Callable[[float], None] | None = None,
+    cancel_event: threading.Event | None = None,
+    token: str | None = None,
+    ssl_verify: bool = True,
+    ca_cert: str | None = None,
+) -> tuple[str, Path]:
+    """Download, verify, extract, and install a Linux native app.
+
+    Returns ``(dir_name, install_path)`` where ``dir_name`` is the name of
+    the directory created under ``install_base_path`` and ``install_path``
+    is the full path to that directory.
+
+    The caller is responsible for writing the DB record via
+    ``database.mark_installed`` with ``platform="linux"`` and
+    ``install_path=str(install_base_path)``.
+    """
+    _check_cancel(cancel_event)
+
+    with tempfile.TemporaryDirectory(prefix="cellar-linux-install-") as tmp_str:
+        tmp = Path(tmp_str)
+
+        # ── Step 1: Acquire archive ────────────────────────────────────
+        if phase_cb:
+            phase_cb("Downloading package\u2026")
+        if download_cb:
+            download_cb(0.0)
+        _arch_ext = ".tar.zst" if archive_uri.endswith(".tar.zst") else ".tar.gz"
+        archive_path = _acquire_archive(
+            archive_uri,
+            tmp / f"archive{_arch_ext}",
+            expected_size=entry.archive_size,
+            progress_cb=download_cb,
+            stats_cb=download_stats_cb,
+            cancel_event=cancel_event,
+            token=token,
+            ssl_verify=ssl_verify,
+            ca_cert=ca_cert,
+        )
+        if download_cb:
+            download_cb(1.0)
+
+        # ── Step 2: Verify CRC32 ──────────────────────────────────────
+        if entry.archive_crc32:
+            _check_cancel(cancel_event)
+            if phase_cb:
+                phase_cb("Verifying download\u2026")
+            _verify_crc32(archive_path, entry.archive_crc32,
+                          progress_cb=verify_cb, cancel_event=cancel_event)
+
+        # ── Step 3: Extract ────────────────────────────────────────────
+        _check_cancel(cancel_event)
+        if phase_cb:
+            phase_cb("Extracting package\u2026")
+        if install_cb:
+            install_cb(0.0)
+        extract_dir = tmp / "extracted"
+        extract_dir.mkdir()
+        _extract_archive(
+            archive_path, extract_dir, cancel_event,
+            progress_cb=install_cb,
+            name_cb=extract_name_cb,
+        )
+
+        # ── Step 4: Find app source directory ─────────────────────────
+        dirs = [d for d in extract_dir.iterdir() if d.is_dir()]
+        if len(dirs) == 1:
+            app_src = dirs[0]
+            dir_name = dirs[0].name
+        elif dirs:
+            # Multiple top-level dirs — use the entry id as the install name
+            app_src = extract_dir
+            dir_name = entry.id
+        else:
+            # No subdirectory — flat archive (files at root)
+            app_src = extract_dir
+            dir_name = entry.id
+
+        # ── Step 5: Collision-safe name ────────────────────────────────
+        install_name = _safe_linux_name(dir_name, install_base_path)
+        install_dest = install_base_path / install_name
+
+        # ── Step 6: Copy to install path ──────────────────────────────
+        _check_cancel(cancel_event)
+        if phase_cb:
+            phase_cb("Installing\u2026")
+        install_base_path.mkdir(parents=True, exist_ok=True)
+        try:
+            for src in app_src.rglob("*"):
+                _check_cancel(cancel_event)
+                rel = src.relative_to(app_src)
+                dst = install_dest / rel
+                if src.is_dir():
+                    dst.mkdir(parents=True, exist_ok=True)
+                elif src.is_file():
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(src, dst)
+        except Exception:
+            shutil.rmtree(install_dest, ignore_errors=True)
+            raise
+
+        # ── Step 7: Ensure entry_point is executable ───────────────────
+        if entry.entry_point:
+            ep = install_dest / entry.entry_point
+            if ep.is_file():
+                ep.chmod(ep.stat().st_mode | 0o111)
+
+    if install_cb:
+        install_cb(1.0)
+    return install_name, install_dest
+
+
+def _safe_linux_name(dir_name: str, base_path: Path) -> str:
+    """Return an install directory name that does not collide with existing dirs."""
+    if not (base_path / dir_name).exists():
+        return dir_name
+    i = 2
+    while (base_path / f"{dir_name}-{i}").exists():
+        i += 1
+    return f"{dir_name}-{i}"
+
+
+# ---------------------------------------------------------------------------
 # Acquire
 # ---------------------------------------------------------------------------
 

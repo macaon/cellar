@@ -99,8 +99,14 @@ def create_desktop_entry(
     program_name: str | None,
     is_flatpak: bool,
     icon_source: str | None = None,
+    install_path: str = "",
 ) -> None:
-    """Write a .desktop entry for *entry* to ~/.local/share/applications."""
+    """Write a .desktop entry for *entry* to ~/.local/share/applications.
+
+    For Linux native apps (``entry.platform == "linux"``), *install_path* is
+    the base directory and the Exec line runs the entry_point directly.
+    *bottle_name*, *program_name*, and *is_flatpak* are ignored for Linux apps.
+    """
     _APPS_DIR.mkdir(parents=True, exist_ok=True)
 
     # Icon — absolute path with CRC32 suffix busts GNOME Shell's icon cache.
@@ -110,24 +116,32 @@ def create_desktop_entry(
         if installed:
             icon_ref = installed
 
-    # Exec
-    cli = (
-        "flatpak run --command=bottles-cli com.usebottles.bottles"
-        if is_flatpak
-        else "bottles-cli"
-    )
-    if program_name:
-        exec_line = f"{cli} run -p '{program_name}' -b '{bottle_name}'"
-    elif entry.entry_point:
-        exec_line = f"{cli} run -e '{entry.entry_point}' -b '{bottle_name}'"
+    # Exec — branch on platform
+    platform = getattr(entry, "platform", "windows")
+    if platform == "linux":
+        if install_path and bottle_name and entry.entry_point:
+            exe = Path(install_path) / bottle_name / entry.entry_point
+            exec_line = str(exe)
+        else:
+            exec_line = "true"  # placeholder; entry point unknown
+        comment = (entry.summary or f"Launch {entry.name}.").replace("\n", " ")
     else:
-        exec_line = f"{cli} run -b '{bottle_name}'"
+        cli = (
+            "flatpak run --command=bottles-cli com.usebottles.bottles"
+            if is_flatpak
+            else "bottles-cli"
+        )
+        if program_name:
+            exec_line = f"{cli} run -p '{program_name}' -b '{bottle_name}'"
+        elif entry.entry_point:
+            exec_line = f"{cli} run -e '{entry.entry_point}' -b '{bottle_name}'"
+        else:
+            exec_line = f"{cli} run -b '{bottle_name}'"
+        comment = (entry.summary or f"Launch {entry.name} using Bottles.").replace("\n", " ")
 
     # Categories
     xdg_cat = _CATEGORY_MAP.get(entry.category or "", "")
     categories = f"Application;{xdg_cat};" if xdg_cat else "Application;"
-
-    comment = (entry.summary or f"Launch {entry.name} using Bottles.").replace("\n", " ")
 
     lines = [
         "[Desktop Entry]",
@@ -140,6 +154,7 @@ def create_desktop_entry(
         f"Categories={categories}",
         f"StartupWMClass={entry.name}",
         f"X-Cellar-AppId={entry.id}",
+        f"X-Cellar-Platform={platform}",
     ]
 
     path = desktop_entry_path(entry.id)

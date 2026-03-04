@@ -118,8 +118,13 @@ class AppEntry:
     # Delta packaging — when set, this archive is a delta against the named
     # base image; the installer must seed the bottle from that base first.
     base_runner: str = ""
-    # Path to the main executable relative to drive_c — used for shortcuts
-    # and optional smoke tests after install.
+    # Platform: "windows" (Bottles/Wine) or "linux" (native Linux app).
+    # For Linux apps, built_with is None and entry_point is the executable
+    # path relative to the installed app directory (e.g. "bin/mygame").
+    platform: str = "windows"
+    # Path to the main executable.  For Windows: relative to drive_c
+    # (e.g. "Program Files/App/app.exe").  For Linux: relative to the
+    # installed app directory (e.g. "bin/mygame" or "MyGame.x86_64").
     entry_point: str = ""
     compatibility_notes: str = ""
     changelog: str = ""
@@ -164,6 +169,7 @@ class AppEntry:
             built_with=BuiltWith.from_dict(built_with_raw) if built_with_raw else None,
             update_strategy=strategy,
             base_runner=data.get("base_runner", "") or data.get("base_win_ver", ""),
+            platform=data.get("platform", "windows"),
             entry_point=data.get("entry_point", ""),
             compatibility_notes=data.get("compatibility_notes", ""),
             changelog=data.get("changelog", ""),
@@ -210,6 +216,8 @@ class AppEntry:
             d["built_with"] = self.built_with.to_dict()
         d["update_strategy"] = self.update_strategy
         _opt_str(d, "base_runner", self.base_runner)
+        if self.platform != "windows":
+            d["platform"] = self.platform
         _opt_str(d, "entry_point", self.entry_point)
         _opt_str(d, "compatibility_notes", self.compatibility_notes)
         _opt_str(d, "changelog", self.changelog)

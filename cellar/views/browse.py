@@ -195,9 +195,9 @@ class AppCard(Gtk.FlowBoxChild):
         fixed.set_child(overlay)
         self.set_child(fixed)
 
-    def matches(self, category: str | None, search: str) -> bool:
+    def matches(self, active_tags: frozenset[str], search: str) -> bool:
         """Return True if this card should be visible given the current filter."""
-        if category is not None and self.entry.category != category:
+        if active_tags and not (active_tags & set(self.entry.tags)):
             return False
         if search:
             needle = search.lower()
@@ -229,28 +229,13 @@ class BrowseView(Gtk.Box):
         self._empty_title = empty_title
         self._empty_description = empty_description
         self._cards: list[AppCard] = []
-        self._active_category: str | None = None
+        self._active_tags: frozenset[str] = frozenset()
         self._search_text: str = ""
-        self._first_category_button: Gtk.ToggleButton | None = None
 
         # Stored so cards can be rebuilt on catalogue reload.
         self._entries: list[AppEntry] = []
         self._resolve_asset: Callable[[str], str] | None = None
         self._installed_ids: set[str] = set()
-
-        # ── Category strip ────────────────────────────────────────────────
-        self._cat_scroll = Gtk.ScrolledWindow()
-        self._cat_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.NEVER)
-        self._cat_scroll.set_visible(False)
-
-        self._cat_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        self._cat_box.add_css_class("linked")          # segmented-control look
-        self._cat_box.set_margin_start(12)
-        self._cat_box.set_margin_end(12)
-        self._cat_box.set_margin_top(8)
-        self._cat_box.set_margin_bottom(8)
-        self._cat_scroll.set_child(self._cat_box)
-        self.append(self._cat_scroll)
 
         # ── Content stack (grid / status page) ───────────────────────────
         self._stack = Gtk.Stack()
@@ -308,55 +293,34 @@ class BrowseView(Gtk.Box):
             self._show_status(self._empty_title, self._empty_description)
             return
 
-        # Build category toggle buttons.
-        categories = sorted({e.category for e in self._entries})
-        all_btn = self._make_category_button("All", None, active=True)
-        self._cat_box.append(all_btn)
-        self._first_category_button = all_btn
-
-        for cat in categories:
-            btn = self._make_category_button(cat, cat)
-            btn.set_group(all_btn)
-            self._cat_box.append(btn)
-
         # Add cards sorted alphabetically.
         for entry in sorted(self._entries, key=lambda e: e.name.lower()):
             card = AppCard(entry, resolve_asset=self._resolve_asset, is_installed=entry.id in self._installed_ids)
             self._cards.append(card)
             self._flow_box.append(card)
 
-        self._cat_scroll.set_visible(True)
         self._apply_filter()
 
     def show_error(self, title: str, description: str) -> None:
         """Display a full-page error / info message."""
         self._entries = []
         self._resolve_asset = None
-        self._cat_scroll.set_visible(False)
         self._show_status(title, description)
 
     def set_search_text(self, text: str) -> None:
         self._search_text = text
         self._apply_filter()
 
+    def set_active_tags(self, tags: frozenset[str]) -> None:
+        self._active_tags = tags
+        self._apply_filter()
+
     # ── Internals ─────────────────────────────────────────────────────────
-
-    def _make_category_button(
-        self, label: str, category: str | None, *, active: bool = False
-    ) -> Gtk.ToggleButton:
-        btn = Gtk.ToggleButton(label=label, active=active)
-        btn.connect("toggled", self._on_category_toggled, category)
-        return btn
-
-    def _on_category_toggled(self, button: Gtk.ToggleButton, category: str | None) -> None:
-        if button.get_active():
-            self._active_category = category
-            self._apply_filter()
 
     def _apply_filter(self) -> None:
         any_visible = False
         for card in self._cards:
-            visible = card.matches(self._active_category, self._search_text)
+            visible = card.matches(self._active_tags, self._search_text)
             card.set_visible(visible)
             if visible:
                 any_visible = True
@@ -368,7 +332,7 @@ class BrowseView(Gtk.Box):
                     f"No apps match \u201c{self._search_text}\u201d.",
                 )
             else:
-                self._show_status("No Apps Here", "No apps in this category.")
+                self._show_status("No Apps Here", "No apps match the selected tags.")
         else:
             self._stack.set_visible_child_name("grid")
 
@@ -381,10 +345,7 @@ class BrowseView(Gtk.Box):
         while (child := self._flow_box.get_first_child()) is not None:
             self._flow_box.remove(child)
         self._cards.clear()
-        while (child := self._cat_box.get_first_child()) is not None:
-            self._cat_box.remove(child)
-        self._active_category = None
-        self._first_category_button = None
+        self._active_tags = frozenset()
 
     def _on_card_activated(self, _flow_box: Gtk.FlowBox, child: AppCard) -> None:
         log.debug("App selected: %s", child.entry.id)

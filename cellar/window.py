@@ -24,6 +24,7 @@ class CellarWindow(Adw.ApplicationWindow):
     nav_view: Adw.NavigationView = Gtk.Template.Child()
     add_button: Gtk.Button = Gtk.Template.Child()
     search_button: Gtk.ToggleButton = Gtk.Template.Child()
+    filter_button: Gtk.MenuButton = Gtk.Template.Child()
     search_bar: Gtk.SearchBar = Gtk.Template.Child()
     search_entry: Gtk.SearchEntry = Gtk.Template.Child()
     refresh_button: Gtk.Button = Gtk.Template.Child()
@@ -36,6 +37,9 @@ class CellarWindow(Adw.ApplicationWindow):
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
+
+        # Tag checkbuttons in the filter popover — rebuilt after each catalogue load.
+        self._tag_checks: dict[str, Gtk.CheckButton] = {}
 
         # The first successfully loaded Repo — used to resolve asset URIs in
         # the browse grid and callbacks.  Updated on every catalogue reload.
@@ -116,6 +120,9 @@ class CellarWindow(Adw.ApplicationWindow):
         manager = RepoManager()
         self._first_repo = None
         self._writable_repos = []
+        self._tag_checks = {}
+        self.filter_button.remove_css_class("suggested-action")
+        self.filter_button.set_sensitive(False)
 
         env_uri = os.environ.get("CELLAR_REPO", "")
         if env_uri:
@@ -216,6 +223,7 @@ class CellarWindow(Adw.ApplicationWindow):
                 self._browse_installed.load_entries(installed_entries, resolve_asset=resolver, installed_ids=installed_ids)
                 self._browse_updates.load_entries(update_entries, resolve_asset=resolver)
                 self.updates_page.set_badge_number(len(update_entries))
+                self._rebuild_filter_popover(entries)
             else:
                 self._browse_explore.show_error(
                     "Empty Catalogue",
@@ -232,6 +240,73 @@ class CellarWindow(Adw.ApplicationWindow):
             self.updates_page.set_badge_number(0)
         finally:
             self.refresh_button.set_sensitive(True)
+
+    # ── Filter popover ────────────────────────────────────────────────────
+
+    def _rebuild_filter_popover(self, entries: list) -> None:
+        """Build (or rebuild) the tag filter popover from the current entry list."""
+        all_tags = sorted({tag for e in entries for tag in e.tags})
+        self._tag_checks = {}
+
+        if not all_tags:
+            self.filter_button.set_sensitive(False)
+            self.filter_button.set_popover(None)
+            return
+
+        # Checkboxes
+        checks_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        for tag in all_tags:
+            check = Gtk.CheckButton(label=tag)
+            check.connect("toggled", self._on_tag_toggled)
+            self._tag_checks[tag] = check
+            checks_box.append(check)
+
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_max_content_height(320)
+        scrolled.set_propagate_natural_height(True)
+        scrolled.set_child(checks_box)
+        scrolled.set_margin_top(4)
+        scrolled.set_margin_bottom(4)
+        scrolled.set_margin_start(4)
+        scrolled.set_margin_end(4)
+
+        # "Clear" button at the bottom
+        separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        clear_btn = Gtk.Button(label="Clear")
+        clear_btn.add_css_class("flat")
+        clear_btn.connect("clicked", self._on_filter_clear)
+        clear_btn.set_margin_top(4)
+        clear_btn.set_margin_bottom(4)
+        clear_btn.set_margin_start(4)
+        clear_btn.set_margin_end(4)
+
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        outer.append(scrolled)
+        outer.append(separator)
+        outer.append(clear_btn)
+
+        popover = Gtk.Popover()
+        popover.set_child(outer)
+        self.filter_button.set_popover(popover)
+        self.filter_button.set_sensitive(True)
+
+    def _on_tag_toggled(self, _check: Gtk.CheckButton) -> None:
+        active = frozenset(tag for tag, chk in self._tag_checks.items() if chk.get_active())
+        if active:
+            self.filter_button.add_css_class("suggested-action")
+        else:
+            self.filter_button.remove_css_class("suggested-action")
+        self._browse_explore.set_active_tags(active)
+        self._browse_installed.set_active_tags(active)
+        self._browse_updates.set_active_tags(active)
+
+    def _on_filter_clear(self, _button: Gtk.Button) -> None:
+        for chk in self._tag_checks.values():
+            chk.set_active(False)
+        # _on_tag_toggled fires per checkbox; also ensure accent is removed
+        self.filter_button.remove_css_class("suggested-action")
+        self.filter_button.get_popover().popdown()
 
     # ── Signal handlers ───────────────────────────────────────────────────
 
@@ -369,7 +444,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="application-x-executable",
-            version="0.24.9",
+            version="0.25.0",
             comments="A GNOME storefront for Bottles-managed Windows apps.",
             license_type=Gtk.License.GPL_3_0,
         )

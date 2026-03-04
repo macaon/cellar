@@ -1140,7 +1140,7 @@ class DetailView(Gtk.Box):
         win.set_modal(True)
         win.set_default_size(360, -1)
         win.set_resizable(False)
-        win.set_child(toolbar)
+        win.set_content(toolbar)
         win.present()
 
         if base_row is not None:

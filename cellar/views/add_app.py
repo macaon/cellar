@@ -183,11 +183,7 @@ class EntryPointPickerDialog(Adw.Dialog):
             )
             self._store.append(parent_iter, [filename, icon, entry_point, True])
 
-        # Expand: all nodes for small archives, first level only for large ones.
-        if len(members) < 200:
-            self._tree.expand_all()
-        else:
-            self._tree.expand_to_depth(0)
+        self._tree.expand_all()
 
         self._stack.set_visible_child_name("tree")
 

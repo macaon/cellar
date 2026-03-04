@@ -629,10 +629,11 @@ class DetailView(Gtk.Box):
             icon.set_valign(Gtk.Align.CENTER)
             box.append(icon)
 
-        # Meta column: name + developer/publisher pinned to logo bottom.
+        # Meta column: name + developer/publisher.
+        # When a logo is present, fill vertically to pin developer to logo bottom.
         meta = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         meta.set_hexpand(True)
-        meta.set_valign(Gtk.Align.FILL)
+        meta.set_valign(Gtk.Align.FILL if e.logo else Gtk.Align.CENTER)
         box.append(meta)
 
         if not (e.hide_title and e.logo):
@@ -640,8 +641,9 @@ class DetailView(Gtk.Box):
             name_lbl.add_css_class("title-1")
             name_lbl.set_halign(Gtk.Align.START)
             name_lbl.set_wrap(True)
-            name_lbl.set_vexpand(True)
-            name_lbl.set_valign(Gtk.Align.START)
+            if e.logo:
+                name_lbl.set_vexpand(True)
+                name_lbl.set_valign(Gtk.Align.START)
             meta.append(name_lbl)
         else:
             spacer = Gtk.Box()
@@ -1062,19 +1064,6 @@ class DetailView(Gtk.Box):
         self._runner_warning_icon.set_visible(False)
         runner_row.append(self._runner_warning_icon)
 
-        if self._is_installed and not self._entry.lock_runner:
-            change_btn = Gtk.Button(label="Change")
-            change_btn.add_css_class("suggested-action")
-            change_btn.add_css_class("flat")
-            change_btn.set_halign(Gtk.Align.CENTER)
-            change_btn.connect("clicked", self._on_change_runner_clicked)
-            card.append(change_btn)
-        elif self._is_installed and self._entry.lock_runner:
-            lock_icon = Gtk.Image.new_from_icon_name("changes-prevent-symbolic")
-            lock_icon.set_halign(Gtk.Align.CENTER)
-            lock_icon.add_css_class("dim-label")
-            card.append(lock_icon)
-
         bottom_lbl = Gtk.Label(label="Wine")
         bottom_lbl.add_css_class("dim-label")
         bottom_lbl.add_css_class("caption")
@@ -1248,7 +1237,12 @@ class DetailView(Gtk.Box):
 
         runner_row = Adw.ActionRow(title=runner_name or "—")
         _win_ref: list[Adw.Window] = []
-        if self._is_installed and not self._entry.lock_runner:
+        if self._is_installed and self._entry.lock_runner:
+            lock_icon = Gtk.Image.new_from_icon_name("changes-prevent-symbolic")
+            lock_icon.add_css_class("dim-label")
+            lock_icon.set_valign(Gtk.Align.CENTER)
+            runner_row.add_suffix(lock_icon)
+        elif self._is_installed and not self._entry.lock_runner:
             change_btn = Gtk.Button(label="Change")
             change_btn.add_css_class("suggested-action")
             change_btn.add_css_class("flat")

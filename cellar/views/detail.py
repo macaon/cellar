@@ -721,9 +721,15 @@ class DetailView(Gtk.Box):
             label=first.name if first else "No source",
         )
         self._source_label.add_css_class("dim-label")
-        self._source_label.set_halign(Gtk.Align.END)
+        attrs = Pango.AttrList()
+        attrs.insert(Pango.attr_weight_new(Pango.Weight.NORMAL))
+        self._source_label.set_attributes(attrs)
 
-        btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        btn_box = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=4,
+            halign=Gtk.Align.CENTER,
+        )
         btn_box.append(self._source_label)
         btn_box.append(Gtk.Image.new_from_icon_name("pan-down-symbolic"))
 

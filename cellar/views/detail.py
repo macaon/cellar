@@ -225,18 +225,8 @@ class DetailView(Gtk.Box):
         runner_info = self._resolve_runner_info(runner_to_install) if runner_to_install else None
 
         # Resolve base archive for delta installs.
-        base_entry = None
-        base_archive_uri = ""
-        if self._entry.base_runner:
-            for repo in self._source_repos:
-                try:
-                    bases = repo.fetch_bases()
-                    if self._entry.base_runner in bases:
-                        base_entry = bases[self._entry.base_runner]
-                        base_archive_uri = repo.resolve_asset_uri(base_entry.archive)
-                        break
-                except Exception:
-                    pass
+        runner = self._get_base_runner()
+        base_entry, base_archive_uri = self._find_base_entry(runner) if runner else (None, "")
 
         def _open_runner_manager(on_change):
             """Open RunnerManagerDialog from the Change button inside InstallProgressDialog."""
@@ -335,19 +325,9 @@ class DetailView(Gtk.Box):
 
         archive_uri = self._resolve(self._entry.archive) if self._entry.archive else ""
 
-        # Resolve base archive for delta updates (same pattern as _proceed_to_install).
-        base_entry = None
-        base_archive_uri = ""
-        if self._entry.base_runner:
-            for repo in self._source_repos:
-                try:
-                    bases = repo.fetch_bases()
-                    if self._entry.base_runner in bases:
-                        base_entry = bases[self._entry.base_runner]
-                        base_archive_uri = repo.resolve_asset_uri(base_entry.archive)
-                        break
-                except Exception:
-                    pass
+        # Resolve base archive for delta updates.
+        runner = self._get_base_runner()
+        base_entry, base_archive_uri = self._find_base_entry(runner) if runner else (None, "")
 
         dialog = UpdateDialog(
             entry=self._entry,
@@ -979,7 +959,7 @@ class DetailView(Gtk.Box):
             click.connect("released", lambda _g, _n, _x, _y: on_click())
             card.add_controller(click)
 
-        def _simple_card(icon_name: str, value: str, label: str) -> Gtk.Box:
+        def _simple_card(icon_name: str, value: str, label: str) -> tuple[Gtk.Box, Gtk.Label]:
             card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
             card.add_css_class("info-cell")
             card.set_hexpand(True)
@@ -1001,25 +981,22 @@ class DetailView(Gtk.Box):
             sub_lbl.set_halign(Gtk.Align.CENTER)
             card.append(sub_lbl)
 
-            return card
+            return card, val_lbl
 
         if e.archive_size > 0:
-            dl_card = _simple_card(
+            dl_card, dl_val_lbl = _simple_card(
                 "folder-download-symbolic", _fmt_bytes(e.archive_size), "Download",
             )
-            # Keep a reference to the value label (second child of the card)
-            # so we can update it once the base-installed check resolves.
-            _dl_val_lbl = dl_card.get_first_child().get_next_sibling()
             _make_interactive(dl_card, self._show_download_dialog)
             _add(dl_card)
-            self._resolve_base_async(_dl_val_lbl)
+            self._resolve_base_async(dl_val_lbl)
 
         if e.install_size_estimate > 0:
             _add(_simple_card(
                 "drive-harddisk-symbolic",
                 _fmt_bytes(e.install_size_estimate),
                 "Installed size",
-            ))
+            )[0])
 
         if e.built_with:
             _add(self._make_wine_card())
@@ -1028,7 +1005,7 @@ class DetailView(Gtk.Box):
             cat_text = e.category
             if e.tags:
                 cat_text = cat_text + "\n" + ", ".join(e.tags)
-            _add(_simple_card("tag-symbolic", cat_text, "Category"))
+            _add(_simple_card("tag-symbolic", cat_text, "Category")[0])
 
         first = outer.get_first_child()
         last = outer.get_last_child()
@@ -1098,26 +1075,35 @@ class DetailView(Gtk.Box):
 
         return card
 
+    def _get_base_runner(self) -> str:
+        """Return the effective base runner key for this entry."""
+        e = self._entry
+        return e.base_runner or (e.built_with.runner if e.built_with else "")
+
+    def _find_base_entry(self, runner: str) -> tuple[object | None, str]:
+        """Return (BaseEntry, archive_uri) for *runner*, or (None, "") if not found."""
+        for repo in self._source_repos:
+            try:
+                bases = repo.fetch_bases()
+                if runner in bases:
+                    entry = bases[runner]
+                    return entry, repo.resolve_asset_uri(entry.archive)
+            except Exception:
+                pass
+        return None, ""
+
     def _resolve_base_async(self, val_lbl: Gtk.Label) -> None:
         """Resolve base image size + installed status once; cache on self for the dialog."""
-        e = self._entry
-        base_runner = e.base_runner or (e.built_with.runner if e.built_with else "")
+        base_runner = self._get_base_runner()
         if not base_runner:
             return
-        app_size = e.archive_size
+        app_size = self._entry.archive_size
 
         def _worker() -> None:
             from cellar.backend.base_store import is_base_installed
             installed = is_base_installed(base_runner)
-            base_sz = 0
-            for repo in self._source_repos:
-                try:
-                    bases = repo.fetch_bases()
-                    if base_runner in bases:
-                        base_sz = bases[base_runner].archive_size
-                        break
-                except Exception:
-                    pass
+            base_entry, _ = self._find_base_entry(base_runner)
+            base_sz = base_entry.archive_size if base_entry else 0
 
             def _apply() -> bool:
                 self._base_installed = installed
@@ -1136,9 +1122,7 @@ class DetailView(Gtk.Box):
     def _show_download_dialog(self) -> None:
         """Show a download size breakdown: header pill + per-component rows."""
         e = self._entry
-        # base_runner is authoritative; fall back to built_with.runner since
-        # that is the same key used in the catalogue's "bases" section.
-        base_runner = e.base_runner or (e.built_with.runner if e.built_with else "")
+        base_runner = self._get_base_runner()
 
         def _pill(text: str, *, large: bool = False) -> Gtk.Label:
             lbl = Gtk.Label(label=text)
@@ -1156,7 +1140,15 @@ class DetailView(Gtk.Box):
             return r
 
         # ── Header: total size pill ──────────────────────────────────
-        total_pill = _pill(_fmt_bytes(e.archive_size), large=True)
+        # Compute initial value: if base is already resolved and missing, add its size.
+        if base_runner and self._base_installed is not None:
+            _total_sz = e.archive_size + (0 if self._base_installed else self._base_sz)
+            _initial_total = _fmt_bytes(_total_sz) if _total_sz else _fmt_bytes(e.archive_size)
+        elif base_runner:
+            _initial_total = "…"
+        else:
+            _initial_total = _fmt_bytes(e.archive_size) if e.archive_size else "Unknown"
+        total_pill = _pill(_initial_total, large=True)
         total_pill.set_halign(Gtk.Align.CENTER)
         header = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         header.set_halign(Gtk.Align.CENTER)
@@ -1205,30 +1197,18 @@ class DetailView(Gtk.Box):
         # ── Populate base row from cached resolution ─────────────────
         if base_runner and base_pill is not None and base_action_row is not None:
             if self._base_installed is not None:
-                # Already resolved by _resolve_base_async — use directly.
-                subtitle = (
-                    "Already present on your system"
-                    if self._base_installed else
-                    "Will also be downloaded"
-                )
+                # Already resolved — total_pill was pre-computed above; just fill the row.
                 sz = self._base_sz
-                total = e.archive_size + (0 if self._base_installed else sz)
                 base_pill.set_label(_fmt_bytes(sz) if sz else "Unknown")
-                base_action_row.set_subtitle(subtitle)
-                total_pill.set_label(_fmt_bytes(total) if total else _fmt_bytes(e.archive_size))
+                base_action_row.set_subtitle(_base_status_subtitle(self._base_installed))
             else:
                 # Resolution not yet done (rare — dialog opened within ms of page load).
-                # Register a callback so _resolve_base_async updates the dialog when done.
                 _p, _r, _t, _app = base_pill, base_action_row, total_pill, e.archive_size
 
                 def _on_resolved(installed: bool, base_sz: int) -> None:
-                    subtitle = (
-                        "Already present on your system" if installed
-                        else "Will also be downloaded"
-                    )
                     total = _app + (0 if installed else base_sz)
                     _p.set_label(_fmt_bytes(base_sz) if base_sz else "Unknown")
-                    _r.set_subtitle(subtitle)
+                    _r.set_subtitle(_base_status_subtitle(installed))
                     _t.set_label(_fmt_bytes(total) if total else _fmt_bytes(_app))
 
                 self._base_resolve_cbs.append(_on_resolved)
@@ -2260,6 +2240,10 @@ def _text_row(text: str) -> Gtk.Label:
     lbl.set_margin_top(6)
     lbl.set_margin_bottom(6)
     return lbl
+
+
+def _base_status_subtitle(installed: bool) -> str:
+    return "Already present on your system" if installed else "Will also be downloaded"
 
 
 def _fmt_bytes(n: int) -> str:

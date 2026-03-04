@@ -69,11 +69,6 @@ class CellarApplication(Adw.Application):
                 ".info-cell-interactive.hovered {"
                 "  background-color: alpha(@window_fg_color, 0.07);"
                 "}"
-                ".cellar-tag-pill {"
-                "  border-radius: 9999px;"
-                "  background-color: alpha(@window_fg_color, 0.10);"
-                "  padding: 2px 2px 2px 10px;"
-                "}"
             )
             Gtk.StyleContext.add_provider_for_display(
                 display, css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION

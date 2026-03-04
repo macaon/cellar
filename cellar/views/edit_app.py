@@ -150,20 +150,11 @@ class EditAppDialog(Adw.Dialog):
 
         page.add(identity_group)
 
-        # ── Tags (chip input card) ────────────────────────────────────────
-        from cellar.views.tag_entry import TagEntry
-        tags_header = Adw.ActionRow(title="Tags")
-        tags_header.set_activatable(False)
-        tags_header.set_subtitle("Press Enter after each tag to add it")
-        self._tag_entry = TagEntry()
-        tags_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        tags_card.add_css_class("card")
-        tags_card.append(tags_header)
-        tags_card.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
-        tags_card.append(self._tag_entry)
-        tags_wrapper = Adw.PreferencesGroup()
-        tags_wrapper.add(tags_card)
-        page.add(tags_wrapper)
+        # ── Category ──────────────────────────────────────────────────────
+        from cellar.backend.packager import BASE_CATEGORIES
+        self._category_row = Adw.ComboRow(title="Category")
+        self._category_row.set_model(Gtk.StringList.new(BASE_CATEGORIES))
+        identity_group.add(self._category_row)
 
         # ── Details ───────────────────────────────────────────────────────
         details_group = Adw.PreferencesGroup(title="Details")
@@ -378,7 +369,9 @@ class EditAppDialog(Adw.Dialog):
 
         self._name_entry.set_text(e.name)
         self._version_entry.set_text(e.version)
-        self._tag_entry.set_tags(list(e.tags))
+        from cellar.backend.packager import BASE_CATEGORIES
+        if e.category in BASE_CATEGORIES:
+            self._category_row.set_selected(BASE_CATEGORIES.index(e.category))
         self._summary_entry.set_text(e.summary or "")
 
         if e.description:
@@ -429,8 +422,10 @@ class EditAppDialog(Adw.Dialog):
 
     # ── Form validation ───────────────────────────────────────────────────
 
-    def _get_tags(self) -> list[str]:
-        return self._tag_entry.get_tags()
+    def _get_category(self) -> str:
+        from cellar.backend.packager import BASE_CATEGORIES
+        idx = self._category_row.get_selected()
+        return BASE_CATEGORIES[idx] if 0 <= idx < len(BASE_CATEGORIES) else ""
 
     def _on_lock_runner_toggled(self, btn) -> None:
         if btn.get_active():
@@ -612,8 +607,7 @@ class EditAppDialog(Adw.Dialog):
         app_id = e.id
         name = self._name_entry.get_text().strip()
         version = self._version_entry.get_text().strip() or e.version
-        tags = self._get_tags()
-        category = tags[0] if tags else e.category
+        category = self._get_category() or e.category
         summary = self._summary_entry.get_text().strip()
         desc_buf = self._desc_view.get_buffer()
         description = desc_buf.get_text(
@@ -683,7 +677,6 @@ class EditAppDialog(Adw.Dialog):
             name=name,
             version=version,
             category=category,
-            tags=tuple(tags),
             summary=summary,
             description=description,
             developer=developer,

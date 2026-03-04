@@ -195,9 +195,9 @@ class AppCard(Gtk.FlowBoxChild):
         fixed.set_child(overlay)
         self.set_child(fixed)
 
-    def matches(self, active_tags: frozenset[str], search: str) -> bool:
+    def matches(self, active_category: str, search: str) -> bool:
         """Return True if this card should be visible given the current filter."""
-        if active_tags and not (active_tags & set(self.entry.tags)):
+        if active_category and self.entry.category != active_category:
             return False
         if search:
             needle = search.lower()
@@ -229,7 +229,7 @@ class BrowseView(Gtk.Box):
         self._empty_title = empty_title
         self._empty_description = empty_description
         self._cards: list[AppCard] = []
-        self._active_tags: frozenset[str] = frozenset()
+        self._active_category: str = ""
         self._search_text: str = ""
 
         # Stored so cards can be rebuilt on catalogue reload.
@@ -311,8 +311,8 @@ class BrowseView(Gtk.Box):
         self._search_text = text
         self._apply_filter()
 
-    def set_active_tags(self, tags: frozenset[str]) -> None:
-        self._active_tags = tags
+    def set_active_category(self, category: str) -> None:
+        self._active_category = category
         self._apply_filter()
 
     # ── Internals ─────────────────────────────────────────────────────────
@@ -320,7 +320,7 @@ class BrowseView(Gtk.Box):
     def _apply_filter(self) -> None:
         any_visible = False
         for card in self._cards:
-            visible = card.matches(self._active_tags, self._search_text)
+            visible = card.matches(self._active_category, self._search_text)
             card.set_visible(visible)
             if visible:
                 any_visible = True
@@ -332,7 +332,7 @@ class BrowseView(Gtk.Box):
                     f"No apps match \u201c{self._search_text}\u201d.",
                 )
             else:
-                self._show_status("No Apps Here", "No apps match the selected tags.")
+                self._show_status("No Apps Here", "No apps match the selected category.")
         else:
             self._stack.set_visible_child_name("grid")
 
@@ -345,7 +345,7 @@ class BrowseView(Gtk.Box):
         while (child := self._flow_box.get_first_child()) is not None:
             self._flow_box.remove(child)
         self._cards.clear()
-        self._active_tags = frozenset()
+        self._active_category = ""
 
     def _on_card_activated(self, _flow_box: Gtk.FlowBox, child: AppCard) -> None:
         log.debug("App selected: %s", child.entry.id)

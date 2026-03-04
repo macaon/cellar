@@ -79,7 +79,6 @@ def test_optional_fields_default_gracefully(tmp_path):
     e = entries[0]
     assert e.id == "m"
     assert e.summary == ""
-    assert e.tags == ()
     assert e.developer == ""
     assert e.store_links == {}
     assert e.built_with is None

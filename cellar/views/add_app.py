@@ -173,20 +173,11 @@ class AddAppDialog(Adw.Dialog):
 
         page.add(identity_group)
 
-        # ── Tags (chip input card) ────────────────────────────────────────
-        from cellar.views.tag_entry import TagEntry
-        tags_header = Adw.ActionRow(title="Tags")
-        tags_header.set_activatable(False)
-        tags_header.set_subtitle("Press Enter after each tag to add it")
-        self._tag_entry = TagEntry()
-        tags_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        tags_card.add_css_class("card")
-        tags_card.append(tags_header)
-        tags_card.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
-        tags_card.append(self._tag_entry)
-        tags_wrapper = Adw.PreferencesGroup()
-        tags_wrapper.add(tags_card)
-        page.add(tags_wrapper)
+        # ── Category ──────────────────────────────────────────────────────
+        from cellar.backend.packager import BASE_CATEGORIES
+        self._category_row = Adw.ComboRow(title="Category")
+        self._category_row.set_model(Gtk.StringList.new(BASE_CATEGORIES))
+        identity_group.add(self._category_row)
 
         # ── Details ───────────────────────────────────────────────────────
         details_group = Adw.PreferencesGroup(title="Details")
@@ -380,7 +371,8 @@ class AddAppDialog(Adw.Dialog):
 
             env = yml.get("Environment", "")
             if env.lower() == "game":
-                GLib.idle_add(self._tag_entry.set_tags, ["Games"])
+                from cellar.backend.packager import BASE_CATEGORIES
+                GLib.idle_add(self._category_row.set_selected, BASE_CATEGORIES.index("Games") if "Games" in BASE_CATEGORIES else 0)
 
             if runner:
                 self._runner = runner
@@ -499,8 +491,10 @@ class AddAppDialog(Adw.Dialog):
     def _on_field_changed(self, *_args) -> None:
         self._update_add_button()
 
-    def _get_tags(self) -> list[str]:
-        return self._tag_entry.get_tags()
+    def _get_category(self) -> str:
+        from cellar.backend.packager import BASE_CATEGORIES
+        idx = self._category_row.get_selected()
+        return BASE_CATEGORIES[idx] if 0 <= idx < len(BASE_CATEGORIES) else ""
 
     def _update_add_button(self) -> None:
         name_ok = bool(self._name_entry.get_text().strip())
@@ -580,8 +574,7 @@ class AddAppDialog(Adw.Dialog):
         name = self._name_entry.get_text().strip()
         app_id = self._id_entry.get_text().strip()
         version = self._version_entry.get_text().strip() or "1.0"
-        tags = self._get_tags()
-        category = tags[0] if tags else ""
+        category = self._get_category()
         summary = self._summary_entry.get_text().strip()
         desc_buf = self._desc_view.get_buffer()
         description = desc_buf.get_text(
@@ -626,7 +619,6 @@ class AddAppDialog(Adw.Dialog):
             name=name,
             version=version,
             category=category,
-            tags=tuple(tags),
             summary=summary,
             description=description,
             developer=developer,

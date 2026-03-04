@@ -1002,10 +1002,7 @@ class DetailView(Gtk.Box):
             _add(self._make_wine_card())
 
         if e.category:
-            cat_text = e.category
-            if e.tags:
-                cat_text = cat_text + "\n" + ", ".join(e.tags)
-            _add(_simple_card("tag-symbolic", cat_text, "Category")[0])
+            _add(_simple_card("tag-symbolic", e.category, "Category")[0])
 
         first = outer.get_first_child()
         last = outer.get_last_child()

@@ -90,7 +90,6 @@ class AppEntry:
     # ── Display ───────────────────────────────────────────────────────────
     summary: str = ""
     description: str = ""
-    tags: tuple[str, ...] = ()
 
     # ── Attribution ───────────────────────────────────────────────────────
     developer: str = ""
@@ -144,7 +143,6 @@ class AppEntry:
             category=data["category"],
             summary=data.get("summary", ""),
             description=data.get("description", ""),
-            tags=tuple(data.get("tags", [])),
             developer=data.get("developer", ""),
             publisher=data.get("publisher", ""),
             release_year=data.get("release_year"),
@@ -184,7 +182,6 @@ class AppEntry:
         }
         _opt_str(d, "summary", self.summary)
         _opt_str(d, "description", self.description)
-        _opt_seq(d, "tags", self.tags)
         _opt_str(d, "developer", self.developer)
         _opt_str(d, "publisher", self.publisher)
         if self.release_year is not None:

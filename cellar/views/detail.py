@@ -619,21 +619,38 @@ class DetailView(Gtk.Box):
             margin_bottom=18,
         )
 
-        # Logo (96px tall, cropped) or square icon (96×96).
+        dev_parts: list[str] = []
+        if e.developer:
+            dev_parts.append(e.developer)
+        if e.publisher and e.publisher != e.developer:
+            dev_parts.append(e.publisher)
+
+        # Logo column: logo image with developer credit centered below it.
+        # Falls back to a square icon when no logo is set.
         if e.logo:
+            logo_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+            logo_col.set_halign(Gtk.Align.START)
+            logo_col.set_valign(Gtk.Align.CENTER)
             logo = self._make_logo_widget(e.logo, _ICON_SIZE)
-            logo.set_valign(Gtk.Align.CENTER)
-            box.append(logo)
+            logo.set_halign(Gtk.Align.CENTER)
+            logo_col.append(logo)
+            if dev_parts:
+                dev_lbl = Gtk.Label(label=" · ".join(dev_parts))
+                dev_lbl.add_css_class("dim-label")
+                dev_lbl.add_css_class("caption")
+                dev_lbl.set_halign(Gtk.Align.CENTER)
+                dev_lbl.set_wrap(True)
+                logo_col.append(dev_lbl)
+            box.append(logo_col)
         else:
             icon = self._make_icon(e.icon, _ICON_SIZE)
             icon.set_valign(Gtk.Align.CENTER)
             box.append(icon)
 
-        # Meta column: name + developer/publisher.
-        # When a logo is present, fill vertically to pin developer to logo bottom.
+        # Meta column: name (and developer when no logo).
         meta = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         meta.set_hexpand(True)
-        meta.set_valign(Gtk.Align.FILL if e.logo else Gtk.Align.CENTER)
+        meta.set_valign(Gtk.Align.CENTER)
         box.append(meta)
 
         if not (e.hide_title and e.logo):
@@ -641,21 +658,9 @@ class DetailView(Gtk.Box):
             name_lbl.add_css_class("title-1")
             name_lbl.set_halign(Gtk.Align.START)
             name_lbl.set_wrap(True)
-            if e.logo:
-                name_lbl.set_vexpand(True)
-                name_lbl.set_valign(Gtk.Align.START)
             meta.append(name_lbl)
-        else:
-            spacer = Gtk.Box()
-            spacer.set_vexpand(True)
-            meta.append(spacer)
 
-        dev_parts: list[str] = []
-        if e.developer:
-            dev_parts.append(e.developer)
-        if e.publisher and e.publisher != e.developer:
-            dev_parts.append(e.publisher)
-        if dev_parts:
+        if not e.logo and dev_parts:
             dev_lbl = Gtk.Label(label=" · ".join(dev_parts))
             dev_lbl.add_css_class("dim-label")
             dev_lbl.set_halign(Gtk.Align.START)

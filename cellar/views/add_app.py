@@ -31,143 +31,11 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, GLib, Gtk
+from gi.repository import Adw, Gio, GLib, Gtk
 
 
 _STRATEGIES = ["safe", "full"]
 _STRATEGY_LABELS = ["Safe (preserve user data)", "Full (complete replacement)"]
-
-# ---------------------------------------------------------------------------
-# Entry-point directory browser
-# ---------------------------------------------------------------------------
-
-
-def _walk_dir_members(src_dir: str) -> list[tuple[str, bool]]:
-    """Return ``(relative_path, is_executable)`` for every file under *src_dir*."""
-    root = Path(src_dir)
-    members: list[tuple[str, bool]] = []
-    for dirpath, _dirnames, filenames in os.walk(root):
-        for fname in filenames:
-            fpath = Path(dirpath) / fname
-            rel = str(fpath.relative_to(root))
-            try:
-                is_exec = bool(fpath.stat().st_mode & 0o111)
-            except OSError:
-                is_exec = False
-            members.append((rel, is_exec))
-    return sorted(members)
-
-
-class EntryPointPickerDialog(Adw.Dialog):
-    """Browse a directory and select the main executable.
-
-    Presents a tree view populated synchronously from ``os.walk()``.
-    Double-clicking a file is equivalent to clicking Select.
-    """
-
-    def __init__(self, source_dir: str, on_selected) -> None:
-        super().__init__(title="Select Entry Point", content_width=520)
-        self.set_content_height(480)
-        self._on_selected = on_selected
-        self._selected_path: str = ""
-        self._build_ui()
-        members = _walk_dir_members(source_dir)
-        self._populate_tree(members)
-
-    def _build_ui(self) -> None:
-        toolbar = Adw.ToolbarView()
-
-        header = Adw.HeaderBar()
-        header.set_show_end_title_buttons(False)
-
-        cancel_btn = Gtk.Button(label="Cancel")
-        cancel_btn.connect("clicked", lambda _: self.close())
-        header.pack_start(cancel_btn)
-
-        self._select_btn = Gtk.Button(label="Select")
-        self._select_btn.add_css_class("suggested-action")
-        self._select_btn.set_sensitive(False)
-        self._select_btn.connect("clicked", self._on_select_clicked)
-        header.pack_end(self._select_btn)
-
-        toolbar.add_top_bar(header)
-
-        scroll = Gtk.ScrolledWindow(vexpand=True)
-        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-
-        # TreeStore columns: display_name, icon_name, entry_point, is_file
-        self._store = Gtk.TreeStore(str, str, str, bool)
-
-        self._tree = Gtk.TreeView(model=self._store)
-        self._tree.set_headers_visible(False)
-        self._tree.set_activate_on_single_click(False)
-        self._tree.connect("row-activated", self._on_row_activated)
-
-        sel = self._tree.get_selection()
-        sel.connect("changed", self._on_selection_changed)
-
-        col = Gtk.TreeViewColumn()
-        icon_r = Gtk.CellRendererPixbuf()
-        col.pack_start(icon_r, False)
-        col.add_attribute(icon_r, "icon-name", 1)
-        text_r = Gtk.CellRendererText()
-        col.pack_start(text_r, True)
-        col.add_attribute(text_r, "text", 0)
-        self._tree.append_column(col)
-
-        scroll.set_child(self._tree)
-        toolbar.set_content(scroll)
-        self.set_child(toolbar)
-
-    def _populate_tree(self, members: list[tuple[str, bool]]) -> None:
-        nodes: dict[str, object] = {}  # path_key → TreeIter
-
-        for raw_path, is_exec in members:
-            parts = Path(raw_path).parts
-            if not parts:
-                continue
-
-            parent_iter = None
-            for depth in range(len(parts) - 1):
-                key = "/".join(parts[: depth + 1])
-                if key not in nodes:
-                    it = self._store.append(
-                        parent_iter,
-                        [parts[depth], "folder-symbolic", "", False],
-                    )
-                    nodes[key] = it
-                parent_iter = nodes[key]
-
-            filename = parts[-1]
-            icon = (
-                "application-x-executable-symbolic"
-                if is_exec
-                else "text-x-generic-symbolic"
-            )
-            self._store.append(parent_iter, [filename, icon, raw_path, True])
-
-        self._tree.expand_all()
-
-    def _on_selection_changed(self, sel) -> None:
-        model, it = sel.get_selected()
-        if it and model[it][3]:  # is_file
-            self._selected_path = model[it][2]
-            self._select_btn.set_sensitive(True)
-        else:
-            self._selected_path = ""
-            self._select_btn.set_sensitive(False)
-
-    def _on_row_activated(self, tree, path, _col) -> None:
-        model = tree.get_model()
-        it = model.get_iter(path)
-        if it and model[it][3]:  # is_file
-            self._selected_path = model[it][2]
-            self._on_select_clicked(None)
-
-    def _on_select_clicked(self, _btn) -> None:
-        if self._selected_path:
-            self._on_selected(self._selected_path)
-        self.close()
 
 
 def _fmt_ul_stats(copied: int, total: int, speed: float) -> str:
@@ -733,15 +601,27 @@ class AddAppDialog(Adw.Dialog):
         self._add_btn.set_sensitive(name_ok and ep_ok and self._base_ok)
 
     def _on_pick_entry_point(self, _btn) -> None:
-        """Open the directory tree picker so the user can select the entry point."""
-        def _on_selected(path: str) -> None:
-            GLib.idle_add(self._entry_point_entry.set_text, path)
-            GLib.idle_add(self._update_add_button)
+        """Open a native file chooser to pick the entry point from the source directory."""
+        chooser = Gtk.FileChooserNative(
+            title="Select Entry Point",
+            transient_for=self.get_root(),
+            action=Gtk.FileChooserAction.OPEN,
+        )
+        chooser.set_current_folder(Gio.File.new_for_path(self._source_dir))
+        chooser.connect("response", self._on_ep_chosen, chooser)
+        chooser.show()
 
-        EntryPointPickerDialog(
-            source_dir=self._source_dir,
-            on_selected=_on_selected,
-        ).present(self)
+    def _on_ep_chosen(self, _chooser, response, chooser) -> None:
+        if response == Gtk.ResponseType.ACCEPT:
+            f = chooser.get_file()
+            if f:
+                path = f.get_path()
+                try:
+                    rel = os.path.relpath(path, self._source_dir)
+                except ValueError:
+                    rel = path
+                self._entry_point_entry.set_text(rel)
+                self._update_add_button()
 
     # ── Image pickers ─────────────────────────────────────────────────────
 

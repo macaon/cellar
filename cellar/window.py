@@ -332,7 +332,7 @@ class CellarWindow(Adw.ApplicationWindow):
         # in any detected Bottles installation (e.g. deleted from within
         # Bottles), remove the stale record so we show "Install" again.
         rec = database.get_installed(entry.id)
-        if rec and all_bottles and not any(
+        if rec and all_bottles and entry.platform != "linux" and not any(
             (b.data_path / rec["bottle_name"]).is_dir() for b in all_bottles
         ):
             log.info(
@@ -493,7 +493,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="application-x-executable",
-            version="0.31.0",
+            version="0.31.1",
             comments="A GNOME storefront for Bottles-managed Windows apps.",
             license_type=Gtk.License.GPL_3_0,
         )

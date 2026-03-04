@@ -2033,40 +2033,41 @@ class InstallProgressDialog(Adw.Dialog):
             page.add(runner_group)
             self._runner_row = row
 
-        # ── Bottles group ─────────────────────────────────────────────────
-        if len(self._installs) == 1:
-            group = Adw.PreferencesGroup(title="Bottles Installation")
-            install = self._installs[0]
-            row = Adw.ActionRow(
-                title=_variant_label(install.variant),
-                subtitle=_short_path(install.data_path),
-            )
-            row.add_prefix(Gtk.Image.new_from_icon_name("com.usebottles.bottles"))
-            group.add(row)
-        else:
-            group = Adw.PreferencesGroup(
-                title="Select Bottles Installation",
-                description="Both a Flatpak and a native installation of Bottles were found.",
-            )
-            radio_group: Gtk.CheckButton | None = None
-            for install in self._installs:
+        # ── Bottles group (Wine/Windows apps only) ────────────────────────
+        if self._entry.platform != "linux":
+            if len(self._installs) == 1:
+                group = Adw.PreferencesGroup(title="Bottles Installation")
+                install = self._installs[0]
                 row = Adw.ActionRow(
                     title=_variant_label(install.variant),
                     subtitle=_short_path(install.data_path),
                 )
-                radio = Gtk.CheckButton()
-                radio.set_valign(Gtk.Align.CENTER)
-                if radio_group is None:
-                    radio_group = radio
-                    radio.set_active(True)
-                else:
-                    radio.set_group(radio_group)
-                radio.connect("toggled", self._on_radio_toggled, install)
-                row.add_prefix(radio)
-                row.set_activatable_widget(radio)
+                row.add_prefix(Gtk.Image.new_from_icon_name("com.usebottles.bottles"))
                 group.add(row)
+            else:
+                group = Adw.PreferencesGroup(
+                    title="Select Bottles Installation",
+                    description="Both a Flatpak and a native installation of Bottles were found.",
+                )
+                radio_group: Gtk.CheckButton | None = None
+                for install in self._installs:
+                    row = Adw.ActionRow(
+                        title=_variant_label(install.variant),
+                        subtitle=_short_path(install.data_path),
+                    )
+                    radio = Gtk.CheckButton()
+                    radio.set_valign(Gtk.Align.CENTER)
+                    if radio_group is None:
+                        radio_group = radio
+                        radio.set_active(True)
+                    else:
+                        radio.set_group(radio_group)
+                    radio.connect("toggled", self._on_radio_toggled, install)
+                    row.add_prefix(radio)
+                    row.set_activatable_widget(radio)
+                    group.add(row)
+            page.add(group)
 
-        page.add(group)
         return scroll
 
     def _on_runner_change_clicked(self, _btn) -> None:
@@ -2182,12 +2183,14 @@ class InstallProgressDialog(Adw.Dialog):
             GLib.idle_add(self._progress_bar.set_fraction, fraction)
 
         _last_name_t: list[float] = [0.0]
+        _file_count: list[int] = [0]
 
         def _extract_name(filename: str) -> None:
+            _file_count[0] += 1
             now = time.monotonic()
             if now - _last_name_t[0] >= 0.08:
                 _last_name_t[0] = now
-                GLib.idle_add(self._progress_bar.set_text, _trunc_filename(filename))
+                GLib.idle_add(self._progress_bar.set_text, f"file {_file_count[0]}")
 
         def _run() -> None:
             try:
@@ -2261,6 +2264,7 @@ class InstallProgressDialog(Adw.Dialog):
         """Background install for Linux native apps."""
         from cellar.backend.installer import InstallCancelled, install_linux_app
 
+        self._pulse_id: int | None = None
         install_base = Path(self._linux_install_path).expanduser()
 
         def _set_phase(label: str) -> None:
@@ -2279,12 +2283,14 @@ class InstallProgressDialog(Adw.Dialog):
             GLib.idle_add(self._progress_bar.set_fraction, fraction)
 
         _last_name_t: list[float] = [0.0]
+        _file_count: list[int] = [0]
 
         def _extract_name(filename: str) -> None:
+            _file_count[0] += 1
             now = time.monotonic()
             if now - _last_name_t[0] >= 0.08:
                 _last_name_t[0] = now
-                GLib.idle_add(self._progress_bar.set_text, _trunc_filename(filename))
+                GLib.idle_add(self._progress_bar.set_text, f"file {_file_count[0]}")
 
         def _run() -> None:
             try:
@@ -2316,8 +2322,8 @@ class InstallProgressDialog(Adw.Dialog):
             GLib.source_remove(self._pulse_id)
             self._pulse_id = None
         self._phase_label.set_text(label)
-        if "Copying" in label or "Applying delta" in label:
-            # Indeterminate pulse for copytree / rsync delta
+        if "Copying" in label or "Applying delta" in label or "Installing" in label:
+            # Indeterminate pulse for copytree / rsync delta / Linux copy
             self._progress_bar.set_fraction(0.0)
             self._progress_bar.set_show_text(False)
             self._pulse_id = GLib.timeout_add(80, self._do_pulse)

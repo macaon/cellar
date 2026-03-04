@@ -1229,7 +1229,7 @@ class DetailView(Gtk.Box):
 
         runner_name = self._runner_override or bw.runner or ""
 
-        # ── Header: runner name pill + "Wine" label ──────────────────
+        # ── Header: runner name pill ─────────────────────────────────
         runner_pill = Gtk.Label(label=runner_name or "—")
         runner_pill.add_css_class("download-pill")
         runner_pill.add_css_class("download-pill-large")
@@ -1237,11 +1237,12 @@ class DetailView(Gtk.Box):
         header = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         header.set_halign(Gtk.Align.CENTER)
         header.append(runner_pill)
-        wine_lbl = Gtk.Label(label="Wine")
-        wine_lbl.add_css_class("heading")
-        header.append(wine_lbl)
 
         # ── Component rows ───────────────────────────────────────────
+        components_lbl = Gtk.Label(label="Components")
+        components_lbl.add_css_class("heading")
+        components_lbl.set_halign(Gtk.Align.START)
+
         listbox = Gtk.ListBox()
         listbox.set_selection_mode(Gtk.SelectionMode.NONE)
         listbox.add_css_class("boxed-list")
@@ -1266,7 +1267,9 @@ class DetailView(Gtk.Box):
         content.set_margin_start(18)
         content.set_margin_end(18)
         content.append(header)
-        content.append(listbox)
+        if bw.dxvk or bw.vkd3d:
+            content.append(components_lbl)
+            content.append(listbox)
 
         toolbar = Adw.ToolbarView()
         toolbar.add_top_bar(Adw.HeaderBar())

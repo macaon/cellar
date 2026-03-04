@@ -228,7 +228,7 @@ def test_create_delta_archive_includes_bottle_yml(tmp_path):
 
 
 def test_create_delta_archive_progress_reported(tmp_path):
-    """progress_cb is called at 0.0, 0.3, 0.7, and 1.0."""
+    """progress_cb emits values in [0, 1] per phase; extraction emits none."""
     archive = _make_full_archive(tmp_path)
     base = _make_base_dir(tmp_path)
     dest = tmp_path / "delta.tar.zst"
@@ -236,9 +236,10 @@ def test_create_delta_archive_progress_reported(tmp_path):
 
     pkg.create_delta_archive(archive, base, dest, progress_cb=calls.append)
 
-    assert calls[0] == 0.0
-    assert calls[-1] == 1.0
+    assert calls, "expected at least one progress call"
     assert all(0.0 <= f <= 1.0 for f in calls)
+    # Each phase resets to 0→1; the final compression phase ends at 1.0.
+    assert calls[-1] == 1.0
 
 
 def test_create_delta_archive_returns_uncompressed_size(tmp_path):

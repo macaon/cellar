@@ -611,12 +611,14 @@ def create_delta_archive(
 
     The result has the same top-level bottle directory name as the original and
     is suitable for :func:`~cellar.backend.installer._overlay_delta` at install
-    time.  *progress_cb* is called at 0.0 (start), 0.3 (extracted), 0.7
-    (diffed), and 1.0 (done).  *phase_cb* is called with a human-readable
-    step label at each major phase ("Extracting archive…", "Scanning files…",
-    "Compressing delta…").  *file_cb* is called as ``file_cb(current, total)``
-    for each file processed; *total* is 0 when the total count is not known in
-    advance (extraction from a streaming gzip archive).
+    time.  *phase_cb* is called with a human-readable step label at each major
+    phase ("Extracting archive…", "Scanning files…", "Compressing delta…").
+    *progress_cb* emits 0→1 **per phase** (not across the whole operation), so
+    callers can reset their progress bar on each *phase_cb* transition.
+    Extraction emits no *progress_cb* calls (duration is unknown from a
+    streaming gzip); only *file_cb* is called during extraction.
+    *file_cb* is called as ``file_cb(current, total)`` for each file processed;
+    *total* is 0 when the count is not known in advance.
 
     Returns the uncompressed size in bytes of the delta content (i.e. the
     additional disk space the app's unique files will occupy beyond the
@@ -646,10 +648,10 @@ def create_delta_archive(
                 raise CancelledError("Delta archive creation cancelled")
 
         # 1. Extract full archive (member-by-member for cancellability)
+        # Duration unknown (streaming gzip) — UI should pulse rather than
+        # show a fraction; only file_cb is called here.
         if phase_cb:
             phase_cb("Extracting archive\u2026")
-        if progress_cb:
-            progress_cb(0.0)
         try:
             use_filter = sys.version_info >= (3, 12)
             extracted = 0
@@ -668,11 +670,6 @@ def create_delta_archive(
         except tarfile.TarError as exc:
             raise RuntimeError(f"Failed to extract full archive: {exc}") from exc
 
-        if phase_cb:
-            phase_cb("Scanning files\u2026")
-        if progress_cb:
-            progress_cb(0.3)
-
         # 2. Locate the bottle root inside the extracted archive
         subdirs = [d for d in extract_dir.iterdir() if d.is_dir()]
         if not subdirs:
@@ -687,14 +684,17 @@ def create_delta_archive(
         delta_bottle = delta_dir / bottle_name
         delta_bottle.mkdir()
 
-        # 3. Compute the delta (files that differ from base_dir)
+        # 3. Compute the delta (files that differ from base_dir).
+        # progress_cb runs 0→1 for this phase only.
+        if phase_cb:
+            phase_cb("Scanning files\u2026")
         _compute_delta(
             bottle_dir, base_dir, delta_bottle,
             cancel_event=cancel_event,
             file_cb=file_cb,
             progress_cb=progress_cb,
-            progress_start=0.3,
-            progress_end=0.7,
+            progress_start=0.0,
+            progress_end=1.0,
         )
 
         # Sum uncompressed sizes of the delta files only.  The base image is
@@ -706,10 +706,9 @@ def create_delta_archive(
 
         # 4. Pack the delta into a .tar.zst (zstd level 3: fast compress,
         #    fast decompress, noticeably better ratio than gzip default).
+        # progress_cb runs 0→1 for this phase only.
         if phase_cb:
             phase_cb("Compressing delta\u2026")
-        if progress_cb:
-            progress_cb(0.7)
         dest.parent.mkdir(parents=True, exist_ok=True)
         try:
             import zstandard as zstd  # noqa: PLC0415
@@ -730,16 +729,13 @@ def create_delta_archive(
                             if file_cb:
                                 file_cb(i, total_items)
                             if progress_cb and total_items > 0:
-                                progress_cb(0.7 + i / total_items * 0.3)
+                                progress_cb(i / total_items)
         except CancelledError:
             dest.unlink(missing_ok=True)
             raise
         except (tarfile.TarError, OSError) as exc:
             dest.unlink(missing_ok=True)
             raise RuntimeError(f"Failed to create delta archive: {exc}") from exc
-
-        if progress_cb:
-            progress_cb(1.0)
 
         return delta_uncompressed_size
 

@@ -151,7 +151,7 @@ class DetailView(Gtk.Box):
         content_box.set_margin_end(18)
         content_clamp.set_child(content_box)
 
-        if e.description or e.version or e.release_year:
+        if e.description:
             content_box.append(self._make_description())
 
         content_box.append(self._make_info_cards())
@@ -629,10 +629,10 @@ class DetailView(Gtk.Box):
             icon.set_valign(Gtk.Align.CENTER)
             box.append(icon)
 
-        # Meta column: name, version/year, developer/publisher.
+        # Meta column: name + developer/publisher pinned to logo bottom.
         meta = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         meta.set_hexpand(True)
-        meta.set_valign(Gtk.Align.CENTER)
+        meta.set_valign(Gtk.Align.FILL)
         box.append(meta)
 
         if not (e.hide_title and e.logo):
@@ -640,7 +640,13 @@ class DetailView(Gtk.Box):
             name_lbl.add_css_class("title-1")
             name_lbl.set_halign(Gtk.Align.START)
             name_lbl.set_wrap(True)
+            name_lbl.set_vexpand(True)
+            name_lbl.set_valign(Gtk.Align.START)
             meta.append(name_lbl)
+        else:
+            spacer = Gtk.Box()
+            spacer.set_vexpand(True)
+            meta.append(spacer)
 
         dev_parts: list[str] = []
         if e.developer:
@@ -794,17 +800,6 @@ class DetailView(Gtk.Box):
             lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
             lbl.set_xalign(0)
             box.append(lbl)
-
-        if e.version or e.release_year:
-            ver_parts: list[str] = []
-            if e.version:
-                ver_parts.append(e.version)
-            if e.release_year:
-                ver_parts.append(f"({e.release_year})")
-            ver_lbl = Gtk.Label(label="  ".join(ver_parts))
-            ver_lbl.add_css_class("dim-label")
-            ver_lbl.set_halign(Gtk.Align.END)
-            box.append(ver_lbl)
 
         return box
 
@@ -1019,6 +1014,12 @@ class DetailView(Gtk.Box):
 
         if e.built_with:
             _add(self._make_wine_card())
+
+        if e.version:
+            _add(_simple_card("software-update-available-symbolic", e.version, "Version")[0])
+
+        if e.release_year:
+            _add(_simple_card("x-office-calendar-symbolic", str(e.release_year), "Released")[0])
 
         if e.category:
             _add(_simple_card("tag-symbolic", e.category, "Category")[0])

@@ -71,7 +71,6 @@ class EditAppDialog(Adw.Dialog):
         # None = keep existing; "" = clear from catalogue; str = replace with new file
         self._icon_path: str | None = None
         self._cover_path: str | None = None
-        self._hero_path: str | None = None
         self._logo_path: str | None = None
 
         # Screenshot list + dirty flag
@@ -225,7 +224,6 @@ class EditAppDialog(Adw.Dialog):
 
         self._icon_row, self._icon_clear_btn = self._make_image_row("Icon", self._pick_icon)
         self._cover_row, self._cover_clear_btn = self._make_image_row("Cover", self._pick_cover)
-        self._hero_row, self._hero_clear_btn = self._make_image_row("Hero", self._pick_hero)
         self._logo_row, self._logo_clear_btn = self._make_image_row("Logo", self._pick_logo)
         self._hide_title_btn = Gtk.ToggleButton()
         self._hide_title_btn.set_icon_name("view-conceal-symbolic")
@@ -235,12 +233,10 @@ class EditAppDialog(Adw.Dialog):
 
         self._icon_clear_btn.connect("clicked", self._on_icon_clear)
         self._cover_clear_btn.connect("clicked", self._on_cover_clear)
-        self._hero_clear_btn.connect("clicked", self._on_hero_clear)
         self._logo_clear_btn.connect("clicked", self._on_logo_clear)
 
         images_group.add(self._icon_row)
         images_group.add(self._cover_row)
-        images_group.add(self._hero_row)
         images_group.add(self._logo_row)
         page.add(images_group)
 
@@ -402,9 +398,6 @@ class EditAppDialog(Adw.Dialog):
         if e.cover:
             self._cover_row.set_subtitle(GLib.markup_escape_text(Path(e.cover).name))
             self._cover_clear_btn.set_sensitive(True)
-        if e.hero:
-            self._hero_row.set_subtitle(GLib.markup_escape_text(Path(e.hero).name))
-            self._hero_clear_btn.set_sensitive(True)
         if e.logo:
             self._logo_row.set_subtitle(GLib.markup_escape_text(Path(e.logo).name))
             self._logo_clear_btn.set_sensitive(True)
@@ -522,15 +515,6 @@ class EditAppDialog(Adw.Dialog):
             self._cover_row.set_subtitle(GLib.markup_escape_text(Path(self._cover_path).name))
             self._cover_clear_btn.set_sensitive(True)
 
-    def _pick_hero(self, _btn) -> None:
-        self._pick_image("Select Hero Banner", False, self._on_hero_chosen)
-
-    def _on_hero_chosen(self, _chooser, response, chooser) -> None:
-        if response == Gtk.ResponseType.ACCEPT:
-            self._hero_path = chooser.get_file().get_path()
-            self._hero_row.set_subtitle(GLib.markup_escape_text(Path(self._hero_path).name))
-            self._hero_clear_btn.set_sensitive(True)
-
     def _pick_logo(self, _btn) -> None:
         self._pick_image("Select Logo (transparent PNG)", False, self._on_logo_chosen)
 
@@ -562,11 +546,6 @@ class EditAppDialog(Adw.Dialog):
         self._cover_path = ""
         self._cover_row.set_subtitle("Will be removed")
         self._cover_clear_btn.set_sensitive(False)
-
-    def _on_hero_clear(self, _btn) -> None:
-        self._hero_path = ""
-        self._hero_row.set_subtitle("Will be removed")
-        self._hero_clear_btn.set_sensitive(False)
 
     def _on_logo_clear(self, _btn) -> None:
         self._logo_path = ""
@@ -652,12 +631,7 @@ class EditAppDialog(Adw.Dialog):
         else:
             cover_rel = f"apps/{app_id}/cover{Path(self._cover_path).suffix}"
 
-        if self._hero_path is None:
-            hero_rel = e.hero
-        elif self._hero_path == "":
-            hero_rel = ""
-        else:
-            hero_rel = f"apps/{app_id}/hero{Path(self._hero_path).suffix}"
+        hero_rel = e.hero
 
         if self._logo_path is None:
             logo_rel = e.logo
@@ -710,7 +684,6 @@ class EditAppDialog(Adw.Dialog):
         images = {
             "icon": self._icon_path,      # None / "" / path
             "cover": self._cover_path,
-            "hero": self._hero_path,
             "logo": self._logo_path,
             "screenshots": self._screenshot_paths if self._screenshots_dirty else None,
         }

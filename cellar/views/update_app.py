@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from pathlib import Path
 from typing import Callable
 
@@ -13,6 +14,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk
 
 from cellar.models.app_entry import AppEntry
+from cellar.utils.progress import fmt_stats
 
 import logging
 
@@ -148,13 +150,14 @@ class UpdateDialog(Adw.Dialog):
         box.set_margin_start(24)
         box.set_margin_end(24)
 
-        self._phase_label = Gtk.Label(label="Preparing…")
+        self._phase_label = Gtk.Label(label="Preparing\u2026", xalign=0)
         self._phase_label.add_css_class("dim-label")
         box.append(self._phase_label)
 
         self._progress_bar = Gtk.ProgressBar()
         self._progress_bar.set_show_text(True)
         self._progress_bar.set_fraction(0.0)
+        self._progress_bar.set_size_request(0, -1)
         box.append(self._progress_bar)
 
         self._cancel_body_btn = Gtk.Button(label="Cancel")
@@ -162,6 +165,7 @@ class UpdateDialog(Adw.Dialog):
         self._cancel_body_btn.connect("clicked", self._on_cancel_progress_clicked)
         box.append(self._cancel_body_btn)
 
+        self._pulse_id: int | None = None
         return box
 
     # ── Backup file chooser ───────────────────────────────────────────────
@@ -206,14 +210,45 @@ class UpdateDialog(Adw.Dialog):
         self._phase_label.set_text("Cancelling…")
         self._cancel_body_btn.set_sensitive(False)
 
+    # ── Phase / pulse helpers ─────────────────────────────────────────────
+
+    def _on_phase_change(self, label: str) -> None:
+        """Update label and switch between determinate and pulsing bar."""
+        if self._pulse_id is not None:
+            GLib.source_remove(self._pulse_id)
+            self._pulse_id = None
+        self._phase_label.set_text(label)
+        if "Updating" in label or "Backing up" in label or "Preparing" in label:
+            self._progress_bar.set_fraction(0.0)
+            self._progress_bar.set_show_text(False)
+            self._pulse_id = GLib.timeout_add(80, self._do_pulse)
+        else:
+            self._progress_bar.set_fraction(0.0)
+            self._progress_bar.set_show_text(True)
+            self._progress_bar.set_text("")
+
+    def _do_pulse(self) -> bool:
+        self._progress_bar.pulse()
+        return True
+
     # ── Update thread ─────────────────────────────────────────────────────
 
     def _start_update(self) -> None:
         from cellar.backend.updater import UpdateCancelled, UpdateError, update_app_safe
 
-        def _progress(phase: str, fraction: float) -> None:
-            GLib.idle_add(self._phase_label.set_text, phase)
+        def _phase(label: str) -> None:
+            GLib.idle_add(self._on_phase_change, label)
+
+        def _progress(fraction: float) -> None:
             GLib.idle_add(self._progress_bar.set_fraction, fraction)
+
+        _last_stats_t = [0.0]
+
+        def _stats(done: int, total: int, speed: float) -> None:
+            now = time.monotonic()
+            if now - _last_stats_t[0] >= 0.1:
+                _last_stats_t[0] = now
+                GLib.idle_add(self._progress_bar.set_text, fmt_stats(done, total, speed))
 
         def _run() -> None:
             try:
@@ -225,6 +260,8 @@ class UpdateDialog(Adw.Dialog):
                     base_entry=self._base_entry,
                     base_archive_uri=self._base_archive_uri,
                     progress_cb=_progress,
+                    phase_cb=_phase,
+                    stats_cb=_stats,
                     cancel_event=self._cancel_event,
                     token=self._token,
                 )

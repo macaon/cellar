@@ -39,32 +39,9 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk
 
 from cellar.utils.http import DEFAULT_TIMEOUT, make_session
+from cellar.utils.progress import fmt_stats as _fmt_dl_stats, trunc_middle as _trunc_filename
 
 log = logging.getLogger(__name__)
-
-
-def _trunc_filename(name: str, max_chars: int = 40) -> str:
-    """Middle-truncate *name* so it fits in the progress bar without resizing."""
-    if len(name) <= max_chars:
-        return name
-    half = (max_chars - 1) // 2
-    return f"{name[:half]}\u2026{name[-(max_chars - half - 1):]}"
-
-
-def _fmt_dl_stats(downloaded: int, total: int, speed: float) -> str:
-    """Format download progress as e.g. '2.6 MB / 349 MB (1.3 MB/s)'."""
-    def _sz(n: int) -> str:
-        if n < 1024:
-            return f"{n} B"
-        if n < 1024 ** 2:
-            return f"{n / 1024:.1f} KB"
-        if n < 1024 ** 3:
-            return f"{n / 1024 ** 2:.1f} MB"
-        return f"{n / 1024 ** 3:.2f} GB"
-
-    size_str = f"{_sz(downloaded)} / {_sz(total)}" if total > 0 else _sz(downloaded)
-    speed_str = f"{_sz(int(speed))}/s" if speed > 0 else "…"
-    return f"{size_str} ({speed_str})"
 
 
 class InstallRunnerDialog(Adw.Dialog):

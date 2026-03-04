@@ -33,25 +33,10 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gio, GLib, Gtk
 
+from cellar.utils.progress import fmt_stats as _fmt_stats
 
 _STRATEGIES = ["safe", "full"]
 _STRATEGY_LABELS = ["Safe (preserve user data)", "Full (complete replacement)"]
-
-
-def _fmt_ul_stats(copied: int, total: int, speed: float) -> str:
-    """Format upload progress as e.g. '2.6 MB / 349 MB (1.3 MB/s)'."""
-    def _sz(n: int) -> str:
-        if n < 1024:
-            return f"{n} B"
-        if n < 1024 ** 2:
-            return f"{n / 1024:.1f} KB"
-        if n < 1024 ** 3:
-            return f"{n / 1024 ** 2:.1f} MB"
-        return f"{n / 1024 ** 3:.2f} GB"
-
-    size_str = f"{_sz(copied)} / {_sz(total)}" if total > 0 else _sz(copied)
-    speed_str = f"{_sz(int(speed))}/s" if speed > 0 else "\u2026"
-    return f"{size_str} ({speed_str})"
 
 
 class AddAppDialog(Adw.Dialog):
@@ -815,7 +800,7 @@ class AddAppDialog(Adw.Dialog):
                 now = time.monotonic()
                 if now - _last_stats_t[0] >= 0.1:
                     _last_stats_t[0] = now
-                    GLib.idle_add(self._progress_bar.set_text, _fmt_ul_stats(copied, total, speed))
+                    GLib.idle_add(self._progress_bar.set_text, _fmt_stats(copied, total, speed))
 
             def _progress(fraction: float) -> None:
                 GLib.idle_add(self._progress_bar.set_fraction, fraction)
@@ -836,6 +821,7 @@ class AddAppDialog(Adw.Dialog):
                         tmp_archive,
                         cancel_event=self._cancel_event,
                         progress_cb=_progress,
+                        stats_cb=_stats,
                     )
                     tmp_archive.rename(archive_dest)
                 except CancelledError:

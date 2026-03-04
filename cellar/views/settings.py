@@ -20,6 +20,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk
 
 from cellar.backend.config import certs_dir, load_repos, save_repos
+from cellar.utils.progress import fmt_stats as _fmt_ul_stats
 
 log = logging.getLogger(__name__)
 
@@ -423,20 +424,6 @@ class SettingsDialog(Adw.PreferencesDialog):
 # ---------------------------------------------------------------------------
 
 
-def _fmt_size(n: int) -> str:
-    if n < 1024:
-        return f"{n} B"
-    if n < 1024 ** 2:
-        return f"{n / 1024:.1f} KB"
-    if n < 1024 ** 3:
-        return f"{n / 1024 ** 2:.1f} MB"
-    return f"{n / 1024 ** 3:.2f} GB"
-
-
-def _fmt_ul_stats(copied: int, total: int, speed: float) -> str:
-    size_str = f"{_fmt_size(copied)} / {_fmt_size(total)}" if total > 0 else _fmt_size(copied)
-    speed_str = f"{_fmt_size(int(speed))}/s" if speed > 0 else "\u2026"
-    return f"{size_str} ({speed_str})"
 
 
 class UploadBaseDialog(Adw.Dialog):
@@ -582,6 +569,7 @@ class UploadBaseDialog(Adw.Dialog):
                                          css_classes=["dim-label"])
         self._progress_bar = Gtk.ProgressBar()
         self._progress_bar.set_show_text(True)
+        self._progress_bar.set_size_request(0, -1)
         self._cancel_progress_btn = Gtk.Button(label="Cancel")
         self._cancel_progress_btn.set_halign(Gtk.Align.CENTER)
         self._cancel_progress_btn.set_margin_top(6)

@@ -185,6 +185,7 @@ def compress_directory_zst(
     *,
     cancel_event=None,
     progress_cb: Callable[[float], None] | None = None,
+    stats_cb: Callable[[int, int, float], None] | None = None,
 ) -> tuple[int, str]:
     """Compress *src_dir* into a ``.tar.zst`` archive at *dest_path*.
 
@@ -194,21 +195,42 @@ def compress_directory_zst(
     Returns ``(size_bytes, crc32_hex)`` where *crc32_hex* is the CRC32 of the
     compressed archive as an 8-character lowercase hex string.
     Raises ``CancelledError`` if *cancel_event* is set during compression.
+
+    *stats_cb*, when provided, is called as ``stats_cb(done_bytes, total_bytes,
+    speed_bps)`` each time a file is added, where values are in uncompressed
+    source bytes.
     """
     import zstandard as zstd  # noqa: PLC0415
 
     dest_path.parent.mkdir(parents=True, exist_ok=True)
 
-    total = sum(1 for _, _, fns in os.walk(src_dir) for _ in fns)
+    # Single os.walk to gather both file count and total uncompressed size.
+    total_files = 0
+    total_bytes = 0
+    for dirpath, _, filenames in os.walk(src_dir):
+        for fn in filenames:
+            total_files += 1
+            try:
+                total_bytes += os.path.getsize(os.path.join(dirpath, fn))
+            except OSError:
+                pass
+
     done = [0]
+    done_bytes = [0]
+    start = time.monotonic()
 
     def _filter(ti: tarfile.TarInfo) -> tarfile.TarInfo:
         if cancel_event and cancel_event.is_set():
             raise CancelledError("Compression cancelled by user")
         if ti.isfile():
             done[0] += 1
-            if progress_cb and total:
-                progress_cb(done[0] / total)
+            done_bytes[0] += ti.size
+            if progress_cb and total_files:
+                progress_cb(done[0] / total_files)
+            if stats_cb:
+                elapsed = time.monotonic() - start
+                speed = done_bytes[0] / elapsed if elapsed > 0.1 else 0.0
+                stats_cb(done_bytes[0], total_bytes, speed)
         return ti
 
     cctx = zstd.ZstdCompressor(level=3)

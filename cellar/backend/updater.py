@@ -90,7 +90,8 @@ def backup_bottle(
     bottle_path: Path,
     dest_path: Path,
     *,
-    progress_cb: Callable[[str, float], None] | None = None,
+    progress_cb: Callable[[float], None] | None = None,
+    phase_cb: Callable[[str], None] | None = None,
     cancel_event: threading.Event | None = None,
 ) -> None:
     """Archive *bottle_path* as a ``.tar.gz`` at *dest_path*.
@@ -106,7 +107,9 @@ def backup_bottle(
         Destination ``.tar.gz`` file path.  Parent directories are
         created automatically.
     progress_cb:
-        Optional ``(phase, fraction)`` callback.
+        Optional ``(fraction)`` callback in [0, 1].
+    phase_cb:
+        Optional ``(label)`` callback for phase name changes.
     cancel_event:
         When set the backup is aborted, the partial file is removed, and
         ``UpdateCancelled`` is raised.
@@ -117,7 +120,10 @@ def backup_bottle(
     if _cancelled():
         raise UpdateCancelled
 
-    _report(progress_cb, "Preparing backup…", 0.0)
+    if phase_cb:
+        phase_cb("Preparing backup\u2026")
+    if progress_cb:
+        progress_cb(0.0)
     dest_path.parent.mkdir(parents=True, exist_ok=True)
 
     all_files = [p for p in bottle_path.rglob("*") if p.is_file()]
@@ -131,7 +137,10 @@ def backup_bottle(
                 arcname = Path(bottle_path.name) / fp.relative_to(bottle_path)
                 tf.add(fp, arcname=str(arcname))
                 if i % 20 == 0:
-                    _report(progress_cb, "Backing up…", i / total)
+                    if phase_cb and i == 0:
+                        phase_cb("Backing up\u2026")
+                    if progress_cb:
+                        progress_cb(i / total)
     except UpdateCancelled:
         dest_path.unlink(missing_ok=True)
         raise
@@ -139,7 +148,8 @@ def backup_bottle(
         dest_path.unlink(missing_ok=True)
         raise UpdateError(f"Backup failed: {exc}") from exc
 
-    _report(progress_cb, "Backup complete", 1.0)
+    if progress_cb:
+        progress_cb(1.0)
 
 
 def update_app_safe(
@@ -150,7 +160,9 @@ def update_app_safe(
     backup_path: Path | None = None,
     base_entry=None,                # BaseEntry | None — accepted but unused; delta overlay
     base_archive_uri: str = "",     # URI for base archive — accepted but unused
-    progress_cb: Callable[[str, float], None] | None = None,
+    progress_cb: Callable[[float], None] | None = None,
+    phase_cb: Callable[[str], None] | None = None,
+    stats_cb: Callable[[int, int, float], None] | None = None,
     cancel_event: threading.Event | None = None,
     token: str | None = None,
 ) -> None:
@@ -180,7 +192,11 @@ def update_app_safe(
     base_archive_uri:
         Ignored.  Present for API symmetry with ``install_app``.
     progress_cb:
-        Optional ``(phase, fraction)`` callback.
+        Optional ``(fraction)`` callback in [0, 1].
+    phase_cb:
+        Optional ``(label)`` callback for phase name changes.
+    stats_cb:
+        Optional ``(done, total, speed_bps)`` callback during download.
     cancel_event:
         When set, the update is aborted at the next checkpoint.
 
@@ -201,10 +217,9 @@ def update_app_safe(
     dl_lo  = 0.20 if has_backup else 0.00
     ext_hi = 0.80 if has_backup else 0.70
     ov_lo  = ext_hi
-    ov_hi  = 1.00
 
-    def _sub(phase: str, lo: float, hi: float) -> Callable[[float], None]:
-        return lambda f: _report(progress_cb, phase, lo + f * (hi - lo))
+    def _sub(lo: float, hi: float) -> Callable[[float], None]:
+        return lambda f: (progress_cb(lo + f * (hi - lo)) if progress_cb else None)
 
     _check_cancel(cancel_event)
 
@@ -213,7 +228,8 @@ def update_app_safe(
         backup_bottle(
             bottle_path,
             backup_path,
-            progress_cb=_sub("Backing up…", 0.0, 0.20),
+            progress_cb=_sub(0.0, 0.20),
+            phase_cb=phase_cb,
             cancel_event=cancel_event,
         )
         _check_cancel(cancel_event)
@@ -222,7 +238,10 @@ def update_app_safe(
         tmp = Path(tmp_str)
 
         # ── Phases 2-4: Stream, verify CRC32, extract (single pass) ──────────
-        _report(progress_cb, "Downloading & extracting\u2026", dl_lo)
+        if phase_cb:
+            phase_cb("Downloading & extracting\u2026")
+        if progress_cb:
+            progress_cb(dl_lo)
         try:
             from cellar.backend.installer import (  # noqa: PLC0415
                 InstallCancelled,
@@ -248,8 +267,8 @@ def update_app_safe(
                 dest=extract_dir,
                 expected_crc32=entry.archive_crc32,
                 cancel_event=cancel_event,
-                progress_cb=_sub("Downloading & extracting\u2026", dl_lo, ext_hi),
-                stats_cb=None,
+                progress_cb=_sub(dl_lo, ext_hi),
+                stats_cb=stats_cb,
                 name_cb=None,
             )
             bottle_src = _find_bottle_dir(extract_dir)
@@ -260,15 +279,21 @@ def update_app_safe(
 
         # ── Phase 5: Overlay ───────────────────────────────────────────────
         _check_cancel(cancel_event)
-        _report(progress_cb, "Updating…", ov_lo)
+        if phase_cb:
+            phase_cb("Updating\u2026")
+        if progress_cb:
+            progress_cb(ov_lo)
         _overlay(
             bottle_src,
             bottle_path,
-            progress_cb=_sub("Updating…", ov_lo, ov_hi),
+            progress_cb=_sub(ov_lo, 1.0),
             cancel_event=cancel_event,
         )
 
-    _report(progress_cb, "Done", 1.0)
+    if phase_cb:
+        phase_cb("Done")
+    if progress_cb:
+        progress_cb(1.0)
 
 
 # ---------------------------------------------------------------------------
@@ -377,10 +402,3 @@ def _check_cancel(cancel_event: threading.Event | None) -> None:
         raise UpdateCancelled("Update cancelled")
 
 
-def _report(
-    progress_cb: Callable[[str, float], None] | None,
-    phase: str,
-    fraction: float,
-) -> None:
-    if progress_cb:
-        progress_cb(phase, fraction)

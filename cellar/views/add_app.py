@@ -85,6 +85,7 @@ class AddAppDialog(Adw.Dialog):
         self._pending_base_repo = None   # Repo for download dialog
 
         self._pulse_id: int | None = None
+        self._progress_pulse_id: int | None = None
         self._build_ui()
         self._pulse_id = GLib.timeout_add(80, self._do_pulse)
         threading.Thread(target=self._prefill, daemon=True).start()
@@ -342,6 +343,29 @@ class AddAppDialog(Adw.Dialog):
     def _do_pulse(self) -> bool:
         self._scan_bar.pulse()
         return True  # keep firing
+
+    def _do_progress_pulse(self) -> bool:
+        self._progress_bar.pulse()
+        return True
+
+    def _on_delta_phase(self, label: str) -> None:
+        """Handle delta phase transitions: pulse during extraction, deterministic otherwise."""
+        if self._progress_pulse_id is not None:
+            GLib.source_remove(self._progress_pulse_id)
+            self._progress_pulse_id = None
+        self._progress_label.set_text(label)
+        self._progress_bar.set_text("")
+        self._progress_bar.set_fraction(0.0)
+        if "Extracting" in label:
+            self._progress_bar.set_show_text(True)
+            self._progress_pulse_id = GLib.timeout_add(80, self._do_progress_pulse)
+        else:
+            self._progress_bar.set_show_text(True)
+
+    def _stop_progress_pulse(self) -> None:
+        if self._progress_pulse_id is not None:
+            GLib.source_remove(self._progress_pulse_id)
+            self._progress_pulse_id = None
 
     def _build_progress(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -850,8 +874,7 @@ class AddAppDialog(Adw.Dialog):
                 GLib.idle_add(self._progress_bar.set_text, "")
 
                 def _delta_phase(label: str) -> None:
-                    GLib.idle_add(self._progress_label.set_text, label)
-                    GLib.idle_add(self._progress_bar.set_text, "")
+                    GLib.idle_add(self._on_delta_phase, label)
 
                 def _delta_file(current: int, total: int) -> None:
                     if total > 0:
@@ -939,7 +962,7 @@ class AddAppDialog(Adw.Dialog):
     # ── Import result callbacks (called on main thread via GLib.idle_add) ─
 
     def _on_import_done(self) -> None:
-        # Show a toast on the main window
+        self._stop_progress_pulse()
         root = self.get_root()
         if hasattr(root, "_show_toast"):
             root._show_toast("App added to catalogue")
@@ -947,6 +970,7 @@ class AddAppDialog(Adw.Dialog):
         self._on_done()
 
     def _on_import_cancelled(self) -> None:
+        self._stop_progress_pulse()
         self.set_content_width(560)
         self.set_content_height(-1)
         self._cancel_btn.set_visible(True)
@@ -955,6 +979,7 @@ class AddAppDialog(Adw.Dialog):
         self._cancel_progress_btn.set_sensitive(True)
 
     def _on_import_error(self, message: str) -> None:
+        self._stop_progress_pulse()
         self.set_content_width(560)
         self.set_content_height(-1)
         self._cancel_btn.set_visible(True)

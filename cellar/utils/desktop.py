@@ -121,7 +121,7 @@ def create_desktop_entry(
     if platform == "linux":
         if install_path and bottle_name and entry.entry_point:
             exe = Path(install_path) / bottle_name / entry.entry_point
-            exec_line = str(exe)
+            exec_line = f'"{exe}"'
         else:
             exec_line = "true"  # placeholder; entry point unknown
         comment = (entry.summary or f"Launch {entry.name}.").replace("\n", " ")

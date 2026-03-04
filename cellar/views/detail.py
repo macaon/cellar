@@ -1092,6 +1092,9 @@ class DetailView(Gtk.Box):
     def _show_download_dialog(self) -> None:
         """Show a download size breakdown: header pill + per-component rows."""
         e = self._entry
+        # base_runner is authoritative; fall back to built_with.runner since
+        # that is the same key used in the catalogue's "bases" section.
+        base_runner = e.base_runner or (e.built_with.runner if e.built_with else "")
 
         def _pill(text: str, *, large: bool = False) -> Gtk.Label:
             lbl = Gtk.Label(label=text)
@@ -1128,7 +1131,7 @@ class DetailView(Gtk.Box):
 
         base_pill: Gtk.Label | None = None
         base_action_row: Adw.ActionRow | None = None
-        if e.base_runner:
+        if base_runner:
             base_pill = _pill("…")
             base_action_row = _row(base_pill, "Base Image", "…")
             listbox.append(base_action_row)
@@ -1156,12 +1159,12 @@ class DetailView(Gtk.Box):
         win.present()
 
         # ── Async: resolve base size + installed status ──────────────
-        if e.base_runner and base_pill is not None and base_action_row is not None:
+        if base_runner and base_pill is not None and base_action_row is not None:
             _pill_ref = base_pill
             _row_ref = base_action_row
             _total_ref = total_pill
             _app_size = e.archive_size
-            _runner = e.base_runner
+            _runner = base_runner
 
             def _worker() -> None:
                 from cellar.backend.base_store import is_base_installed

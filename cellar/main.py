@@ -40,6 +40,17 @@ class CellarApplication(Adw.Application):
                 "  padding-top: 24px;"
                 "  padding-bottom: 24px;"
                 "}"
+                ".info-card-sep {"
+                "  background-color: #222226;"
+                "  min-width: 1px;"
+                "  max-width: 1px;"
+                "}"
+                ".info-cell-interactive {"
+                "  transition: background-color 150ms ease;"
+                "}"
+                ".info-cell-interactive.hovered {"
+                "  background-color: alpha(@window_fg_color, 0.07);"
+                "}"
             )
             Gtk.StyleContext.add_provider_for_display(
                 display, css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION

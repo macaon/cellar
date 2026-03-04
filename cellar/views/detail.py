@@ -140,7 +140,7 @@ class DetailView(Gtk.Box):
         content_clamp.set_margin_bottom(32)
         outer.append(content_clamp)
 
-        content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
+        content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=50)
         content_box.set_margin_top(18)
         content_box.set_margin_start(18)
         content_box.set_margin_end(18)
@@ -944,17 +944,35 @@ class DetailView(Gtk.Box):
         e = self._entry
 
         # Outer container acts as the card — rounded corners on the four outer
-        # corners only.  Individual cells are plain boxes separated by 1px
-        # vertical separators, mimicking the GNOME Software info-tile row.
+        # corners only.  Individual cells are plain boxes separated by a 1px
+        # dark strip matching the window background, mimicking GNOME Software.
         outer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         outer.add_css_class("card")
         _count = [0]
 
+        def _sep() -> Gtk.Widget:
+            s = Gtk.Box()
+            s.add_css_class("info-card-sep")
+            s.set_size_request(1, -1)
+            return s
+
         def _add(widget: Gtk.Widget) -> None:
             if _count[0] > 0:
-                outer.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
+                outer.append(_sep())
             outer.append(widget)
             _count[0] += 1
+
+        def _make_interactive(card: Gtk.Box, on_click: Callable) -> None:
+            """Attach hover highlight and click handler to a cell."""
+            card.add_css_class("info-cell-interactive")
+            card.set_cursor(Gdk.Cursor.new_from_name("pointer"))
+            motion = Gtk.EventControllerMotion()
+            motion.connect("enter", lambda *_: card.add_css_class("hovered"))
+            motion.connect("leave", lambda *_: card.remove_css_class("hovered"))
+            card.add_controller(motion)
+            click = Gtk.GestureClick()
+            click.connect("released", lambda _g, _n, _x, _y: on_click())
+            card.add_controller(click)
 
         def _simple_card(icon_name: str, value: str, label: str) -> Gtk.Box:
             card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -984,9 +1002,11 @@ class DetailView(Gtk.Box):
             return card
 
         if e.archive_size > 0:
-            _add(_simple_card(
+            dl_card = _simple_card(
                 "folder-download-symbolic", _fmt_bytes(e.archive_size), "Download",
-            ))
+            )
+            _make_interactive(dl_card, self._show_download_dialog)
+            _add(dl_card)
 
         if e.install_size_estimate > 0:
             _add(_simple_card(
@@ -1067,6 +1087,74 @@ class DetailView(Gtk.Box):
         card.append(bottom_lbl)
 
         return card
+
+    def _show_download_dialog(self) -> None:
+        """Show a popover-style dialog with archive + optional base image sizes."""
+        e = self._entry
+
+        body = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=10,
+            margin_top=6,
+        )
+
+        def _size_row(label: str, size_label: Gtk.Label, sublabel: str = "") -> None:
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+            left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            left.set_hexpand(True)
+            lbl = Gtk.Label(label=label)
+            lbl.set_xalign(0)
+            left.append(lbl)
+            if sublabel:
+                sub = Gtk.Label(label=sublabel)
+                sub.add_css_class("dim-label")
+                sub.add_css_class("caption")
+                sub.set_xalign(0)
+                sub.set_wrap(True)
+                left.append(sub)
+            row.append(left)
+            size_label.set_halign(Gtk.Align.END)
+            size_label.set_valign(Gtk.Align.START)
+            row.append(size_label)
+            body.append(row)
+
+        app_size_lbl = Gtk.Label(label=_fmt_bytes(e.archive_size))
+        _size_row("App archive", app_size_lbl)
+
+        base_size_lbl: Gtk.Label | None = None
+        if e.base_runner:
+            base_size_lbl = Gtk.Label(label="…")
+            _size_row(
+                f"Base image ({e.base_runner})",
+                base_size_lbl,
+                "Only downloaded if not already installed on this system.",
+            )
+
+        dialog = Adw.AlertDialog(heading="Download", body="")
+        dialog.add_response("ok", "OK")
+        dialog.set_default_response("ok")
+        dialog.set_extra_child(body)
+        dialog.present(self.get_root())
+
+        if base_size_lbl is not None:
+            lbl_ref = base_size_lbl
+
+            def _worker() -> None:
+                for repo in self._source_repos:
+                    try:
+                        bases = repo.fetch_bases()
+                        if e.base_runner in bases:
+                            sz = bases[e.base_runner].archive_size
+                            GLib.idle_add(
+                                lbl_ref.set_label,
+                                _fmt_bytes(sz) if sz else "Unknown",
+                            )
+                            return
+                    except Exception:
+                        pass
+                GLib.idle_add(lbl_ref.set_label, "Unknown")
+
+            threading.Thread(target=_worker, daemon=True).start()
 
     # ------------------------------------------------------------------
     # Asset helpers

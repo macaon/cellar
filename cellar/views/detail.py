@@ -829,8 +829,6 @@ class DetailView(Gtk.Box):
 
         wrapper = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         wrapper.add_css_class("screenshots-band")
-        wrapper.set_margin_top(12)
-        wrapper.set_margin_bottom(12)
 
         if cached_paths:
             self._screenshot_paths = cached_paths
@@ -944,16 +942,27 @@ class DetailView(Gtk.Box):
     def _make_info_cards(self) -> Gtk.Box:
         """Return a horizontal row of info cards (download, install, wine, category)."""
         e = self._entry
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+
+        # Outer container acts as the card — rounded corners on the four outer
+        # corners only.  Individual cells are plain boxes separated by 1px
+        # vertical separators, mimicking the GNOME Software info-tile row.
+        outer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        outer.add_css_class("card")
+        _count = [0]
+
+        def _add(widget: Gtk.Widget) -> None:
+            if _count[0] > 0:
+                outer.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
+            outer.append(widget)
+            _count[0] += 1
 
         def _simple_card(icon_name: str, value: str, label: str) -> Gtk.Box:
             card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-            card.add_css_class("card")
             card.set_hexpand(True)
-            card.set_margin_top(8)
-            card.set_margin_bottom(8)
-            card.set_margin_start(8)
-            card.set_margin_end(8)
+            card.set_margin_top(14)
+            card.set_margin_bottom(14)
+            card.set_margin_start(14)
+            card.set_margin_end(14)
 
             icon = Gtk.Image.new_from_icon_name(icon_name)
             icon.set_pixel_size(24)
@@ -975,38 +984,37 @@ class DetailView(Gtk.Box):
             return card
 
         if e.archive_size > 0:
-            row.append(_simple_card(
+            _add(_simple_card(
                 "folder-download-symbolic", _fmt_bytes(e.archive_size), "Download",
             ))
 
         if e.install_size_estimate > 0:
-            row.append(_simple_card(
+            _add(_simple_card(
                 "drive-harddisk-symbolic",
                 _fmt_bytes(e.install_size_estimate),
                 "Installed size",
             ))
 
         if e.built_with:
-            row.append(self._make_wine_card())
+            _add(self._make_wine_card())
 
         if e.category:
             cat_text = e.category
             if e.tags:
                 cat_text = cat_text + "\n" + ", ".join(e.tags)
-            row.append(_simple_card("tag-symbolic", cat_text, "Category"))
+            _add(_simple_card("tag-symbolic", cat_text, "Category"))
 
-        return row
+        return outer
 
     def _make_wine_card(self) -> Gtk.Box:
         """Return a card showing Wine runner, DXVK/VKD3D, and a change button."""
         bw = self._entry.built_with
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        card.add_css_class("card")
         card.set_hexpand(True)
-        card.set_margin_top(8)
-        card.set_margin_bottom(8)
-        card.set_margin_start(8)
-        card.set_margin_end(8)
+        card.set_margin_top(14)
+        card.set_margin_bottom(14)
+        card.set_margin_start(14)
+        card.set_margin_end(14)
 
         icon = Gtk.Image.new_from_icon_name("system-run-symbolic")
         icon.set_pixel_size(24)

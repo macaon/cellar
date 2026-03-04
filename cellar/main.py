@@ -36,7 +36,9 @@ class CellarApplication(Adw.Application):
                 "  transition: opacity 150ms ease-in-out;"
                 "}"
                 ".screenshots-band {"
-                "  background-color: alpha(@window_fg_color, 0.04);"
+                "  background-color: #1D1D20;"
+                "  padding-top: 24px;"
+                "  padding-bottom: 24px;"
                 "}"
             )
             Gtk.StyleContext.add_provider_for_display(

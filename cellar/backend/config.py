@@ -116,3 +116,52 @@ def save_bottles_data_path(path: str | None) -> None:
     else:
         cfg["bottles_data_path"] = path
     _save(cfg)
+
+
+# ---------------------------------------------------------------------------
+# IGDB credential helpers
+# ---------------------------------------------------------------------------
+
+def load_igdb_creds() -> dict | None:
+    """Return IGDB credentials or ``None`` if not configured.
+
+    Returned dict keys: ``client_id``, ``client_secret``, ``token``
+    (may be empty), ``token_expiry`` (ISO 8601 string, may be empty).
+    """
+    cfg = _load()
+    client_id = cfg.get("igdb_client_id", "")
+    client_secret = cfg.get("igdb_client_secret", "")
+    if not client_id or not client_secret:
+        return None
+    return {
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "token": cfg.get("igdb_token", ""),
+        "token_expiry": cfg.get("igdb_token_expiry", ""),
+    }
+
+
+def save_igdb_creds(client_id: str, client_secret: str) -> None:
+    """Store IGDB client credentials and clear any cached bearer token."""
+    cfg = _load()
+    cfg["igdb_client_id"] = client_id
+    cfg["igdb_client_secret"] = client_secret
+    cfg.pop("igdb_token", None)
+    cfg.pop("igdb_token_expiry", None)
+    _save(cfg)
+
+
+def save_igdb_token(token: str, expiry_iso: str) -> None:
+    """Update the cached IGDB bearer token without touching credentials."""
+    cfg = _load()
+    cfg["igdb_token"] = token
+    cfg["igdb_token_expiry"] = expiry_iso
+    _save(cfg)
+
+
+def clear_igdb_creds() -> None:
+    """Remove all IGDB keys from config."""
+    cfg = _load()
+    for key in ("igdb_client_id", "igdb_client_secret", "igdb_token", "igdb_token_expiry"):
+        cfg.pop(key, None)
+    _save(cfg)

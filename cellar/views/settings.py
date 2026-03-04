@@ -19,7 +19,14 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk
 
-from cellar.backend.config import certs_dir, load_repos, save_repos
+from cellar.backend.config import (
+    certs_dir,
+    clear_igdb_creds,
+    load_igdb_creds,
+    load_repos,
+    save_igdb_creds,
+    save_repos,
+)
 from cellar.utils.progress import fmt_stats as _fmt_ul_stats
 
 log = logging.getLogger(__name__)
@@ -92,8 +99,105 @@ class SettingsDialog(Adw.PreferencesDialog):
         add_base_btn.connect("clicked", self._on_upload_base_clicked)
         self._delta_group.set_header_suffix(add_base_btn)
 
+        # ── Group: IGDB Integration ────────────────────────────────────────
+        self._build_igdb_group(page)
+
         self._rebuild_repo_rows()
         self._rebuild_delta_rows()
+
+    # ------------------------------------------------------------------
+    # IGDB Integration
+    # ------------------------------------------------------------------
+
+    def _build_igdb_group(self, page: Adw.PreferencesPage) -> None:
+        igdb_group = Adw.PreferencesGroup(
+            title="IGDB Integration",
+            description="Look up game metadata when adding packages. "
+            "Requires a free Twitch Developer application.",
+        )
+        page.add(igdb_group)
+
+        self._igdb_id_row = Adw.EntryRow(title="Twitch Client ID")
+        igdb_group.add(self._igdb_id_row)
+
+        self._igdb_secret_row = Adw.PasswordEntryRow(title="Client Secret")
+        igdb_group.add(self._igdb_secret_row)
+
+        # Status + Verify row
+        self._igdb_status_row = Adw.ActionRow(title="Credentials")
+        self._igdb_status_icon = Gtk.Image()
+        self._igdb_status_icon.set_pixel_size(16)
+        self._igdb_status_icon.set_valign(Gtk.Align.CENTER)
+        self._igdb_status_row.add_prefix(self._igdb_status_icon)
+
+        verify_btn = Gtk.Button(label="Verify & Save", valign=Gtk.Align.CENTER)
+        verify_btn.add_css_class("suggested-action")
+        verify_btn.connect("clicked", self._on_igdb_verify)
+        self._igdb_status_row.add_suffix(verify_btn)
+        igdb_group.add(self._igdb_status_row)
+
+        # Clear row — only visible when credentials are stored
+        self._igdb_clear_row = Adw.ActionRow(title="Remove saved credentials")
+        clear_btn = Gtk.Button(
+            label="Clear", valign=Gtk.Align.CENTER, css_classes=["destructive-action"]
+        )
+        clear_btn.connect("clicked", self._on_igdb_clear)
+        self._igdb_clear_row.add_suffix(clear_btn)
+        igdb_group.add(self._igdb_clear_row)
+
+        self._igdb_refresh_status()
+
+    def _igdb_refresh_status(self) -> None:
+        creds = load_igdb_creds()
+        if creds:
+            self._igdb_id_row.set_text(creds["client_id"])
+            self._igdb_status_row.set_subtitle("Configured")
+            self._igdb_status_icon.set_from_icon_name("emblem-ok-symbolic")
+            self._igdb_clear_row.set_visible(True)
+        else:
+            self._igdb_status_row.set_subtitle("Not configured")
+            self._igdb_status_icon.set_from_icon_name("dialog-warning-symbolic")
+            self._igdb_clear_row.set_visible(False)
+
+    def _on_igdb_verify(self, _btn) -> None:
+        client_id = self._igdb_id_row.get_text().strip()
+        secret = self._igdb_secret_row.get_text().strip()
+        if not client_id or not secret:
+            self._igdb_status_row.set_subtitle("Enter Client ID and Secret first")
+            self._igdb_status_icon.set_from_icon_name("dialog-error-symbolic")
+            return
+
+        self._igdb_status_row.set_subtitle("Verifying\u2026")
+        self._igdb_status_icon.set_from_icon_name("content-loading-symbolic")
+
+        def _run() -> None:
+            try:
+                from cellar.backend.igdb import IGDBClient, IGDBError
+
+                client = IGDBClient(client_id, secret)
+                client._ensure_token()  # noqa: SLF001 — intentional verification call
+                GLib.idle_add(self._on_igdb_verify_ok, client_id, secret)
+            except Exception as exc:  # noqa: BLE001
+                GLib.idle_add(self._on_igdb_verify_fail, str(exc))
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _on_igdb_verify_ok(self, client_id: str, secret: str) -> None:
+        save_igdb_creds(client_id, secret)
+        self._igdb_secret_row.set_text("")
+        self._igdb_status_row.set_subtitle("Configured")
+        self._igdb_status_icon.set_from_icon_name("emblem-ok-symbolic")
+        self._igdb_clear_row.set_visible(True)
+
+    def _on_igdb_verify_fail(self, message: str) -> None:
+        self._igdb_status_row.set_subtitle(f"Error: {message}")
+        self._igdb_status_icon.set_from_icon_name("dialog-error-symbolic")
+
+    def _on_igdb_clear(self, _btn) -> None:
+        clear_igdb_creds()
+        self._igdb_id_row.set_text("")
+        self._igdb_secret_row.set_text("")
+        self._igdb_refresh_status()
 
     # ------------------------------------------------------------------
     # Repo list management

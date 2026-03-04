@@ -87,6 +87,10 @@ class AddAppDialog(Adw.Dialog):
         self._pulse_id: int | None = None
         self._progress_pulse_id: int | None = None
 
+        # IGDB lookup availability (checked once at init)
+        from cellar.backend.config import load_igdb_creds as _load_igdb
+        self._igdb_configured: bool = _load_igdb() is not None
+
         # Load category list and icon hints from repo
         from cellar.backend.packager import BASE_CATEGORIES as _BASE_CATS, BASE_CATEGORY_ICONS
         try:
@@ -183,6 +187,13 @@ class AddAppDialog(Adw.Dialog):
 
         self._name_entry = Adw.EntryRow(title="Name *")
         self._name_entry.connect("changed", self._on_name_changed)
+        if self._igdb_configured:
+            igdb_btn = Gtk.Button(icon_name="system-search-symbolic")
+            igdb_btn.add_css_class("flat")
+            igdb_btn.set_valign(Gtk.Align.CENTER)
+            igdb_btn.set_tooltip_text("Look up on IGDB")
+            igdb_btn.connect("clicked", self._on_igdb_lookup)
+            self._name_entry.add_suffix(igdb_btn)
         identity_group.add(self._name_entry)
 
         self._id_entry = Adw.EntryRow(title="App ID")
@@ -789,6 +800,68 @@ class AddAppDialog(Adw.Dialog):
             self._screenshots_row.set_subtitle(
                 f"{count} file{'s' if count != 1 else ''} selected"
             )
+
+    # ── IGDB lookup ───────────────────────────────────────────────────────
+
+    def _on_igdb_lookup(self, _btn) -> None:
+        from cellar.views.igdb_picker import IGDBPickerDialog
+
+        query = self._name_entry.get_text().strip()
+        picker = IGDBPickerDialog(query=query, on_picked=self._apply_igdb_result)
+        picker.present(self)
+
+    def _apply_igdb_result(self, result: dict) -> None:
+        """Pre-fill form fields from an IGDB result dict."""
+        if result.get("name"):
+            self._name_entry.set_text(result["name"])
+        if result.get("developer") and not self._developer_entry.get_text().strip():
+            self._developer_entry.set_text(result["developer"])
+        if result.get("publisher") and not self._publisher_entry.get_text().strip():
+            self._publisher_entry.set_text(result["publisher"])
+        if result.get("year") and not self._year_entry.get_text().strip():
+            self._year_entry.set_text(str(result["year"]))
+        if result.get("summary") and not self._summary_entry.get_text().strip():
+            self._summary_entry.set_text(result["summary"])
+        if result.get("summary"):
+            buf = self._desc_view.get_buffer()
+            if not buf.get_text(buf.get_start_iter(), buf.get_end_iter(), False).strip():
+                buf.set_text(result["summary"])
+
+        # Try to set category from IGDB genre mapping
+        if result.get("category") and result["category"] in self._categories:
+            idx = self._categories.index(result["category"])
+            self._category_row.set_selected(idx)
+
+        # Download cover art to temp file and set as icon
+        cover_id = result.get("cover_image_id")
+        if cover_id and not self._icon_path:
+            def _fetch_cover() -> None:
+                try:
+                    import tempfile
+                    from cellar.backend.config import load_igdb_creds
+                    from cellar.backend.igdb import IGDBClient
+
+                    creds = load_igdb_creds()
+                    if not creds:
+                        return
+                    client = IGDBClient(creds["client_id"], creds["client_secret"])
+                    data = client.fetch_cover(cover_id)
+                    suffix = ".jpg"
+                    with tempfile.NamedTemporaryFile(
+                        delete=False, suffix=suffix, prefix="cellar-igdb-cover-"
+                    ) as f:
+                        f.write(data)
+                        tmp_path = f.name
+                    GLib.idle_add(self._set_igdb_cover, tmp_path)
+                except Exception:  # noqa: BLE001
+                    pass
+
+            import threading as _threading
+            _threading.Thread(target=_fetch_cover, daemon=True).start()
+
+    def _set_igdb_cover(self, path: str) -> None:
+        self._icon_path = path
+        self._icon_row.set_subtitle(Path(path).name)
 
     # ── Add / cancel ──────────────────────────────────────────────────────
 

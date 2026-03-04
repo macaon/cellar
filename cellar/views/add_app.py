@@ -142,7 +142,7 @@ class AddAppDialog(Adw.Dialog):
 
         self._archive_row = Adw.ActionRow(
             title="File",
-            subtitle=Path(self._archive_path).name,
+            subtitle=GLib.markup_escape_text(Path(self._archive_path).name),
         )
         archive_group.add(self._archive_row)
 
@@ -532,7 +532,7 @@ class AddAppDialog(Adw.Dialog):
     def _on_icon_chosen(self, _chooser, response, chooser) -> None:
         if response == Gtk.ResponseType.ACCEPT:
             self._icon_path = chooser.get_file().get_path()
-            self._icon_row.set_subtitle(Path(self._icon_path).name)
+            self._icon_row.set_subtitle(GLib.markup_escape_text(Path(self._icon_path).name))
 
     def _pick_cover(self, _btn) -> None:
         self._pick_image("Select Cover", False, self._on_cover_chosen)
@@ -540,7 +540,7 @@ class AddAppDialog(Adw.Dialog):
     def _on_cover_chosen(self, _chooser, response, chooser) -> None:
         if response == Gtk.ResponseType.ACCEPT:
             self._cover_path = chooser.get_file().get_path()
-            self._cover_row.set_subtitle(Path(self._cover_path).name)
+            self._cover_row.set_subtitle(GLib.markup_escape_text(Path(self._cover_path).name))
 
     def _pick_hero(self, _btn) -> None:
         self._pick_image("Select Hero Banner", False, self._on_hero_chosen)
@@ -548,7 +548,7 @@ class AddAppDialog(Adw.Dialog):
     def _on_hero_chosen(self, _chooser, response, chooser) -> None:
         if response == Gtk.ResponseType.ACCEPT:
             self._hero_path = chooser.get_file().get_path()
-            self._hero_row.set_subtitle(Path(self._hero_path).name)
+            self._hero_row.set_subtitle(GLib.markup_escape_text(Path(self._hero_path).name))
 
     def _pick_logo(self, _btn) -> None:
         self._pick_image("Select Logo (transparent PNG)", False, self._on_logo_chosen)
@@ -556,7 +556,7 @@ class AddAppDialog(Adw.Dialog):
     def _on_logo_chosen(self, _chooser, response, chooser) -> None:
         if response == Gtk.ResponseType.ACCEPT:
             self._logo_path = chooser.get_file().get_path()
-            self._logo_row.set_subtitle(Path(self._logo_path).name)
+            self._logo_row.set_subtitle(GLib.markup_escape_text(Path(self._logo_path).name))
 
     def _pick_screenshots(self, _btn) -> None:
         self._pick_image("Select Screenshots", True, self._on_screenshots_chosen)

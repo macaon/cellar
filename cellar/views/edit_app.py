@@ -124,7 +124,7 @@ class EditAppDialog(Adw.Dialog):
         archive_group = Adw.PreferencesGroup(title="Archive")
         self._archive_row = Adw.ActionRow(
             title="Current Archive",
-            subtitle=Path(self._old_entry.archive).name if self._old_entry.archive else "—",
+            subtitle=GLib.markup_escape_text(Path(self._old_entry.archive).name) if self._old_entry.archive else "—",
         )
         replace_btn = Gtk.Button(label="Replace…")
         replace_btn.set_valign(Gtk.Align.CENTER)
@@ -399,16 +399,16 @@ class EditAppDialog(Adw.Dialog):
 
         # Single images — show current filename + enable clear button
         if e.icon:
-            self._icon_row.set_subtitle(Path(e.icon).name)
+            self._icon_row.set_subtitle(GLib.markup_escape_text(Path(e.icon).name))
             self._icon_clear_btn.set_sensitive(True)
         if e.cover:
-            self._cover_row.set_subtitle(Path(e.cover).name)
+            self._cover_row.set_subtitle(GLib.markup_escape_text(Path(e.cover).name))
             self._cover_clear_btn.set_sensitive(True)
         if e.hero:
-            self._hero_row.set_subtitle(Path(e.hero).name)
+            self._hero_row.set_subtitle(GLib.markup_escape_text(Path(e.hero).name))
             self._hero_clear_btn.set_sensitive(True)
         if e.logo:
-            self._logo_row.set_subtitle(Path(e.logo).name)
+            self._logo_row.set_subtitle(GLib.markup_escape_text(Path(e.logo).name))
             self._logo_clear_btn.set_sensitive(True)
 
         # Screenshots — resolve relative paths to absolute local paths
@@ -464,7 +464,7 @@ class EditAppDialog(Adw.Dialog):
         if response != Gtk.ResponseType.ACCEPT:
             return
         self._new_archive_src = chooser.get_file().get_path()
-        self._archive_row.set_subtitle(Path(self._new_archive_src).name)
+        self._archive_row.set_subtitle(GLib.markup_escape_text(Path(self._new_archive_src).name))
         # Refresh Wine component rows from the new archive in a background thread
         threading.Thread(target=self._read_new_archive_yml, daemon=True).start()
 
@@ -508,7 +508,7 @@ class EditAppDialog(Adw.Dialog):
     def _on_icon_chosen(self, _chooser, response, chooser) -> None:
         if response == Gtk.ResponseType.ACCEPT:
             self._icon_path = chooser.get_file().get_path()
-            self._icon_row.set_subtitle(Path(self._icon_path).name)
+            self._icon_row.set_subtitle(GLib.markup_escape_text(Path(self._icon_path).name))
             self._icon_clear_btn.set_sensitive(True)
 
     def _pick_cover(self, _btn) -> None:
@@ -517,7 +517,7 @@ class EditAppDialog(Adw.Dialog):
     def _on_cover_chosen(self, _chooser, response, chooser) -> None:
         if response == Gtk.ResponseType.ACCEPT:
             self._cover_path = chooser.get_file().get_path()
-            self._cover_row.set_subtitle(Path(self._cover_path).name)
+            self._cover_row.set_subtitle(GLib.markup_escape_text(Path(self._cover_path).name))
             self._cover_clear_btn.set_sensitive(True)
 
     def _pick_hero(self, _btn) -> None:
@@ -526,7 +526,7 @@ class EditAppDialog(Adw.Dialog):
     def _on_hero_chosen(self, _chooser, response, chooser) -> None:
         if response == Gtk.ResponseType.ACCEPT:
             self._hero_path = chooser.get_file().get_path()
-            self._hero_row.set_subtitle(Path(self._hero_path).name)
+            self._hero_row.set_subtitle(GLib.markup_escape_text(Path(self._hero_path).name))
             self._hero_clear_btn.set_sensitive(True)
 
     def _pick_logo(self, _btn) -> None:
@@ -535,7 +535,7 @@ class EditAppDialog(Adw.Dialog):
     def _on_logo_chosen(self, _chooser, response, chooser) -> None:
         if response == Gtk.ResponseType.ACCEPT:
             self._logo_path = chooser.get_file().get_path()
-            self._logo_row.set_subtitle(Path(self._logo_path).name)
+            self._logo_row.set_subtitle(GLib.markup_escape_text(Path(self._logo_path).name))
             self._logo_clear_btn.set_sensitive(True)
 
     def _pick_screenshots(self, _btn) -> None:

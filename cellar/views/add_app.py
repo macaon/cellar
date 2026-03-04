@@ -834,6 +834,14 @@ class AddAppDialog(Adw.Dialog):
             tmp_delta: str | None = None
             archive_in_place = False
 
+            def _cleanup_tmp(tmp: Path) -> None:
+                """Remove tmp file and its parent dir if empty (new, cancelled import)."""
+                tmp.unlink(missing_ok=True)
+                try:
+                    tmp.parent.rmdir()
+                except OSError:
+                    pass  # not empty — pre-existing app dir, leave it alone
+
             # ── Directory compression (Linux native) ───────────────────────
             if source_dir:
                 archive_dest = repo_root / entry_to_upload.archive
@@ -849,11 +857,11 @@ class AddAppDialog(Adw.Dialog):
                     )
                     tmp_archive.rename(archive_dest)
                 except CancelledError:
-                    tmp_archive.unlink(missing_ok=True)
+                    _cleanup_tmp(tmp_archive)
                     GLib.idle_add(self._on_import_cancelled)
                     return
                 except Exception as exc:
-                    tmp_archive.unlink(missing_ok=True)
+                    _cleanup_tmp(tmp_archive)
                     GLib.idle_add(self._on_import_error, f"Failed to compress directory: {exc}")
                     return
 
@@ -904,11 +912,11 @@ class AddAppDialog(Adw.Dialog):
                     )
                     tmp_archive.rename(archive_dest)
                 except CancelledError:
-                    tmp_archive.unlink(missing_ok=True)
+                    _cleanup_tmp(tmp_archive)
                     GLib.idle_add(self._on_import_cancelled)
                     return
                 except Exception as exc:
-                    tmp_archive.unlink(missing_ok=True)
+                    _cleanup_tmp(tmp_archive)
                     GLib.idle_add(
                         self._on_import_error,
                         f"Failed to create delta archive: {exc}",

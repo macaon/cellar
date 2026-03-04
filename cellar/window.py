@@ -371,7 +371,14 @@ class CellarWindow(Adw.ApplicationWindow):
             from cellar.views.detail import DetailView
 
             def _on_edit_done(updated_entry):
-                self._load_catalogue()
+                import dataclasses as _dc
+                try:
+                    icons = self._first_repo.fetch_category_icons() if self._first_repo else {}
+                except Exception:
+                    icons = {}
+                icon = icons.get(updated_entry.category, "")
+                if icon:
+                    updated_entry = _dc.replace(updated_entry, category_icon=icon)
                 current_page = self.nav_view.get_visible_page()
                 if current_page is not None:
                     new_detail = DetailView(
@@ -389,6 +396,7 @@ class CellarWindow(Adw.ApplicationWindow):
                     current_page.set_child(new_detail)
                     current_page.set_title(updated_entry.name)
                 self._show_toast("Entry updated")
+                self._load_catalogue()
 
             EditAppDialog(
                 entry=selected_entry,

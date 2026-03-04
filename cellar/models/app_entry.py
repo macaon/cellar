@@ -105,6 +105,7 @@ class AppEntry:
     cover: str = ""      # portrait cover — browse grid (games)
     hero: str = ""       # wide banner — detail view header
     logo: str = ""       # transparent logo (Steam-style) — replaces icon+name in detail view
+    hide_title: bool = False   # suppress name label when logo is present
     screenshots: tuple[str, ...] = ()
 
     # ── Installation ──────────────────────────────────────────────────────
@@ -154,6 +155,7 @@ class AppEntry:
             cover=data.get("cover", ""),
             hero=data.get("hero", ""),
             logo=data.get("logo", ""),
+            hide_title=bool(data.get("hide_title", False)),
             screenshots=tuple(data.get("screenshots", [])),
             archive=data.get("archive", ""),
             archive_size=int(data.get("archive_size", 0)),
@@ -195,6 +197,8 @@ class AppEntry:
         _opt_str(d, "cover", self.cover)
         _opt_str(d, "hero", self.hero)
         _opt_str(d, "logo", self.logo)
+        if self.hide_title:
+            d["hide_title"] = True
         _opt_seq(d, "screenshots", self.screenshots)
         _opt_str(d, "archive", self.archive)
         if self.archive_size:

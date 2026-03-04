@@ -227,6 +227,11 @@ class EditAppDialog(Adw.Dialog):
         self._cover_row, self._cover_clear_btn = self._make_image_row("Cover", self._pick_cover)
         self._hero_row, self._hero_clear_btn = self._make_image_row("Hero", self._pick_hero)
         self._logo_row, self._logo_clear_btn = self._make_image_row("Logo", self._pick_logo)
+        self._hide_title_btn = Gtk.ToggleButton()
+        self._hide_title_btn.set_icon_name("view-conceal-symbolic")
+        self._hide_title_btn.set_valign(Gtk.Align.CENTER)
+        self._hide_title_btn.set_tooltip_text("Hide title — logo contains the app name")
+        self._logo_row.add_suffix(self._hide_title_btn)
 
         self._icon_clear_btn.connect("clicked", self._on_icon_clear)
         self._cover_clear_btn.connect("clicked", self._on_cover_clear)
@@ -403,6 +408,8 @@ class EditAppDialog(Adw.Dialog):
         if e.logo:
             self._logo_row.set_subtitle(GLib.markup_escape_text(Path(e.logo).name))
             self._logo_clear_btn.set_sensitive(True)
+        if e.hide_title:
+            self._hide_title_btn.set_active(True)
 
         # Screenshots — resolve relative paths to absolute local paths
         try:
@@ -686,6 +693,7 @@ class EditAppDialog(Adw.Dialog):
             cover=cover_rel,
             hero=hero_rel,
             logo=logo_rel,
+            hide_title=self._hide_title_btn.get_active(),
             screenshots=screenshot_rels,
             archive=archive_rel,
             archive_size=e.archive_size,

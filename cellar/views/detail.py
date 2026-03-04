@@ -151,7 +151,7 @@ class DetailView(Gtk.Box):
         content_box.set_margin_end(18)
         content_clamp.set_child(content_box)
 
-        if e.description:
+        if e.description or e.version or e.release_year:
             content_box.append(self._make_description())
 
         content_box.append(self._make_info_cards())
@@ -635,22 +635,12 @@ class DetailView(Gtk.Box):
         meta.set_valign(Gtk.Align.CENTER)
         box.append(meta)
 
-        name_lbl = Gtk.Label(label=e.name)
-        name_lbl.add_css_class("title-1")
-        name_lbl.set_halign(Gtk.Align.START)
-        name_lbl.set_wrap(True)
-        meta.append(name_lbl)
-
-        if e.version or e.release_year:
-            ver_parts: list[str] = []
-            if e.version:
-                ver_parts.append(e.version)
-            if e.release_year:
-                ver_parts.append(f"({e.release_year})")
-            ver_lbl = Gtk.Label(label="  ".join(ver_parts))
-            ver_lbl.add_css_class("dim-label")
-            ver_lbl.set_halign(Gtk.Align.START)
-            meta.append(ver_lbl)
+        if not (e.hide_title and e.logo):
+            name_lbl = Gtk.Label(label=e.name)
+            name_lbl.add_css_class("title-1")
+            name_lbl.set_halign(Gtk.Align.START)
+            name_lbl.set_wrap(True)
+            meta.append(name_lbl)
 
         dev_parts: list[str] = []
         if e.developer:
@@ -795,11 +785,28 @@ class DetailView(Gtk.Box):
         self._source_popover.popdown()
 
     def _make_description(self) -> Gtk.Widget:
-        lbl = Gtk.Label(label=self._entry.description)
-        lbl.set_wrap(True)
-        lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
-        lbl.set_xalign(0)
-        return lbl
+        e = self._entry
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+
+        if e.description:
+            lbl = Gtk.Label(label=e.description)
+            lbl.set_wrap(True)
+            lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            lbl.set_xalign(0)
+            box.append(lbl)
+
+        if e.version or e.release_year:
+            ver_parts: list[str] = []
+            if e.version:
+                ver_parts.append(e.version)
+            if e.release_year:
+                ver_parts.append(f"({e.release_year})")
+            ver_lbl = Gtk.Label(label="  ".join(ver_parts))
+            ver_lbl.add_css_class("dim-label")
+            ver_lbl.set_halign(Gtk.Align.END)
+            box.append(ver_lbl)
+
+        return box
 
     def _make_screenshots(self) -> Gtk.Widget | None:
         if not self._entry.screenshots:

@@ -1229,14 +1229,37 @@ class DetailView(Gtk.Box):
 
         runner_name = self._runner_override or bw.runner or ""
 
-        # ── Header: runner name pill ─────────────────────────────────
-        runner_pill = Gtk.Label(label=runner_name or "—")
-        runner_pill.add_css_class("download-pill")
-        runner_pill.add_css_class("download-pill-large")
-        runner_pill.set_halign(Gtk.Align.CENTER)
-        header = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        header.set_halign(Gtk.Align.CENTER)
-        header.append(runner_pill)
+        def _value_row(title: str, value: str) -> Adw.ActionRow:
+            r = Adw.ActionRow(title=title)
+            lbl = Gtk.Label(label=value)
+            lbl.add_css_class("dim-label")
+            lbl.set_valign(Gtk.Align.CENTER)
+            r.add_suffix(lbl)
+            return r
+
+        # ── Runner listbox ────────────────────────────────────────────
+        runner_lbl = Gtk.Label(label="Runner")
+        runner_lbl.add_css_class("heading")
+        runner_lbl.set_halign(Gtk.Align.START)
+
+        runner_listbox = Gtk.ListBox()
+        runner_listbox.set_selection_mode(Gtk.SelectionMode.NONE)
+        runner_listbox.add_css_class("boxed-list")
+
+        runner_row = Adw.ActionRow(title=runner_name or "—")
+        _win_ref: list[Adw.Window] = []
+        if self._is_installed and not self._entry.lock_runner:
+            change_btn = Gtk.Button(label="Change")
+            change_btn.add_css_class("suggested-action")
+            change_btn.add_css_class("flat")
+            change_btn.set_valign(Gtk.Align.CENTER)
+            def _on_change(_b, _ref=_win_ref):
+                if _ref:
+                    _ref[0].close()
+                self._on_change_runner_clicked(_b)
+            change_btn.connect("clicked", _on_change)
+            runner_row.add_suffix(change_btn)
+        runner_listbox.append(runner_row)
 
         # ── Component rows ───────────────────────────────────────────
         components_lbl = Gtk.Label(label="Components")
@@ -1247,18 +1270,10 @@ class DetailView(Gtk.Box):
         listbox.set_selection_mode(Gtk.SelectionMode.NONE)
         listbox.add_css_class("boxed-list")
 
-        def _row(title: str, value: str) -> Adw.ActionRow:
-            r = Adw.ActionRow(title=title)
-            lbl = Gtk.Label(label=value)
-            lbl.add_css_class("dim-label")
-            lbl.set_valign(Gtk.Align.CENTER)
-            r.add_suffix(lbl)
-            return r
-
         if bw.dxvk:
-            listbox.append(_row("DXVK", bw.dxvk))
+            listbox.append(_value_row("DXVK", bw.dxvk))
         if bw.vkd3d:
-            listbox.append(_row("VKD3D", bw.vkd3d))
+            listbox.append(_value_row("VKD3D", bw.vkd3d))
 
         # ── Layout ───────────────────────────────────────────────────
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
@@ -1266,7 +1281,8 @@ class DetailView(Gtk.Box):
         content.set_margin_bottom(18)
         content.set_margin_start(18)
         content.set_margin_end(18)
-        content.append(header)
+        content.append(runner_lbl)
+        content.append(runner_listbox)
         if bw.dxvk or bw.vkd3d:
             content.append(components_lbl)
             content.append(listbox)
@@ -1276,6 +1292,7 @@ class DetailView(Gtk.Box):
         toolbar.set_content(content)
 
         win = Adw.Window()
+        _win_ref.append(win)
         win.set_title("Wine")
         win.set_transient_for(self.get_root())
         win.set_modal(True)

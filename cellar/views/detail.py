@@ -1090,45 +1090,57 @@ class DetailView(Gtk.Box):
         return card
 
     def _show_download_dialog(self) -> None:
-        """Show a closeable window with archive and base image sizes."""
+        """Show a download size breakdown: header pill + per-component rows."""
         e = self._entry
 
+        def _pill(text: str, *, large: bool = False) -> Gtk.Label:
+            lbl = Gtk.Label(label=text)
+            lbl.add_css_class("download-pill")
+            if large:
+                lbl.add_css_class("download-pill-large")
+            return lbl
+
+        def _row(pill_lbl: Gtk.Label, title: str, subtitle: str) -> Adw.ActionRow:
+            wrap = Gtk.Box(valign=Gtk.Align.FILL, margin_end=6)
+            pill_lbl.set_valign(Gtk.Align.CENTER)
+            wrap.append(pill_lbl)
+            r = Adw.ActionRow(title=title, subtitle=subtitle)
+            r.add_prefix(wrap)
+            return r
+
+        # ── Header: total size pill ──────────────────────────────────
+        total_pill = _pill(_fmt_bytes(e.archive_size), large=True)
+        total_pill.set_halign(Gtk.Align.CENTER)
+        header = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        header.set_halign(Gtk.Align.CENTER)
+        header.append(total_pill)
+        ds_lbl = Gtk.Label(label="Download Size")
+        ds_lbl.add_css_class("heading")
+        header.append(ds_lbl)
+
+        # ── Per-component rows ───────────────────────────────────────
         listbox = Gtk.ListBox()
         listbox.set_selection_mode(Gtk.SelectionMode.NONE)
         listbox.add_css_class("boxed-list")
 
-        app_row = Adw.ActionRow(
-            title="App archive",
-            subtitle=_fmt_bytes(e.archive_size) if e.archive_size else "Unknown",
-        )
-        listbox.append(app_row)
+        app_pill = _pill(_fmt_bytes(e.archive_size) if e.archive_size else "Unknown")
+        listbox.append(_row(app_pill, e.name, "The app itself"))
 
-        base_row: Adw.ActionRow | None = None
+        base_pill: Gtk.Label | None = None
+        base_action_row: Adw.ActionRow | None = None
         if e.base_runner:
-            base_row = Adw.ActionRow(
-                title=f"Base image ({e.base_runner})",
-                subtitle="…",
-            )
-            listbox.append(base_row)
+            base_pill = _pill("…")
+            base_action_row = _row(base_pill, "Base Image", "…")
+            listbox.append(base_action_row)
 
-        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        # ── Layout ──────────────────────────────────────────────────
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
         content.set_margin_top(18)
         content.set_margin_bottom(18)
         content.set_margin_start(18)
         content.set_margin_end(18)
+        content.append(header)
         content.append(listbox)
-
-        if e.base_runner:
-            note = Gtk.Label(
-                label="The base image is only downloaded if not already"
-                      " installed on this system.",
-            )
-            note.add_css_class("dim-label")
-            note.add_css_class("caption")
-            note.set_wrap(True)
-            note.set_xalign(0)
-            note.set_margin_top(8)
-            content.append(note)
 
         toolbar = Adw.ToolbarView()
         toolbar.add_top_bar(Adw.HeaderBar())
@@ -1138,28 +1150,45 @@ class DetailView(Gtk.Box):
         win.set_title("Download")
         win.set_transient_for(self.get_root())
         win.set_modal(True)
-        win.set_default_size(360, -1)
+        win.set_default_size(380, -1)
         win.set_resizable(False)
         win.set_content(toolbar)
         win.present()
 
-        if base_row is not None:
-            row_ref = base_row
+        # ── Async: resolve base size + installed status ──────────────
+        if e.base_runner and base_pill is not None and base_action_row is not None:
+            _pill_ref = base_pill
+            _row_ref = base_action_row
+            _total_ref = total_pill
+            _app_size = e.archive_size
+            _runner = e.base_runner
 
             def _worker() -> None:
+                from cellar.backend.base_store import is_base_installed
+                installed = is_base_installed(_runner)
+                base_sz = 0
                 for repo in self._source_repos:
                     try:
                         bases = repo.fetch_bases()
-                        if e.base_runner in bases:
-                            sz = bases[e.base_runner].archive_size
-                            GLib.idle_add(
-                                row_ref.set_subtitle,
-                                _fmt_bytes(sz) if sz else "Unknown",
-                            )
-                            return
+                        if _runner in bases:
+                            base_sz = bases[_runner].archive_size
+                            break
                     except Exception:
                         pass
-                GLib.idle_add(row_ref.set_subtitle, "Unknown")
+                subtitle = (
+                    "Already present on your system"
+                    if installed else
+                    "Will also be downloaded"
+                )
+                total = _app_size + (0 if installed else base_sz)
+
+                def _update() -> bool:
+                    _pill_ref.set_label(_fmt_bytes(base_sz) if base_sz else "Unknown")
+                    _row_ref.set_subtitle(subtitle)
+                    _total_ref.set_label(_fmt_bytes(total) if total else _fmt_bytes(_app_size))
+                    return GLib.SOURCE_REMOVE
+
+                GLib.idle_add(_update)
 
             threading.Thread(target=_worker, daemon=True).start()
 

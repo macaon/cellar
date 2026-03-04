@@ -612,7 +612,7 @@ def create_delta_archive(
     The result has the same top-level bottle directory name as the original and
     is suitable for :func:`~cellar.backend.installer._overlay_delta` at install
     time.  *phase_cb* is called with a human-readable step label at each major
-    phase ("Extracting archive…", "Scanning files…", "Compressing delta…").
+    phase ("Extracting archive…", "Scanning files…", "Compressing & Uploading delta…").
     *progress_cb* emits 0→1 **per phase** (not across the whole operation), so
     callers can reset their progress bar on each *phase_cb* transition.
     Extraction emits no *progress_cb* calls (duration is unknown from a
@@ -709,7 +709,7 @@ def create_delta_archive(
         #    fast decompress, noticeably better ratio than gzip default).
         # progress_cb runs 0→1 for this phase only.
         if phase_cb:
-            phase_cb("Compressing delta\u2026")
+            phase_cb("Compressing & Uploading delta\u2026")
         dest.parent.mkdir(parents=True, exist_ok=True)
         try:
             import zstandard as zstd  # noqa: PLC0415

@@ -795,7 +795,7 @@ class AddAppDialog(Adw.Dialog):
         self._stack.set_visible_child_name("progress")
         self._progress_bar.set_fraction(0.0)
         self._progress_label.set_text(
-            "Compressing\u2026" if self._source_dir else "Copying archive\u2026"
+            "Compressing & Uploading\u2026" if self._source_dir else "Copying archive\u2026"
         )
 
         repo_root = self._repo.writable_path()

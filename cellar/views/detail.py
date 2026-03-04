@@ -2179,19 +2179,6 @@ class InstallProgressDialog(Adw.Dialog):
         def _inst_progress(fraction: float) -> None:
             GLib.idle_add(self._progress_bar.set_fraction, fraction)
 
-        _last_name_t: list[float] = [0.0]
-        _file_count: list[int] = [0]
-
-        def _extract_name(filename: str) -> None:
-            _file_count[0] += 1
-            now = time.monotonic()
-            if now - _last_name_t[0] >= 0.08:
-                _last_name_t[0] = now
-                GLib.idle_add(
-                    self._progress_bar.set_text,
-                    f"{_trunc_filename(filename)} ({_file_count[0]})",
-                )
-
         def _run() -> None:
             try:
                 # ── Runner download phase (if needed) ─────────────────────
@@ -2246,7 +2233,6 @@ class InstallProgressDialog(Adw.Dialog):
                     download_cb=_dl_progress,
                     download_stats_cb=_dl_stats,
                     install_cb=_inst_progress,
-                    extract_name_cb=_extract_name,
                     phase_cb=_set_phase,
                     cancel_event=self._cancel_event,
                     token=self._token,
@@ -2278,19 +2264,6 @@ class InstallProgressDialog(Adw.Dialog):
         def _inst_progress(fraction: float) -> None:
             GLib.idle_add(self._progress_bar.set_fraction, fraction)
 
-        _last_name_t: list[float] = [0.0]
-        _file_count: list[int] = [0]
-
-        def _extract_name(filename: str) -> None:
-            _file_count[0] += 1
-            now = time.monotonic()
-            if now - _last_name_t[0] >= 0.08:
-                _last_name_t[0] = now
-                GLib.idle_add(
-                    self._progress_bar.set_text,
-                    f"{_trunc_filename(filename)} ({_file_count[0]})",
-                )
-
         def _run() -> None:
             try:
                 dir_name, _full_path = install_linux_app(
@@ -2300,7 +2273,6 @@ class InstallProgressDialog(Adw.Dialog):
                     download_cb=_dl_progress,
                     download_stats_cb=_dl_stats,
                     install_cb=_inst_progress,
-                    extract_name_cb=_extract_name,
                     phase_cb=_set_phase,
                     cancel_event=self._cancel_event,
                     token=self._token,

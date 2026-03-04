@@ -546,6 +546,8 @@ class AddAppDialog(Adw.Dialog):
         if response == Gtk.ResponseType.ACCEPT:
             self._logo_path = chooser.get_file().get_path()
             self._logo_row.set_subtitle(GLib.markup_escape_text(Path(self._logo_path).name))
+            if not self._hide_title_btn.get_active():
+                self._hide_title_btn.set_active(True)
 
     def _pick_screenshots(self, _btn) -> None:
         self._pick_image("Select Screenshots", True, self._on_screenshots_chosen)

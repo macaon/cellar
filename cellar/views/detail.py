@@ -81,6 +81,11 @@ class DetailView(Gtk.Box):
         self._runner_label: Gtk.Label | None = None
         self._runner_warning_icon: Gtk.Image | None = None
         self._runners_loaded: bool = False
+        # Base image resolution — populated once by _resolve_base_async.
+        # Observers registered before resolution completes are called on idle.
+        self._base_sz: int = 0
+        self._base_installed: bool | None = None  # None = not yet resolved
+        self._base_resolve_cbs: list[Callable] = []
 
         toolbar = Adw.ToolbarView()
         self.append(toolbar)
@@ -1007,7 +1012,7 @@ class DetailView(Gtk.Box):
             _dl_val_lbl = dl_card.get_first_child().get_next_sibling()
             _make_interactive(dl_card, self._show_download_dialog)
             _add(dl_card)
-            self._update_download_card_async(_dl_val_lbl)
+            self._resolve_base_async(_dl_val_lbl)
 
         if e.install_size_estimate > 0:
             _add(_simple_card(
@@ -1093,8 +1098,8 @@ class DetailView(Gtk.Box):
 
         return card
 
-    def _update_download_card_async(self, val_lbl: Gtk.Label) -> None:
-        """If the base image is not installed, update the card to show app+base size."""
+    def _resolve_base_async(self, val_lbl: Gtk.Label) -> None:
+        """Resolve base image size + installed status once; cache on self for the dialog."""
         e = self._entry
         base_runner = e.base_runner or (e.built_with.runner if e.built_with else "")
         if not base_runner:
@@ -1103,8 +1108,7 @@ class DetailView(Gtk.Box):
 
         def _worker() -> None:
             from cellar.backend.base_store import is_base_installed
-            if is_base_installed(base_runner):
-                return
+            installed = is_base_installed(base_runner)
             base_sz = 0
             for repo in self._source_repos:
                 try:
@@ -1114,8 +1118,18 @@ class DetailView(Gtk.Box):
                         break
                 except Exception:
                     pass
-            if base_sz:
-                GLib.idle_add(val_lbl.set_label, _fmt_bytes(app_size + base_sz))
+
+            def _apply() -> bool:
+                self._base_installed = installed
+                self._base_sz = base_sz
+                if not installed and base_sz:
+                    val_lbl.set_label(_fmt_bytes(app_size + base_sz))
+                for cb in self._base_resolve_cbs:
+                    cb(installed, base_sz)
+                self._base_resolve_cbs.clear()
+                return GLib.SOURCE_REMOVE
+
+            GLib.idle_add(_apply)
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -1188,42 +1202,36 @@ class DetailView(Gtk.Box):
         win.set_content(toolbar)
         win.present()
 
-        # ── Async: resolve base size + installed status ──────────────
+        # ── Populate base row from cached resolution ─────────────────
         if base_runner and base_pill is not None and base_action_row is not None:
-            _pill_ref = base_pill
-            _row_ref = base_action_row
-            _total_ref = total_pill
-            _app_size = e.archive_size
-            _runner = base_runner
-
-            def _worker() -> None:
-                from cellar.backend.base_store import is_base_installed
-                installed = is_base_installed(_runner)
-                base_sz = 0
-                for repo in self._source_repos:
-                    try:
-                        bases = repo.fetch_bases()
-                        if _runner in bases:
-                            base_sz = bases[_runner].archive_size
-                            break
-                    except Exception:
-                        pass
+            if self._base_installed is not None:
+                # Already resolved by _resolve_base_async — use directly.
                 subtitle = (
                     "Already present on your system"
-                    if installed else
+                    if self._base_installed else
                     "Will also be downloaded"
                 )
-                total = _app_size + (0 if installed else base_sz)
+                sz = self._base_sz
+                total = e.archive_size + (0 if self._base_installed else sz)
+                base_pill.set_label(_fmt_bytes(sz) if sz else "Unknown")
+                base_action_row.set_subtitle(subtitle)
+                total_pill.set_label(_fmt_bytes(total) if total else _fmt_bytes(e.archive_size))
+            else:
+                # Resolution not yet done (rare — dialog opened within ms of page load).
+                # Register a callback so _resolve_base_async updates the dialog when done.
+                _p, _r, _t, _app = base_pill, base_action_row, total_pill, e.archive_size
 
-                def _update() -> bool:
-                    _pill_ref.set_label(_fmt_bytes(base_sz) if base_sz else "Unknown")
-                    _row_ref.set_subtitle(subtitle)
-                    _total_ref.set_label(_fmt_bytes(total) if total else _fmt_bytes(_app_size))
-                    return GLib.SOURCE_REMOVE
+                def _on_resolved(installed: bool, base_sz: int) -> None:
+                    subtitle = (
+                        "Already present on your system" if installed
+                        else "Will also be downloaded"
+                    )
+                    total = _app + (0 if installed else base_sz)
+                    _p.set_label(_fmt_bytes(base_sz) if base_sz else "Unknown")
+                    _r.set_subtitle(subtitle)
+                    _t.set_label(_fmt_bytes(total) if total else _fmt_bytes(_app))
 
-                GLib.idle_add(_update)
-
-            threading.Thread(target=_worker, daemon=True).start()
+                self._base_resolve_cbs.append(_on_resolved)
 
     # ------------------------------------------------------------------
     # Asset helpers

@@ -204,10 +204,21 @@ class CellarWindow(Adw.ApplicationWindow):
                     rec = database.get_installed(e.id)
                     if rec is None:
                         continue
-                    # Reconcile against disk: if the bottle directory no longer
-                    # exists, remove the stale record and skip.
+                    # Reconcile against disk: remove stale records where the
+                    # installed directory has been deleted outside Cellar.
                     bottle_name = rec.get("bottle_name", "")
-                    if all_bottles and bottle_name and not any(
+                    if e.platform == "linux":
+                        install_path = rec.get("install_path", "")
+                        if install_path and bottle_name:
+                            from pathlib import Path as _Path  # noqa: PLC0415
+                            if not (_Path(install_path) / bottle_name).is_dir():
+                                log.info(
+                                    "Linux app dir %r gone from disk; removing stale record for %r",
+                                    bottle_name, e.id,
+                                )
+                                database.remove_installed(e.id)
+                                continue
+                    elif all_bottles and bottle_name and not any(
                         (b.data_path / bottle_name).is_dir() for b in all_bottles
                     ):
                         log.info(
@@ -328,19 +339,31 @@ class CellarWindow(Adw.ApplicationWindow):
 
         all_bottles = detect_all_bottles(load_bottles_data_path())
 
-        # Reconcile DB against disk: if the bottle directory no longer exists
-        # in any detected Bottles installation (e.g. deleted from within
-        # Bottles), remove the stale record so we show "Install" again.
+        # Reconcile DB against disk: remove stale records where the installed
+        # directory has been deleted outside Cellar.
         rec = database.get_installed(entry.id)
-        if rec and all_bottles and entry.platform != "linux" and not any(
-            (b.data_path / rec["bottle_name"]).is_dir() for b in all_bottles
-        ):
-            log.info(
-                "Bottle %r no longer exists on disk; removing stale DB record for %r",
-                rec["bottle_name"], entry.id,
-            )
-            database.remove_installed(entry.id)
-            rec = None
+        if rec:
+            bottle_name = rec.get("bottle_name", "")
+            if entry.platform == "linux":
+                install_path = rec.get("install_path", "")
+                if install_path and bottle_name:
+                    from pathlib import Path as _Path  # noqa: PLC0415
+                    if not (_Path(install_path) / bottle_name).is_dir():
+                        log.info(
+                            "Linux app dir %r gone from disk; removing stale DB record for %r",
+                            bottle_name, entry.id,
+                        )
+                        database.remove_installed(entry.id)
+                        rec = None
+            elif all_bottles and bottle_name and not any(
+                (b.data_path / bottle_name).is_dir() for b in all_bottles
+            ):
+                log.info(
+                    "Bottle %r no longer exists on disk; removing stale DB record for %r",
+                    bottle_name, entry.id,
+                )
+                database.remove_installed(entry.id)
+                rec = None
         is_installed = rec is not None
 
         def _on_edit(selected_entry):
@@ -493,7 +516,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="application-x-executable",
-            version="0.31.1",
+            version="0.31.2",
             comments="A GNOME storefront for Bottles-managed Windows apps.",
             license_type=Gtk.License.GPL_3_0,
         )

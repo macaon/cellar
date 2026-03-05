@@ -17,8 +17,10 @@ the Cellar Flatpak). No Bottles, no separate umu install, no pip, no dnf.
 - **Bottles** manages runners and bottle storage. Cellar installs apps into
   Bottles' data directory and launches via `bottles-cli`.
 - **`backend/components.py`** syncs the `bottlesdevs/components` runner index
-  via dulwich. Runner install dialog (`views/install_runner.py`) takes a
-  `target_dir: Path` parameter — already caller-determined, not hardcoded.
+  via dulwich — **replaced by `backend/runners.py`** in the new architecture
+  (see Runner management section). Runner install dialog
+  (`views/install_runner.py`) takes a `target_dir: Path` parameter — already
+  caller-determined, not hardcoded.
 - **`backend/installer.py`** extracts Bottles backup archives (which are
   WINEPREFIXes with a `bottle.yml` on top) into the Bottles data path.
 - **`backend/bottles.py`** handles Bottles detection, bottles-cli invocation,
@@ -40,10 +42,9 @@ the Cellar Flatpak). No Bottles, no separate umu install, no pip, no dnf.
 ~/.local/share/cellar/
   cellar.db
   config.json
-  components/            ← dulwich clone of bottlesdevs/components (unchanged)
   runners/
-    ge-proton10-32/      ← Cellar-owned; was Bottles' runners/ dir
-    soda-9.0-1/
+    ge-proton10-32/      ← GE-Proton only; managed by backend/runners.py
+    ge-proton9-27/
   prefixes/
     <app-id>/            ← one WINEPREFIX per installed app
   projects/

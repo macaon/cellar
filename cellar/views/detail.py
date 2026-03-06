@@ -463,6 +463,10 @@ class DetailView(Gtk.Box):
         remove_act.connect("activate", self._on_remove_shortcut)
         ag.add_action(remove_act)
 
+        terminal_act = Gio.SimpleAction.new("launch-terminal", None)
+        terminal_act.connect("activate", self._on_launch_terminal_action)
+        ag.add_action(terminal_act)
+
         self.insert_action_group("detail", ag)
         self._refresh_gear_menu()
 
@@ -477,12 +481,48 @@ class DetailView(Gtk.Box):
         else:
             menu.append("Create Desktop Shortcut", "detail.create-shortcut")
         menu.append("Open Install Folder", "detail.open-folder")
+        if self._entry.entry_point:
+            menu.append("Launch in Terminal", "detail.launch-terminal")
         self._gear_btn.set_menu_model(menu)
 
     def _on_open_folder_action(self, _action, _param) -> None:
         folder = self._get_install_folder()
         if folder:
             Gio.AppInfo.launch_default_for_uri(f"file://{folder}", None)
+
+    def _on_launch_terminal_action(self, _action, _param) -> None:
+        from cellar.utils.terminal import launch_in_terminal
+
+        if self._entry.platform == "linux":
+            rec = self._installed_record or {}
+            prefix_dir = rec.get("prefix_dir", "")
+            install_path = rec.get("install_path", "")
+            if not install_path or not prefix_dir:
+                from cellar.backend import database
+                db_rec = database.get_installed(self._entry.id) or {}
+                prefix_dir = prefix_dir or db_rec.get("prefix_dir", "") or ""
+                install_path = install_path or db_rec.get("install_path", "") or ""
+            if not prefix_dir or not install_path or not self._entry.entry_point:
+                return
+            exe = Path(install_path) / prefix_dir / self._entry.entry_point
+            if not launch_in_terminal([str(exe)]):
+                self._add_toast("No terminal emulator found")
+            return
+
+        # Windows app — build the same umu-run command launch_app uses.
+        from cellar.backend.umu import build_env, _umu_cmd
+
+        rec = self._installed_record or {}
+        runner_name = rec.get("runner_override") or rec.get("runner") or ""
+        if not runner_name:
+            from cellar.backend import database
+            db_rec = database.get_installed(self._entry.id) or {}
+            runner_name = db_rec.get("runner_override") or db_rec.get("runner") or ""
+
+        umu_env = build_env(self._entry.id, runner_name, self._entry.steam_appid)
+        cmd = _umu_cmd() + [self._entry.entry_point or ""]
+        if not launch_in_terminal(cmd, extra_env=umu_env):
+            self._add_toast("No terminal emulator found")
 
     def _get_install_folder(self) -> str | None:
         """Return the install folder path for the current entry, or None."""

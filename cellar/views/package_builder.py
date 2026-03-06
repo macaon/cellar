@@ -1126,7 +1126,7 @@ class PackageBuilderView(Gtk.Box):
         if project.screenshot_paths:
             images["screenshots"] = list(project.screenshot_paths)
 
-        progress = _ProgressDialog(label="Compressing and uploading…")
+        progress = _ProgressDialog(label="Compressing…")
         progress.present(self)
 
         cancel_event = threading.Event()
@@ -1137,7 +1137,7 @@ class PackageBuilderView(Gtk.Box):
                     compress_prefix_zst, compress_prefix_delta_zst, import_to_repo,
                 )
                 from cellar.backend.base_store import is_base_installed, base_path
-                from cellar.utils.progress import fmt_file_count
+                from cellar.utils.progress import fmt_compress_stats
                 repo_root = repo.writable_path()
                 archive_dest = repo_root / entry.archive
                 archive_dest.parent.mkdir(parents=True, exist_ok=True)
@@ -1151,9 +1151,9 @@ class PackageBuilderView(Gtk.Box):
                         archive_dest,
                         cancel_event=cancel_event,
                         phase_cb=lambda s: GLib.idle_add(progress.set_label, s),
-                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                        stats_cb=lambda done, total, _speed: GLib.idle_add(
-                            progress.set_stats, fmt_file_count(done, total)
+                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f * 0.9),
+                        stats_cb=lambda done, total, speed: GLib.idle_add(
+                            progress.set_stats, fmt_compress_stats(done, total, speed)
                         ),
                     )
                     base_runner = project.runner
@@ -1162,15 +1162,17 @@ class PackageBuilderView(Gtk.Box):
                         project.prefix_path,
                         archive_dest,
                         cancel_event=cancel_event,
-                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                        stats_cb=lambda done, total, _speed: GLib.idle_add(
-                            progress.set_stats, fmt_file_count(done, total)
+                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f * 0.9),
+                        stats_cb=lambda done, total, speed: GLib.idle_add(
+                            progress.set_stats, fmt_compress_stats(done, total, speed)
                         ),
                     )
                     base_runner = ""
 
-                # Images + catalogue.
+                # Images + catalogue — switch to pulse so the bar doesn't sit at 90% frozen.
+                GLib.idle_add(progress.set_label, "Uploading images…")
                 GLib.idle_add(progress.set_stats, "")
+                GLib.idle_add(progress.start_pulse)
                 final_entry = _dc_replace(
                     entry,
                     archive_crc32=crc32,
@@ -1240,7 +1242,7 @@ class PackageBuilderView(Gtk.Box):
             )
             return
 
-        progress = _ProgressDialog(label="Compressing and uploading…")
+        progress = _ProgressDialog(label="Compressing…")
         progress.present(self)
 
         cancel_event = threading.Event()
@@ -1251,7 +1253,7 @@ class PackageBuilderView(Gtk.Box):
                     compress_prefix_zst, compress_prefix_delta_zst, update_in_repo,
                 )
                 from cellar.backend.base_store import is_base_installed, base_path
-                from cellar.utils.progress import fmt_file_count
+                from cellar.utils.progress import fmt_compress_stats
                 repo_root = repo.writable_path()
                 archive_dest = repo_root / old_entry.archive
                 archive_dest.parent.mkdir(parents=True, exist_ok=True)
@@ -1265,9 +1267,9 @@ class PackageBuilderView(Gtk.Box):
                         archive_dest,
                         cancel_event=cancel_event,
                         phase_cb=lambda s: GLib.idle_add(progress.set_label, s),
-                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                        stats_cb=lambda done, total, _speed: GLib.idle_add(
-                            progress.set_stats, fmt_file_count(done, total)
+                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f * 0.9),
+                        stats_cb=lambda done, total, speed: GLib.idle_add(
+                            progress.set_stats, fmt_compress_stats(done, total, speed)
                         ),
                     )
                     base_runner = project.runner
@@ -1276,15 +1278,17 @@ class PackageBuilderView(Gtk.Box):
                         project.prefix_path,
                         archive_dest,
                         cancel_event=cancel_event,
-                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                        stats_cb=lambda done, total, _speed: GLib.idle_add(
-                            progress.set_stats, fmt_file_count(done, total)
+                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f * 0.9),
+                        stats_cb=lambda done, total, speed: GLib.idle_add(
+                            progress.set_stats, fmt_compress_stats(done, total, speed)
                         ),
                     )
                     base_runner = old_entry.base_runner  # preserve existing delta setting
 
                 # Update entry CRC + base_runner, then write catalogue.
+                GLib.idle_add(progress.set_label, "Writing catalogue…")
                 GLib.idle_add(progress.set_stats, "")
+                GLib.idle_add(progress.start_pulse)
                 new_entry = _dc_replace(
                     old_entry,
                     archive_crc32=crc32,
@@ -2914,6 +2918,12 @@ class _ProgressDialog(Adw.Dialog):
 
     def set_stats(self, text: str) -> None:
         self._bar.set_text(text)
+
+    def start_pulse(self) -> None:
+        """Switch back to indeterminate pulse (e.g. after compress phase ends)."""
+        if self._pulse_id is None:
+            self._bar.set_fraction(0.0)
+            self._pulse_id = GLib.timeout_add(80, self._pulse)
 
     def force_close(self) -> None:
         if self._pulse_id is not None:

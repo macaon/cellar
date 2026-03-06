@@ -32,6 +32,21 @@ def fmt_file_count(current: int, total: int) -> str:
     return f"File {current}"
 
 
+def fmt_compress_stats(done_files: int, total_files: int, speed_bps: float) -> str:
+    """Format compress progress as e.g. '42 / 156 files  (48.3 MiB/s)'.
+
+    *speed_bps* is the uncompressed source read rate in bytes/second.
+    """
+    count = f"{done_files} / {total_files} files" if total_files else f"{done_files} files"
+    if speed_bps >= 0.1 * 1024 ** 2:
+        spd = f"{speed_bps / 1024 ** 2:.1f} MiB/s"
+    elif speed_bps > 0:
+        spd = f"{speed_bps / 1024:.0f} KiB/s"
+    else:
+        spd = "\u2026"
+    return f"{count}  ({spd})"
+
+
 def trunc_middle(name: str, max_chars: int = 40) -> str:
     """Middle-truncate *name* so it fits in a progress bar without reflowing."""
     if len(name) <= max_chars:

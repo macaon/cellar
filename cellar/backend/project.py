@@ -23,6 +23,16 @@ log = logging.getLogger(__name__)
 ProjectType = Literal["app", "base"]
 
 
+def _parse_entry_points(data: dict) -> list[dict]:
+    """Read entry_points from project.json, migrating old single entry_point if needed."""
+    if "entry_points" in data:
+        return list(data["entry_points"])
+    old = data.get("entry_point", "")
+    if old:
+        return [{"name": "Main", "path": old}]
+    return []
+
+
 @dataclass
 class Project:
     """Metadata for a Package Builder project."""
@@ -31,7 +41,7 @@ class Project:
     slug: str
     project_type: ProjectType = "app"
     runner: str = ""
-    entry_point: str = ""   # relative to drive_c (App only)
+    entry_points: list[dict] = field(default_factory=list)  # [{"name": str, "path": str}, ...]
     steam_appid: int | None = None
     deps_installed: list[str] = field(default_factory=list)
     notes: str = ""
@@ -55,6 +65,11 @@ class Project:
     # ------------------------------------------------------------------
 
     @property
+    def entry_point(self) -> str:
+        """Primary entry point path (first in list). Read-only; modify entry_points instead."""
+        return self.entry_points[0]["path"] if self.entry_points else ""
+
+    @property
     def project_dir(self) -> Path:
         from cellar.backend.umu import projects_dir
         return projects_dir() / self.slug
@@ -74,7 +89,7 @@ class Project:
             slug=data.get("slug", ""),
             project_type=data.get("project_type", "app"),
             runner=data.get("runner", ""),
-            entry_point=data.get("entry_point", ""),
+            entry_points=_parse_entry_points(data),
             steam_appid=data.get("steam_appid"),
             deps_installed=list(data.get("deps_installed", [])),
             notes=data.get("notes", ""),
@@ -100,8 +115,8 @@ class Project:
         }
         if self.runner:
             d["runner"] = self.runner
-        if self.entry_point:
-            d["entry_point"] = self.entry_point
+        if self.entry_points:
+            d["entry_points"] = list(self.entry_points)
         if self.steam_appid is not None:
             d["steam_appid"] = self.steam_appid
         if self.deps_installed:

@@ -358,48 +358,9 @@ class PackageBuilderView(Gtk.Box):
         prefix_group = Adw.PreferencesGroup(title="Prefix")
 
         if project.project_type == "base":
-            # Base projects select a runner directly.
-            from cellar.backend import runners as _runners
-            runners = _runners.installed_runners()
-
-            runner_model = Gtk.StringList.new(runners if runners else ["(no runners installed)"])
-            self._runner_row = Adw.ComboRow(title="Runner")
-            self._runner_row.set_subtitle_lines(1)
-            self._runner_row.set_model(runner_model)
-            if project.runner and project.runner in runners:
-                self._runner_row.set_selected(runners.index(project.runner))
-            self._runner_row.connect("notify::selected", self._on_runner_changed)
-
-            dl_btn = Gtk.Button(icon_name="list-add-symbolic")
-            dl_btn.set_valign(Gtk.Align.CENTER)
-            dl_btn.set_tooltip_text("Download runner…")
-            dl_btn.add_css_class("flat")
-            dl_btn.connect("clicked", self._on_download_runner_clicked)
-            self._runner_row.add_suffix(dl_btn)
-
-            prefix_group.add(self._runner_row)
+            pass  # Runner selection is in the Runners group below.
         else:
-            # App projects select a base image; the runner is derived.
-            from cellar.backend.database import get_all_installed_bases
-            bases = get_all_installed_bases()
-            base_runners = [b["runner"] for b in bases]
-
-            base_model = Gtk.StringList.new(base_runners if base_runners else ["(no bases installed)"])
-            self._base_row = Adw.ComboRow(title="Base Image")
-            self._base_row.set_subtitle_lines(1)
-            self._base_row.set_model(base_model)
-            if project.runner and project.runner in base_runners:
-                self._base_row.set_selected(base_runners.index(project.runner))
-            self._base_row.connect("notify::selected", self._on_base_changed)
-
-            dl_btn = Gtk.Button(icon_name="list-add-symbolic")
-            dl_btn.set_valign(Gtk.Align.CENTER)
-            dl_btn.set_tooltip_text("Download base image…")
-            dl_btn.add_css_class("flat")
-            dl_btn.connect("clicked", self._on_download_base_clicked)
-            self._base_row.add_suffix(dl_btn)
-
-            prefix_group.add(self._base_row)
+            pass  # Base image selection is in the Base Image group below.
 
         # Prefix status row
         prefix_exists = project.prefix_path.is_dir()
@@ -567,57 +528,86 @@ class PackageBuilderView(Gtk.Box):
 
         page.add(pkg_group)
 
+        # ── Base image selection (app projects only) ─────────────────────
+        if project.project_type == "app":
+            base_group = Adw.PreferencesGroup(title="Base Image")
+            base_group.set_description(
+                "Select the base image this app is built against."
+            )
+            self._base_group = base_group
+            self._rebuild_base_rows(project)
+            page.add(base_group)
+
         # ── Runners management (base projects only) ───────────────────────
         if project.project_type == "base":
-            runners_group = Adw.PreferencesGroup(title="Runners")
+            runners_group = Adw.PreferencesGroup(title="Runner")
             runners_group.set_description(
-                "GE-Proton runners installed on this system."
+                "Select the GE-Proton runner for this base image."
             )
-
-            dl_runner_btn = Gtk.Button(icon_name="list-add-symbolic")
-            dl_runner_btn.set_tooltip_text("Download runner…")
-            dl_runner_btn.add_css_class("flat")
-            dl_runner_btn.connect("clicked", self._on_download_runner_clicked)
-            runners_group.set_header_suffix(dl_runner_btn)
-
-            from cellar.backend import runners as _runners
-            for rname in _runners.installed_runners():
-                runner_row = Adw.ActionRow(title=rname)
-                del_btn = Gtk.Button(icon_name="edit-delete-symbolic")
-                del_btn.set_valign(Gtk.Align.CENTER)
-                del_btn.add_css_class("flat")
-                del_btn.connect("clicked", self._on_delete_runner_clicked, rname)
-                runner_row.add_suffix(del_btn)
-                runners_group.add(runner_row)
-
+            self._runner_group = runners_group
+            self._rebuild_runner_rows(project)
             page.add(runners_group)
 
         self._detail_stack.set_visible_child_name("detail")
 
     # ------------------------------------------------------------------
-    # Signal handlers — prefix
+    # Signal handlers — runners (base projects)
     # ------------------------------------------------------------------
 
-    def _on_runner_changed(self, row, _param) -> None:
+    def _rebuild_runner_rows(self, project: Project) -> None:
+        """Rebuild the runner list rows in the Runners group."""
+        group = self._runner_group
+        for row in list(getattr(self, "_runner_rows", [])):
+            group.remove(row)
+        self._runner_rows: list[Adw.ActionRow] = []
+
+        from cellar.backend import runners as _runners
+        for rname in _runners.installed_runners():
+            row = Adw.ActionRow(title=rname)
+            row.set_activatable(True)
+            row.connect("activated", self._on_runner_row_activated, rname)
+
+            if rname == project.runner:
+                icon = Gtk.Image.new_from_icon_name("emblem-ok-symbolic")
+                icon.add_css_class("success")
+                row.add_prefix(icon)
+
+            del_btn = Gtk.Button(icon_name="user-trash-symbolic")
+            del_btn.set_valign(Gtk.Align.CENTER)
+            del_btn.add_css_class("flat")
+            del_btn.set_tooltip_text("Delete runner")
+            del_btn.connect("clicked", self._on_delete_runner_clicked, rname)
+            row.add_suffix(del_btn)
+
+            self._runner_rows.append(row)
+            group.add(row)
+
+        # "Download Runner" row at the bottom
+        add_row = Adw.ActionRow(title="Download Runner")
+        add_btn = Gtk.Button(label="Add", valign=Gtk.Align.CENTER)
+        add_btn.add_css_class("suggested-action")
+        add_btn.connect("clicked", self._on_download_runner_clicked)
+        add_row.add_suffix(add_btn)
+        add_row.set_activatable_widget(add_btn)
+        self._runner_rows.append(add_row)
+        group.add(add_row)
+
+    def _on_runner_row_activated(self, _row, runner_name: str) -> None:
+        """Select a runner for the current base project."""
         if self._project is None:
             return
-        from cellar.backend import runners as _runners
-        runners = _runners.installed_runners()
-        idx = row.get_selected()
-        if 0 <= idx < len(runners):
-            self._project.runner = runners[idx]
-            # For base projects the name IS the runner name.
-            if self._project.project_type == "base":
-                self._project.name = runners[idx]
-                for r in self._project_rows:
-                    if r.project is self._project:
-                        r.refresh_label()
-                        break
-            save_project(self._project)
-            if hasattr(self, "_init_btn"):
-                self._init_btn.set_sensitive(
-                    bool(self._project.runner) and not self._project.initialized
-                )
+        self._project.runner = runner_name
+        self._project.name = runner_name
+        for r in self._project_rows:
+            if r.project is self._project:
+                r.refresh_label()
+                break
+        save_project(self._project)
+        if hasattr(self, "_init_btn"):
+            self._init_btn.set_sensitive(
+                bool(self._project.runner) and not self._project.initialized
+            )
+        self._rebuild_runner_rows(self._project)
 
     def _on_download_runner_clicked(self, _btn) -> None:
         """Open the runner picker to download a new GE-Proton release."""
@@ -628,17 +618,20 @@ class PackageBuilderView(Gtk.Box):
         dialog.present(self)
 
     def _on_runner_installed(self, runner_name: str, project: Project | None) -> None:
-        """Called after a runner finishes installing — refresh the detail panel."""
+        """Called after a runner finishes installing — refresh the runner list."""
         if project is not None and self._project is project:
-            # Auto-select the newly installed runner if no runner was set
             if not project.runner:
                 project.runner = runner_name
+                project.name = runner_name
+                for r in self._project_rows:
+                    if r.project is project:
+                        r.refresh_label()
+                        break
                 save_project(project)
-            self._show_project(project)
+            self._rebuild_runner_rows(project)
 
     def _on_delete_runner_clicked(self, _btn, runner_name: str) -> None:
         """Confirm and delete an installed runner."""
-        # Warn if any project uses this runner.
         projects = load_projects()
         using = [p.name for p in projects if p.runner == runner_name]
 
@@ -663,40 +656,116 @@ class PackageBuilderView(Gtk.Box):
         from cellar.backend.runners import remove_runner
         remove_runner(runner_name)
         if self._project is not None:
-            self._show_project(self._project)
+            if self._project.runner == runner_name:
+                self._project.runner = ""
+                self._project.name = "(no runner)"
+                for r in self._project_rows:
+                    if r.project is self._project:
+                        r.refresh_label()
+                        break
+                save_project(self._project)
+            self._rebuild_runner_rows(self._project)
 
-    def _on_base_changed(self, row, _param) -> None:
-        """App project: user selected a different base image."""
-        if self._project is None:
-            return
+    # ------------------------------------------------------------------
+    # Signal handlers — base images (app projects)
+    # ------------------------------------------------------------------
+
+    def _rebuild_base_rows(self, project: Project) -> None:
+        """Rebuild the base image list rows in the Base Image group."""
+        group = self._base_group
+        for row in list(getattr(self, "_base_rows", [])):
+            group.remove(row)
+        self._base_rows: list[Adw.ActionRow] = []
+
         from cellar.backend.database import get_all_installed_bases
+        from cellar.backend.base_store import is_base_installed
         bases = get_all_installed_bases()
         base_runners = [b["runner"] for b in bases]
-        idx = row.get_selected()
-        if 0 <= idx < len(base_runners):
-            self._project.runner = base_runners[idx]
-            save_project(self._project)
-            if hasattr(self, "_init_btn"):
-                self._init_btn.set_sensitive(
-                    bool(self._project.runner) and not self._project.initialized
-                )
+
+        for runner in base_runners:
+            row = Adw.ActionRow(title=runner)
+            row.set_activatable(True)
+            row.connect("activated", self._on_base_row_activated, runner)
+
+            if runner == project.runner:
+                icon = Gtk.Image.new_from_icon_name("emblem-ok-symbolic")
+                icon.add_css_class("success")
+                row.add_prefix(icon)
+
+            del_btn = Gtk.Button(icon_name="user-trash-symbolic")
+            del_btn.set_valign(Gtk.Align.CENTER)
+            del_btn.add_css_class("flat")
+            del_btn.set_tooltip_text("Delete base image")
+            del_btn.connect("clicked", self._on_delete_base_clicked, runner)
+            row.add_suffix(del_btn)
+
+            self._base_rows.append(row)
+            group.add(row)
+
+        # "Download Base Image" row at the bottom
+        add_row = Adw.ActionRow(title="Download Base Image")
+        add_btn = Gtk.Button(label="Add", valign=Gtk.Align.CENTER)
+        add_btn.add_css_class("suggested-action")
+        add_btn.connect("clicked", self._on_download_base_clicked)
+        add_row.add_suffix(add_btn)
+        add_row.set_activatable_widget(add_btn)
+        self._base_rows.append(add_row)
+        group.add(add_row)
+
+    def _on_base_row_activated(self, _row, runner: str) -> None:
+        """Select a base image for the current app project."""
+        if self._project is None:
+            return
+        self._project.runner = runner
+        save_project(self._project)
+        if hasattr(self, "_init_btn"):
+            self._init_btn.set_sensitive(
+                bool(self._project.runner) and not self._project.initialized
+            )
+        self._rebuild_base_rows(self._project)
 
     def _on_download_base_clicked(self, _btn) -> None:
         """Open the base picker to download a base image from a repo."""
         project = self._project
         dialog = _BasePickerDialog(
-            repos=self._all_repos if hasattr(self, "_all_repos") else self._writable_repos,
+            repos=self._all_repos,
             on_installed=lambda runner: self._on_base_installed(runner, project),
         )
         dialog.present(self)
 
     def _on_base_installed(self, runner: str, project: Project | None) -> None:
-        """Called after a base finishes installing — refresh the detail panel."""
+        """Called after a base finishes installing — refresh the base list."""
         if project is not None and self._project is project:
             if not project.runner:
                 project.runner = runner
                 save_project(project)
-            self._show_project(project)
+            self._rebuild_base_rows(project)
+
+    def _on_delete_base_clicked(self, _btn, runner: str) -> None:
+        """Confirm and delete an installed base image."""
+        dialog = Adw.AlertDialog(
+            heading="Delete Base Image",
+            body=f"Delete base image \u201c{runner}\u201d from local storage?",
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("delete", "Delete")
+        dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+        dialog.connect(
+            "response",
+            lambda d, r: self._do_delete_base(runner) if r == "delete" else None,
+        )
+        dialog.present(self)
+
+    def _do_delete_base(self, runner: str) -> None:
+        from cellar.backend.base_store import remove_base
+        remove_base(runner)
+        if self._project is not None:
+            if self._project.runner == runner:
+                self._project.runner = ""
+                save_project(self._project)
+            self._rebuild_base_rows(self._project)
 
     def _on_init_prefix_clicked(self, _btn) -> None:
         if self._project is None or not self._project.runner:
@@ -1188,17 +1257,10 @@ class _ProjectRow(Gtk.ListBoxRow):
 
 
 class _CreateProjectDialog(Adw.Dialog):
-    """Dialog for creating a new App or Base project.
-
-    App projects: user supplies a name (the only required input).
-    Base projects: user picks a runner + Windows version — the name and slug
-    are auto-generated from those two choices, so no free-text name is needed.
-    """
+    """Dialog for creating a new App project (name input only)."""
 
     def __init__(self, project_type: ProjectType, on_created: Callable) -> None:
-        title = "New Base Image" if project_type == "base" else "New App Project"
-        super().__init__(title=title, content_width=440)
-        self._project_type = project_type
+        super().__init__(title="New App Project", content_width=440)
         self._on_created = on_created
 
         toolbar = Adw.ToolbarView()
@@ -1211,6 +1273,7 @@ class _CreateProjectDialog(Adw.Dialog):
 
         self._create_btn = Gtk.Button(label="Create")
         self._create_btn.add_css_class("suggested-action")
+        self._create_btn.set_sensitive(False)
         self._create_btn.connect("clicked", self._on_create_clicked)
         header.pack_end(self._create_btn)
 
@@ -1219,76 +1282,22 @@ class _CreateProjectDialog(Adw.Dialog):
         page = Adw.PreferencesPage()
         group = Adw.PreferencesGroup()
 
-        self._name_entry: Adw.EntryRow | None = None
-        self._runner_row: Adw.ComboRow | None = None
-        self._runners: list[str] = []
-
-        if project_type == "app":
-            # App projects need a user-supplied name.
-            self._name_entry = Adw.EntryRow(title="Project Name")
-            self._name_entry.connect("changed", self._validate)
-            group.add(self._name_entry)
-        else:
-            # Base projects: identity = runner.  Name is auto-generated.
-            from cellar.backend import runners as _runners
-            self._runners = _runners.installed_runners()
-
-            runner_model = Gtk.StringList.new(self._runners or ["(no runners installed)"])
-            self._runner_row = Adw.ComboRow(title="Runner")
-            self._runner_row.set_model(runner_model)
-            self._runner_row.connect("notify::selected", self._validate)
-
-            dl_btn = Gtk.Button(icon_name="list-add-symbolic")
-            dl_btn.set_valign(Gtk.Align.CENTER)
-            dl_btn.set_tooltip_text("Download runner…")
-            dl_btn.add_css_class("flat")
-            dl_btn.connect("clicked", self._on_download_runner_clicked)
-            self._runner_row.add_suffix(dl_btn)
-
-            group.add(self._runner_row)
-            group.set_description(
-                "One base per runner. Windows version is set per-app via winetricks."
-            )
+        self._name_entry = Adw.EntryRow(title="Project Name")
+        self._name_entry.connect("changed", self._validate)
+        group.add(self._name_entry)
 
         page.add(group)
         toolbar.set_content(page)
         self.set_child(toolbar)
-        self._validate()
 
     def _validate(self, *_args) -> None:
-        ok = True
-        if self._name_entry is not None:
-            ok = bool(self._name_entry.get_text().strip())
-        elif self._runner_row is not None:
-            ok = bool(self._runners) and self._runner_row.get_selected() < len(self._runners)
-        self._create_btn.set_sensitive(ok)
-
-    def _on_download_runner_clicked(self, _btn) -> None:
-        def _on_installed(name: str) -> None:
-            from cellar.backend import runners as _runners
-            self._runners = _runners.installed_runners()
-            model = Gtk.StringList.new(self._runners)
-            self._runner_row.set_model(model)
-            if name in self._runners:
-                self._runner_row.set_selected(self._runners.index(name))
-            self._validate()
-
-        dialog = _RunnerPickerDialog(on_installed=_on_installed)
-        dialog.present(self)
+        self._create_btn.set_sensitive(bool(self._name_entry.get_text().strip()))
 
     def _on_create_clicked(self, _btn) -> None:
-        if self._project_type == "app":
-            name = self._name_entry.get_text().strip()
-            if not name:
-                return
-            project = create_project(name, "app")
-        else:
-            runner = ""
-            if self._runners and self._runner_row is not None:
-                idx = self._runner_row.get_selected()
-                if 0 <= idx < len(self._runners):
-                    runner = self._runners[idx]
-            project = create_project("", "base", runner=runner)
+        name = self._name_entry.get_text().strip()
+        if not name:
+            return
+        project = create_project(name, "app")
         self.close()
         self._on_created(project)
 

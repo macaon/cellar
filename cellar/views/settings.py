@@ -74,6 +74,9 @@ class SettingsDialog(Adw.PreferencesDialog):
         # ── Group: umu-launcher ───────────────────────────────────────────
         self._build_umu_group(page)
 
+        # ── Group: Installed Base Images ──────────────────────────────────
+        self._build_bases_group(page)
+
         # ── Group: IGDB Integration ────────────────────────────────────────
         self._build_igdb_group(page)
 
@@ -113,6 +116,73 @@ class SettingsDialog(Adw.PreferencesDialog):
         from cellar.backend.config import save_umu_path
         path = self._umu_path_row.get_text().strip() or None
         save_umu_path(path)
+
+    # ------------------------------------------------------------------
+    # Installed Base Images
+    # ------------------------------------------------------------------
+
+    def _build_bases_group(self, page: Adw.PreferencesPage) -> None:
+        self._bases_page = page
+        self._bases_group = Adw.PreferencesGroup(
+            title="Installed Base Images",
+            description=(
+                "Base images are shared by delta packages. Removing one will "
+                "require a re-download the next time a dependent title is launched."
+            ),
+        )
+        page.add(self._bases_group)
+        self._bases_rows: list[Adw.ActionRow] = []
+        self._rebuild_bases_rows()
+
+    def _rebuild_bases_rows(self) -> None:
+        from cellar.backend.database import get_all_installed_bases
+
+        for row in self._bases_rows:
+            self._bases_group.remove(row)
+        self._bases_rows.clear()
+
+        bases = get_all_installed_bases()
+        if not bases:
+            row = Adw.ActionRow(title="No base images installed")
+            row.set_sensitive(False)
+            self._bases_rows.append(row)
+            self._bases_group.add(row)
+            return
+
+        for rec in bases:
+            runner = rec["runner"]
+            installed_at = (rec.get("installed_at") or "")[:10]
+            row = Adw.ActionRow(title=runner, subtitle=f"Installed {installed_at}" if installed_at else "")
+            del_btn = Gtk.Button(
+                icon_name="user-trash-symbolic",
+                valign=Gtk.Align.CENTER,
+                has_frame=False,
+                tooltip_text="Remove base image",
+                css_classes=["destructive-action"],
+            )
+            del_btn.connect("clicked", self._on_delete_base, runner)
+            row.add_suffix(del_btn)
+            self._bases_rows.append(row)
+            self._bases_group.add(row)
+
+    def _on_delete_base(self, _btn: Gtk.Button, runner: str) -> None:
+        dialog = Adw.AlertDialog(
+            heading="Remove Base Image?",
+            body=f"The base image for "{runner}" will be deleted from local storage. "
+                 "If a delta package that depends on it is launched, it will be downloaded again.",
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("remove", "Remove")
+        dialog.set_response_appearance("remove", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.connect("response", self._on_delete_base_confirmed, runner)
+        dialog.present(self)
+
+    def _on_delete_base_confirmed(self, _dialog, response: str, runner: str) -> None:
+        if response != "remove":
+            return
+        from cellar.backend.base_store import remove_base
+        remove_base(runner)
+        self._rebuild_bases_rows()
 
     # ------------------------------------------------------------------
     # IGDB Integration

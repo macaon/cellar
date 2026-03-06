@@ -147,6 +147,67 @@ def launch_app(
     subprocess.Popen(cmd, env=env, start_new_session=True)
 
 
+def init_prefix(
+    prefix_path: Path,
+    runner_name: str,
+    *,
+    timeout: int = 120,
+) -> subprocess.CompletedProcess:
+    """Initialise a fresh WINEPREFIX using the wineboot binary from the Proton bundle.
+
+    Uses wineboot directly rather than umu-run: umu expects ``EXE`` to be a
+    Windows executable path, which ``wineboot`` is not.
+
+    Raises ``RuntimeError`` if the wineboot binary is not found in the bundle.
+    """
+    import os
+    wineboot = runners_dir() / runner_name / "files" / "bin" / "wineboot"
+    if not wineboot.is_file():
+        raise RuntimeError(
+            f"wineboot not found in Proton bundle: {wineboot}\n"
+            "Make sure the runner is fully extracted."
+        )
+    prefix_path.mkdir(parents=True, exist_ok=True)
+    env = {**os.environ, "WINEPREFIX": str(prefix_path)}
+    cmd = [str(wineboot), "--init"]
+    log.info("init_prefix: %s  WINEPREFIX=%s", " ".join(cmd), prefix_path)
+    result = subprocess.run(cmd, env=env, timeout=timeout, capture_output=False)
+    log.info("init_prefix exited with code %d", result.returncode)
+    return result
+
+
+def run_winetricks(
+    prefix_path: Path,
+    runner_name: str,
+    verbs: list[str],
+    *,
+    gameid: int = 0,
+    timeout: int = 600,
+) -> subprocess.CompletedProcess:
+    """Run winetricks verbs inside *prefix_path* via umu-run.
+
+    Winetricks is a positional argument to umu, not an ``EXE`` env var:
+    ``umu-run winetricks <verb1> <verb2> …``
+    """
+    import os
+    base_env: dict[str, str] = {
+        "WINEPREFIX": str(prefix_path),
+        "PROTONPATH": str(runners_dir() / runner_name),
+        "GAMEID": str(gameid) if gameid else "0",
+    }
+    env = {**os.environ, **base_env}
+    cmd = _umu_cmd() + ["winetricks"] + verbs
+    log.info(
+        "run_winetricks: %s\n  WINEPREFIX=%s\n  PROTONPATH=%s\n  GAMEID=%s\n  verbs=%s",
+        " ".join(cmd[:len(_umu_cmd())]),
+        base_env["WINEPREFIX"], base_env["PROTONPATH"], base_env["GAMEID"],
+        " ".join(verbs),
+    )
+    result = subprocess.run(cmd, env=env, timeout=timeout, capture_output=False)
+    log.info("run_winetricks exited with code %d", result.returncode)
+    return result
+
+
 def run_in_prefix(
     prefix_path: Path,
     runner_name: str,

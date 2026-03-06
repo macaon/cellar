@@ -449,12 +449,28 @@ class PackageBuilderView(Gtk.Box):
         if self._project is None or not self._project.runner:
             return
         project = self._project
-        self._run_in_prefix_with_progress(
-            project,
-            exe="wineboot",
-            label="Initializing prefix…",
-            on_done=lambda ok: self._on_init_done(project, ok),
-        )
+        project.prefix_path.mkdir(parents=True, exist_ok=True)
+
+        progress = _ProgressDialog(label="Initializing prefix…")
+        progress.present(self)
+
+        def _bg():
+            try:
+                from cellar.backend.umu import init_prefix
+                result = init_prefix(project.prefix_path, project.runner)
+                ok = result.returncode == 0
+            except Exception as exc:
+                log.error("init_prefix failed: %s", exc)
+                ok = False
+            GLib.idle_add(_finish, ok)
+
+        def _finish(ok: bool) -> None:
+            progress.force_close()
+            self._on_init_done(project, ok)
+            if not ok:
+                self._show_toast("Prefix initialization failed. Check logs.")
+
+        threading.Thread(target=_bg, daemon=True).start()
 
     def _on_init_done(self, project: Project, ok: bool) -> None:
         if ok:
@@ -479,12 +495,31 @@ class PackageBuilderView(Gtk.Box):
         if self._project is None or not verbs.strip():
             return
         project = self._project
-        self._run_in_prefix_with_progress(
-            project,
-            exe=f"winetricks {verbs.strip()}",
-            label=f"Installing {verbs.strip()}…",
-            on_done=lambda ok: self._on_dep_done(project, verbs.strip(), ok),
-        )
+        verb_list = verbs.strip().split()
+        if not project.runner:
+            self._show_toast("Select a runner first.")
+            return
+
+        progress = _ProgressDialog(label=f"Installing {verbs.strip()}…")
+        progress.present(self)
+
+        def _bg():
+            try:
+                from cellar.backend.umu import run_winetricks
+                result = run_winetricks(project.prefix_path, project.runner, verb_list)
+                ok = result.returncode == 0
+            except Exception as exc:
+                log.error("run_winetricks failed: %s", exc)
+                ok = False
+            GLib.idle_add(_finish, ok)
+
+        def _finish(ok: bool) -> None:
+            progress.force_close()
+            self._on_dep_done(project, verbs.strip(), ok)
+            if not ok:
+                self._show_toast("Dependency install failed. Check logs.")
+
+        threading.Thread(target=_bg, daemon=True).start()
 
     def _on_dep_done(self, project: Project, verbs: str, ok: bool) -> None:
         if ok:

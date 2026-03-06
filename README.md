@@ -98,7 +98,6 @@ repo/
     <id>/
       icon.png            square icon — PNG, JPG, ICO, or SVG
       cover.png           portrait cover (2:3) — shown in browse cards
-      hero.png            wide banner — stored but reserved for future use
       logo.png            transparent logo — replaces icon in detail view (use with hide_title)
       screenshots/
         01.png

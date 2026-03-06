@@ -74,10 +74,12 @@ class _FixedBox(Gtk.Widget):
             self.snapshot_child(child, snapshot)
 
     def do_dispose(self) -> None:
-        child = self._child
         self._child = None
-        if child is not None:
+        child = self.get_first_child()
+        while child is not None:
+            nxt = child.get_next_sibling()
             child.unparent()
+            child = nxt
         super().do_dispose()
 
 

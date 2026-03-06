@@ -23,6 +23,17 @@ log = logging.getLogger(__name__)
 ProjectType = Literal["app", "base"]
 
 
+WINVER_OPTIONS: list[str] = ["winxp", "win7", "win8", "win81", "win10", "win11"]
+WINVER_LABELS: dict[str, str] = {
+    "winxp": "Windows XP",
+    "win7": "Windows 7",
+    "win8": "Windows 8",
+    "win81": "Windows 8.1",
+    "win10": "Windows 10",
+    "win11": "Windows 11",
+}
+
+
 @dataclass
 class Project:
     """Metadata for a Package Builder project."""
@@ -31,11 +42,12 @@ class Project:
     slug: str
     project_type: ProjectType = "app"
     runner: str = ""
-    entry_point: str = ""          # relative to drive_c (App only)
+    windows_version: str = "win10"  # Base projects only — winetricks winXX verb
+    entry_point: str = ""           # relative to drive_c (App only)
     steam_appid: int | None = None
     deps_installed: list[str] = field(default_factory=list)
     notes: str = ""
-    initialized: bool = False      # True once wineboot --init has run
+    initialized: bool = False       # True once prefix has been initialized
 
     # ------------------------------------------------------------------
     # Derived paths
@@ -61,6 +73,7 @@ class Project:
             slug=data.get("slug", ""),
             project_type=data.get("project_type", "app"),
             runner=data.get("runner", ""),
+            windows_version=data.get("windows_version", "win10"),
             entry_point=data.get("entry_point", ""),
             steam_appid=data.get("steam_appid"),
             deps_installed=list(data.get("deps_installed", [])),
@@ -76,6 +89,8 @@ class Project:
         }
         if self.runner:
             d["runner"] = self.runner
+        if self.project_type == "base":
+            d["windows_version"] = self.windows_version
         if self.entry_point:
             d["entry_point"] = self.entry_point
         if self.steam_appid is not None:
@@ -121,17 +136,41 @@ def save_project(project: Project) -> None:
     )
 
 
-def create_project(name: str, project_type: ProjectType, runner: str = "") -> Project:
-    """Create, persist, and return a new project with a unique slug."""
+def create_project(
+    name: str,
+    project_type: ProjectType,
+    runner: str = "",
+    windows_version: str = "win10",
+) -> Project:
+    """Create, persist, and return a new project with a unique slug.
+
+    For base projects the *name* is ignored — it is auto-generated from
+    *runner* and *windows_version* (e.g. ``"GE-Proton10-32 / Windows 10"``).
+    The slug is similarly derived so the directory name is predictable.
+    """
     from cellar.backend.packager import slugify
-    slug = slugify(name)
+
+    if project_type == "base":
+        winver_label = WINVER_LABELS.get(windows_version, windows_version)
+        name = f"{runner} / {winver_label}" if runner else f"(no runner) / {winver_label}"
+        slug = slugify(f"{runner}-{windows_version}") if runner else slugify(windows_version)
+    else:
+        slug = slugify(name)
+
     existing = {p.slug for p in load_projects()}
     base_slug = slug
     i = 2
     while slug in existing:
         slug = f"{base_slug}-{i}"
         i += 1
-    project = Project(name=name, slug=slug, project_type=project_type, runner=runner)
+
+    project = Project(
+        name=name,
+        slug=slug,
+        project_type=project_type,
+        runner=runner,
+        windows_version=windows_version,
+    )
     save_project(project)
     return project
 

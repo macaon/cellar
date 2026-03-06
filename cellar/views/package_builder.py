@@ -245,6 +245,7 @@ class PackageBuilderView(Gtk.Box):
 
         # Runner selector
         from cellar.backend import runners as _runners
+        from cellar.backend.project import WINVER_LABELS, WINVER_OPTIONS
         runners = _runners.installed_runners()
 
         runner_model = Gtk.StringList.new(runners if runners else ["(no runners installed)"])
@@ -262,6 +263,19 @@ class PackageBuilderView(Gtk.Box):
         self._runner_row.add_suffix(dl_btn)
 
         prefix_group.add(self._runner_row)
+
+        # Windows version row — Base projects only
+        if project.project_type == "base":
+            winver_labels = [WINVER_LABELS[v] for v in WINVER_OPTIONS]
+            winver_model = Gtk.StringList.new(winver_labels)
+            self._winver_row = Adw.ComboRow(title="Windows Version")
+            self._winver_row.set_model(winver_model)
+            cur_winver = project.windows_version or "win10"
+            if cur_winver in WINVER_OPTIONS:
+                self._winver_row.set_selected(WINVER_OPTIONS.index(cur_winver))
+            self._winver_row.set_sensitive(not project.initialized)
+            self._winver_row.connect("notify::selected", self._on_winver_changed)
+            prefix_group.add(self._winver_row)
 
         # Prefix status row
         prefix_exists = project.prefix_path.is_dir()
@@ -422,11 +436,37 @@ class PackageBuilderView(Gtk.Box):
         idx = row.get_selected()
         if 0 <= idx < len(runners):
             self._project.runner = runners[idx]
+            self._update_base_name()
             save_project(self._project)
             if hasattr(self, "_init_btn"):
                 self._init_btn.set_sensitive(
                     bool(self._project.runner) and not self._project.initialized
                 )
+
+    def _on_winver_changed(self, row, _param) -> None:
+        if self._project is None:
+            return
+        from cellar.backend.project import WINVER_OPTIONS
+        idx = row.get_selected()
+        if 0 <= idx < len(WINVER_OPTIONS):
+            self._project.windows_version = WINVER_OPTIONS[idx]
+            self._update_base_name()
+            save_project(self._project)
+
+    def _update_base_name(self) -> None:
+        """Refresh the auto-generated name for a base project after runner/winver change."""
+        if self._project is None or self._project.project_type != "base":
+            return
+        from cellar.backend.project import WINVER_LABELS
+        runner = self._project.runner
+        winver = self._project.windows_version or "win10"
+        winver_label = WINVER_LABELS.get(winver, winver)
+        self._project.name = f"{runner} / {winver_label}" if runner else f"(no runner) / {winver_label}"
+        # Update the sidebar row label
+        for row in self._project_rows:
+            if row.project is self._project:
+                row.refresh_label()
+                break
 
     def _on_download_runner_clicked(self, _btn) -> None:
         """Open the runner picker to download a new GE-Proton release."""
@@ -451,14 +491,26 @@ class PackageBuilderView(Gtk.Box):
         project = self._project
         project.prefix_path.mkdir(parents=True, exist_ok=True)
 
-        progress = _ProgressDialog(label="Initializing prefix…")
+        is_base = project.project_type == "base"
+        winver = project.windows_version if is_base else None
+        label = f"Initializing prefix…"
+        if winver:
+            from cellar.backend.project import WINVER_LABELS
+            label = f"Initializing prefix ({WINVER_LABELS.get(winver, winver)})…"
+
+        progress = _ProgressDialog(label=label)
         progress.present(self)
 
         def _bg():
             try:
-                from cellar.backend.umu import init_prefix
+                from cellar.backend.umu import init_prefix, run_winetricks
                 result = init_prefix(project.prefix_path, project.runner)
                 ok = result.returncode == 0
+                # For base projects, also set the Windows version via winetricks.
+                if ok and winver:
+                    GLib.idle_add(progress.set_label, f"Setting Windows version…")
+                    result2 = run_winetricks(project.prefix_path, project.runner, [winver])
+                    ok = result2.returncode == 0
             except Exception as exc:
                 log.error("init_prefix failed: %s", exc)
                 ok = False
@@ -480,6 +532,9 @@ class PackageBuilderView(Gtk.Box):
                 self._prefix_status_row.set_subtitle("Initialized")
             if hasattr(self, "_init_btn"):
                 self._init_btn.set_sensitive(False)
+            # Lock windows version selection after init (it's baked into the prefix)
+            if hasattr(self, "_winver_row"):
+                self._winver_row.set_sensitive(False)
 
     # ------------------------------------------------------------------
     # Signal handlers — dependencies
@@ -852,31 +907,46 @@ class _ProjectRow(Gtk.ListBoxRow):
         super().__init__()
         self.project = project
 
-        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         box.set_margin_top(8)
         box.set_margin_bottom(8)
         box.set_margin_start(12)
         box.set_margin_end(12)
 
-        label = Gtk.Label(label=project.name, xalign=0)
-        label.set_hexpand(True)
-        label.set_ellipsize(3)  # Pango.EllipsizeMode.END
-        box.append(label)
+        top = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+
+        self._label = Gtk.Label(label=project.name, xalign=0)
+        self._label.set_hexpand(True)
+        self._label.set_ellipsize(3)  # Pango.EllipsizeMode.END
+        top.append(self._label)
 
         badge = Gtk.Label(label="Base" if project.project_type == "base" else "App")
         badge.add_css_class("caption")
         badge.add_css_class("dim-label")
-        box.append(badge)
+        top.append(badge)
+
+        box.append(top)
 
         self.set_child(box)
 
+    def refresh_label(self) -> None:
+        """Update the displayed name (called when runner/winver changes)."""
+        self._label.set_label(self.project.name)
+
 
 class _CreateProjectDialog(Adw.Dialog):
-    """Dialog for creating a new App or Base project."""
+    """Dialog for creating a new App or Base project.
+
+    App projects: user supplies a name (the only required input).
+    Base projects: user picks a runner + Windows version — the name and slug
+    are auto-generated from those two choices, so no free-text name is needed.
+    """
 
     def __init__(self, project_type: ProjectType, on_created: Callable) -> None:
-        title = "New Base Project" if project_type == "base" else "New App Project"
-        super().__init__(title=title, content_width=420)
+        from cellar.backend.project import WINVER_LABELS, WINVER_OPTIONS
+
+        title = "New Base Image" if project_type == "base" else "New App Project"
+        super().__init__(title=title, content_width=440)
         self._project_type = project_type
         self._on_created = on_created
 
@@ -890,7 +960,6 @@ class _CreateProjectDialog(Adw.Dialog):
 
         self._create_btn = Gtk.Button(label="Create")
         self._create_btn.add_css_class("suggested-action")
-        self._create_btn.set_sensitive(False)
         self._create_btn.connect("clicked", self._on_create_clicked)
         header.pack_end(self._create_btn)
 
@@ -899,38 +968,92 @@ class _CreateProjectDialog(Adw.Dialog):
         page = Adw.PreferencesPage()
         group = Adw.PreferencesGroup()
 
-        self._name_entry = Adw.EntryRow(title="Project Name *")
-        self._name_entry.connect("changed", self._on_name_changed)
-        group.add(self._name_entry)
-
-        # Runner selector — Base projects only (runner = base identity)
+        self._name_entry: Adw.EntryRow | None = None
         self._runner_row: Adw.ComboRow | None = None
+        self._winver_row: Adw.ComboRow | None = None
         self._runners: list[str] = []
-        if project_type == "base":
+        self._winver_options: list[str] = WINVER_OPTIONS
+
+        if project_type == "app":
+            # App projects need a user-supplied name.
+            self._name_entry = Adw.EntryRow(title="Project Name")
+            self._name_entry.connect("changed", self._validate)
+            group.add(self._name_entry)
+        else:
+            # Base projects: identity = runner × windows version.
             from cellar.backend import runners as _runners
             self._runners = _runners.installed_runners()
+
             runner_model = Gtk.StringList.new(self._runners or ["(no runners installed)"])
             self._runner_row = Adw.ComboRow(title="Runner")
             self._runner_row.set_model(runner_model)
+            self._runner_row.connect("notify::selected", self._validate)
+
+            dl_btn = Gtk.Button(label="Download…")
+            dl_btn.set_valign(Gtk.Align.CENTER)
+            dl_btn.add_css_class("flat")
+            dl_btn.connect("clicked", self._on_download_runner_clicked)
+            self._runner_row.add_suffix(dl_btn)
+
             group.add(self._runner_row)
+
+            winver_labels = [WINVER_LABELS[v] for v in WINVER_OPTIONS]
+            winver_model = Gtk.StringList.new(winver_labels)
+            self._winver_row = Adw.ComboRow(title="Windows Version")
+            self._winver_row.set_model(winver_model)
+            # Default to win10 (index 4)
+            self._winver_row.set_selected(WINVER_OPTIONS.index("win10"))
+            group.add(self._winver_row)
+
+            group.set_description(
+                "The base image will be named automatically from the runner "
+                "and Windows version you choose."
+            )
 
         page.add(group)
         toolbar.set_content(page)
         self.set_child(toolbar)
+        self._validate()
 
-    def _on_name_changed(self, entry) -> None:
-        self._create_btn.set_sensitive(bool(entry.get_text().strip()))
+    def _validate(self, *_args) -> None:
+        ok = True
+        if self._name_entry is not None:
+            ok = bool(self._name_entry.get_text().strip())
+        elif self._runner_row is not None:
+            ok = bool(self._runners) and self._runner_row.get_selected() < len(self._runners)
+        self._create_btn.set_sensitive(ok)
+
+    def _on_download_runner_clicked(self, _btn) -> None:
+        def _on_installed(name: str) -> None:
+            from cellar.backend import runners as _runners
+            self._runners = _runners.installed_runners()
+            model = Gtk.StringList.new(self._runners)
+            self._runner_row.set_model(model)
+            if name in self._runners:
+                self._runner_row.set_selected(self._runners.index(name))
+            self._validate()
+
+        dialog = _RunnerPickerDialog(on_installed=_on_installed)
+        dialog.present(self)
 
     def _on_create_clicked(self, _btn) -> None:
-        name = self._name_entry.get_text().strip()
-        if not name:
-            return
-        runner = ""
-        if self._runner_row is not None and self._runners:
-            idx = self._runner_row.get_selected()
-            if 0 <= idx < len(self._runners):
-                runner = self._runners[idx]
-        project = create_project(name, self._project_type, runner)
+        if self._project_type == "app":
+            name = self._name_entry.get_text().strip()
+            if not name:
+                return
+            project = create_project(name, "app")
+        else:
+            runner = ""
+            if self._runners and self._runner_row is not None:
+                idx = self._runner_row.get_selected()
+                if 0 <= idx < len(self._runners):
+                    runner = self._runners[idx]
+            winver = "win10"
+            if self._winver_row is not None:
+                idx = self._winver_row.get_selected()
+                if 0 <= idx < len(self._winver_options):
+                    winver = self._winver_options[idx]
+            project = create_project("", "base", runner=runner, windows_version=winver)
         self.close()
         self._on_created(project)
 

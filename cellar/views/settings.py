@@ -1175,7 +1175,13 @@ class AddEditRepoDialog(Adw.Dialog):
         page = Adw.PreferencesPage()
         scroll.set_child(page)
 
-        group = Adw.PreferencesGroup()
+        group = Adw.PreferencesGroup(
+            description=(
+                "Accepted formats: smb://server/share/path  ·  "
+                "https://server/path  ·  ssh://user@server/path  ·  /local/path\n"
+                "UNC paths (//server/share/…) are automatically converted to smb://."
+            ),
+        )
         page.add(group)
 
         # Name
@@ -1211,8 +1217,12 @@ class AddEditRepoDialog(Adw.Dialog):
             self._smb_pass_row.set_text(stored_pw)
         self._smb_group.add(self._smb_pass_row)
 
-        # Show SMB group only for smb:// URIs
-        is_smb = urlparse(self._existing.get("uri", "") if self._existing else "").scheme.lower() == "smb"
+        # Show SMB group only for smb:// URIs (or bare UNC paths starting with //).
+        _existing_uri = self._existing.get("uri", "") if self._existing else ""
+        is_smb = (
+            urlparse(_existing_uri).scheme.lower() == "smb"
+            or (_existing_uri.startswith("//") and "://" not in _existing_uri)
+        )
         self._smb_group.set_visible(is_smb)
 
         # HTTP-only group
@@ -1261,8 +1271,10 @@ class AddEditRepoDialog(Adw.Dialog):
 
     def _on_uri_changed(self, _entry) -> None:
         """Show/hide SMB and HTTP credential groups based on current URI scheme."""
-        scheme = urlparse(self._uri_row.get_text().strip()).scheme.lower()
-        is_smb = scheme == "smb"
+        text = self._uri_row.get_text().strip()
+        scheme = urlparse(text).scheme.lower()
+        # UNC paths (//server/share/…) are SMB even without the smb: prefix.
+        is_smb = scheme == "smb" or (text.startswith("//") and "://" not in text)
         self._smb_group.set_visible(is_smb)
         self._http_group.set_visible(not is_smb)
 
@@ -1300,6 +1312,11 @@ class AddEditRepoDialog(Adw.Dialog):
         if not uri:
             self._alert("URI Required", "Please enter a repository URI.")
             return
+
+        # Auto-convert UNC paths (//server/share/path) to smb:// URIs.
+        if uri.startswith("//") and "://" not in uri:
+            uri = "smb:" + uri
+            self._uri_row.set_text(uri)
 
         name = self._name_row.get_text().strip()
         scheme = urlparse(uri).scheme.lower()
@@ -1340,7 +1357,17 @@ class AddEditRepoDialog(Adw.Dialog):
                 smb_password=smb_password,
             )
         except RepoError as exc:
-            self._alert("Invalid Repository", str(exc))
+            err = str(exc)
+            if is_smb and _looks_like_smb_auth_error(err):
+                self._alert(
+                    "SMB Authentication Failed",
+                    "Could not authenticate with the SMB server.\n\n"
+                    "Enter your username and password in the SMB Credentials "
+                    "section above and try again.\n\n"
+                    f"Details: {err}",
+                )
+            else:
+                self._alert("Invalid Repository", err)
             return
 
         try:
@@ -1386,6 +1413,16 @@ class AddEditRepoDialog(Adw.Dialog):
                     f"The server at {uri} presented a certificate that could not "
                     "be verified. Provide your CA certificate file using the "
                     "CA Certificate field above, or disable SSL verification.",
+                )
+            elif is_smb and _looks_like_smb_auth_error(err):
+                cred_hint = (
+                    "Enter your username and password in the SMB Credentials section above."
+                    if not smb_username
+                    else "Check that your username and password are correct."
+                )
+                self._alert(
+                    "SMB Access Denied",
+                    f"Access to {uri} was denied by the SMB server.\n\n{cred_hint}",
                 )
             else:
                 self._alert("Could Not Connect", err)
@@ -1519,7 +1556,19 @@ class AddEditRepoDialog(Adw.Dialog):
             )
             return
         except Exception as exc:
-            self._alert("Could Not Initialise", str(exc))
+            err = str(exc)
+            if _looks_like_smb_auth_error(err):
+                cred_hint = (
+                    "Enter your username and password in the SMB Credentials section."
+                    if not smb_username
+                    else "Check that your username and password are correct."
+                )
+                self._alert(
+                    "Could Not Initialise",
+                    f"SMB access was denied while creating the repository.\n\n{cred_hint}",
+                )
+            else:
+                self._alert("Could Not Initialise", err)
             return
         self._finish_save(uri, name, token, ssl_verify, None, smb_username, smb_password)
 
@@ -1671,7 +1720,22 @@ def _looks_like_missing(err: str) -> bool:
     low = err.lower()
     if "mount" in low:
         return False
-    return any(kw in low for kw in ("not found", "does not exist", "no such file"))
+    return any(kw in low for kw in (
+        "not found", "does not exist", "no such file",
+        "cannot find", "path not found", "object name not found",
+        "object path not found",
+    ))
+
+
+def _looks_like_smb_auth_error(err: str) -> bool:
+    """Heuristic: does this look like an SMB authentication or access-denied failure?"""
+    low = err.lower()
+    return any(kw in low for kw in (
+        "access denied", "access_denied", "permission denied",
+        "logon failure", "wrong password", "bad password",
+        "status_access_denied", "status_logon_failure",
+        "authentication", "0xc000006d", "0xc0000022", "0xc000006e",
+    ))
 
 
 def _looks_like_ssl_error(err: str) -> bool:

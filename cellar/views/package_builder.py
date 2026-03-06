@@ -348,21 +348,33 @@ class PackageBuilderView(Gtk.Box):
 
     def _show_project(self, project: Project) -> None:
         """Build and display the detail panel for *project*."""
-        # Rebuild the detail content
         page = Adw.PreferencesPage()
         clamp = Adw.Clamp(maximum_size=700)
         clamp.set_child(page)
         self._detail_scroll.set_child(clamp)
 
-        # ── Prefix section ────────────────────────────────────────────────
-        prefix_group = Adw.PreferencesGroup(title="Prefix")
+        # ── 1. Runner / Base Image (expandable, at top) ───────────────────
+        sel_group = Adw.PreferencesGroup()
+        if project.project_type == "base":
+            expander_title = "Runner"
+            expander_subtitle = project.runner or "No runner selected"
+        else:
+            expander_title = "Base Image"
+            expander_subtitle = project.runner or "No base image selected"
+        self._sel_expander = Adw.ExpanderRow(
+            title=expander_title,
+            subtitle=expander_subtitle,
+        )
+        sel_group.add(self._sel_expander)
+        page.add(sel_group)
 
         if project.project_type == "base":
-            pass  # Runner selection is in the Runners group below.
+            self._populate_runner_expander(project)
         else:
-            pass  # Base image selection is in the Base Image group below.
+            self._populate_base_expander(project)
 
-        # Prefix status row
+        # ── 2. Prefix section ─────────────────────────────────────────────
+        prefix_group = Adw.PreferencesGroup(title="Prefix")
         prefix_exists = project.prefix_path.is_dir()
         status_text = "Initialized" if (prefix_exists and project.initialized) else (
             "Directory exists (not initialized)" if prefix_exists else "Not initialized"
@@ -378,16 +390,14 @@ class PackageBuilderView(Gtk.Box):
         self._init_btn.connect("clicked", self._on_init_prefix_clicked)
         self._prefix_status_row.add_suffix(self._init_btn)
         prefix_group.add(self._prefix_status_row)
-
         page.add(prefix_group)
 
-        # ── Dependencies section ───────────────────────────────────────────
+        # ── 3. Dependencies section ───────────────────────────────────────
         dep_group = Adw.PreferencesGroup(title="Dependencies")
         dep_group.set_description(
             "Winetricks verbs installed in this prefix. "
             "Requires winetricks on PATH."
         )
-
         for verb in project.deps_installed:
             row = Adw.ActionRow(title=verb)
             rm_btn = Gtk.Button(icon_name="edit-delete-symbolic")
@@ -397,15 +407,16 @@ class PackageBuilderView(Gtk.Box):
             row.add_suffix(rm_btn)
             dep_group.add(row)
 
-        add_dep_btn = Gtk.Button(icon_name="list-add-symbolic")
-        add_dep_btn.set_tooltip_text("Add dependency…")
-        add_dep_btn.add_css_class("flat")
+        add_dep_row = Adw.ActionRow(title="Add Dependencies\u2026")
+        add_dep_btn = Gtk.Button(label="Add\u2026", valign=Gtk.Align.CENTER)
+        add_dep_btn.add_css_class("suggested-action")
         add_dep_btn.connect("clicked", self._on_add_dep_clicked)
-        dep_group.set_header_suffix(add_dep_btn)
-
+        add_dep_row.add_suffix(add_dep_btn)
+        add_dep_row.set_activatable_widget(add_dep_btn)
+        dep_group.add(add_dep_row)
         page.add(dep_group)
 
-        # ── Files section (App projects only) ─────────────────────────────
+        # ── 4. Files section (App projects only) ──────────────────────────
         if project.project_type == "app":
             files_group = Adw.PreferencesGroup(title="Files")
 
@@ -413,22 +424,11 @@ class PackageBuilderView(Gtk.Box):
                 title="Run Installer",
                 subtitle="Run a .exe inside the prefix",
             )
-            run_btn = Gtk.Button(label="Choose…")
+            run_btn = Gtk.Button(label="Choose\u2026")
             run_btn.set_valign(Gtk.Align.CENTER)
             run_btn.connect("clicked", self._on_run_installer_clicked)
             run_installer_row.add_suffix(run_btn)
             files_group.add(run_installer_row)
-
-            browse_row = Adw.ActionRow(
-                title="Browse Prefix",
-                subtitle="Open drive_c in the file manager",
-            )
-            browse_btn = Gtk.Button(icon_name="folder-open-symbolic")
-            browse_btn.set_valign(Gtk.Align.CENTER)
-            browse_btn.add_css_class("flat")
-            browse_btn.connect("clicked", self._on_browse_prefix_clicked)
-            browse_row.add_suffix(browse_btn)
-            files_group.add(browse_row)
 
             ep_subtitle = project.entry_point or "Not set"
             self._ep_row = Adw.ActionRow(
@@ -436,7 +436,7 @@ class PackageBuilderView(Gtk.Box):
                 subtitle=ep_subtitle,
             )
             self._ep_row.set_subtitle_selectable(True)
-            ep_btn = Gtk.Button(label="Set…")
+            ep_btn = Gtk.Button(label="Set\u2026")
             ep_btn.set_valign(Gtk.Align.CENTER)
             ep_btn.connect("clicked", self._on_set_entry_point_clicked)
             self._ep_row.add_suffix(ep_btn)
@@ -444,8 +444,20 @@ class PackageBuilderView(Gtk.Box):
 
             page.add(files_group)
 
-        # ── Package section ────────────────────────────────────────────────
-        pkg_group = Adw.PreferencesGroup(title="Package")
+        # ── 5. Publish section ────────────────────────────────────────────
+        pkg_group = Adw.PreferencesGroup(title="Publish")
+
+        # Browse Prefix (both project types)
+        browse_row = Adw.ActionRow(
+            title="Browse Prefix",
+            subtitle="Open drive_c in the file manager",
+        )
+        browse_btn = Gtk.Button(icon_name="folder-open-symbolic")
+        browse_btn.set_valign(Gtk.Align.CENTER)
+        browse_btn.add_css_class("flat")
+        browse_btn.connect("clicked", self._on_browse_prefix_clicked)
+        browse_row.add_suffix(browse_btn)
+        pkg_group.add(browse_row)
 
         if project.project_type == "app":
             # Steam App ID
@@ -470,7 +482,6 @@ class PackageBuilderView(Gtk.Box):
             pkg_group.add(test_row)
 
             if project.origin_app_id:
-                # Re-publish: update existing catalogue entry
                 origin_row = Adw.ActionRow(
                     title="Origin",
                     subtitle=f"Updating catalogue entry: {project.origin_app_id}",
@@ -482,19 +493,18 @@ class PackageBuilderView(Gtk.Box):
                     title="Publish Update",
                     subtitle="Re-archive prefix and replace the catalogue entry",
                 )
-                pub_btn = Gtk.Button(label="Publish…")
+                pub_btn = Gtk.Button(label="Publish\u2026")
                 pub_btn.set_valign(Gtk.Align.CENTER)
                 pub_btn.add_css_class("suggested-action")
                 pub_btn.connect("clicked", self._on_publish_update_clicked)
                 pub_row.add_suffix(pub_btn)
                 pkg_group.add(pub_row)
             else:
-                # New publish: open AddAppDialog
                 publish_row = Adw.ActionRow(
                     title="Publish App",
                     subtitle="Archive prefix and open Add to Catalogue dialog",
                 )
-                pub_btn = Gtk.Button(label="Publish…")
+                pub_btn = Gtk.Button(label="Publish\u2026")
                 pub_btn.set_valign(Gtk.Align.CENTER)
                 pub_btn.add_css_class("suggested-action")
                 pub_btn.connect("clicked", self._on_publish_app_clicked)
@@ -502,24 +512,12 @@ class PackageBuilderView(Gtk.Box):
                 pkg_group.add(publish_row)
 
         else:
-            # Base: browse only
-            browse_row = Adw.ActionRow(
-                title="Browse Prefix",
-                subtitle="Open drive_c in the file manager",
-            )
-            browse_btn = Gtk.Button(icon_name="folder-open-symbolic")
-            browse_btn.set_valign(Gtk.Align.CENTER)
-            browse_btn.add_css_class("flat")
-            browse_btn.connect("clicked", self._on_browse_prefix_clicked)
-            browse_row.add_suffix(browse_btn)
-            pkg_group.add(browse_row)
-
-            # Publish Base
+            # Base: publish base
             publish_row = Adw.ActionRow(
                 title="Publish Base",
                 subtitle="Archive prefix and upload to repository",
             )
-            pub_btn = Gtk.Button(label="Publish…")
+            pub_btn = Gtk.Button(label="Publish\u2026")
             pub_btn.set_valign(Gtk.Align.CENTER)
             pub_btn.add_css_class("suggested-action")
             pub_btn.connect("clicked", self._on_publish_base_clicked)
@@ -528,49 +526,29 @@ class PackageBuilderView(Gtk.Box):
 
         page.add(pkg_group)
 
-        # ── Base image selection (app projects only) ─────────────────────
-        if project.project_type == "app":
-            base_group = Adw.PreferencesGroup(title="Base Image")
-            base_group.set_description(
-                "Select the base image this app is built against."
-            )
-            self._base_group = base_group
-            self._rebuild_base_rows(project)
-            page.add(base_group)
-
-        # ── Runners management (base projects only) ───────────────────────
-        if project.project_type == "base":
-            runners_group = Adw.PreferencesGroup(title="Runner")
-            runners_group.set_description(
-                "Select the GE-Proton runner for this base image."
-            )
-            self._runner_group = runners_group
-            self._rebuild_runner_rows(project)
-            page.add(runners_group)
-
         self._detail_stack.set_visible_child_name("detail")
 
     # ------------------------------------------------------------------
     # Signal handlers — runners (base projects)
     # ------------------------------------------------------------------
 
-    def _rebuild_runner_rows(self, project: Project) -> None:
-        """Rebuild the runner list rows in the Runners group."""
-        group = self._runner_group
-        for row in list(getattr(self, "_runner_rows", [])):
-            group.remove(row)
-        self._runner_rows: list[Adw.ActionRow] = []
-
+    def _populate_runner_expander(self, project: Project) -> None:
+        """Populate the Runner expander with radio rows for installed runners."""
         from cellar.backend import runners as _runners
+
+        first_check: Gtk.CheckButton | None = None
         for rname in _runners.installed_runners():
             row = Adw.ActionRow(title=rname)
-            row.set_activatable(True)
-            row.connect("activated", self._on_runner_row_activated, rname)
-
-            if rname == project.runner:
-                icon = Gtk.Image.new_from_icon_name("emblem-ok-symbolic")
-                icon.add_css_class("success")
-                row.add_prefix(icon)
+            check = Gtk.CheckButton()
+            check.set_valign(Gtk.Align.CENTER)
+            if first_check is None:
+                first_check = check
+            else:
+                check.set_group(first_check)
+            check.set_active(rname == project.runner)
+            check.connect("toggled", self._on_runner_radio_toggled, rname)
+            row.add_prefix(check)
+            row.set_activatable_widget(check)
 
             del_btn = Gtk.Button(icon_name="user-trash-symbolic")
             del_btn.set_valign(Gtk.Align.CENTER)
@@ -579,22 +557,19 @@ class PackageBuilderView(Gtk.Box):
             del_btn.connect("clicked", self._on_delete_runner_clicked, rname)
             row.add_suffix(del_btn)
 
-            self._runner_rows.append(row)
-            group.add(row)
+            self._sel_expander.add_row(row)
 
-        # "Download Runner" row at the bottom
         add_row = Adw.ActionRow(title="Download Runner")
-        add_btn = Gtk.Button(label="Add", valign=Gtk.Align.CENTER)
+        add_btn = Gtk.Button(label="Add\u2026", valign=Gtk.Align.CENTER)
         add_btn.add_css_class("suggested-action")
         add_btn.connect("clicked", self._on_download_runner_clicked)
         add_row.add_suffix(add_btn)
         add_row.set_activatable_widget(add_btn)
-        self._runner_rows.append(add_row)
-        group.add(add_row)
+        self._sel_expander.add_row(add_row)
 
-    def _on_runner_row_activated(self, _row, runner_name: str) -> None:
+    def _on_runner_radio_toggled(self, check: Gtk.CheckButton, runner_name: str) -> None:
         """Select a runner for the current base project."""
-        if self._project is None:
+        if not check.get_active() or self._project is None:
             return
         self._project.runner = runner_name
         self._project.name = runner_name
@@ -607,7 +582,8 @@ class PackageBuilderView(Gtk.Box):
             self._init_btn.set_sensitive(
                 bool(self._project.runner) and not self._project.initialized
             )
-        self._rebuild_runner_rows(self._project)
+        if hasattr(self, "_sel_expander"):
+            self._sel_expander.set_subtitle(runner_name)
 
     def _on_download_runner_clicked(self, _btn) -> None:
         """Open the runner picker to download a new GE-Proton release."""
@@ -618,7 +594,7 @@ class PackageBuilderView(Gtk.Box):
         dialog.present(self)
 
     def _on_runner_installed(self, runner_name: str, project: Project | None) -> None:
-        """Called after a runner finishes installing — refresh the runner list."""
+        """Called after a runner finishes installing — refresh the detail panel."""
         if project is not None and self._project is project:
             if not project.runner:
                 project.runner = runner_name
@@ -628,7 +604,7 @@ class PackageBuilderView(Gtk.Box):
                         r.refresh_label()
                         break
                 save_project(project)
-            self._rebuild_runner_rows(project)
+            self._show_project(project)
 
     def _on_delete_runner_clicked(self, _btn, runner_name: str) -> None:
         """Confirm and delete an installed runner."""
@@ -664,33 +640,32 @@ class PackageBuilderView(Gtk.Box):
                         r.refresh_label()
                         break
                 save_project(self._project)
-            self._rebuild_runner_rows(self._project)
+            self._show_project(self._project)
 
     # ------------------------------------------------------------------
     # Signal handlers — base images (app projects)
     # ------------------------------------------------------------------
 
-    def _rebuild_base_rows(self, project: Project) -> None:
-        """Rebuild the base image list rows in the Base Image group."""
-        group = self._base_group
-        for row in list(getattr(self, "_base_rows", [])):
-            group.remove(row)
-        self._base_rows: list[Adw.ActionRow] = []
-
+    def _populate_base_expander(self, project: Project) -> None:
+        """Populate the Base Image expander with radio rows for installed bases."""
         from cellar.backend.database import get_all_installed_bases
-        from cellar.backend.base_store import is_base_installed
+
         bases = get_all_installed_bases()
         base_runners = [b["runner"] for b in bases]
 
+        first_check: Gtk.CheckButton | None = None
         for runner in base_runners:
             row = Adw.ActionRow(title=runner)
-            row.set_activatable(True)
-            row.connect("activated", self._on_base_row_activated, runner)
-
-            if runner == project.runner:
-                icon = Gtk.Image.new_from_icon_name("emblem-ok-symbolic")
-                icon.add_css_class("success")
-                row.add_prefix(icon)
+            check = Gtk.CheckButton()
+            check.set_valign(Gtk.Align.CENTER)
+            if first_check is None:
+                first_check = check
+            else:
+                check.set_group(first_check)
+            check.set_active(runner == project.runner)
+            check.connect("toggled", self._on_base_radio_toggled, runner)
+            row.add_prefix(check)
+            row.set_activatable_widget(check)
 
             del_btn = Gtk.Button(icon_name="user-trash-symbolic")
             del_btn.set_valign(Gtk.Align.CENTER)
@@ -699,22 +674,19 @@ class PackageBuilderView(Gtk.Box):
             del_btn.connect("clicked", self._on_delete_base_clicked, runner)
             row.add_suffix(del_btn)
 
-            self._base_rows.append(row)
-            group.add(row)
+            self._sel_expander.add_row(row)
 
-        # "Download Base Image" row at the bottom
         add_row = Adw.ActionRow(title="Download Base Image")
-        add_btn = Gtk.Button(label="Add", valign=Gtk.Align.CENTER)
+        add_btn = Gtk.Button(label="Add\u2026", valign=Gtk.Align.CENTER)
         add_btn.add_css_class("suggested-action")
         add_btn.connect("clicked", self._on_download_base_clicked)
         add_row.add_suffix(add_btn)
         add_row.set_activatable_widget(add_btn)
-        self._base_rows.append(add_row)
-        group.add(add_row)
+        self._sel_expander.add_row(add_row)
 
-    def _on_base_row_activated(self, _row, runner: str) -> None:
+    def _on_base_radio_toggled(self, check: Gtk.CheckButton, runner: str) -> None:
         """Select a base image for the current app project."""
-        if self._project is None:
+        if not check.get_active() or self._project is None:
             return
         self._project.runner = runner
         save_project(self._project)
@@ -722,7 +694,8 @@ class PackageBuilderView(Gtk.Box):
             self._init_btn.set_sensitive(
                 bool(self._project.runner) and not self._project.initialized
             )
-        self._rebuild_base_rows(self._project)
+        if hasattr(self, "_sel_expander"):
+            self._sel_expander.set_subtitle(runner)
 
     def _on_download_base_clicked(self, _btn) -> None:
         """Open the base picker to download a base image from a repo."""
@@ -734,12 +707,12 @@ class PackageBuilderView(Gtk.Box):
         dialog.present(self)
 
     def _on_base_installed(self, runner: str, project: Project | None) -> None:
-        """Called after a base finishes installing — refresh the base list."""
+        """Called after a base finishes installing — refresh the detail panel."""
         if project is not None and self._project is project:
             if not project.runner:
                 project.runner = runner
                 save_project(project)
-            self._rebuild_base_rows(project)
+            self._show_project(project)
 
     def _on_delete_base_clicked(self, _btn, runner: str) -> None:
         """Confirm and delete an installed base image."""
@@ -765,7 +738,7 @@ class PackageBuilderView(Gtk.Box):
             if self._project.runner == runner:
                 self._project.runner = ""
                 save_project(self._project)
-            self._rebuild_base_rows(self._project)
+            self._show_project(self._project)
 
     def _on_init_prefix_clicked(self, _btn) -> None:
         if self._project is None or not self._project.runner:

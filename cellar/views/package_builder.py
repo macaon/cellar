@@ -1747,33 +1747,22 @@ class _ImportFromCatalogueDialog(Adw.Dialog):
         size_str = f"{size_mb:.0f} MB" if size_mb else "unknown size"
 
         if kind == "base":
-            dialog = Adw.AlertDialog(
-                heading=f"Download base image?",
-                body=(
-                    f"The base image for \u201c{item.runner}\u201d ({size_str}) will be "
-                    f"downloaded and installed into local base storage. This may take a while."
-                ),
-            )
-            dialog.add_response("cancel", "Cancel")
-            dialog.add_response("download", "Download")
-            dialog.set_response_appearance("download", Adw.ResponseAppearance.SUGGESTED)
-            dialog.set_default_response("download")
-            dialog.set_close_response("cancel")
-            dialog.connect("response", lambda d, r: self._start_import_base(item, repo) if r == "download" else None)
-        else:
-            dialog = Adw.AlertDialog(
-                heading=f'Import \u201c{item.name}\u201d?',
-                body=(
-                    f"The archive ({size_str}) will be downloaded and extracted "
-                    f"into a new project directory. This may take a while."
-                ),
-            )
-            dialog.add_response("cancel", "Cancel")
-            dialog.add_response("import", "Import")
-            dialog.set_response_appearance("import", Adw.ResponseAppearance.SUGGESTED)
-            dialog.set_default_response("import")
-            dialog.set_close_response("cancel")
-            dialog.connect("response", lambda d, r: self._start_import(item, repo) if r == "import" else None)
+            self._start_import_base(item, repo)
+            return
+
+        dialog = Adw.AlertDialog(
+            heading=f'Import \u201c{item.name}\u201d?',
+            body=(
+                f"The archive ({size_str}) will be downloaded and extracted "
+                f"into a new project directory. This may take a while."
+            ),
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("import", "Import")
+        dialog.set_response_appearance("import", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("import")
+        dialog.set_close_response("cancel")
+        dialog.connect("response", lambda d, r: self._start_import(item, repo) if r == "import" else None)
         dialog.present(self)
 
     def _start_import_base(self, base_entry, repo) -> None:
@@ -1785,9 +1774,11 @@ class _ImportFromCatalogueDialog(Adw.Dialog):
 
         def _bg():
             import tempfile
+            import time
             try:
                 from cellar.backend.base_store import install_base
                 from cellar.backend.installer import _build_source  # noqa: PLC2701
+                from cellar.utils.progress import fmt_stats
 
                 archive_uri = repo.resolve_asset_uri(base_entry.archive)
                 chunks, total = _build_source(
@@ -1803,12 +1794,17 @@ class _ImportFromCatalogueDialog(Adw.Dialog):
                 ) as tmp:
                     tmp_path = Path(tmp.name)
                     received = 0
+                    t0 = time.monotonic()
                     for chunk in chunks:
                         tmp.write(chunk)
                         received += len(chunk)
+                        elapsed = time.monotonic() - t0
+                        speed = received / elapsed if elapsed > 0 else 0.0
                         if total:
                             GLib.idle_add(progress.set_fraction, received / total)
+                        GLib.idle_add(progress.set_stats, fmt_stats(received, total or 0, speed))
 
+                GLib.idle_add(progress.set_stats, "")
                 GLib.idle_add(progress.set_label, "Installing base…")
                 GLib.idle_add(progress.set_fraction, 0.0)
                 install_base(
@@ -2136,8 +2132,13 @@ class _ProgressDialog(Adw.Dialog):
         self._bar.set_show_text(False)
         self._pulse_id = GLib.timeout_add(80, self._pulse)
 
+        self._stats_label = Gtk.Label(label="", xalign=0.5)
+        self._stats_label.add_css_class("dim-label")
+        self._stats_label.set_visible(False)
+
         box.append(self._label)
         box.append(self._bar)
+        box.append(self._stats_label)
         toolbar.set_content(box)
         self.set_child(toolbar)
 
@@ -2153,6 +2154,10 @@ class _ProgressDialog(Adw.Dialog):
             GLib.source_remove(self._pulse_id)
             self._pulse_id = None
         self._bar.set_fraction(fraction)
+
+    def set_stats(self, text: str) -> None:
+        self._stats_label.set_text(text)
+        self._stats_label.set_visible(bool(text))
 
     def force_close(self) -> None:
         if self._pulse_id is not None:

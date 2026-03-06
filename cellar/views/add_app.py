@@ -47,9 +47,10 @@ class AddAppDialog(Adw.Dialog):
 
     *prefill* is an optional dict with keys matching form fields
     (``name``, ``runner``, ``entry_point``, ``steam_appid``, ``category``,
-    ``developer``, ``publisher``, ``summary``) pre-populated from a Package
-    Builder project.  Values in *prefill* are applied after the archive scan,
-    so they override bottle.yml data.
+    ``developer``, ``publisher``, ``summary``, ``version``, ``release_year``,
+    ``description``, ``icon``, ``cover``, ``screenshots``) pre-populated from
+    a Package Builder project.  Values in *prefill* are applied after the
+    archive scan, so they override bottle.yml data.
     """
 
     def __init__(
@@ -518,6 +519,26 @@ class AddAppDialog(Adw.Dialog):
                 self._summary_entry.set_text(pf["summary"])
             if pf.get("category") and pf["category"] in self._categories:
                 self._category_row.set_selected(self._categories.index(pf["category"]))
+            if pf.get("version"):
+                self._version_entry.set_text(pf["version"])
+            if pf.get("release_year"):
+                self._year_entry.set_text(str(pf["release_year"]))
+            if pf.get("description"):
+                buf = self._desc_view.get_buffer()
+                if not buf.get_text(buf.get_start_iter(), buf.get_end_iter(), False).strip():
+                    buf.set_text(pf["description"])
+            if pf.get("icon"):
+                self._icon_path = pf["icon"]
+                self._icon_row.set_subtitle(GLib.markup_escape_text(Path(self._icon_path).name))
+            if pf.get("cover"):
+                self._cover_path = pf["cover"]
+                self._cover_row.set_subtitle(GLib.markup_escape_text(Path(self._cover_path).name))
+            if pf.get("screenshots"):
+                self._screenshot_paths = list(pf["screenshots"])
+                _sc = len(self._screenshot_paths)
+                self._screenshots_row.set_subtitle(
+                    f"{_sc} file{'s' if _sc != 1 else ''} selected"
+                )
 
             self._stack.set_visible_child_name("form")
 

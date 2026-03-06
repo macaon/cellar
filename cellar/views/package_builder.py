@@ -397,7 +397,181 @@ class PackageBuilderView(Gtk.Box):
         prefix_group.add(self._prefix_status_row)
         page.add(prefix_group)
 
-        # ── 3. Dependencies section ───────────────────────────────────────
+        # ── 3. Metadata section (App projects only) ───────────────────────
+        if project.project_type == "app":
+            from cellar.backend.packager import BASE_CATEGORIES as _BASE_CATS
+            from cellar.backend.config import load_igdb_creds as _load_igdb
+            _igdb_ok = _load_igdb() is not None
+
+            meta_group = Adw.PreferencesGroup()
+            self._meta_expander = Adw.ExpanderRow(title="Metadata")
+            _has_meta = bool(
+                project.developer or project.publisher or project.category
+                or project.summary or project.icon_path or project.cover_path
+                or project.screenshot_paths
+            )
+            self._meta_expander.set_expanded(_has_meta)
+
+            # Title
+            self._meta_name_row = Adw.EntryRow(title="Title")
+            self._meta_name_row.set_text(project.name)
+            if _igdb_ok:
+                _igdb_btn = Gtk.Button(icon_name="system-search-symbolic")
+                _igdb_btn.add_css_class("flat")
+                _igdb_btn.set_valign(Gtk.Align.CENTER)
+                _igdb_btn.set_tooltip_text("Look up on IGDB")
+                _igdb_btn.connect("clicked", self._on_meta_igdb_lookup)
+                self._meta_name_row.add_suffix(_igdb_btn)
+
+            def _on_name_changed(row):
+                if self._project:
+                    self._project.name = row.get_text()
+                    save_project(self._project)
+                    for r in self._project_rows:
+                        if r.project.slug == self._project.slug:
+                            r._label.set_text(self._project.name)
+                            break
+
+            self._meta_name_row.connect("changed", _on_name_changed)
+            self._meta_expander.add_row(self._meta_name_row)
+
+            # App ID / Slug (read-only)
+            _slug_row = Adw.ActionRow(title="App ID / Slug", subtitle=project.slug)
+            _slug_row.add_css_class("property")
+            self._meta_expander.add_row(_slug_row)
+
+            # Version
+            self._meta_version_row = Adw.EntryRow(title="Version")
+            self._meta_version_row.set_text(project.version)
+
+            def _on_version_changed(row):
+                if self._project:
+                    self._project.version = row.get_text()
+                    save_project(self._project)
+
+            self._meta_version_row.connect("changed", _on_version_changed)
+            self._meta_expander.add_row(self._meta_version_row)
+
+            # Category
+            _cats = list(_BASE_CATS)
+            if project.category and project.category not in _cats:
+                _cats.append(project.category)
+            self._meta_cat_row = Adw.ComboRow(title="Category")
+            self._meta_cat_row.set_model(Gtk.StringList.new(_cats))
+            if project.category in _cats:
+                self._meta_cat_row.set_selected(_cats.index(project.category))
+
+            def _on_cat_changed(row, _param, cats=_cats):
+                idx = row.get_selected()
+                if self._project and 0 <= idx < len(cats):
+                    self._project.category = cats[idx]
+                    save_project(self._project)
+
+            self._meta_cat_row.connect("notify::selected", _on_cat_changed)
+            self._meta_expander.add_row(self._meta_cat_row)
+
+            # Developer
+            self._meta_dev_row = Adw.EntryRow(title="Developer")
+            self._meta_dev_row.set_text(project.developer)
+
+            def _on_dev_changed(row):
+                if self._project:
+                    self._project.developer = row.get_text()
+                    save_project(self._project)
+
+            self._meta_dev_row.connect("changed", _on_dev_changed)
+            self._meta_expander.add_row(self._meta_dev_row)
+
+            # Publisher
+            self._meta_pub_row = Adw.EntryRow(title="Publisher")
+            self._meta_pub_row.set_text(project.publisher)
+
+            def _on_pub_changed(row):
+                if self._project:
+                    self._project.publisher = row.get_text()
+                    save_project(self._project)
+
+            self._meta_pub_row.connect("changed", _on_pub_changed)
+            self._meta_expander.add_row(self._meta_pub_row)
+
+            # Release Year
+            self._meta_year_row = Adw.EntryRow(title="Release Year")
+            if project.release_year:
+                self._meta_year_row.set_text(str(project.release_year))
+
+            def _on_year_changed(row):
+                if self._project:
+                    txt = row.get_text().strip()
+                    try:
+                        self._project.release_year = int(txt) if txt else None
+                    except ValueError:
+                        pass
+                    else:
+                        save_project(self._project)
+
+            self._meta_year_row.connect("changed", _on_year_changed)
+            self._meta_expander.add_row(self._meta_year_row)
+
+            # Summary
+            self._meta_summary_row = Adw.EntryRow(title="Summary")
+            self._meta_summary_row.set_text(project.summary)
+
+            def _on_summary_changed(row):
+                if self._project:
+                    self._project.summary = row.get_text()
+                    save_project(self._project)
+
+            self._meta_summary_row.connect("changed", _on_summary_changed)
+            self._meta_expander.add_row(self._meta_summary_row)
+
+            # Description
+            self._meta_desc_row = Adw.EntryRow(title="Description")
+            self._meta_desc_row.set_text(project.description)
+
+            def _on_desc_changed(row):
+                if self._project:
+                    self._project.description = row.get_text()
+                    save_project(self._project)
+
+            self._meta_desc_row.connect("changed", _on_desc_changed)
+            self._meta_expander.add_row(self._meta_desc_row)
+
+            # Icon
+            self._meta_icon_row = Adw.ActionRow(title="Icon")
+            self._meta_icon_row.set_subtitle(
+                Path(project.icon_path).name if project.icon_path else "Not set"
+            )
+            _icon_btn = Gtk.Button(label="Choose\u2026", valign=Gtk.Align.CENTER)
+            _icon_btn.connect("clicked", self._on_meta_pick_icon)
+            self._meta_icon_row.add_suffix(_icon_btn)
+            self._meta_expander.add_row(self._meta_icon_row)
+
+            # Cover
+            self._meta_cover_row = Adw.ActionRow(title="Cover")
+            self._meta_cover_row.set_subtitle(
+                Path(project.cover_path).name if project.cover_path else "Not set"
+            )
+            _cover_btn = Gtk.Button(label="Choose\u2026", valign=Gtk.Align.CENTER)
+            _cover_btn.connect("clicked", self._on_meta_pick_cover)
+            self._meta_cover_row.add_suffix(_cover_btn)
+            self._meta_expander.add_row(self._meta_cover_row)
+
+            # Screenshots
+            _ss_count = len(project.screenshot_paths)
+            self._meta_ss_row = Adw.ActionRow(title="Screenshots")
+            self._meta_ss_row.set_subtitle(
+                f"{_ss_count} file{'s' if _ss_count != 1 else ''} selected"
+                if _ss_count else "None selected"
+            )
+            _ss_btn = Gtk.Button(label="Choose\u2026", valign=Gtk.Align.CENTER)
+            _ss_btn.connect("clicked", self._on_meta_pick_screenshots)
+            self._meta_ss_row.add_suffix(_ss_btn)
+            self._meta_expander.add_row(self._meta_ss_row)
+
+            meta_group.add(self._meta_expander)
+            page.add(meta_group)
+
+        # ── 5. Dependencies section ───────────────────────────────────────
         dep_group = Adw.PreferencesGroup(title="Dependencies")
         dep_group.set_description(
             "Winetricks verbs installed in this prefix. "
@@ -422,7 +596,7 @@ class PackageBuilderView(Gtk.Box):
         dep_group.add(add_dep_row)
         page.add(dep_group)
 
-        # ── 4. Files section (App projects only) ──────────────────────────
+        # ── 6. Files section (App projects only) ──────────────────────────
         if project.project_type == "app":
             files_group = Adw.PreferencesGroup(title="Files")
 
@@ -452,7 +626,7 @@ class PackageBuilderView(Gtk.Box):
 
             page.add(files_group)
 
-        # ── 5. Publish section ────────────────────────────────────────────
+        # ── 7. Publish section ────────────────────────────────────────────
         pkg_group = Adw.PreferencesGroup(title="Publish")
 
         # Browse Prefix (both project types)
@@ -790,6 +964,138 @@ class PackageBuilderView(Gtk.Box):
             self._show_project(project)
 
     # ------------------------------------------------------------------
+    # Signal handlers — metadata
+    # ------------------------------------------------------------------
+
+    def _on_meta_igdb_lookup(self, _btn) -> None:
+        if self._project is None:
+            return
+        from cellar.views.igdb_picker import IGDBPickerDialog
+        query = self._project.name
+        if hasattr(self, "_meta_name_row"):
+            query = self._meta_name_row.get_text().strip() or query
+        picker = IGDBPickerDialog(query=query, on_picked=self._apply_igdb_to_meta)
+        picker.present(self.get_root())
+
+    def _apply_igdb_to_meta(self, result: dict) -> None:
+        if self._project is None:
+            return
+        p = self._project
+        if result.get("name") and hasattr(self, "_meta_name_row"):
+            self._meta_name_row.set_text(result["name"])
+        if result.get("developer") and hasattr(self, "_meta_dev_row"):
+            if not self._meta_dev_row.get_text().strip():
+                self._meta_dev_row.set_text(result["developer"])
+        if result.get("publisher") and hasattr(self, "_meta_pub_row"):
+            if not self._meta_pub_row.get_text().strip():
+                self._meta_pub_row.set_text(result["publisher"])
+        if result.get("year") and hasattr(self, "_meta_year_row"):
+            if not self._meta_year_row.get_text().strip():
+                self._meta_year_row.set_text(str(result["year"]))
+        if result.get("summary") and hasattr(self, "_meta_summary_row"):
+            if not self._meta_summary_row.get_text().strip():
+                self._meta_summary_row.set_text(result["summary"])
+        if result.get("summary") and hasattr(self, "_meta_desc_row"):
+            if not self._meta_desc_row.get_text().strip():
+                self._meta_desc_row.set_text(result["summary"])
+        if result.get("steam_appid") and hasattr(self, "_steam_id_entry"):
+            if not self._steam_id_entry.get_text().strip():
+                self._steam_id_entry.set_text(str(result["steam_appid"]))
+            p.steam_appid = result["steam_appid"]
+        from cellar.backend.packager import BASE_CATEGORIES as _BASE_CATS
+        if result.get("category") and hasattr(self, "_meta_cat_row"):
+            cats = list(_BASE_CATS)
+            if result["category"] in cats:
+                self._meta_cat_row.set_selected(cats.index(result["category"]))
+        # Download cover art to temp file
+        cover_id = result.get("cover_image_id")
+        if cover_id and not p.icon_path:
+            import threading as _t
+            def _fetch():
+                try:
+                    import tempfile
+                    from cellar.backend.config import load_igdb_creds
+                    from cellar.backend.igdb import IGDBClient
+                    creds = load_igdb_creds()
+                    if not creds:
+                        return
+                    client = IGDBClient(creds["client_id"], creds["client_secret"])
+                    data = client.fetch_cover(cover_id)
+                    with tempfile.NamedTemporaryFile(
+                        delete=False, suffix=".jpg", prefix="cellar-igdb-cover-"
+                    ) as f:
+                        f.write(data)
+                        tmp = f.name
+                    GLib.idle_add(self._set_meta_igdb_cover, tmp)
+                except Exception:
+                    pass
+            _t.Thread(target=_fetch, daemon=True).start()
+
+    def _set_meta_igdb_cover(self, path: str) -> None:
+        if self._project is None:
+            return
+        self._project.icon_path = path
+        save_project(self._project)
+        if hasattr(self, "_meta_icon_row"):
+            self._meta_icon_row.set_subtitle(Path(path).name)
+
+    def _pick_meta_image(self, title: str, multi: bool, callback) -> None:
+        chooser = Gtk.FileChooserNative(
+            title=title,
+            transient_for=self.get_root(),
+            action=Gtk.FileChooserAction.OPEN,
+            select_multiple=multi,
+        )
+        img_filter = Gtk.FileFilter()
+        img_filter.set_name("Images (PNG, JPG, ICO, SVG)")
+        img_filter.add_mime_type("image/png")
+        img_filter.add_mime_type("image/jpeg")
+        img_filter.add_mime_type("image/x-icon")
+        img_filter.add_mime_type("image/vnd.microsoft.icon")
+        img_filter.add_mime_type("image/svg+xml")
+        chooser.add_filter(img_filter)
+        chooser.connect("response", callback, chooser)
+        chooser.show()
+
+    def _on_meta_pick_icon(self, _btn) -> None:
+        self._pick_meta_image("Select Icon", False, self._on_meta_icon_chosen)
+
+    def _on_meta_icon_chosen(self, _chooser, response, chooser) -> None:
+        if response == Gtk.ResponseType.ACCEPT and self._project:
+            path = chooser.get_file().get_path()
+            self._project.icon_path = path
+            save_project(self._project)
+            if hasattr(self, "_meta_icon_row"):
+                self._meta_icon_row.set_subtitle(GLib.markup_escape_text(Path(path).name))
+
+    def _on_meta_pick_cover(self, _btn) -> None:
+        self._pick_meta_image("Select Cover", False, self._on_meta_cover_chosen)
+
+    def _on_meta_cover_chosen(self, _chooser, response, chooser) -> None:
+        if response == Gtk.ResponseType.ACCEPT and self._project:
+            path = chooser.get_file().get_path()
+            self._project.cover_path = path
+            save_project(self._project)
+            if hasattr(self, "_meta_cover_row"):
+                self._meta_cover_row.set_subtitle(GLib.markup_escape_text(Path(path).name))
+
+    def _on_meta_pick_screenshots(self, _btn) -> None:
+        self._pick_meta_image("Select Screenshots", True, self._on_meta_screenshots_chosen)
+
+    def _on_meta_screenshots_chosen(self, _chooser, response, chooser) -> None:
+        if response == Gtk.ResponseType.ACCEPT and self._project:
+            files = chooser.get_files()
+            paths = [files.get_item(i).get_path() for i in range(files.get_n_items())]
+            self._project.screenshot_paths = paths
+            save_project(self._project)
+            if hasattr(self, "_meta_ss_row"):
+                count = len(paths)
+                self._meta_ss_row.set_subtitle(
+                    f"{count} file{'s' if count != 1 else ''} selected"
+                    if count else "None selected"
+                )
+
+    # ------------------------------------------------------------------
     # Signal handlers — dependencies
     # ------------------------------------------------------------------
 
@@ -978,9 +1284,23 @@ class PackageBuilderView(Gtk.Box):
                 "name": project.name,
                 "runner": project.runner,
                 "entry_point": project.entry_point,
+                "version": project.version,
+                "category": project.category,
+                "developer": project.developer,
+                "publisher": project.publisher,
+                "summary": project.summary,
+                "description": project.description,
             }
             if project.steam_appid is not None:
                 prefill["steam_appid"] = project.steam_appid
+            if project.release_year is not None:
+                prefill["release_year"] = project.release_year
+            if project.icon_path:
+                prefill["icon"] = project.icon_path
+            if project.cover_path:
+                prefill["cover"] = project.cover_path
+            if project.screenshot_paths:
+                prefill["screenshots"] = list(project.screenshot_paths)
             win = self.get_root()
             dlg = AddAppDialog(
                 archive_path=str(archive_path),

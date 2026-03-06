@@ -38,6 +38,18 @@ class Project:
     initialized: bool = False  # True once prefix has been initialized
     origin_app_id: str = ""    # set when project was imported from a catalogue entry
 
+    # ── Catalogue metadata (App only) ─────────────────────────────────────
+    version: str = "1.0"
+    category: str = ""
+    developer: str = ""
+    publisher: str = ""
+    release_year: int | None = None
+    summary: str = ""
+    description: str = ""
+    icon_path: str = ""        # local file path to icon image
+    cover_path: str = ""       # local file path to cover image
+    screenshot_paths: list[str] = field(default_factory=list)  # local file paths
+
     # ------------------------------------------------------------------
     # Derived paths
     # ------------------------------------------------------------------
@@ -68,6 +80,16 @@ class Project:
             notes=data.get("notes", ""),
             initialized=bool(data.get("initialized", False)),
             origin_app_id=data.get("origin_app_id", ""),
+            version=data.get("version", "1.0"),
+            category=data.get("category", ""),
+            developer=data.get("developer", ""),
+            publisher=data.get("publisher", ""),
+            release_year=data.get("release_year"),
+            summary=data.get("summary", ""),
+            description=data.get("description", ""),
+            icon_path=data.get("icon_path", ""),
+            cover_path=data.get("cover_path", ""),
+            screenshot_paths=list(data.get("screenshot_paths", [])),
         )
 
     def to_dict(self) -> dict:
@@ -90,6 +112,26 @@ class Project:
             d["initialized"] = True
         if self.origin_app_id:
             d["origin_app_id"] = self.origin_app_id
+        if self.version and self.version != "1.0":
+            d["version"] = self.version
+        if self.category:
+            d["category"] = self.category
+        if self.developer:
+            d["developer"] = self.developer
+        if self.publisher:
+            d["publisher"] = self.publisher
+        if self.release_year is not None:
+            d["release_year"] = self.release_year
+        if self.summary:
+            d["summary"] = self.summary
+        if self.description:
+            d["description"] = self.description
+        if self.icon_path:
+            d["icon_path"] = self.icon_path
+        if self.cover_path:
+            d["cover_path"] = self.cover_path
+        if self.screenshot_paths:
+            d["screenshot_paths"] = list(self.screenshot_paths)
         return d
 
 

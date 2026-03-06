@@ -183,35 +183,6 @@ def _smb_chunks(unc: str) -> Iterator[bytes]:
         raise InstallError(f"SMB read error for {unc}: {exc}") from exc
 
 
-def _gio_chunks(uri: str) -> Iterator[bytes]:
-    """Yield 1 MB chunks from *uri* via a GIO InputStream (SMB/NFS without FUSE)."""
-    try:
-        import gi
-        gi.require_version("Gio", "2.0")
-        from gi.repository import Gio, GLib
-    except (ImportError, ValueError) as exc:
-        raise InstallError("GIO is unavailable; cannot stream from SMB/NFS") from exc
-
-    gfile = Gio.File.new_for_uri(uri)
-    try:
-        stream = gfile.read(None)
-    except GLib.Error as exc:
-        raise InstallError(f"Could not open {uri}: {exc.message}") from exc
-
-    try:
-        while True:
-            buf = stream.read_bytes(1 * 1024 * 1024, None)
-            data = buf.get_data()
-            if not data:
-                break
-            yield data
-    except GLib.Error as exc:
-        raise InstallError(f"GIO read error: {exc.message}") from exc
-    finally:
-        try:
-            stream.close(None)
-        except Exception:
-            pass
 
 
 def _build_source(
@@ -349,13 +320,14 @@ def install_app(
     install_cb: Callable[[float], None] | None = None,
     extract_name_cb: Callable[[str], None] | None = None,
     phase_cb: Callable[[str], None] | None = None,
-    verify_cb: Callable[[float], None] | None = None,
     cancel_event: threading.Event | None = None,
     token: str | None = None,
     ssl_verify: bool = True,
     ca_cert: str | None = None,
 ) -> str:
     """Download, verify, extract, and install *entry* to the Cellar prefix store.
+
+    CRC32 verification is performed inline during streaming via ``_PipedSource``.
 
     Parameters
     ----------
@@ -371,8 +343,6 @@ def install_app(
     phase_cb:
         Optional ``(label)`` callback; called at each phase transition
         so the UI can update the status label and reset the bar.
-    verify_cb:
-        Optional ``(fraction)`` callback for the CRC32 verify phase (0 → 1).
     cancel_event:
         ``threading.Event``; when set the operation is aborted and
         ``InstallCancelled`` is raised.
@@ -397,7 +367,6 @@ def install_app(
                 phase_cb=phase_cb,
                 download_cb=download_cb,
                 download_stats_cb=download_stats_cb,
-                verify_cb=verify_cb,
                 install_cb=install_cb,
                 cancel_event=cancel_event,
                 token=token,
@@ -498,7 +467,6 @@ def install_linux_app(
     install_cb: Callable[[float], None] | None = None,
     extract_name_cb: Callable[[str], None] | None = None,
     phase_cb: Callable[[str], None] | None = None,
-    verify_cb: Callable[[float], None] | None = None,
     cancel_event: threading.Event | None = None,
     token: str | None = None,
     ssl_verify: bool = True,
@@ -605,294 +573,6 @@ def _safe_linux_name(dir_name: str, base_path: Path) -> str:
     return f"{dir_name}-{i}"
 
 
-# ---------------------------------------------------------------------------
-# Acquire
-# ---------------------------------------------------------------------------
-
-def _acquire_archive(
-    uri: str,
-    dest: Path,
-    *,
-    expected_size: int,
-    progress_cb: Callable[[float], None] | None,
-    stats_cb: Callable[[int, int, float], None] | None = None,
-    cancel_event: threading.Event | None,
-    token: str | None = None,
-    ssl_verify: bool = True,
-    ca_cert: str | None = None,
-) -> Path:
-    """Return a local path to the archive.
-
-    - Local (bare path or ``file://``) → returned as-is; no copy.
-    - HTTP(S) → streamed to *dest* in 1 MB chunks.
-    - SMB/NFS → GVFS FUSE path used in-place when ``gvfsd-fuse`` is running
-      (standard on GNOME); otherwise streamed via a GIO ``InputStream``.
-    - Other schemes → ``InstallError``.
-    """
-    parsed = urlparse(uri)
-    scheme = parsed.scheme.lower()
-
-    if scheme in ("", "file"):
-        local = Path(parsed.path if scheme == "file" else uri)
-        # GVFS FUSE paths (e.g. /run/user/1000/gvfs/smb-share:…) look local
-        # but every read is network I/O.  Stream-copy them so the download
-        # phase shows real progress and speed instead of appearing instant
-        # (which pushes all network time into the verify/extract phases).
-        if "/gvfs/" in str(local):
-            _file_stream(
-                local,
-                dest,
-                expected_size=expected_size,
-                progress_cb=progress_cb,
-                stats_cb=stats_cb,
-                cancel_event=cancel_event,
-            )
-            return dest
-        if progress_cb:
-            progress_cb(1.0)
-        return local
-
-    if scheme in ("http", "https"):
-        _http_stream(
-            uri,
-            dest,
-            expected_size=expected_size,
-            progress_cb=progress_cb,
-            stats_cb=stats_cb,
-            cancel_event=cancel_event,
-            token=token,
-            ssl_verify=ssl_verify,
-            ca_cert=ca_cert,
-        )
-        return dest
-
-    if scheme in ("smb", "nfs"):
-        # Try to resolve a GVFS FUSE path so we can stream-copy with progress.
-        # Even though gvfsd-fuse exposes the file as a local path, reading
-        # through it is still network I/O, so we copy to a temp file to get
-        # accurate download progress rather than returning the FUSE path
-        # directly (which would make the download phase appear instant).
-        fuse_path: str | None = None
-        try:
-            import gi
-            gi.require_version("Gio", "2.0")
-            from gi.repository import Gio
-            fuse_path = Gio.File.new_for_uri(uri).get_path()
-        except (ImportError, ValueError):
-            pass
-
-        if fuse_path:
-            _file_stream(
-                Path(fuse_path),
-                dest,
-                expected_size=expected_size,
-                progress_cb=progress_cb,
-                stats_cb=stats_cb,
-                cancel_event=cancel_event,
-            )
-        else:
-            # FUSE not available — stream via a GIO InputStream instead.
-            _gio_stream(
-                uri,
-                dest,
-                expected_size=expected_size,
-                progress_cb=progress_cb,
-                stats_cb=stats_cb,
-                cancel_event=cancel_event,
-            )
-        return dest
-
-    raise InstallError(
-        f"Downloading from {scheme!r} repos is not yet supported. "
-        "Use a local, HTTP(S), SMB, or NFS repo."
-    )
-
-
-def _file_stream(
-    src: Path,
-    dest: Path,
-    *,
-    expected_size: int,
-    progress_cb: Callable[[float], None] | None,
-    stats_cb: Callable[[int, int, float], None] | None = None,
-    cancel_event: threading.Event | None,
-) -> None:
-    """Copy *src* to *dest* in 1 MB chunks with progress.
-
-    Used for GVFS FUSE paths where the file appears local but reads are
-    actually network I/O.
-    """
-    chunk = 1 * 1024 * 1024
-    total = expected_size if expected_size > 0 else src.stat().st_size
-    copied = 0
-    start = time.monotonic()
-    try:
-        with open(src, "rb") as fin, open(dest, "wb") as fout:
-            while True:
-                if cancel_event and cancel_event.is_set():
-                    raise InstallCancelled("Download cancelled")
-                buf = fin.read(chunk)
-                if not buf:
-                    break
-                fout.write(buf)
-                copied += len(buf)
-                elapsed = time.monotonic() - start
-                speed = copied / elapsed if elapsed > 0.1 else 0.0
-                if stats_cb:
-                    stats_cb(copied, total, speed)
-                if progress_cb and total > 0:
-                    progress_cb(min(copied / total, 1.0))
-    except InstallCancelled:
-        dest.unlink(missing_ok=True)
-        raise
-    except OSError as exc:
-        dest.unlink(missing_ok=True)
-        raise InstallError(f"Could not copy archive to disk: {exc}") from exc
-
-
-def _http_stream(
-    url: str,
-    dest: Path,
-    *,
-    expected_size: int,
-    progress_cb: Callable[[float], None] | None,
-    stats_cb: Callable[[int, int, float], None] | None = None,
-    cancel_event: threading.Event | None,
-    token: str | None = None,
-    ssl_verify: bool = True,
-    ca_cert: str | None = None,
-) -> None:
-    """Stream *url* to *dest* in 1 MB chunks."""
-    chunk = 1 * 1024 * 1024
-    downloaded = 0
-    start = time.monotonic()
-    session = make_session(token=token, ssl_verify=ssl_verify, ca_cert=ca_cert)
-    try:
-        resp = session.get(url, stream=True, timeout=DEFAULT_TIMEOUT)
-        resp.raise_for_status()
-        try:
-            total = int(resp.headers.get("Content-Length") or 0)
-        except (TypeError, ValueError):
-            total = 0
-        total = total or expected_size
-        with open(dest, "wb") as fh:
-            for buf in resp.iter_content(chunk_size=chunk):
-                if cancel_event and cancel_event.is_set():
-                    raise InstallCancelled("Download cancelled")
-                fh.write(buf)
-                downloaded += len(buf)
-                elapsed = time.monotonic() - start
-                speed = downloaded / elapsed if elapsed > 0.1 else 0.0
-                if stats_cb:
-                    stats_cb(downloaded, total, speed)
-                if progress_cb and total > 0:
-                    progress_cb(min(downloaded / total, 1.0))
-    except InstallCancelled:
-        dest.unlink(missing_ok=True)
-        raise
-    except requests.HTTPError as exc:
-        dest.unlink(missing_ok=True)
-        code = exc.response.status_code if exc.response is not None else "?"
-        raise InstallError(f"HTTP {code} downloading archive") from exc
-    except requests.RequestException as exc:
-        dest.unlink(missing_ok=True)
-        raise InstallError(f"Network error downloading archive: {exc}") from exc
-    except OSError as exc:
-        dest.unlink(missing_ok=True)
-        raise InstallError(f"Could not write archive to disk: {exc}") from exc
-
-
-def _gio_stream(
-    uri: str,
-    dest: Path,
-    *,
-    expected_size: int,
-    progress_cb: Callable[[float], None] | None,
-    stats_cb: Callable[[int, int, float], None] | None = None,
-    cancel_event: threading.Event | None,
-) -> None:
-    """Stream *uri* to *dest* via a GIO InputStream (SMB/NFS without FUSE).
-
-    GIO synchronous I/O is thread-safe and designed to be called from
-    background threads.
-    """
-    try:
-        import gi
-        gi.require_version("Gio", "2.0")
-        from gi.repository import Gio, GLib
-    except (ImportError, ValueError) as exc:
-        raise InstallError("GIO is unavailable; cannot stream from SMB/NFS") from exc
-
-    gfile = Gio.File.new_for_uri(uri)
-    try:
-        stream = gfile.read(None)
-    except GLib.Error as exc:
-        raise InstallError(f"Could not open {uri}: {exc.message}") from exc
-
-    chunk = 1 * 1024 * 1024
-    downloaded = 0
-    start = time.monotonic()
-    try:
-        with open(dest, "wb") as fh:
-            while True:
-                if cancel_event and cancel_event.is_set():
-                    raise InstallCancelled("Download cancelled")
-                buf = stream.read_bytes(chunk, None)
-                data = buf.get_data()
-                if not data:
-                    break
-                fh.write(data)
-                downloaded += len(data)
-                elapsed = time.monotonic() - start
-                speed = downloaded / elapsed if elapsed > 0.1 else 0.0
-                if stats_cb:
-                    stats_cb(downloaded, expected_size, speed)
-                if progress_cb and expected_size > 0:
-                    progress_cb(min(downloaded / expected_size, 1.0))
-    except InstallCancelled:
-        dest.unlink(missing_ok=True)
-        raise
-    except GLib.Error as exc:
-        dest.unlink(missing_ok=True)
-        raise InstallError(f"GIO read error: {exc.message}") from exc
-    except OSError as exc:
-        dest.unlink(missing_ok=True)
-        raise InstallError(f"Could not write archive to disk: {exc}") from exc
-    finally:
-        try:
-            stream.close(None)
-        except Exception:
-            pass
-
-
-# ---------------------------------------------------------------------------
-# Verify
-# ---------------------------------------------------------------------------
-
-def _verify_crc32(
-    path: Path,
-    expected: str,
-    progress_cb: Callable[[float], None] | None = None,
-    cancel_event: threading.Event | None = None,
-) -> None:
-    """Raise ``InstallError`` if *path* does not match *expected* CRC32 hex."""
-    crc = 0
-    total = path.stat().st_size or 1
-    read = 0
-    with open(path, "rb") as fh:
-        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
-            _check_cancel(cancel_event)
-            crc = zlib.crc32(chunk, crc)
-            read += len(chunk)
-            if progress_cb:
-                progress_cb(min(read / total, 1.0))
-    actual = format(crc & 0xFFFFFFFF, "08x")
-    if actual != expected:
-        raise InstallError(
-            f"CRC32 mismatch — archive may be corrupt or tampered.\n"
-            f"  expected: {expected}\n"
-            f"  actual:   {actual}"
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -1042,60 +722,6 @@ def _find_bottle_dir(extract_dir: Path) -> Path:
     )
 
 
-# ---------------------------------------------------------------------------
-# Naming
-# ---------------------------------------------------------------------------
-
-def _safe_bottle_name(app_id: str, data_path: Path) -> str:
-    """Return a bottle directory name that does not collide with existing bottles.
-
-    Tries *app_id* first, then ``app_id-2``, ``app_id-3``, and so on.
-    """
-    if not (data_path / app_id).exists():
-        return app_id
-    i = 2
-    while (data_path / f"{app_id}-{i}").exists():
-        i += 1
-    return f"{app_id}-{i}"
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _fix_program_paths(bottle_dest: Path, new_data_path: Path) -> None:
-    """Rewrite absolute External_Programs path values in bottle.yml.
-
-    Bottles stores full host paths in ``bottle.yml``, e.g.::
-
-        path: /home/alice/.var/…/bottles/MyApp/drive_c/MyApp/MyApp.exe
-
-    These break on any machine where the username or Bottles data directory
-    differs from the original.  We replace the prefix up to and including
-    ``/<bottle_dir_name>/`` with the actual install location.  If the paths
-    already point to the correct location (same machine, same user) this is
-    a no-op.
-    """
-    import re
-
-    bottle_name = bottle_dest.name
-    yml_path = bottle_dest / "bottle.yml"
-    try:
-        text = yml_path.read_text(encoding="utf-8", errors="replace")
-        new_prefix = str(new_data_path / bottle_name) + "/"
-        # Match any indented "path: <anything>/<bottle_name>/<rest>" line and
-        # replace the prefix up to /<bottle_name>/ with the new location.
-        pattern = re.compile(
-            r"(^\s+path:\s+).*?" + re.escape(bottle_name) + r"/(.+)$",
-            re.MULTILINE,
-        )
-        patched = pattern.sub(lambda m: m.group(1) + new_prefix + m.group(2), text)
-        if patched != text:
-            yml_path.write_text(patched, encoding="utf-8")
-    except OSError:
-        pass
-
-
 def _check_cancel(cancel_event: threading.Event | None) -> None:
     if cancel_event and cancel_event.is_set():
         raise InstallCancelled("Installation cancelled")
@@ -1114,15 +740,20 @@ def _ensure_base_installed(
     phase_cb: Callable[[str], None] | None,
     download_cb: Callable[[float], None] | None,
     download_stats_cb: Callable[[int, int, float], None] | None,
-    verify_cb: Callable[[float], None] | None,
     install_cb: Callable[[float], None] | None,
     cancel_event: threading.Event | None,
     token: str | None,
     ssl_verify: bool,
     ca_cert: str | None,
 ) -> None:
-    """Download and install the base image for *runner* if not already present."""
-    from cellar.backend.base_store import BaseStoreError, install_base, is_base_installed  # noqa: PLC0415
+    """Download, verify, and install the base image for *runner* if not already present.
+
+    Uses the same streaming pipeline as the main installer — chunks flow directly
+    through CRC32 verification and tarfile extraction without any GVFS/FUSE detour.
+    """
+    from cellar.backend.base_store import (  # noqa: PLC0415
+        BaseStoreError, install_base_from_dir, is_base_installed,
+    )
 
     if is_base_installed(runner):
         return
@@ -1139,26 +770,30 @@ def _ensure_base_installed(
         download_cb(0.0)
 
     expected_size = base_entry.archive_size if base_entry else 0
-    base_archive_path = _acquire_archive(
+    expected_crc32 = (base_entry.archive_crc32 if base_entry else "") or ""
+
+    extract_dir = tmp / "base-extracted"
+    extract_dir.mkdir()
+    chunks, total = _build_source(
         base_archive_uri,
-        tmp / "base.tar.gz",
         expected_size=expected_size,
-        progress_cb=download_cb,
-        stats_cb=download_stats_cb,
-        cancel_event=cancel_event,
         token=token,
         ssl_verify=ssl_verify,
         ca_cert=ca_cert,
     )
+    # CRC32 is checked inline by _stream_and_extract via _PipedSource.
+    _stream_and_extract(
+        chunks, total,
+        is_zst=base_archive_uri.endswith(".tar.zst"),
+        dest=extract_dir,
+        expected_crc32=expected_crc32,
+        cancel_event=cancel_event,
+        progress_cb=download_cb,
+        stats_cb=download_stats_cb,
+        name_cb=None,
+    )
     if download_cb:
         download_cb(1.0)
-
-    if base_entry and base_entry.archive_crc32:
-        _check_cancel(cancel_event)
-        if phase_cb:
-            phase_cb(f"Verifying base image\u2026")
-        _verify_crc32(base_archive_path, base_entry.archive_crc32,
-                      progress_cb=verify_cb, cancel_event=cancel_event)
 
     _check_cancel(cancel_event)
     if phase_cb:
@@ -1167,8 +802,9 @@ def _ensure_base_installed(
         install_cb(0.0)
 
     try:
-        install_base(
-            base_archive_path, runner,
+        bottle_src = _find_bottle_dir(extract_dir)
+        install_base_from_dir(
+            bottle_src, runner,
             progress_cb=install_cb,
             repo_source=base_archive_uri,
             cancel_event=cancel_event,

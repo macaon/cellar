@@ -650,19 +650,16 @@ class AddAppDialog(Adw.Dialog):
 
     def _on_download_base_clicked(self, _btn: Gtk.Button) -> None:
         """Open the base download dialog, then re-check delta state on success."""
-        from cellar.views.settings import InstallBaseFromRepoDialog
-
         def _on_base_downloaded() -> None:
             if self._runner:
                 self._check_delta_base(self._runner)
 
-        dialog = InstallBaseFromRepoDialog(
+        _InstallBaseDialog(
             runner=self._runner,
             base_entry=self._pending_base_entry,
             repo=self._pending_base_repo,
             on_done=_on_base_downloaded,
-        )
-        dialog.present(self)
+        ).present(self)
 
     def _on_name_changed(self, _entry) -> None:
         name = self._name_entry.get_text().strip()
@@ -1217,4 +1214,197 @@ class AddAppDialog(Adw.Dialog):
             body=message,
         )
         alert.add_response("ok", "OK")
+        alert.present(self)
+
+
+# ---------------------------------------------------------------------------
+# Base image download dialog (publisher-side helper)
+# ---------------------------------------------------------------------------
+
+
+class _InstallBaseDialog(Adw.Dialog):
+    """Two-phase dialog to download and install a base image from a repository.
+
+    Phase 1 (confirm): shows the runner name and archive size.
+    Phase 2 (progress): streams, verifies CRC32, extracts, and installs.
+    """
+
+    def __init__(
+        self,
+        *,
+        runner: str,
+        base_entry,     # BaseEntry
+        repo,           # cellar.backend.repo.Repo
+        on_done,        # callable()
+    ) -> None:
+        super().__init__(title=f"Install {runner} Base", content_width=400)
+        self._runner = runner
+        self._base_entry = base_entry
+        self._repo = repo
+        self._on_done = on_done
+        self._cancel_event = threading.Event()
+
+        self._build_ui()
+        self.connect("closed", lambda _d: self._cancel_event.set())
+
+    # ── UI ────────────────────────────────────────────────────────────────
+
+    def _build_ui(self) -> None:
+        from cellar.utils.progress import fmt_stats  # noqa: PLC0415 (lazy import)
+
+        toolbar_view = Adw.ToolbarView()
+        self._header = Adw.HeaderBar()
+        self._header.set_show_end_title_buttons(False)
+
+        cancel_btn = Gtk.Button(label="Cancel")
+        cancel_btn.connect("clicked", lambda _: self.close())
+        self._header.pack_start(cancel_btn)
+
+        self._install_btn = Gtk.Button(label="Install")
+        self._install_btn.add_css_class("suggested-action")
+        self._install_btn.connect("clicked", self._on_proceed_clicked)
+        self._header.pack_end(self._install_btn)
+
+        toolbar_view.add_top_bar(self._header)
+
+        self._stack = Gtk.Stack()
+        self._stack.add_named(self._build_confirm_page(), "confirm")
+        self._stack.add_named(self._build_progress_page(), "progress")
+        self._stack.set_visible_child_name("confirm")
+
+        toolbar_view.set_content(self._stack)
+        self.set_child(toolbar_view)
+
+    def _build_confirm_page(self) -> Gtk.Widget:
+        from cellar.utils.progress import fmt_stats  # noqa: PLC0415
+        scroll = Gtk.ScrolledWindow(
+            hscrollbar_policy=Gtk.PolicyType.NEVER,
+            vscrollbar_policy=Gtk.PolicyType.AUTOMATIC,
+        )
+        scroll.set_propagate_natural_height(True)
+        page = Adw.PreferencesPage()
+        scroll.set_child(page)
+
+        group = Adw.PreferencesGroup(title="Base Image")
+        be = self._base_entry
+        size_str = f"{be.archive_size // (1024*1024)} MB" if be and be.archive_size else "Unknown size"
+        row = Adw.ActionRow(
+            title=self._runner,
+            subtitle=f"Download and install the base image ({size_str})",
+        )
+        row.add_prefix(Gtk.Image.new_from_icon_name("drive-harddisk-symbolic"))
+        group.add(row)
+        page.add(group)
+        return scroll
+
+    def _build_progress_page(self) -> Gtk.Widget:
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.set_valign(Gtk.Align.CENTER)
+        box.set_margin_top(24)
+        box.set_margin_bottom(24)
+        box.set_margin_start(24)
+        box.set_margin_end(24)
+
+        self._phase_label = Gtk.Label(label="Preparing\u2026", xalign=0)
+        self._phase_label.add_css_class("dim-label")
+        box.append(self._phase_label)
+
+        self._progress_bar = Gtk.ProgressBar()
+        self._progress_bar.set_show_text(True)
+        self._progress_bar.set_fraction(0.0)
+        box.append(self._progress_bar)
+
+        self._cancel_body_btn = Gtk.Button(label="Cancel")
+        self._cancel_body_btn.set_halign(Gtk.Align.CENTER)
+        self._cancel_body_btn.set_margin_top(6)
+        self._cancel_body_btn.connect("clicked", self._on_cancel_progress)
+        box.append(self._cancel_body_btn)
+        return box
+
+    # ── Signal handlers ───────────────────────────────────────────────────
+
+    def _on_proceed_clicked(self, _btn) -> None:
+        self._stack.set_visible_child_name("progress")
+        self._header.set_visible(False)
+        self._start_install()
+
+    def _on_cancel_progress(self, _btn) -> None:
+        self._cancel_event.set()
+        self._phase_label.set_text("Cancelling\u2026")
+        self._cancel_body_btn.set_sensitive(False)
+
+    # ── Background install ────────────────────────────────────────────────
+
+    def _start_install(self) -> None:
+        import tempfile  # noqa: PLC0415
+        from cellar.backend.installer import (  # noqa: PLC0415
+            InstallCancelled, InstallError, _build_source, _find_bottle_dir, _stream_and_extract,
+        )
+        from cellar.backend.base_store import BaseStoreError, install_base_from_dir  # noqa: PLC0415
+        from cellar.utils.progress import fmt_stats  # noqa: PLC0415
+
+        be = self._base_entry
+        archive_uri = self._repo.resolve_asset_uri(be.archive) if be else ""
+
+        def _phase(text: str) -> None:
+            GLib.idle_add(self._phase_label.set_text, text)
+
+        def _progress(fraction: float) -> None:
+            GLib.idle_add(self._progress_bar.set_fraction, fraction)
+
+        _last_t = [0.0]
+
+        def _stats(done: int, total: int, speed: float) -> None:
+            now = time.monotonic()
+            if now - _last_t[0] >= 0.1:
+                _last_t[0] = now
+                GLib.idle_add(self._progress_bar.set_text, fmt_stats(done, total, speed))
+
+        def _run() -> None:
+            try:
+                with tempfile.TemporaryDirectory(prefix="cellar-base-dl-") as tmp_str:
+                    from pathlib import Path as _Path  # noqa: PLC0415
+                    tmp = _Path(tmp_str)
+                    _phase(f"Downloading base image ({self._runner})\u2026")
+                    expected_size = be.archive_size if be else 0
+                    expected_crc32 = (be.archive_crc32 if be else "") or ""
+                    extract_dir = tmp / "extracted"
+                    extract_dir.mkdir()
+                    chunks, total = _build_source(archive_uri, expected_size=expected_size)
+                    _stream_and_extract(
+                        chunks, total,
+                        is_zst=archive_uri.endswith(".tar.zst"),
+                        dest=extract_dir,
+                        expected_crc32=expected_crc32,
+                        cancel_event=self._cancel_event,
+                        progress_cb=_progress,
+                        stats_cb=_stats,
+                        name_cb=None,
+                    )
+                    _phase(f"Installing base image ({self._runner})\u2026")
+                    bottle_src = _find_bottle_dir(extract_dir)
+                    install_base_from_dir(
+                        bottle_src, self._runner,
+                        repo_source=archive_uri,
+                        cancel_event=self._cancel_event,
+                    )
+                GLib.idle_add(self._on_success)
+            except InstallCancelled:
+                GLib.idle_add(self.close)
+            except (InstallError, BaseStoreError) as exc:
+                GLib.idle_add(self._on_error, str(exc))
+            except Exception as exc:  # noqa: BLE001
+                GLib.idle_add(self._on_error, str(exc))
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _on_success(self) -> None:
+        self.close()
+        self._on_done()
+
+    def _on_error(self, message: str) -> None:
+        self._cancel_body_btn.set_sensitive(False)
+        alert = Adw.AlertDialog(heading="Download Failed", body=message)
+        alert.add_response("ok", "OK")
+        alert.connect("response", lambda _d, _r: self.close())
         alert.present(self)

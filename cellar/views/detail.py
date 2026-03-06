@@ -17,6 +17,7 @@ from gi.repository import Adw, Gdk, GLib, Gio, Gtk, Pango
 
 from cellar.models.app_entry import AppEntry
 from cellar.utils.images import load_and_crop, load_and_fit, load_logo, to_texture
+from cellar.utils.paths import short_path as _short_path
 from cellar.utils.progress import fmt_stats as _fmt_dl_stats, trunc_middle as _trunc_filename
 
 log = logging.getLogger(__name__)
@@ -1210,14 +1211,9 @@ class DetailView(Gtk.Box):
         toolbar.add_top_bar(Adw.HeaderBar())
         toolbar.set_content(content)
 
-        win = Adw.Window()
-        win.set_title("Download")
-        win.set_transient_for(self.get_root())
-        win.set_modal(True)
-        win.set_default_size(380, -1)
-        win.set_resizable(False)
-        win.set_content(toolbar)
-        win.present()
+        dlg = Adw.Dialog(title="Download", content_width=380)
+        dlg.set_child(toolbar)
+        dlg.present(self)
 
         # ── Populate base row from cached resolution ─────────────────
         if base_runner and base_pill is not None and base_action_row is not None:
@@ -1264,7 +1260,7 @@ class DetailView(Gtk.Box):
         runner_listbox.add_css_class("boxed-list")
 
         runner_row = Adw.ActionRow(title=runner_name or "—")
-        _win_ref: list[Adw.Window] = []
+        _dlg_ref: list[Adw.Dialog] = []
         if self._is_installed and self._entry.lock_runner:
             lock_icon = Gtk.Image.new_from_icon_name("changes-prevent-symbolic")
             lock_icon.add_css_class("dim-label")
@@ -1275,7 +1271,7 @@ class DetailView(Gtk.Box):
             change_btn.add_css_class("suggested-action")
             change_btn.add_css_class("flat")
             change_btn.set_valign(Gtk.Align.CENTER)
-            def _on_change(_b, _ref=_win_ref):
+            def _on_change(_b, _ref=_dlg_ref):
                 if _ref:
                     _ref[0].close()
                 self._on_change_runner_clicked(_b)
@@ -1313,15 +1309,10 @@ class DetailView(Gtk.Box):
         toolbar.add_top_bar(Adw.HeaderBar())
         toolbar.set_content(content)
 
-        win = Adw.Window()
-        _win_ref.append(win)
-        win.set_title("Wine")
-        win.set_transient_for(self.get_root())
-        win.set_modal(True)
-        win.set_default_size(340, -1)
-        win.set_resizable(False)
-        win.set_content(toolbar)
-        win.present()
+        dlg = Adw.Dialog(title="Wine", content_width=340)
+        _dlg_ref.append(dlg)
+        dlg.set_child(toolbar)
+        dlg.present(self)
 
     # ------------------------------------------------------------------
     # Asset helpers
@@ -1659,10 +1650,6 @@ class RunnerManagerDialog(Adw.Dialog):
 
 
 
-
-def _short_path(path) -> str:
-    """Return path as a string with the home directory replaced by ~."""
-    return str(path).replace(os.path.expanduser("~"), "~", 1)
 
 
 class InstallProgressDialog(Adw.Dialog):
@@ -2174,43 +2161,6 @@ class ScreenshotDialog(Adw.Dialog):
 # ---------------------------------------------------------------------------
 # Widget factories
 # ---------------------------------------------------------------------------
-
-def _group(title: str) -> Adw.PreferencesGroup:
-    return Adw.PreferencesGroup(
-        title=title,
-        margin_start=12,
-        margin_end=12,
-        margin_top=6,
-        margin_bottom=6,
-    )
-
-
-def _info_row(title: str, subtitle: str) -> Adw.ActionRow:
-    row = Adw.ActionRow(title=title, subtitle=subtitle)
-    row.set_subtitle_selectable(True)
-    return row
-
-
-def _link_row(title: str, url: str) -> Adw.ActionRow:
-    row = Adw.ActionRow(title=title, subtitle=url)
-    row.set_activatable(True)
-    row.connect("activated", lambda _r: Gio.AppInfo.launch_default_for_uri(url, None))
-    icon = Gtk.Image.new_from_icon_name("adw-external-link-symbolic")
-    icon.set_valign(Gtk.Align.CENTER)
-    row.add_suffix(icon)
-    return row
-
-
-def _text_row(text: str) -> Gtk.Label:
-    lbl = Gtk.Label(label=text)
-    lbl.set_wrap(True)
-    lbl.set_xalign(0)
-    lbl.set_margin_start(12)
-    lbl.set_margin_end(12)
-    lbl.set_margin_top(6)
-    lbl.set_margin_bottom(6)
-    return lbl
-
 
 def _base_status_subtitle(installed: bool) -> str:
     return "Already present on your system" if installed else "Will also be downloaded"

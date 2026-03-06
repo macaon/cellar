@@ -14,16 +14,12 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk
 
 from cellar.models.app_entry import AppEntry
+from cellar.utils.paths import short_path as _short_path
 from cellar.utils.progress import fmt_stats
 
 import logging
 
 log = logging.getLogger(__name__)
-
-
-def _short_path(path) -> str:
-    import os
-    return str(path).replace(os.path.expanduser("~"), "~", 1)
 
 
 class UpdateDialog(Adw.Dialog):

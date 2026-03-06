@@ -1,5 +1,6 @@
 """Resolve paths to data files for both development and installed contexts."""
 
+import os
 from pathlib import Path
 
 # When running from the source tree, data/ sits two levels above this file.
@@ -20,6 +21,11 @@ def icons_dir() -> str:
         if candidate.is_dir():
             return str(candidate)
     return str(_SRC_DATA / "icons")
+
+
+def short_path(path) -> str:
+    """Return *path* with the home directory replaced by ``~``."""
+    return str(path).replace(os.path.expanduser("~"), "~", 1)
 
 
 def ui_file(name: str) -> str:

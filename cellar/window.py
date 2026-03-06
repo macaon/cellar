@@ -30,6 +30,39 @@ def _has_update(installed_rec: dict, entry) -> bool:
     return bool(cat_crc and stored_crc and cat_crc != stored_crc)
 
 
+def _reconcile_installed_record(entry) -> dict | None:
+    """Return the DB record for *entry* if still valid on disk, else ``None``.
+
+    Removes the record and returns ``None`` if the installed directory has
+    been deleted outside Cellar (stale record).
+    """
+    from pathlib import Path  # noqa: PLC0415
+    from cellar.backend import database  # noqa: PLC0415
+    from cellar.backend.umu import prefixes_dir  # noqa: PLC0415
+
+    rec = database.get_installed(entry.id)
+    if rec is None:
+        return None
+    prefix_dir = rec.get("prefix_dir", "")
+    if entry.platform == "linux":
+        install_path = rec.get("install_path", "")
+        if install_path and prefix_dir and not (Path(install_path) / prefix_dir).is_dir():
+            log.info(
+                "Linux app dir %r gone from disk; removing stale record for %r",
+                prefix_dir, entry.id,
+            )
+            database.remove_installed(entry.id)
+            return None
+    elif prefix_dir and not (prefixes_dir() / prefix_dir).is_dir():
+        log.info(
+            "Prefix %r gone from disk; removing stale record for %r",
+            prefix_dir, entry.id,
+        )
+        database.remove_installed(entry.id)
+        return None
+    return rec
+
+
 @Gtk.Template(filename=ui_file("window.ui"))
 class CellarWindow(Adw.ApplicationWindow):
     __gtype_name__ = "CellarWindow"
@@ -53,8 +86,8 @@ class CellarWindow(Adw.ApplicationWindow):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
-        # Category toggle buttons in the filter popover — rebuilt after each catalogue load.
-        self._category_btns: dict[str, Gtk.ToggleButton] = {}
+        # Category check buttons in the filter popover — rebuilt after each catalogue load.
+        self._category_btns: dict[str, Gtk.CheckButton] = {}
         self._active_category: str = ""
 
         # The first successfully loaded Repo — used to resolve asset URIs in
@@ -211,36 +244,13 @@ class CellarWindow(Adw.ApplicationWindow):
 
         try:
             if entries:
-                from cellar.backend import database
-                from cellar.backend.umu import prefixes_dir
-                from pathlib import Path as _Path  # noqa: PLC0415
                 resolver = self._first_repo.resolve_asset_uri if self._first_repo else None
 
                 installed_entries = []
                 update_entries = []
                 for e in entries:
-                    rec = database.get_installed(e.id)
+                    rec = _reconcile_installed_record(e)
                     if rec is None:
-                        continue
-                    # Reconcile against disk: remove stale records where the
-                    # installed directory has been deleted outside Cellar.
-                    prefix_dir = rec.get("prefix_dir", "")
-                    if e.platform == "linux":
-                        install_path = rec.get("install_path", "")
-                        if install_path and prefix_dir:
-                            if not (_Path(install_path) / prefix_dir).is_dir():
-                                log.info(
-                                    "Linux app dir %r gone from disk; removing stale record for %r",
-                                    prefix_dir, e.id,
-                                )
-                                database.remove_installed(e.id)
-                                continue
-                    elif prefix_dir and not (prefixes_dir() / prefix_dir).is_dir():
-                        log.info(
-                            "Prefix %r gone from disk; removing stale record for %r",
-                            prefix_dir, e.id,
-                        )
-                        database.remove_installed(e.id)
                         continue
                     installed_entries.append(e)
                     if bool(e.archive) and _has_update(rec, e):
@@ -299,9 +309,14 @@ class CellarWindow(Adw.ApplicationWindow):
 
             outer.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
 
+            group_anchor: Gtk.CheckButton | None = None
             for cat in categories:
-                btn = Gtk.ToggleButton(label=cat)
+                btn = Gtk.CheckButton(label=cat)
                 btn.add_css_class("flat")
+                if group_anchor is None:
+                    group_anchor = btn
+                else:
+                    btn.set_group(group_anchor)
                 btn.connect("toggled", self._on_category_toggled, cat)
                 self._category_btns[cat] = btn
                 outer.append(btn)
@@ -310,16 +325,10 @@ class CellarWindow(Adw.ApplicationWindow):
         popover.set_child(outer)
         self.filter_button.set_popover(popover)
 
-    def _on_category_toggled(self, btn: Gtk.ToggleButton, category: str) -> None:
+    def _on_category_toggled(self, btn: Gtk.CheckButton, category: str) -> None:
         if not btn.get_active():
-            # Ignore the de-activate signal when we programmatically untoggle
+            # Ignore the deactivation signal fired by the radio group.
             return
-        # Untoggle all others
-        for cat, other in self._category_btns.items():
-            if cat != category:
-                other.handler_block_by_func(self._on_category_toggled)
-                other.set_active(False)
-                other.handler_unblock_by_func(self._on_category_toggled)
         self._active_category = category
         self.filter_button.add_css_class("suggested-action")
         self._browse_explore.set_active_category(category)
@@ -329,9 +338,7 @@ class CellarWindow(Adw.ApplicationWindow):
 
     def _on_filter_clear(self, _button: Gtk.Button) -> None:
         for btn in self._category_btns.values():
-            btn.handler_block_by_func(self._on_category_toggled)
             btn.set_active(False)
-            btn.handler_unblock_by_func(self._on_category_toggled)
         self._active_category = ""
         self.filter_button.remove_css_class("suggested-action")
         self._browse_explore.set_active_category("")
@@ -344,36 +351,13 @@ class CellarWindow(Adw.ApplicationWindow):
     def _on_app_selected(self, _browse, entry) -> None:
         from cellar.views.detail import DetailView
         from cellar.backend import database
-        from cellar.backend.umu import prefixes_dir
-        from pathlib import Path as _Path  # noqa: PLC0415
 
         source_repos = self._entry_repos.get(entry.id, [])
         if not source_repos and self._first_repo:
             source_repos = [self._first_repo]
         can_write = self._first_repo is not None and self._first_repo.is_writable
 
-        # Reconcile DB against disk: remove stale records where the installed
-        # directory has been deleted outside Cellar.
-        rec = database.get_installed(entry.id)
-        if rec:
-            prefix_dir = rec.get("prefix_dir", "")
-            if entry.platform == "linux":
-                install_path = rec.get("install_path", "")
-                if install_path and prefix_dir:
-                    if not (_Path(install_path) / prefix_dir).is_dir():
-                        log.info(
-                            "Linux app dir %r gone from disk; removing stale DB record for %r",
-                            prefix_dir, entry.id,
-                        )
-                        database.remove_installed(entry.id)
-                        rec = None
-            elif prefix_dir and not (prefixes_dir() / prefix_dir).is_dir():
-                log.info(
-                    "Prefix %r no longer on disk; removing stale DB record for %r",
-                    prefix_dir, entry.id,
-                )
-                database.remove_installed(entry.id)
-                rec = None
+        rec = _reconcile_installed_record(entry)
         is_installed = rec is not None
 
         def _on_edit(selected_entry):
@@ -537,8 +521,8 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="application-x-executable",
-            version="0.42.38",
-            comments="A GNOME storefront for Bottles-managed Windows apps.",
+            version="0.42.39",
+            comments="A GNOME storefront for Windows and Linux apps.",
             license_type=Gtk.License.GPL_3_0,
         )
         dialog.present(self)

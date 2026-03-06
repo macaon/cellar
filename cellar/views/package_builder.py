@@ -927,50 +927,46 @@ class PackageBuilderView(Gtk.Box):
             return
 
         repo = self._writable_repos[0]
-        progress = _ProgressDialog(label="Packaging base…")
+        progress = _ProgressDialog(label="Compressing and uploading…")
         progress.present(self)
 
         def _bg():
             try:
-                archive_path, size, crc32 = package_project(
-                    project,
+                from cellar.backend.packager import compress_prefix_zst, upsert_base
+                from cellar.backend.base_store import install_base
+
+                runner = project.runner
+                repo_root = repo.writable_path()
+                archive_dest_rel = f"bases/{runner}-base.tar.zst"
+                archive_dest = repo_root / archive_dest_rel
+                archive_dest.parent.mkdir(parents=True, exist_ok=True)
+
+                # Compress prefix and stream directly to the repo destination —
+                # one pass, no intermediate local copy, no shutil.copy2 metadata ops.
+                size, crc32 = compress_prefix_zst(
+                    project.prefix_path,
+                    archive_dest,
                     progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
                 )
-                GLib.idle_add(_done, archive_path, size, crc32)
+
+                # Update catalogue.json
+                upsert_base(repo_root, runner, archive_dest_rel, crc32, size)
+
+                # Install base locally for delta creation (reads back from repo path)
+                GLib.idle_add(progress.set_label, "Installing base locally…")
+                GLib.idle_add(progress.set_fraction, 0.0)
+                install_base(
+                    archive_dest,
+                    runner,
+                    repo_source=repo.uri,
+                    progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+                )
+
+                GLib.idle_add(_done)
             except Exception as exc:
                 GLib.idle_add(_error, str(exc))
 
-        def _done(archive_path: Path, size: int, crc32: str) -> None:
-            progress.set_label("Uploading to repository…")
-            GLib.idle_add(progress.set_fraction, 0.0)
-
-            def _upload():
-                try:
-                    runner = project.runner
-                    repo_root = repo.writable_path()
-                    archive_dest_rel = f"bases/{runner}-base.tar.zst"
-                    archive_dest = repo_root / archive_dest_rel
-                    archive_dest.parent.mkdir(parents=True, exist_ok=True)
-
-                    # Copy archive to repo
-                    import shutil
-                    shutil.copy2(str(archive_path), str(archive_dest))
-
-                    # Update catalogue.json
-                    from cellar.backend.packager import upsert_base
-                    upsert_base(repo_root, runner, archive_dest_rel, crc32, size)
-
-                    # Install base locally for delta creation
-                    from cellar.backend.base_store import install_base
-                    install_base(archive_path, runner, repo_source=repo.uri)
-
-                    GLib.idle_add(_upload_done)
-                except Exception as exc:
-                    GLib.idle_add(_error, str(exc))
-
-            threading.Thread(target=_upload, daemon=True).start()
-
-        def _upload_done() -> None:
+        def _done() -> None:
             progress.force_close()
             self._show_toast(f"Base '{project.runner}' published.")
             if self._on_catalogue_changed:

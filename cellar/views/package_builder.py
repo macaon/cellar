@@ -2181,10 +2181,10 @@ class _ImportFromCatalogueDialog(Adw.Dialog):
         dialog.present(self)
 
     def _start_import_base(self, base_entry, repo) -> None:
+        root = self.get_root()
         self.close()
 
         progress = _ProgressDialog(label=f"Downloading {base_entry.runner}…")
-        root = self.get_root()
         progress.present(root)
 
         def _bg():
@@ -2248,10 +2248,10 @@ class _ImportFromCatalogueDialog(Adw.Dialog):
         threading.Thread(target=_bg, daemon=True).start()
 
     def _start_import(self, entry, repo) -> None:
+        root = self.get_root()
         self.close()
 
         progress = _ProgressDialog(label="Downloading…")
-        root = self.get_root()
         progress.present(root)
 
         def _bg():

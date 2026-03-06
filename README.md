@@ -6,9 +6,7 @@ pre-configured app archives stored on a network share or web server.
 
 The primary use case is a home-lab or family server: a maintainer packages and
 publishes apps from their machine using the built-in Package Builder; everyone
-else browses the catalogue and installs with one click. Cellar handles
-downloading, verifying, and setting up the app — including auto-downloading any
-missing GE-Proton runner the app requires.
+else browses the catalogue and installs with one click.
 
 Windows apps run via [umu-launcher](https://github.com/Open-Wine-Components/umu-launcher)
 with GE-Proton. Linux native apps are extracted and launched directly.
@@ -20,26 +18,23 @@ with GE-Proton. Linux native apps are extracted and launched directly.
 **For users**
 - GNOME Software-style browse grid — Explore, Installed, and Updates tabs
 - Category filter (funnel icon popover), full-text search
-- App detail view — hero banner, cover art, screenshots, metadata, changelog
+- App detail view — icon/logo, screenshots carousel, description, and metadata info cards
 - One-click install, update (safe rsync overlay or full replacement), and remove
 - Delta package support — shared base images dramatically reduce download size
-- Runner compatibility check — prompts to download GE-Proton if the required version is absent
-- Linux native app support alongside Windows/Wine apps
+- Runner management — GE-Proton versions listed from GitHub Releases; prompts to download if missing
+- Linux native app support alongside Windows apps
 - Desktop shortcut creation for installed apps
 - Launch apps directly from Cellar (standard or in a terminal window)
 
 **For maintainers** (requires a writable repo)
-- Package Builder — guided workflow to create and publish app packages and base images
-  - Initialize a fresh WINEPREFIX with a chosen GE-Proton runner
-  - Install dependencies via winetricks (Visual C++ runtimes, .NET, DirectX, and more)
-  - Run `.exe` installers inside the prefix
-  - Set one or more entry points, then test-launch before publishing
-  - Stream-compress and publish directly to the repo; no intermediate local archive
-- Steam Store metadata lookup — auto-fills title, description, developer, genres, cover art, and screenshots
-- Edit existing catalogue entries
+- Package Builder — two-panel view for creating and publishing packages:
+  - **Windows package** — initialise a WINEPREFIX with a chosen GE-Proton runner, install winetricks dependencies, run `.exe` installers, configure entry points, test-launch, then publish
+  - **Linux package** — provide an archive, set an entry point, publish
+  - **Base package** — build a shared WINEPREFIX used as the delta base for multiple app packages
+  - **Import from catalogue** — pull an existing catalogue entry into a local project for re-packaging
+- Steam Store metadata lookup — search by name to auto-fill title, description, developer, genres, cover art, and screenshots
+- Edit and delete existing catalogue entries
 - Delta archive creation — diff against a base image using BLAKE2b content hashing
-- Base image management — publish and download shared base images per runner
-- Multiple simultaneous repos — local, SSH, SMB, or HTTP(S)
 
 ---
 
@@ -53,7 +48,7 @@ with GE-Proton. Linux native apps are extracted and launched directly.
 - **Network I/O:** `requests` for HTTP/HTTPS; system `ssh` for SSH; `smbprotocol` for SMB
 - **SMB credentials:** `keyring` (system keyring) with `config.json` fallback
 - **Image handling:** Pillow (load, resize, crop, ICO→PNG, optimise)
-- **Archive handling:** `tarfile` stdlib; `zstandard` for `.tar.zst` delta archives
+- **Archive handling:** `tarfile` stdlib; `zstandard` for `.tar.zst` archives
 - **File sync:** `rsync` subprocess; Python fallback if rsync is absent
 - **Metadata:** Steam Store API (no authentication required)
 
@@ -101,10 +96,10 @@ repo/
   catalogue.json
   apps/
     <id>/
-      icon.png            square icon (browse grid) — PNG, JPG, ICO, or SVG
-      cover.png           portrait cover (2:3) — browse grid + detail view
-      hero.png            wide banner — detail view header
-      logo.png            transparent logo — overlays name in detail view
+      icon.png            square icon — PNG, JPG, ICO, or SVG
+      cover.png           portrait cover (2:3) — shown in browse cards
+      hero.png            wide banner — stored but reserved for future use
+      logo.png            transparent logo — replaces icon in detail view (use with hide_title)
       screenshots/
         01.png
       <id>-1.0.tar.zst    full archive, OR delta archive (requires a base image)
@@ -155,7 +150,6 @@ to the repo root.
 
       "icon": "apps/my-app/icon.png",
       "cover": "apps/my-app/cover.png",
-      "hero": "apps/my-app/hero.png",
       "logo": "apps/my-app/logo.png",
       "hide_title": true,
       "screenshots": ["apps/my-app/screenshots/01.png"],
@@ -234,9 +228,9 @@ without any specific app installed.
 | `ssh://` | `ssh://alice@nas.home.arpa/srv/cellar` | Yes |
 | `smb://` | `smb://nas.home.arpa/cellar` | Yes |
 
-SMB uses pure-Python `smbprotocol` (SMBv2/v3) — no GVFS mount or system
-credential dialog required. Credentials are stored per-repo in the system
-keyring (`keyring`) with a `config.json` fallback.
+SMB uses pure-Python `smbprotocol` (SMBv2/v3) — no GVFS mount required.
+Credentials are stored per-repo in the system keyring with a `config.json`
+fallback.
 
 ### Bearer token authentication for HTTP(S) repos
 
@@ -319,10 +313,10 @@ cellar.example.com {
 cellar/
   cellar/
     main.py               GApplication entry point; CSS provider; about dialog
-    window.py             Main AdwApplicationWindow; catalogue load/refresh
+    window.py             Main AdwApplicationWindow; catalogue load/refresh; filter popover
     views/
       browse.py           Explore / Installed / Updates grid; search; category filter popover
-      detail.py           App detail page — hero, screenshots, install/update/remove
+      detail.py           App detail page — icon/logo, screenshots, description, info cards, install/update/remove
       package_builder.py  Package Builder — create, build, and publish app/base projects
       edit_app.py         Edit / delete catalogue entries
       update_app.py       Safe update dialog — rsync overlay
@@ -345,7 +339,7 @@ cellar/
     models/
       app_entry.py        AppEntry, BuiltWith, BaseEntry dataclasses
     utils/
-      smb.py              SmbPath — pathlib.Path-compatible SMB file access
+      smb.py              SmbPath — pathlib.Path-compatible SMB file access via smbprotocol
       http.py             requests.Session factory (User-Agent, bearer auth, SSL)
       images.py           Pillow helpers — load, crop, fit, ICO→PNG, optimise
       paths.py            UI file and icon dir resolution (source tree vs installed)

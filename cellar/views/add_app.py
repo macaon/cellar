@@ -69,7 +69,7 @@ class AddAppDialog(Adw.Dialog):
         self._repos = repos
         self._repo = repos[0]
         self._on_done = on_done
-        self._prefill = prefill or {}
+        self._prefill_data = prefill or {}
         self._cancel_event = threading.Event()
 
         # Image selections
@@ -499,7 +499,7 @@ class AddAppDialog(Adw.Dialog):
                     self._check_delta_base(runner)
 
             # Apply prefill data (from Package Builder) — overrides bottle.yml
-            pf = self._prefill
+            pf = self._prefill_data
             if pf.get("name") and not self._name_entry.get_text().strip():
                 self._name_entry.set_text(pf["name"])
             if pf.get("runner"):

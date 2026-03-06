@@ -1257,9 +1257,49 @@ class PackageBuilderView(Gtk.Box):
         if not project.runner:
             self._show_toast("Select a runner before publishing.")
             return
+        if not project.category:
+            self._show_toast("Set a category in Metadata before publishing.")
+            return
         if not self._writable_repos:
             self._show_toast("No writable repository configured.")
             return
+
+        repo = self._writable_repos[0]
+
+        # Build AppEntry from project metadata.
+        from cellar.models.app_entry import AppEntry, BuiltWith
+        _slug = project.slug
+        _icon_ext = Path(project.icon_path).suffix if project.icon_path else ".png"
+        _cover_ext = Path(project.cover_path).suffix if project.cover_path else ".jpg"
+        entry = AppEntry(
+            id=_slug,
+            name=project.name,
+            version=project.version or "1.0",
+            category=project.category,
+            summary=project.summary,
+            description=project.description,
+            developer=project.developer,
+            publisher=project.publisher,
+            release_year=project.release_year,
+            steam_appid=project.steam_appid,
+            icon=f"apps/{_slug}/icon{_icon_ext}" if project.icon_path else "",
+            cover=f"apps/{_slug}/cover{_cover_ext}" if project.cover_path else "",
+            screenshots=tuple(
+                f"apps/{_slug}/screenshots/{i + 1:02d}{Path(p).suffix}"
+                for i, p in enumerate(project.screenshot_paths)
+            ),
+            archive=f"apps/{_slug}/{_slug}.tar.zst",
+            entry_point=project.entry_point,
+            update_strategy="safe",
+            built_with=BuiltWith(runner=project.runner),
+        )
+        images: dict = {}
+        if project.icon_path:
+            images["icon"] = project.icon_path
+        if project.cover_path:
+            images["cover"] = project.cover_path
+        if project.screenshot_paths:
+            images["screenshots"] = list(project.screenshot_paths)
 
         progress = _ProgressDialog(label="Packaging prefix…")
         progress.present(self)
@@ -1268,51 +1308,50 @@ class PackageBuilderView(Gtk.Box):
 
         def _bg():
             try:
-                archive_path, size, crc32 = package_project(
+                archive_path, _size, _crc = package_project(
                     project,
                     cancel_event=cancel_event,
                     progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
                 )
-                GLib.idle_add(_done, archive_path, size, crc32)
+                GLib.idle_add(_upload, archive_path)
             except Exception as exc:
                 GLib.idle_add(_error, str(exc))
 
-        def _done(archive_path: Path, size: int, crc32: str) -> None:
+        def _upload(archive_path: Path) -> None:
+            GLib.idle_add(progress.set_label, "Uploading to repository…")
+            GLib.idle_add(progress.set_fraction, 0.0)
+
+            def _do_upload():
+                try:
+                    from cellar.backend.packager import import_to_repo
+                    repo_root = repo.writable_path()
+                    import_to_repo(
+                        repo_root,
+                        entry,
+                        str(archive_path),
+                        images,
+                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+                        phase_cb=lambda s: GLib.idle_add(progress.set_label, s),
+                    )
+                    GLib.idle_add(_done)
+                except Exception as exc:
+                    GLib.idle_add(_error, str(exc))
+
+            threading.Thread(target=_do_upload, daemon=True).start()
+
+        def _done() -> None:
             progress.force_close()
-            from cellar.views.add_app import AddAppDialog
-            prefill = {
-                "name": project.name,
-                "runner": project.runner,
-                "entry_point": project.entry_point,
-                "version": project.version,
-                "category": project.category,
-                "developer": project.developer,
-                "publisher": project.publisher,
-                "summary": project.summary,
-                "description": project.description,
-            }
-            if project.steam_appid is not None:
-                prefill["steam_appid"] = project.steam_appid
-            if project.release_year is not None:
-                prefill["release_year"] = project.release_year
-            if project.icon_path:
-                prefill["icon"] = project.icon_path
-            if project.cover_path:
-                prefill["cover"] = project.cover_path
-            if project.screenshot_paths:
-                prefill["screenshots"] = list(project.screenshot_paths)
-            win = self.get_root()
-            dlg = AddAppDialog(
-                archive_path=str(archive_path),
-                repos=self._writable_repos,
-                on_done=self._on_catalogue_changed or (lambda: None),
-                prefill=prefill,
-            )
-            dlg.present(win)
+            # Mark as an update project so subsequent publishes use update_in_repo.
+            project.origin_app_id = project.slug
+            save_project(project)
+            self._show_project(project)
+            self._show_toast(f"Published '{project.name}' to {repo.name or repo.uri}.")
+            if self._on_catalogue_changed:
+                self._on_catalogue_changed()
 
         def _error(msg: str) -> None:
             progress.force_close()
-            err = Adw.AlertDialog(heading="Packaging failed", body=msg)
+            err = Adw.AlertDialog(heading="Publish failed", body=msg)
             err.add_response("ok", "OK")
             err.present(self)
 

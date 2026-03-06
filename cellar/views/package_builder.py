@@ -787,10 +787,7 @@ class PackageBuilderView(Gtk.Box):
         if ok:
             project.initialized = True
             save_project(project)
-            if hasattr(self, "_prefix_status_row"):
-                self._prefix_status_row.set_subtitle("Initialized")
-            if hasattr(self, "_init_btn"):
-                self._init_btn.set_sensitive(False)
+            self._show_project(project)
 
     # ------------------------------------------------------------------
     # Signal handlers — dependencies

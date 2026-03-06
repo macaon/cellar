@@ -60,6 +60,8 @@ class Project:
     description: str = ""
     icon_path: str = ""        # local file path to icon image
     cover_path: str = ""       # local file path to cover image
+    logo_path: str = ""        # local file path to logo image (transparent PNG)
+    hide_title: bool = False   # True when logo already contains the app name
     screenshot_paths: list[str] = field(default_factory=list)  # local file paths
 
     # ------------------------------------------------------------------
@@ -108,6 +110,8 @@ class Project:
             description=data.get("description", ""),
             icon_path=data.get("icon_path", ""),
             cover_path=data.get("cover_path", ""),
+            logo_path=data.get("logo_path", ""),
+            hide_title=bool(data.get("hide_title", False)),
             screenshot_paths=list(data.get("screenshot_paths", [])),
         )
 
@@ -153,6 +157,10 @@ class Project:
             d["icon_path"] = self.icon_path
         if self.cover_path:
             d["cover_path"] = self.cover_path
+        if self.logo_path:
+            d["logo_path"] = self.logo_path
+        if self.hide_title:
+            d["hide_title"] = True
         if self.screenshot_paths:
             d["screenshot_paths"] = list(self.screenshot_paths)
         return d

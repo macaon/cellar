@@ -1105,6 +1105,8 @@ class PackageBuilderView(Gtk.Box):
             steam_appid=project.steam_appid,
             icon=f"apps/{_slug}/icon{_icon_ext}" if project.icon_path else "",
             cover=f"apps/{_slug}/cover{_cover_ext}" if project.cover_path else "",
+            logo=f"apps/{_slug}/logo.png" if project.logo_path else "",
+            hide_title=project.hide_title,
             screenshots=tuple(
                 f"apps/{_slug}/screenshots/{i + 1:02d}{Path(p).suffix}"
                 for i, p in enumerate(project.screenshot_paths)
@@ -1119,6 +1121,8 @@ class PackageBuilderView(Gtk.Box):
             images["icon"] = project.icon_path
         if project.cover_path:
             images["cover"] = project.cover_path
+        if project.logo_path:
+            images["logo"] = project.logo_path
         if project.screenshot_paths:
             images["screenshots"] = list(project.screenshot_paths)
 
@@ -1501,6 +1505,7 @@ class _AppMetadataDialog(Adw.Dialog):
         # Temp image paths used in create mode until the project exists
         self._tmp_icon: str = ""
         self._tmp_cover: str = ""
+        self._tmp_logo: str = ""
         self._tmp_screenshots: list[str] = []
         self._chooser = None
         self._steam_screenshots_data: list[dict] = []
@@ -1659,6 +1664,22 @@ class _AppMetadataDialog(Adw.Dialog):
         cover_btn.connect("clicked", self._on_pick_cover)
         self._cover_row.add_suffix(cover_btn)
         img_group.add(self._cover_row)
+
+        self._logo_row = Adw.ActionRow(title="Logo")
+        logo_sub = Path(p.logo_path).name if (p and p.logo_path) else "Not set"
+        self._logo_row.set_subtitle(logo_sub)
+        self._hide_title_btn = Gtk.ToggleButton()
+        self._hide_title_btn.set_icon_name("view-conceal-symbolic")
+        self._hide_title_btn.set_valign(Gtk.Align.CENTER)
+        self._hide_title_btn.set_tooltip_text("Hide title — logo contains the app name")
+        self._hide_title_btn.set_active(bool(p and p.hide_title))
+        if self._is_edit:
+            self._hide_title_btn.connect("toggled", self._on_hide_title_toggled)
+        self._logo_row.add_suffix(self._hide_title_btn)
+        logo_btn = Gtk.Button(label="Choose\u2026", valign=Gtk.Align.CENTER)
+        logo_btn.connect("clicked", self._on_pick_logo)
+        self._logo_row.add_suffix(logo_btn)
+        img_group.add(self._logo_row)
 
         ss_count = len(p.screenshot_paths) if p else 0
         self._ss_row = Adw.ActionRow(title="Screenshots")
@@ -1868,6 +1889,27 @@ class _AppMetadataDialog(Adw.Dialog):
             else:
                 self._tmp_cover = path
 
+    def _on_pick_logo(self, _btn) -> None:
+        self._pick_image("Select Logo (transparent PNG)", False, self._on_logo_chosen)
+
+    def _on_logo_chosen(self, _c, response, chooser) -> None:
+        if response == Gtk.ResponseType.ACCEPT:
+            path = chooser.get_file().get_path()
+            self._logo_row.set_subtitle(GLib.markup_escape_text(Path(path).name))
+            if not self._hide_title_btn.get_active():
+                self._hide_title_btn.set_active(True)
+            if self._project:
+                self._project.logo_path = path
+                self._project.hide_title = self._hide_title_btn.get_active()
+                save_project(self._project)
+            else:
+                self._tmp_logo = path
+
+    def _on_hide_title_toggled(self, btn: Gtk.ToggleButton) -> None:
+        if self._project:
+            self._project.hide_title = btn.get_active()
+            save_project(self._project)
+
     def _on_pick_screenshots(self, _btn) -> None:
         self._pick_image("Select Screenshots", True, self._on_screenshots_chosen)
 
@@ -1918,6 +1960,9 @@ class _AppMetadataDialog(Adw.Dialog):
             project.icon_path = self._tmp_icon
         if self._tmp_cover:
             project.cover_path = self._tmp_cover
+        if self._tmp_logo:
+            project.logo_path = self._tmp_logo
+        project.hide_title = self._hide_title_btn.get_active()
         if self._tmp_screenshots:
             project.screenshot_paths = self._tmp_screenshots
         save_project(project)

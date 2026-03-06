@@ -366,6 +366,143 @@ def compress_prefix_zst(
     return dest_path.stat().st_size, crc32_hex
 
 
+def compress_prefix_delta_zst(
+    prefix_path: Path,
+    base_dir: Path,
+    dest_path: Path,
+    *,
+    cancel_event=None,
+    phase_cb: Callable[[str], None] | None = None,
+    progress_cb: Callable[[float], None] | None = None,
+    stats_cb: Callable[[int, int, float], None] | None = None,
+) -> tuple[int, str]:
+    """Create a delta ``.tar.zst`` from *prefix_path* relative to *base_dir*.
+
+    Works directly on the prefix directory — no intermediate full archive.
+    Files identical to *base_dir* (same relative path, same BLAKE2b-128 hash)
+    are excluded.  A ``.cellar_delete`` manifest lists base files absent from
+    the prefix so the installer can remove them after seeding.
+
+    Symlinks under ``drive_c/users/`` are stripped (same as the full archive).
+    The archive is ``prefix/``-rooted, compatible with :func:`compress_prefix_zst`
+    and the installer's :func:`~cellar.backend.installer._overlay_delta`.
+
+    Progress is split across two phases:
+    - Scan (0 → 0.5): hash-compare every file in the prefix against the base.
+    - Pack  (0.5 → 1.0): stream changed/new files into the archive.
+
+    *stats_cb* is called as ``stats_cb(done_files, total_files, speed_bps)``
+    during the pack phase.
+
+    Returns ``(delta_uncompressed_bytes, crc32_hex)``.
+    """
+    import hashlib
+    import io
+    import zstandard as zstd  # noqa: PLC0415
+
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def _chk() -> None:
+        if cancel_event and cancel_event.is_set():
+            raise CancelledError("Delta creation cancelled")
+
+    def _hash_file(path: Path) -> str:
+        h = hashlib.blake2b(digest_size=16)
+        with open(path, "rb") as f:
+            while chunk := f.read(1 * 1024 * 1024):
+                _chk()
+                h.update(chunk)
+        return h.hexdigest()
+
+    def _should_strip(rel: str) -> bool:
+        """True for drive_c/users/ symlinks that umu recreates on first launch."""
+        return "drive_c/users/" in rel
+
+    # ── Phase 1: Scan — identify delta files and delete manifest ────────────
+    if phase_cb:
+        phase_cb("Scanning files\u2026")
+
+    all_src = []
+    for src in prefix_path.rglob("*"):
+        if not src.is_file() or src.is_symlink():
+            continue
+        rel = str(src.relative_to(prefix_path))
+        if _should_strip(rel):
+            continue
+        all_src.append((src, rel))
+
+    total_scan = len(all_src)
+    delta_files: list[tuple[Path, str]] = []   # (src, rel) pairs
+
+    for i, (src, rel) in enumerate(all_src, 1):
+        _chk()
+        base_file = base_dir / rel
+        if base_file.is_file():
+            try:
+                if _hash_file(src) == _hash_file(base_file):
+                    if progress_cb and total_scan:
+                        progress_cb(i / total_scan * 0.5)
+                    continue  # identical — exclude from delta
+            except CancelledError:
+                raise
+            except OSError:
+                pass  # unreadable → include defensively
+        delta_files.append((src, rel))
+        if progress_cb and total_scan:
+            progress_cb(i / total_scan * 0.5)
+
+    # Files in base absent from prefix → delete manifest.
+    delete_paths = sorted(
+        str(p.relative_to(base_dir))
+        for p in base_dir.rglob("*")
+        if p.is_file() and not p.is_symlink()
+        and not (prefix_path / p.relative_to(base_dir)).exists()
+    )
+
+    # ── Phase 2: Pack delta files into archive ───────────────────────────────
+    if phase_cb:
+        phase_cb("Compressing and uploading\u2026")
+
+    delta_uncompressed = sum(src.stat().st_size for src, _ in delta_files)
+    total_pack = len(delta_files)
+    done = [0]
+    done_bytes = [0]
+    start = time.monotonic()
+
+    cctx = zstd.ZstdCompressor(level=3)
+    try:
+        with dest_path.open("wb") as out_f:
+            crc_writer = _CRCWriter(out_f)
+            with cctx.stream_writer(crc_writer, closefd=False) as compressor:
+                with tarfile.open(fileobj=compressor, mode="w|") as tf:
+                    for src, rel in sorted(delta_files, key=lambda t: t[1]):
+                        _chk()
+                        tf.add(str(src), arcname=f"prefix/{rel}", recursive=False)
+                        done[0] += 1
+                        done_bytes[0] += src.stat().st_size
+                        if progress_cb and total_pack:
+                            progress_cb(0.5 + done[0] / total_pack * 0.5)
+                        if stats_cb:
+                            elapsed = time.monotonic() - start
+                            speed = done_bytes[0] / elapsed if elapsed > 0.1 else 0.0
+                            stats_cb(done[0], total_pack, speed)
+                    # Delete manifest
+                    if delete_paths:
+                        manifest = "\n".join(delete_paths).encode()
+                        ti = tarfile.TarInfo(name="prefix/.cellar_delete")
+                        ti.size = len(manifest)
+                        tf.addfile(ti, io.BytesIO(manifest))
+            crc32_hex = format(crc_writer.crc & 0xFFFFFFFF, "08x")
+    except CancelledError:
+        dest_path.unlink(missing_ok=True)
+        raise
+    except (tarfile.TarError, OSError) as exc:
+        dest_path.unlink(missing_ok=True)
+        raise RuntimeError(f"Failed to create delta archive: {exc}") from exc
+
+    return delta_uncompressed, crc32_hex
+
+
 # ---------------------------------------------------------------------------
 # ID generation
 # ---------------------------------------------------------------------------

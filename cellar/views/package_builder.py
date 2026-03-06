@@ -1309,26 +1309,50 @@ class PackageBuilderView(Gtk.Box):
 
         def _bg():
             try:
-                from cellar.backend.packager import compress_prefix_zst, import_to_repo
+                from cellar.backend.packager import (
+                    compress_prefix_zst, compress_prefix_delta_zst, import_to_repo,
+                )
+                from cellar.backend.base_store import is_base_installed, base_path
                 from cellar.utils.progress import fmt_file_count
                 repo_root = repo.writable_path()
                 archive_dest = repo_root / entry.archive
                 archive_dest.parent.mkdir(parents=True, exist_ok=True)
 
-                # Stream compress directly to repo — no intermediate local copy.
-                size, crc32 = compress_prefix_zst(
-                    project.prefix_path,
-                    archive_dest,
-                    cancel_event=cancel_event,
-                    progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                    stats_cb=lambda done, total, _speed: GLib.idle_add(
-                        progress.set_stats, fmt_file_count(done, total)
-                    ),
-                )
+                _use_delta = is_base_installed(project.runner)
+                if _use_delta:
+                    GLib.idle_add(progress.set_label, "Scanning files…")
+                    size, crc32 = compress_prefix_delta_zst(
+                        project.prefix_path,
+                        base_path(project.runner),
+                        archive_dest,
+                        cancel_event=cancel_event,
+                        phase_cb=lambda s: GLib.idle_add(progress.set_label, s),
+                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+                        stats_cb=lambda done, total, _speed: GLib.idle_add(
+                            progress.set_stats, fmt_file_count(done, total)
+                        ),
+                    )
+                    base_runner = project.runner
+                else:
+                    size, crc32 = compress_prefix_zst(
+                        project.prefix_path,
+                        archive_dest,
+                        cancel_event=cancel_event,
+                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+                        stats_cb=lambda done, total, _speed: GLib.idle_add(
+                            progress.set_stats, fmt_file_count(done, total)
+                        ),
+                    )
+                    base_runner = ""
 
-                # Images + catalogue (fast, no separate progress needed).
+                # Images + catalogue.
                 GLib.idle_add(progress.set_stats, "")
-                final_entry = _dc_replace(entry, archive_crc32=crc32, archive_size=size)
+                final_entry = _dc_replace(
+                    entry,
+                    archive_crc32=crc32,
+                    archive_size=size,
+                    base_runner=base_runner,
+                )
                 import_to_repo(
                     repo_root,
                     final_entry,
@@ -1399,26 +1423,50 @@ class PackageBuilderView(Gtk.Box):
 
         def _bg():
             try:
-                from cellar.backend.packager import compress_prefix_zst, update_in_repo
+                from cellar.backend.packager import (
+                    compress_prefix_zst, compress_prefix_delta_zst, update_in_repo,
+                )
+                from cellar.backend.base_store import is_base_installed, base_path
                 from cellar.utils.progress import fmt_file_count
                 repo_root = repo.writable_path()
                 archive_dest = repo_root / old_entry.archive
                 archive_dest.parent.mkdir(parents=True, exist_ok=True)
 
-                # Stream compress directly to repo — no intermediate local copy.
-                size, crc32 = compress_prefix_zst(
-                    project.prefix_path,
-                    archive_dest,
-                    cancel_event=cancel_event,
-                    progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                    stats_cb=lambda done, total, _speed: GLib.idle_add(
-                        progress.set_stats, fmt_file_count(done, total)
-                    ),
-                )
+                _use_delta = is_base_installed(project.runner)
+                if _use_delta:
+                    GLib.idle_add(progress.set_label, "Scanning files…")
+                    size, crc32 = compress_prefix_delta_zst(
+                        project.prefix_path,
+                        base_path(project.runner),
+                        archive_dest,
+                        cancel_event=cancel_event,
+                        phase_cb=lambda s: GLib.idle_add(progress.set_label, s),
+                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+                        stats_cb=lambda done, total, _speed: GLib.idle_add(
+                            progress.set_stats, fmt_file_count(done, total)
+                        ),
+                    )
+                    base_runner = project.runner
+                else:
+                    size, crc32 = compress_prefix_zst(
+                        project.prefix_path,
+                        archive_dest,
+                        cancel_event=cancel_event,
+                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+                        stats_cb=lambda done, total, _speed: GLib.idle_add(
+                            progress.set_stats, fmt_file_count(done, total)
+                        ),
+                    )
+                    base_runner = old_entry.base_runner  # preserve existing delta setting
 
-                # Update entry CRC then write catalogue — no archive copy.
+                # Update entry CRC + base_runner, then write catalogue.
                 GLib.idle_add(progress.set_stats, "")
-                new_entry = _dc_replace(old_entry, archive_crc32=crc32, archive_size=size)
+                new_entry = _dc_replace(
+                    old_entry,
+                    archive_crc32=crc32,
+                    archive_size=size,
+                    base_runner=base_runner,
+                )
                 update_in_repo(
                     repo_root,
                     old_entry,

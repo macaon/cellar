@@ -32,9 +32,11 @@ def _md_to_pango(text: str) -> str:
     Supports: **bold**, *italic*, and lines starting with "- " as bullets.
     """
     escaped = GLib.markup_escape_text(text)
+    # ***bold+italic*** — must precede the individual patterns to avoid star bleed
+    escaped = re.sub(r"\*\*\*([^*\n]+?)\*\*\*", r"<b><i>\1</i></b>", escaped)
     # **bold**
-    escaped = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", escaped)
-    # *italic* (single star, not next to another star)
+    escaped = re.sub(r"\*\*([^*\n]+?)\*\*", r"<b>\1</b>", escaped)
+    # *italic*
     escaped = re.sub(r"\*([^*\n]+?)\*", r"<i>\1</i>", escaped)
     # Lines starting with "- " → bullet
     lines = []

@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+from pathlib import Path
 
 import gi
 
@@ -43,21 +44,29 @@ def _reconcile_installed_record(entry) -> dict | None:
     if rec is None:
         return None
     prefix_dir = rec.get("prefix_dir", "")
+    stored_install_path = rec.get("install_path") or ""
     if entry.platform == "linux":
-        if not (native_dir() / entry.id).is_dir():
+        app_dir = (
+            Path(stored_install_path) / entry.id
+            if stored_install_path
+            else native_dir() / entry.id
+        )
+        if not app_dir.is_dir():
             log.info(
                 "Linux app dir %r gone from disk; removing stale record for %r",
                 entry.id, entry.id,
             )
             database.remove_installed(entry.id)
             return None
-    elif prefix_dir and not (prefixes_dir() / prefix_dir).is_dir():
-        log.info(
-            "Prefix %r gone from disk; removing stale record for %r",
-            prefix_dir, entry.id,
-        )
-        database.remove_installed(entry.id)
-        return None
+    elif prefix_dir:
+        install_dir = Path(stored_install_path) if stored_install_path else prefixes_dir()
+        if not (install_dir / prefix_dir).is_dir():
+            log.info(
+                "Prefix %r gone from disk; removing stale record for %r",
+                prefix_dir, entry.id,
+            )
+            database.remove_installed(entry.id)
+            return None
     return rec
 
 
@@ -450,7 +459,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="io.github.cellar",
-            version="0.43.18",
+            version="0.43.19",
             comments="A GNOME storefront for Windows and Linux apps.",
             license_type=Gtk.License.GPL_3_0,
         )

@@ -1945,7 +1945,7 @@ class InstallProgressDialog(Adw.Dialog):
                 from cellar.backend.umu import prefixes_dir as _prefixes_dir
                 from cellar.utils.paths import dir_size_bytes as _dir_size
                 _install_size = _dir_size(_prefixes_dir() / prefix_dir)
-                GLib.idle_add(self._on_done, prefix_dir, "", effective_runner, _install_size)
+                GLib.idle_add(self._on_done, prefix_dir, str(_prefixes_dir()), effective_runner, _install_size)
             except InstallCancelled:
                 GLib.idle_add(self._on_cancelled)
             except Exception as exc:  # noqa: BLE001
@@ -1985,7 +1985,7 @@ class InstallProgressDialog(Adw.Dialog):
                 )
                 from cellar.utils.paths import dir_size_bytes as _dir_size
                 _install_size = _dir_size(install_dest)
-                GLib.idle_add(self._on_done, self._entry.id, "", "", _install_size)
+                GLib.idle_add(self._on_done, self._entry.id, str(install_dest.parent), "", _install_size)
             except InstallCancelled:
                 GLib.idle_add(self._on_cancelled)
             except Exception as exc:  # noqa: BLE001

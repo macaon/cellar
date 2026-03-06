@@ -68,7 +68,6 @@ class CellarWindow(Adw.ApplicationWindow):
     __gtype_name__ = "CellarWindow"
 
     nav_view: Adw.NavigationView = Gtk.Template.Child()
-    add_button: Gtk.Button = Gtk.Template.Child()
     search_button: Gtk.ToggleButton = Gtk.Template.Child()
     filter_button: Gtk.MenuButton = Gtk.Template.Child()
     search_bar: Gtk.SearchBar = Gtk.Template.Child()
@@ -451,7 +450,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="application-x-executable",
-            version="0.42.50",
+            version="0.42.51",
             comments="A GNOME storefront for Windows and Linux apps.",
             license_type=Gtk.License.GPL_3_0,
         )

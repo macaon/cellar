@@ -115,6 +115,7 @@ class AppCard(Gtk.FlowBoxChild):
         # Outer card — horizontal box with .card styling.
         card = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         card.add_css_class("card")
+        card.add_css_class("activatable")
         card.add_css_class("app-card")
         card.set_overflow(Gtk.Overflow.HIDDEN)
 

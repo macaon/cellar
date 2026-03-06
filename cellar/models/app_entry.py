@@ -225,8 +225,7 @@ class AppEntry:
         _opt_str(d, "base_runner", self.base_runner)
         if self.steam_appid is not None:
             d["steam_appid"] = self.steam_appid
-        if self.platform != "windows":
-            d["platform"] = self.platform
+        d["platform"] = self.platform
         _opt_str(d, "entry_point", self.entry_point)
         _opt_str(d, "compatibility_notes", self.compatibility_notes)
         _opt_str(d, "changelog", self.changelog)

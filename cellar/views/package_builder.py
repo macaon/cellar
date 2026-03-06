@@ -521,7 +521,7 @@ class PackageBuilderView(Gtk.Box):
 
             run_installer_row = Adw.ActionRow(
                 title="Run Installer",
-                subtitle="Run a native installer or setup script",
+                subtitle="$HOME is set to the install directory",
             )
             run_installer_row.set_sensitive(project.initialized)
             run_btn = Gtk.Button(label="Choose\u2026")
@@ -1118,16 +1118,50 @@ class PackageBuilderView(Gtk.Box):
         progress.present(self)
 
         def _bg():
+            import shutil as _shutil
             try:
+                prefix = str(project.prefix_path)
+
+                # Redirect $HOME and XDG dirs into the prefix so installers
+                # that default to ~/Games/ or $HOME/.local/share/ land there
+                # automatically — no manual navigation needed.
+                env = os.environ.copy()
+                env["HOME"] = prefix
+                env["XDG_DATA_HOME"] = str(project.prefix_path / ".local" / "share")
+                env["XDG_CONFIG_HOME"] = str(project.prefix_path / ".config")
+                env["XDG_CACHE_HOME"] = str(project.prefix_path / ".cache")
+
                 # Use an interpreter for script types so we never need execute
                 # permission on the file — chmod fails on GVFS/SMB paths.
                 suffix = Path(exe_path).suffix.lower()
                 _interpreters = {".sh": ["bash"], ".py": ["python3"], ".rb": ["ruby"]}
                 interp = _interpreters.get(suffix)
-                cmd = interp + [exe_path] if interp else [exe_path]
+
+                # Use bwrap for stronger isolation if available: bind / read-write
+                # but mount the prefix over $HOME so writes outside $HOME still
+                # work (e.g. /tmp) while $HOME-relative installs land in prefix.
+                _bwrap = _shutil.which("bwrap")
+                if _bwrap and not interp:
+                    # bwrap only needed for binaries that don't go through an
+                    # interpreter — scripts already honour the env HOME override.
+                    cmd = [
+                        _bwrap,
+                        "--bind", "/", "/",
+                        "--bind", prefix, env["HOME"],
+                        "--proc", "/proc",
+                        "--dev", "/dev",
+                        "--",
+                        exe_path,
+                    ]
+                elif interp:
+                    cmd = interp + [exe_path]
+                else:
+                    cmd = [exe_path]
+
                 proc = subprocess.run(
                     cmd,
-                    cwd=str(project.prefix_path),
+                    cwd=prefix,
+                    env=env,
                     timeout=600,
                 )
                 ok = proc.returncode == 0

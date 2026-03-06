@@ -234,7 +234,7 @@ class _SmbFetcher:
         import smbclient  # type: ignore[import]
         unc = self._base_unc + "/" + rel_path.lstrip("/")
         try:
-            with smbclient.open_file(unc, mode="rb") as f:
+            with smbclient.open_file(unc, mode="rb", share_access="r") as f:
                 return f.read()
         except Exception as exc:
             raise RepoError(f"SMB could not read {unc}: {exc}") from exc

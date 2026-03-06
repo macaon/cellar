@@ -176,7 +176,7 @@ def _smb_chunks(unc: str) -> Iterator[bytes]:
     import smbclient  # type: ignore[import]
     _CHUNK = 1 * 1024 * 1024
     try:
-        with smbclient.open_file(unc, mode="rb") as fh:
+        with smbclient.open_file(unc, mode="rb", share_access="r") as fh:
             for chunk in iter(lambda: fh.read(_CHUNK), b""):
                 yield chunk
     except Exception as exc:

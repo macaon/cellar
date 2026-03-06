@@ -150,7 +150,7 @@ class SmbPath:
 
     def read_bytes(self) -> bytes:
         import smbclient  # type: ignore[import]
-        with smbclient.open_file(self._unc, mode="rb") as f:
+        with smbclient.open_file(self._unc, mode="rb", share_access="r") as f:
             return f.read()
 
     def write_bytes(self, data: bytes) -> None:
@@ -166,6 +166,8 @@ class SmbPath:
 
     def open(self, mode: str = "r", encoding: str | None = None, **kwargs) -> IO:
         import smbclient  # type: ignore[import]
+        if "share_access" not in kwargs and "r" in mode and "w" not in mode and "+" not in mode:
+            kwargs["share_access"] = "r"
         if "b" in mode:
             return smbclient.open_file(self._unc, mode=mode, **kwargs)
         return smbclient.open_file(

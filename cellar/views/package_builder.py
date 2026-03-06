@@ -2818,14 +2818,8 @@ class _ProgressDialog(Adw.Dialog):
     """Simple blocking progress dialog for long-running operations."""
 
     def __init__(self, label: str) -> None:
-        super().__init__(content_width=340)
+        super().__init__(content_width=340, content_height=120)
         self.set_can_close(False)
-
-        toolbar = Adw.ToolbarView()
-        header = Adw.HeaderBar()
-        header.set_show_start_title_buttons(False)
-        header.set_show_end_title_buttons(False)
-        toolbar.add_top_bar(header)
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         box.set_margin_top(24)
@@ -2833,6 +2827,7 @@ class _ProgressDialog(Adw.Dialog):
         box.set_margin_start(24)
         box.set_margin_end(24)
         box.set_valign(Gtk.Align.CENTER)
+        box.set_vexpand(True)
 
         self._label = Gtk.Label(label=label, xalign=0.5)
         self._label.add_css_class("dim-label")
@@ -2844,8 +2839,7 @@ class _ProgressDialog(Adw.Dialog):
 
         box.append(self._label)
         box.append(self._bar)
-        toolbar.set_content(box)
-        self.set_child(toolbar)
+        self.set_child(box)
 
     def _pulse(self) -> bool:
         self._bar.pulse()

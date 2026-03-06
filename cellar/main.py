@@ -56,7 +56,7 @@ class CellarApplication(Adw.Application):
                 "  box-shadow: 0 2px 8px rgba(0,0,0,0.15), 0 1px 3px rgba(0,0,0,0.1);"
                 "}"
                 ".info-card-sep {"
-                "  background-color: alpha(@window_fg_color, 0.08);"
+                "  background-color: @window_bg_color;"
                 "}"
                 ".info-cell {"
                 "  padding: 14px;"

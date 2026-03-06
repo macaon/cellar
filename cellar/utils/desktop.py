@@ -153,9 +153,12 @@ def create_desktop_entry(
             f'env WINEPREFIX="{prefix}"'
             + (f' PROTONPATH="{proton}"' if proton else "")
             + f' GAMEID="{gameid}"'
-            + (f' EXE="{exe_path}"' if exe_path else "")
         )
-        exec_line = f"{env_prefix} {umu_bin}"
+        # Pass exe as a positional arg (not EXE= env var) — matches launch_app.
+        # Escape backslashes so GLib's shell parser (\\→\) preserves Windows paths.
+        exe_escaped = exe_path.replace("\\", "\\\\")
+        exe_arg = f' "{exe_escaped}"' if exe_escaped else ""
+        exec_line = f"{env_prefix} {umu_bin}{exe_arg}"
         comment = (entry.summary or f"Launch {entry.name} via umu-launcher.").replace("\n", " ")
 
     # Categories

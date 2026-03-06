@@ -1,6 +1,12 @@
 """GApplication entry point for Cellar."""
 
+import logging
 import sys
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(name)s %(levelname)s: %(message)s",
+)
 
 import gi
 

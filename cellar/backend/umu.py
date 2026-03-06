@@ -17,9 +17,12 @@ Storage layout
 
 from __future__ import annotations
 
+import logging
 import shutil
 import subprocess
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 _FLATPAK_INFO = Path("/.flatpak-info")
 
@@ -111,8 +114,15 @@ def launch_app(
 ) -> None:
     """Launch *entry_point* inside the *app_id* prefix.  Fire-and-forget."""
     import os
-    env = {**os.environ, **build_env(app_id, runner_name, steam_appid, entry_point)}
-    subprocess.Popen(_umu_cmd(), env=env, start_new_session=True)
+    umu_env = build_env(app_id, runner_name, steam_appid, entry_point)
+    env = {**os.environ, **umu_env}
+    cmd = _umu_cmd()
+    log.info(
+        "Launching app %s: %s\n  WINEPREFIX=%s\n  PROTONPATH=%s\n  GAMEID=%s\n  EXE=%s",
+        app_id, " ".join(cmd),
+        umu_env["WINEPREFIX"], umu_env["PROTONPATH"], umu_env["GAMEID"], umu_env["EXE"],
+    )
+    subprocess.Popen(cmd, env=env, start_new_session=True)
 
 
 def run_in_prefix(
@@ -153,4 +163,12 @@ def run_in_prefix(
     if extra_env:
         base_env.update(extra_env)
     env = {**os.environ, **base_env}
-    return subprocess.run(_umu_cmd(), env=env, timeout=timeout)
+    cmd = _umu_cmd()
+    log.info(
+        "run_in_prefix: %s\n  WINEPREFIX=%s\n  PROTONPATH=%s\n  GAMEID=%s\n  EXE=%s",
+        " ".join(cmd),
+        base_env["WINEPREFIX"], base_env["PROTONPATH"], base_env["GAMEID"], base_env["EXE"],
+    )
+    result = subprocess.run(cmd, env=env, timeout=timeout, capture_output=False)
+    log.info("run_in_prefix exited with code %d", result.returncode)
+    return result

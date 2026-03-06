@@ -1113,17 +1113,27 @@ class PackageBuilderView(Gtk.Box):
         if response != Gtk.ResponseType.ACCEPT:
             return
         exe_path = chooser.get_file().get_path()
-        # chmod+x so shell scripts / ELF binaries can execute
-        import stat
-        p = Path(exe_path)
-        p.chmod(p.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP)
-        progress = _ProgressDialog(label=f"Running {p.name}…")
+        name = Path(exe_path).name
+        progress = _ProgressDialog(label=f"Running {name}…")
         progress.present(self)
 
         def _bg():
+            import shutil
+            import stat
+            import tempfile
+            tmp_path: Path | None = None
             try:
+                # Copy to a local temp file first — chmod fails on GVFS/SMB paths.
+                suffix = Path(exe_path).suffix
+                with tempfile.NamedTemporaryFile(
+                    prefix="cellar-installer-", suffix=suffix, delete=False
+                ) as tmp:
+                    tmp_path = Path(tmp.name)
+                with open(exe_path, "rb") as src:
+                    shutil.copyfileobj(src, tmp_path.open("wb"))
+                tmp_path.chmod(tmp_path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP)
                 proc = subprocess.run(
-                    [exe_path],
+                    [str(tmp_path)],
                     cwd=str(project.prefix_path),
                     timeout=600,
                 )
@@ -1131,6 +1141,9 @@ class PackageBuilderView(Gtk.Box):
             except Exception as exc:
                 log.error("native installer failed: %s", exc)
                 ok = False
+            finally:
+                if tmp_path is not None:
+                    tmp_path.unlink(missing_ok=True)
             GLib.idle_add(progress.force_close)
             if not ok:
                 GLib.idle_add(self._show_toast, "Installer exited with non-zero status.")

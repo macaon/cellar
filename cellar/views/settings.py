@@ -74,6 +74,9 @@ class SettingsDialog(Adw.PreferencesDialog):
         # ── Group: umu-launcher ───────────────────────────────────────────
         self._build_umu_group(page)
 
+        # ── Group: Runners ────────────────────────────────────────────────
+        self._build_runners_group(page)
+
         # ── Group: Installed Base Images ──────────────────────────────────
         self._build_bases_group(page)
 
@@ -116,6 +119,74 @@ class SettingsDialog(Adw.PreferencesDialog):
         from cellar.backend.config import save_umu_path
         path = self._umu_path_row.get_text().strip() or None
         save_umu_path(path)
+
+    # ------------------------------------------------------------------
+    # Runners
+    # ------------------------------------------------------------------
+
+    def _build_runners_group(self, page: Adw.PreferencesPage) -> None:
+        self._runners_group = Adw.PreferencesGroup(
+            title="Installed Runners",
+            description="GE-Proton runners downloaded for use with umu-launcher.",
+        )
+        page.add(self._runners_group)
+        self._runner_rows: list[Adw.ActionRow] = []
+        self._rebuild_runner_rows()
+
+    def _rebuild_runner_rows(self) -> None:
+        from cellar.backend.runners import installed_runners
+
+        for row in self._runner_rows:
+            self._runners_group.remove(row)
+        self._runner_rows.clear()
+
+        runners = installed_runners()
+        if not runners:
+            row = Adw.ActionRow(title="No runners installed")
+            row.set_sensitive(False)
+            self._runner_rows.append(row)
+            self._runners_group.add(row)
+            return
+
+        for name in runners:
+            row = Adw.ActionRow(title=name)
+            del_btn = Gtk.Button(
+                icon_name="user-trash-symbolic",
+                valign=Gtk.Align.CENTER,
+                has_frame=False,
+                tooltip_text="Remove runner",
+                css_classes=["destructive-action"],
+            )
+            del_btn.connect("clicked", self._on_delete_runner, name)
+            row.add_suffix(del_btn)
+            self._runner_rows.append(row)
+            self._runners_group.add(row)
+
+    def _on_delete_runner(self, _btn: Gtk.Button, runner_name: str) -> None:
+        # Check if any projects use this runner.
+        from cellar.backend.project import load_projects
+        in_use = [p.name for p in load_projects() if p.runner == runner_name]
+        body = f'The runner "{runner_name}" will be permanently deleted.'
+        if in_use:
+            names = ", ".join(in_use)
+            body += f"\n\nWarning: used by project(s): {names}."
+
+        dialog = Adw.AlertDialog(
+            heading="Remove Runner?",
+            body=body,
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("remove", "Remove")
+        dialog.set_response_appearance("remove", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.connect("response", self._on_delete_runner_confirmed, runner_name)
+        dialog.present(self)
+
+    def _on_delete_runner_confirmed(self, _dialog, response: str, runner_name: str) -> None:
+        if response != "remove":
+            return
+        from cellar.backend.runners import remove_runner
+        remove_runner(runner_name)
+        self._rebuild_runner_rows()
 
     # ------------------------------------------------------------------
     # Installed Base Images

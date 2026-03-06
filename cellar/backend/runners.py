@@ -115,3 +115,13 @@ def installed_runners() -> list[str]:
         )
     except OSError:
         return []
+
+
+def remove_runner(runner_name: str) -> None:
+    """Delete a runner directory from disk."""
+    import shutil
+    from cellar.backend.umu import runners_dir
+    target = runners_dir() / runner_name
+    if target.is_dir():
+        shutil.rmtree(target)
+        log.info("Removed runner %s", runner_name)

@@ -489,6 +489,18 @@ class PackageBuilderView(Gtk.Box):
             run_installer_row.add_suffix(run_btn)
             files_group.add(run_installer_row)
 
+            _browse_row = Adw.ActionRow(
+                title="Browse Prefix",
+                subtitle="Open drive_c in the file manager",
+            )
+            _browse_row.set_sensitive(project.initialized)
+            _browse_btn = Gtk.Button(icon_name="folder-open-symbolic")
+            _browse_btn.set_valign(Gtk.Align.CENTER)
+            _browse_btn.add_css_class("flat")
+            _browse_btn.connect("clicked", self._on_browse_prefix_clicked)
+            _browse_row.add_suffix(_browse_btn)
+            files_group.add(_browse_row)
+
             page.add(files_group)
 
             # Launch Targets
@@ -518,20 +530,23 @@ class PackageBuilderView(Gtk.Box):
             page.add(targets_group)
 
         # ── 7. Publish section ────────────────────────────────────────────
-        pkg_group = Adw.PreferencesGroup(title="Publish")
+        # Browse Prefix for base projects (app projects have it in the Files section)
+        if project.project_type == "base":
+            base_files_group = Adw.PreferencesGroup(title="Files")
+            _browse_row = Adw.ActionRow(
+                title="Browse Prefix",
+                subtitle="Open drive_c in the file manager",
+            )
+            _browse_row.set_sensitive(project.initialized)
+            _browse_btn = Gtk.Button(icon_name="folder-open-symbolic")
+            _browse_btn.set_valign(Gtk.Align.CENTER)
+            _browse_btn.add_css_class("flat")
+            _browse_btn.connect("clicked", self._on_browse_prefix_clicked)
+            _browse_row.add_suffix(_browse_btn)
+            base_files_group.add(_browse_row)
+            page.add(base_files_group)
 
-        # Browse Prefix (both project types)
-        browse_row = Adw.ActionRow(
-            title="Browse Prefix",
-            subtitle="Open drive_c in the file manager",
-        )
-        browse_row.set_sensitive(project.initialized)
-        browse_btn = Gtk.Button(icon_name="folder-open-symbolic")
-        browse_btn.set_valign(Gtk.Align.CENTER)
-        browse_btn.add_css_class("flat")
-        browse_btn.connect("clicked", self._on_browse_prefix_clicked)
-        browse_row.add_suffix(browse_btn)
-        pkg_group.add(browse_row)
+        pkg_group = Adw.PreferencesGroup(title="Publish")
 
         if project.project_type == "app":
             # Test launch

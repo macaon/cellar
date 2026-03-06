@@ -346,7 +346,7 @@ class PackageBuilderView(Gtk.Box):
     # Detail panel
     # ------------------------------------------------------------------
 
-    def _show_project(self, project: Project) -> None:
+    def _show_project(self, project: Project, *, expand_sel: bool = False) -> None:
         """Build and display the detail panel for *project*."""
         page = Adw.PreferencesPage()
         clamp = Adw.Clamp(maximum_size=700)
@@ -365,6 +365,7 @@ class PackageBuilderView(Gtk.Box):
             title=expander_title,
             subtitle=expander_subtitle,
         )
+        self._sel_expander.set_expanded(expand_sel)
         sel_group.add(self._sel_expander)
         page.add(sel_group)
 
@@ -604,7 +605,7 @@ class PackageBuilderView(Gtk.Box):
                         r.refresh_label()
                         break
                 save_project(project)
-            self._show_project(project)
+            self._show_project(project, expand_sel=True)
 
     def _on_delete_runner_clicked(self, _btn, runner_name: str) -> None:
         """Confirm and delete an installed runner."""
@@ -640,7 +641,7 @@ class PackageBuilderView(Gtk.Box):
                         r.refresh_label()
                         break
                 save_project(self._project)
-            self._show_project(self._project)
+            self._show_project(self._project, expand_sel=True)
 
     # ------------------------------------------------------------------
     # Signal handlers — base images (app projects)
@@ -712,7 +713,7 @@ class PackageBuilderView(Gtk.Box):
             if not project.runner:
                 project.runner = runner
                 save_project(project)
-            self._show_project(project)
+            self._show_project(project, expand_sel=True)
 
     def _on_delete_base_clicked(self, _btn, runner: str) -> None:
         """Confirm and delete an installed base image."""
@@ -738,7 +739,7 @@ class PackageBuilderView(Gtk.Box):
             if self._project.runner == runner:
                 self._project.runner = ""
                 save_project(self._project)
-            self._show_project(self._project)
+            self._show_project(self._project, expand_sel=True)
 
     def _on_init_prefix_clicked(self, _btn) -> None:
         if self._project is None or not self._project.runner:

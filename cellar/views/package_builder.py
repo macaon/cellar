@@ -506,33 +506,7 @@ class PackageBuilderView(Gtk.Box):
             _browse_row.add_suffix(_browse_btn)
             files_group.add(_browse_row)
 
-            page.add(files_group)
-
-        # ── 5b. Source Folder (Linux only) ────────────────────────────────
-        elif project.project_type == "linux":
-            _linux_ready = bool(project.source_dir) and Path(project.source_dir).is_dir()
-            src_group = Adw.PreferencesGroup(title="Source Folder")
-
-            src_row = Adw.ActionRow(title="Folder")
-            src_row.set_subtitle(project.source_dir or "Not set")
-            src_row.set_subtitle_selectable(True)
-
-            if _linux_ready:
-                _open_btn = Gtk.Button(icon_name="folder-open-symbolic")
-                _open_btn.set_valign(Gtk.Align.CENTER)
-                _open_btn.add_css_class("flat")
-                _open_btn.connect("clicked", self._on_browse_prefix_clicked)
-                src_row.add_suffix(_open_btn)
-
-            _choose_btn = Gtk.Button(label="Choose\u2026")
-            _choose_btn.set_valign(Gtk.Align.CENTER)
-            _choose_btn.connect("clicked", self._on_choose_source_dir_clicked)
-            src_row.add_suffix(_choose_btn)
-
-            src_group.add(src_row)
-            page.add(src_group)
-
-            # Launch Targets
+            # Launch Targets (Windows app)
             targets_group = Adw.PreferencesGroup(title="Launch Targets")
             for _ep in project.entry_points:
                 _ep_row = Adw.ActionRow(
@@ -558,8 +532,31 @@ class PackageBuilderView(Gtk.Box):
 
             page.add(targets_group)
 
-        if project.project_type == "linux":
+        # ── 5b. Source Folder + Launch Targets (Linux only) ───────────────
+        elif project.project_type == "linux":
             _linux_ready = bool(project.source_dir) and Path(project.source_dir).is_dir()
+            src_group = Adw.PreferencesGroup(title="Source Folder")
+
+            src_row = Adw.ActionRow(title="Folder")
+            src_row.set_subtitle(project.source_dir or "Not set")
+            src_row.set_subtitle_selectable(True)
+
+            if _linux_ready:
+                _open_btn = Gtk.Button(icon_name="folder-open-symbolic")
+                _open_btn.set_valign(Gtk.Align.CENTER)
+                _open_btn.add_css_class("flat")
+                _open_btn.connect("clicked", self._on_browse_prefix_clicked)
+                src_row.add_suffix(_open_btn)
+
+            _choose_btn = Gtk.Button(label="Choose\u2026")
+            _choose_btn.set_valign(Gtk.Align.CENTER)
+            _choose_btn.connect("clicked", self._on_choose_source_dir_clicked)
+            src_row.add_suffix(_choose_btn)
+
+            src_group.add(src_row)
+            page.add(src_group)
+
+            # Launch Targets (Linux)
             targets_group = Adw.PreferencesGroup(title="Launch Targets")
             for _ep in project.entry_points:
                 _ep_row = Adw.ActionRow(

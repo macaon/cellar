@@ -65,11 +65,11 @@ class DetailView(Gtk.Box):
         self._on_install_done = on_install_done
         self._on_remove_done = on_remove_done
         self._on_update_done = on_update_done
+        _cat_crc = entry.archive_crc32 or ""
+        _stored_crc = (installed_record or {}).get("archive_crc32") or ""
         self._has_update = (
             is_installed
-            and installed_record is not None
-            and installed_record.get("version") != entry.version
-            and bool(entry.archive)
+            and bool(_cat_crc and _stored_crc and _cat_crc != _stored_crc)
         )
         self._screenshot_paths: list[str] = []
         # Runner compatibility state

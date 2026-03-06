@@ -166,21 +166,26 @@ class DetailView(Gtk.Box):
         btn = self._install_btn
         for cls in ("suggested-action", "success", "destructive-action"):
             btn.remove_css_class(cls)
-        is_linux = self._entry.platform == "linux"
         if self._is_installed:
-            btn.set_label("Open")
+            self._install_btn_label.set_label("Open")
             btn.add_css_class("suggested-action")
             btn.set_sensitive(True)
             btn.set_tooltip_text("")
             self._remove_btn.set_visible(True)
+            self._update_indicator.set_visible(self._has_update)
+            self._update_indicator.set_tooltip_text(
+                "Update available — see Options menu" if self._has_update else ""
+            )
         else:
-            btn.set_label("Install")
+            self._install_btn_label.set_label("Install")
             btn.add_css_class("suggested-action")
             btn.set_sensitive(True)
             btn.set_tooltip_text("")
             self._remove_btn.set_visible(False)
-        self._update_btn.set_visible(self._has_update)
+            self._update_indicator.set_visible(False)
         self._gear_btn.set_visible(self._is_installed)
+        if self._is_installed:
+            self._refresh_gear_menu()
 
     def _on_install_clicked(self, _btn) -> None:
         if self._is_installed:
@@ -387,6 +392,10 @@ class DetailView(Gtk.Box):
     def _setup_gear_actions(self) -> None:
         ag = Gio.SimpleActionGroup()
 
+        update_act = Gio.SimpleAction.new("update", None)
+        update_act.connect("activate", lambda *_: self._on_update_clicked(None))
+        ag.add_action(update_act)
+
         open_folder_act = Gio.SimpleAction.new("open-folder", None)
         open_folder_act.connect("activate", self._on_open_folder_action)
         ag.add_action(open_folder_act)
@@ -406,11 +415,13 @@ class DetailView(Gtk.Box):
         from cellar.utils.desktop import has_desktop_entry
 
         menu = Gio.Menu()
-        menu.append("Open Install Folder", "detail.open-folder")
+        if self._has_update:
+            menu.append("Update", "detail.update")
         if has_desktop_entry(self._entry.id):
             menu.append("Remove Desktop Shortcut", "detail.remove-shortcut")
         else:
             menu.append("Create Desktop Shortcut", "detail.create-shortcut")
+        menu.append("Open Install Folder", "detail.open-folder")
         self._gear_btn.set_menu_model(menu)
 
     def _on_open_folder_action(self, _action, _param) -> None:
@@ -691,6 +702,15 @@ class DetailView(Gtk.Box):
         self._install_btn = Gtk.Button()
         self._install_btn.set_size_request(105, 34)
         self._install_btn.connect("clicked", self._on_install_clicked)
+        # Inner box: warning icon (update indicator) + label.
+        _btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4,
+                           halign=Gtk.Align.CENTER)
+        self._update_indicator = Gtk.Image.new_from_icon_name("software-update-urgent-symbolic")
+        self._update_indicator.set_visible(False)
+        _btn_box.append(self._update_indicator)
+        self._install_btn_label = Gtk.Label()
+        _btn_box.append(self._install_btn_label)
+        self._install_btn.set_child(_btn_box)
         action_row.append(self._install_btn)
 
         self._gear_btn = Gtk.MenuButton(icon_name="emblem-system-symbolic")
@@ -706,12 +726,6 @@ class DetailView(Gtk.Box):
         self._remove_btn.connect("clicked", lambda _b: self._on_remove_clicked())
         self._remove_btn.set_visible(False)
         action_row.append(self._remove_btn)
-
-        self._update_btn = Gtk.Button(label="Update")
-        self._update_btn.set_size_request(105, 34)
-        self._update_btn.add_css_class("suggested-action")
-        self._update_btn.connect("clicked", self._on_update_clicked)
-        right.append(self._update_btn)
 
         right.append(self._make_repo_button())
 

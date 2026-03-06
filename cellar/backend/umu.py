@@ -102,11 +102,14 @@ def build_env(
     app_id: str,
     runner_name: str,
     steam_appid: int | None,
+    *,
+    prefix_dir: Path | None = None,
 ) -> dict[str, str]:
     """Return the environment variables dict for a umu invocation."""
     gameid = f"umu-{steam_appid}" if steam_appid else "0"
+    wineprefix = prefix_dir if prefix_dir is not None else prefixes_dir() / app_id
     return {
-        "WINEPREFIX": str(prefixes_dir() / app_id),
+        "WINEPREFIX": str(wineprefix),
         "PROTONPATH": str(runners_dir() / runner_name),
         "GAMEID": gameid,
     }
@@ -131,13 +134,20 @@ def launch_app(
     entry_point: str,
     runner_name: str,
     steam_appid: int | None,
+    *,
+    prefix_dir: Path | None = None,
 ) -> None:
-    """Launch *entry_point* inside the *app_id* prefix.  Fire-and-forget."""
+    """Launch *entry_point* inside the *app_id* prefix.  Fire-and-forget.
+
+    *entry_point* should be a Windows-style path (e.g. ``C:\\Program Files\\App\\App.exe``);
+    umu-launcher resolves it against WINEPREFIX automatically.  Absolute Linux
+    paths are also accepted and passed through unchanged.
+
+    *prefix_dir* overrides the WINEPREFIX; useful when launching from a
+    non-standard location such as a Package Builder project prefix.
+    """
     import os
-    # entry_point is prefix-relative (e.g. "drive_c/Program Files/App/App.exe").
-    if entry_point and not entry_point.startswith("/"):
-        entry_point = str(prefixes_dir() / app_id / entry_point)
-    umu_env = build_env(app_id, runner_name, steam_appid)
+    umu_env = build_env(app_id, runner_name, steam_appid, prefix_dir=prefix_dir)
     env = {**os.environ, **umu_env}
     # Pass exe as positional arg — the primary documented umu-run form.
     cmd = _umu_cmd() + [entry_point]

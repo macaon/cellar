@@ -1211,13 +1211,14 @@ class PackageBuilderView(Gtk.Box):
             return
         path = chooser.get_file().get_path()
         try:
-            rel = os.path.relpath(path, str(project.prefix_path))
+            rel = os.path.relpath(path, str(drive_c))
+            entry_point = "C:\\" + rel.replace("/", "\\")
         except ValueError:
-            rel = path
-        project.entry_point = rel
+            entry_point = path
+        project.entry_point = entry_point
         save_project(project)
         if hasattr(self, "_ep_row"):
-            self._ep_row.set_subtitle(rel)
+            self._ep_row.set_subtitle(entry_point)
 
     # ------------------------------------------------------------------
     # Signal handlers — package
@@ -1243,9 +1244,10 @@ class PackageBuilderView(Gtk.Box):
         from cellar.backend.umu import launch_app
         launch_app(
             app_id=f"project-{project.slug}",
-            entry_point=str(project.prefix_path / project.entry_point),
+            entry_point=project.entry_point,
             runner_name=project.runner,
             steam_appid=project.steam_appid,
+            prefix_dir=project.prefix_path,
         )
 
     def _on_publish_app_clicked(self, _btn) -> None:

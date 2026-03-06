@@ -44,7 +44,7 @@
       },
       "update_strategy": "safe",
       "base_runner": "wine-9.0",
-      "entry_point": "drive_c/Program Files/ExampleApp/example.exe",
+      "entry_point": "C:\\Program Files\\ExampleApp\\example.exe",
       "changelog": "Initial release."
     },
     {
@@ -72,7 +72,7 @@
         "dxvk": "2.1"
       },
       "update_strategy": "full",
-      "entry_point": "drive_c/Program Files/PaintClone/paint.exe"
+      "entry_point": "C:\\Program Files\\PaintClone\\paint.exe"
     }
   ]
 }

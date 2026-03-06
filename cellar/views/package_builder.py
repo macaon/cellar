@@ -232,12 +232,9 @@ class PackageBuilderView(Gtk.Box):
         )
         self._detail_stack.add_named(empty, "empty")
 
-        # Detail container — hint banner (pinned) + scroll (populated by _show_project())
+        # Detail container — scroll (populated by _show_project())
         detail_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         detail_box.set_vexpand(True)
-
-        self._hint_banner = Adw.Banner(title="", revealed=False)
-        detail_box.append(self._hint_banner)
 
         self._detail_scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
         self._detail_scroll.set_vexpand(True)
@@ -360,11 +357,6 @@ class PackageBuilderView(Gtk.Box):
         clamp.set_child(page)
         self._detail_scroll.set_child(clamp)
 
-        # Update the pinned hint banner
-        hint = self._get_next_step_hint(project)
-        self._hint_banner.set_title(hint)
-        self._hint_banner.set_revealed(bool(hint))
-
         # ── 1. Metadata section (App projects only — first, to set title/slug) ──
         if project.project_type == "app":
             meta_group = Adw.PreferencesGroup(title="Metadata")
@@ -412,16 +404,21 @@ class PackageBuilderView(Gtk.Box):
         # ── 2. Runner / Base Image ────────────────────────────────────────
         sel_group = Adw.PreferencesGroup()
         if project.project_type == "base":
-            expander_title = "Runner"
-            expander_subtitle = project.runner or "No runner selected"
+            sel_group_title = "Runner"
+            sel_active_label = project.runner or "No runner selected"
         else:
-            expander_title = "Base Image"
-            expander_subtitle = project.runner or "No base image selected"
-        self._sel_expander = Adw.ExpanderRow(
-            title=expander_title,
-            subtitle=expander_subtitle,
-        )
+            sel_group_title = "Base Image"
+            sel_active_label = project.runner or "No base image selected"
+
+        # Always-visible row showing current selection
+        self._sel_active_row = Adw.ActionRow(title=sel_group_title)
+        self._sel_active_row.set_subtitle(sel_active_label)
+
+        # Collapsible expander for choosing a different option
+        self._sel_expander = Adw.ExpanderRow(title="Change\u2026")
         self._sel_expander.set_expanded(expand_sel)
+
+        sel_group.add(self._sel_active_row)
         sel_group.add(self._sel_expander)
         page.add(sel_group)
 
@@ -661,8 +658,8 @@ class PackageBuilderView(Gtk.Box):
             self._init_btn.set_sensitive(
                 bool(self._project.runner) and not self._project.initialized
             )
-        if hasattr(self, "_sel_expander"):
-            self._sel_expander.set_subtitle(runner_name)
+        if hasattr(self, "_sel_active_row"):
+            self._sel_active_row.set_subtitle(runner_name)
 
     def _on_download_runner_clicked(self, _btn) -> None:
         """Open the runner picker to download a new GE-Proton release."""
@@ -737,8 +734,8 @@ class PackageBuilderView(Gtk.Box):
         if effective_runner and not project.runner:
             project.runner = effective_runner
             save_project(project)
-            if hasattr(self, "_sel_expander"):
-                self._sel_expander.set_subtitle(effective_runner)
+            if hasattr(self, "_sel_active_row"):
+                self._sel_active_row.set_subtitle(effective_runner)
 
         first_check: Gtk.CheckButton | None = None
         for runner in base_runners:
@@ -781,8 +778,8 @@ class PackageBuilderView(Gtk.Box):
             self._init_btn.set_sensitive(
                 bool(self._project.runner) and not self._project.initialized
             )
-        if hasattr(self, "_sel_expander"):
-            self._sel_expander.set_subtitle(runner)
+        if hasattr(self, "_sel_active_row"):
+            self._sel_active_row.set_subtitle(runner)
 
     def _on_download_base_clicked(self, _btn) -> None:
         """Open the base picker to download a base image from a repo."""
@@ -918,27 +915,6 @@ class PackageBuilderView(Gtk.Box):
             on_changed=lambda: self._show_project(self._project),
         )
         dialog.present(self)
-
-    def _get_next_step_hint(self, project: Project) -> str:
-        """Return a short hint string for the banner, or '' if no guidance needed."""
-        if project.project_type == "app":
-            if not project.name or project.name == project.slug:
-                return "Enter the app title to get started."
-            if not project.runner:
-                return "Select a base image to continue."
-            if not project.initialized:
-                return "Initialize the prefix to set up the Wine environment."
-            if not project.entry_points:
-                return "Run the installer, then add a launch target."
-            if not project.category:
-                return "Set a category in Details before publishing."
-            return ""
-        else:  # base
-            if not project.runner:
-                return "Select or download a runner."
-            if not project.initialized:
-                return "Initialize the prefix."
-            return ""
 
     def _make_metadata_summary(self, project: Project) -> str:
         """One-line summary of filled optional metadata for the Details row subtitle."""

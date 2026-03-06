@@ -969,6 +969,10 @@ class PackageBuilderView(Gtk.Box):
 
         def _done() -> None:
             progress.force_close()
+            delete_project(project.slug)
+            self._project = None
+            self._reload_projects()
+            self._detail_stack.set_visible_child_name("empty")
             self._show_toast(f"Base '{project.runner}' published.")
             if self._on_catalogue_changed:
                 self._on_catalogue_changed()

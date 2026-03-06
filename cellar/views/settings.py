@@ -168,7 +168,7 @@ class SettingsDialog(Adw.PreferencesDialog):
     def _on_delete_base(self, _btn: Gtk.Button, runner: str) -> None:
         dialog = Adw.AlertDialog(
             heading="Remove Base Image?",
-            body=f"The base image for "{runner}" will be deleted from local storage. "
+            body=f"The base image for \"{runner}\" will be deleted from local storage. "
                  "If a delta package that depends on it is launched, it will be downloaded again.",
         )
         dialog.add_response("cancel", "Cancel")

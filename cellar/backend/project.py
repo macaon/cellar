@@ -36,6 +36,7 @@ class Project:
     deps_installed: list[str] = field(default_factory=list)
     notes: str = ""
     initialized: bool = False  # True once prefix has been initialized
+    origin_app_id: str = ""    # set when project was imported from a catalogue entry
 
     # ------------------------------------------------------------------
     # Derived paths
@@ -66,6 +67,7 @@ class Project:
             deps_installed=list(data.get("deps_installed", [])),
             notes=data.get("notes", ""),
             initialized=bool(data.get("initialized", False)),
+            origin_app_id=data.get("origin_app_id", ""),
         )
 
     def to_dict(self) -> dict:
@@ -86,6 +88,8 @@ class Project:
             d["notes"] = self.notes
         if self.initialized:
             d["initialized"] = True
+        if self.origin_app_id:
+            d["origin_app_id"] = self.origin_app_id
         return d
 
 

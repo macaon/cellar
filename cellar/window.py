@@ -18,19 +18,16 @@ log = logging.getLogger(__name__)
 
 
 def _has_update(installed_rec: dict, entry) -> bool:
-    """Return True if the catalogue entry differs from what is installed.
+    """Return True if the catalogue entry's archive differs from what is installed.
 
-    Prefers CRC32 comparison (content-addressed, triggers on any archive
-    change without requiring a manual version bump).  Falls back to version
-    string comparison when either side lacks a CRC — covers records written
-    before schema v2 and catalogue entries that pre-date CRC tracking.
+    Compares CRC32 checksums — content-addressed, so any change to the
+    archive (DLC, patch, rebuild) triggers an update without a manual version
+    bump.  Returns False when either side has no CRC (entry not yet packaged,
+    or record pre-dates the archive_crc32 column).
     """
     cat_crc = entry.archive_crc32 or ""
     stored_crc = installed_rec.get("archive_crc32") or ""
-    if cat_crc and stored_crc:
-        return cat_crc != stored_crc
-    # Fallback: version string comparison
-    return bool(entry.version) and installed_rec.get("version") != entry.version
+    return bool(cat_crc and stored_crc and cat_crc != stored_crc)
 
 
 @Gtk.Template(filename=ui_file("window.ui"))
@@ -187,7 +184,7 @@ class CellarWindow(Adw.ApplicationWindow):
         self._all_repos = list(manager)
         self.add_button.set_visible(bool(self._writable_repos))
         self.builder_page.set_visible(bool(self._writable_repos))
-        self._package_builder.update_repos(self._writable_repos)
+        self._package_builder.update_repos(self._writable_repos, all_repos=self._all_repos)
 
         if not list(manager):
             self._browse_explore.show_error(
@@ -548,7 +545,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="application-x-executable",
-            version="0.40.5",
+            version="0.41.0",
             comments="A GNOME storefront for Bottles-managed Windows apps.",
             license_type=Gtk.License.GPL_3_0,
         )

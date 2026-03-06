@@ -130,10 +130,12 @@ class PackageBuilderView(Gtk.Box):
         self,
         *,
         writable_repos: list | None = None,
+        all_repos: list | None = None,
         on_catalogue_changed: Callable | None = None,
     ) -> None:
         super().__init__(orientation=Gtk.Orientation.HORIZONTAL)
         self._writable_repos: list = writable_repos or []
+        self._all_repos: list = all_repos or []
         self._on_catalogue_changed = on_catalogue_changed
         self._project: Project | None = None
         self._project_rows: list[_ProjectRow] = []
@@ -145,8 +147,10 @@ class PackageBuilderView(Gtk.Box):
     # Public API
     # ------------------------------------------------------------------
 
-    def update_repos(self, writable_repos: list) -> None:
+    def update_repos(self, writable_repos: list, *, all_repos: list | None = None) -> None:
         self._writable_repos = writable_repos
+        if all_repos is not None:
+            self._all_repos = all_repos
 
     # ------------------------------------------------------------------
     # UI construction
@@ -178,6 +182,11 @@ class PackageBuilderView(Gtk.Box):
         new_base_btn.add_css_class("flat")
         new_base_btn.connect("clicked", self._on_new_base_clicked)
 
+        import_btn = Gtk.Button(icon_name="document-save-symbolic")
+        import_btn.set_tooltip_text("Import from catalogue…")
+        import_btn.add_css_class("flat")
+        import_btn.connect("clicked", self._on_import_clicked)
+
         self._delete_btn = Gtk.Button(icon_name="edit-delete-symbolic")
         self._delete_btn.set_tooltip_text("Delete project")
         self._delete_btn.add_css_class("flat")
@@ -187,6 +196,7 @@ class PackageBuilderView(Gtk.Box):
 
         btn_box.append(new_app_btn)
         btn_box.append(new_base_btn)
+        btn_box.append(import_btn)
         btn_box.append(self._delete_btn)
         header.pack_end(btn_box)
 
@@ -268,6 +278,23 @@ class PackageBuilderView(Gtk.Box):
 
     def _on_new_base_clicked(self, _btn) -> None:
         self._show_create_dialog("base")
+
+    def _on_import_clicked(self, _btn) -> None:
+        if not self._all_repos:
+            self._show_toast("No repositories configured.")
+            return
+        dialog = _ImportFromCatalogueDialog(
+            repos=self._all_repos,
+            on_imported=self._on_project_imported,
+        )
+        dialog.present(self)
+
+    def _on_project_imported(self, project: Project) -> None:
+        self._reload_projects()
+        for i, row in enumerate(self._project_rows):
+            if row.project.slug == project.slug:
+                self._list_box.select_row(self._list_box.get_row_at_index(i))
+                break
 
     def _on_delete_clicked(self, _btn) -> None:
         if self._project is None:
@@ -454,17 +481,37 @@ class PackageBuilderView(Gtk.Box):
             test_row.add_suffix(test_btn)
             pkg_group.add(test_row)
 
-            # Publish App
-            publish_row = Adw.ActionRow(
-                title="Publish App",
-                subtitle="Archive prefix and open Add to Catalogue dialog",
-            )
-            pub_btn = Gtk.Button(label="Publish…")
-            pub_btn.set_valign(Gtk.Align.CENTER)
-            pub_btn.add_css_class("suggested-action")
-            pub_btn.connect("clicked", self._on_publish_app_clicked)
-            publish_row.add_suffix(pub_btn)
-            pkg_group.add(publish_row)
+            if project.origin_app_id:
+                # Re-publish: update existing catalogue entry
+                origin_row = Adw.ActionRow(
+                    title="Origin",
+                    subtitle=f"Updating catalogue entry: {project.origin_app_id}",
+                )
+                origin_row.add_css_class("property")
+                pkg_group.add(origin_row)
+
+                pub_row = Adw.ActionRow(
+                    title="Publish Update",
+                    subtitle="Re-archive prefix and replace the catalogue entry",
+                )
+                pub_btn = Gtk.Button(label="Publish…")
+                pub_btn.set_valign(Gtk.Align.CENTER)
+                pub_btn.add_css_class("suggested-action")
+                pub_btn.connect("clicked", self._on_publish_update_clicked)
+                pub_row.add_suffix(pub_btn)
+                pkg_group.add(pub_row)
+            else:
+                # New publish: open AddAppDialog
+                publish_row = Adw.ActionRow(
+                    title="Publish App",
+                    subtitle="Archive prefix and open Add to Catalogue dialog",
+                )
+                pub_btn = Gtk.Button(label="Publish…")
+                pub_btn.set_valign(Gtk.Align.CENTER)
+                pub_btn.add_css_class("suggested-action")
+                pub_btn.connect("clicked", self._on_publish_app_clicked)
+                publish_row.add_suffix(pub_btn)
+                pkg_group.add(publish_row)
 
         else:
             # Base: browse only
@@ -780,6 +827,89 @@ class PackageBuilderView(Gtk.Box):
         def _error(msg: str) -> None:
             progress.force_close()
             err = Adw.AlertDialog(heading="Packaging failed", body=msg)
+            err.add_response("ok", "OK")
+            err.present(self)
+
+        threading.Thread(target=_bg, daemon=True).start()
+
+    def _on_publish_update_clicked(self, _btn) -> None:
+        """Re-publish: update an existing catalogue entry in-place."""
+        if self._project is None:
+            return
+        project = self._project
+        if not project.origin_app_id:
+            return
+        if not project.entry_point:
+            self._show_toast("Set an entry point before publishing.")
+            return
+        if not project.runner:
+            self._show_toast("Select a runner before publishing.")
+            return
+        if not self._writable_repos:
+            self._show_toast("No writable repository configured.")
+            return
+
+        # Find a writable repo that has this entry.
+        repo = None
+        old_entry = None
+        for r in self._writable_repos:
+            try:
+                old_entry = r.fetch_entry_by_id(project.origin_app_id)
+                repo = r
+                break
+            except Exception:
+                pass
+        if repo is None or old_entry is None:
+            self._show_toast(
+                f"Could not find '{project.origin_app_id}' in any writable repository."
+            )
+            return
+
+        progress = _ProgressDialog(label="Packaging prefix…")
+        progress.present(self)
+
+        def _bg():
+            try:
+                archive_path, size, _crc = package_project(
+                    project,
+                    progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+                )
+                GLib.idle_add(_upload, archive_path, size)
+            except Exception as exc:
+                GLib.idle_add(_error, str(exc))
+
+        def _upload(archive_path: Path, size: int) -> None:
+            GLib.idle_add(progress.set_label, "Uploading to repository…")
+            GLib.idle_add(progress.set_fraction, 0.0)
+
+            def _do_upload():
+                try:
+                    from cellar.backend.packager import update_in_repo
+                    repo_root = repo.writable_path()
+                    update_in_repo(
+                        repo_root,
+                        old_entry,
+                        old_entry,          # keep same ID/name/images; CRC updated inside
+                        images={},
+                        new_archive_src=str(archive_path),
+                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+                        phase_cb=lambda s: GLib.idle_add(progress.set_label, s),
+                    )
+                    GLib.idle_add(_done)
+                except Exception as exc:
+                    GLib.idle_add(_error, str(exc))
+
+            threading.Thread(target=_do_upload, daemon=True).start()
+
+        def _done() -> None:
+            progress.force_close()
+            self._show_toast(f"Update published for {project.name}.")
+            if self._on_catalogue_changed:
+                self._on_catalogue_changed()
+
+        def _error(msg: str) -> None:
+            progress.force_close()
+            err = Adw.AlertDialog(heading="Publish failed", body=msg)
             err.add_response("ok", "OK")
             err.present(self)
 
@@ -1181,6 +1311,231 @@ class _RunnerPickerDialog(Adw.Dialog):
 
     def _on_runner_installed(self, runner_name: str) -> None:
         self._on_installed(runner_name)
+
+
+class _ImportFromCatalogueDialog(Adw.Dialog):
+    """List catalogue entries from all repos and import one as a new project.
+
+    Downloads the archive, extracts it to the project prefix directory, and
+    pre-fills all metadata from the catalogue entry.  The resulting project
+    has ``origin_app_id`` set so re-publishing updates the existing entry.
+    """
+
+    def __init__(self, repos: list, on_imported: Callable) -> None:
+        super().__init__(title="Import from Catalogue", content_width=520)
+        self._repos = repos
+        self._on_imported = on_imported
+        self._entries: list[tuple] = []   # (entry, repo)
+        self._selected_idx: int = -1
+
+        toolbar = Adw.ToolbarView()
+        header = Adw.HeaderBar()
+        header.set_show_end_title_buttons(False)
+
+        cancel_btn = Gtk.Button(label="Cancel")
+        cancel_btn.connect("clicked", lambda _: self.close())
+        header.pack_start(cancel_btn)
+
+        self._import_btn = Gtk.Button(label="Import")
+        self._import_btn.add_css_class("suggested-action")
+        self._import_btn.set_sensitive(False)
+        self._import_btn.connect("clicked", self._on_import_clicked)
+        header.pack_end(self._import_btn)
+
+        toolbar.add_top_bar(header)
+
+        self._stack = Gtk.Stack()
+
+        # Loading state
+        spinner_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        spinner_box.set_valign(Gtk.Align.CENTER)
+        spinner_box.set_vexpand(True)
+        spinner = Gtk.Spinner(spinning=True)
+        spinner.set_size_request(32, 32)
+        spinner_box.append(spinner)
+        lbl = Gtk.Label(label="Fetching catalogue…")
+        lbl.add_css_class("dim-label")
+        spinner_box.append(lbl)
+        self._stack.add_named(spinner_box, "loading")
+
+        # List state
+        scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
+        scroll.set_min_content_height(360)
+        self._list_box = Gtk.ListBox()
+        self._list_box.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        self._list_box.add_css_class("boxed-list")
+        self._list_box.set_margin_top(12)
+        self._list_box.set_margin_bottom(12)
+        self._list_box.set_margin_start(12)
+        self._list_box.set_margin_end(12)
+        self._list_box.connect("row-selected", self._on_row_selected)
+        scroll.set_child(self._list_box)
+        self._stack.add_named(scroll, "list")
+
+        self._stack.set_visible_child_name("loading")
+        toolbar.set_content(self._stack)
+        self.set_child(toolbar)
+
+        threading.Thread(target=self._fetch_entries, daemon=True).start()
+
+    def _fetch_entries(self) -> None:
+        results: list[tuple] = []
+        for repo in self._repos:
+            try:
+                for entry in repo.fetch_catalogue():
+                    if entry.archive:
+                        results.append((entry, repo))
+            except Exception as exc:
+                log.warning("Could not fetch catalogue from %s: %s", repo.uri, exc)
+        results.sort(key=lambda t: t[0].name.lower())
+        GLib.idle_add(self._populate, results)
+
+    def _populate(self, results: list[tuple]) -> None:
+        self._entries = results
+        for entry, repo in results:
+            size_mb = (entry.archive_size or 0) / (1024 * 1024)
+            size_str = f"{size_mb:.0f} MB" if size_mb else ""
+            repo_name = repo.name or repo.uri
+            subtitle_parts = [entry.version or "", size_str, repo_name]
+            subtitle = "  ·  ".join(p for p in subtitle_parts if p)
+            row = Adw.ActionRow(title=html.escape(entry.name), subtitle=html.escape(subtitle))
+            self._list_box.append(row)
+
+        if not results:
+            empty_row = Adw.ActionRow(
+                title="No entries found",
+                subtitle="Add a repository with published apps.",
+            )
+            self._list_box.append(empty_row)
+
+        self._stack.set_visible_child_name("list")
+
+    def _on_row_selected(self, _lb, row: Gtk.ListBoxRow | None) -> None:
+        if row is None:
+            self._selected_idx = -1
+            self._import_btn.set_sensitive(False)
+            return
+        self._selected_idx = row.get_index()
+        self._import_btn.set_sensitive(0 <= self._selected_idx < len(self._entries))
+
+    def _on_import_clicked(self, _btn) -> None:
+        if not (0 <= self._selected_idx < len(self._entries)):
+            return
+        entry, repo = self._entries[self._selected_idx]
+
+        size_mb = (entry.archive_size or 0) / (1024 * 1024)
+        size_str = f"{size_mb:.0f} MB" if size_mb else "unknown size"
+        dialog = Adw.AlertDialog(
+            heading=f'Import \u201c{entry.name}\u201d?',
+            body=(
+                f"The archive ({size_str}) will be downloaded and extracted "
+                f"into a new project directory. This may take a while."
+            ),
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("import", "Import")
+        dialog.set_response_appearance("import", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("import")
+        dialog.set_close_response("cancel")
+        dialog.connect("response", lambda d, r: self._start_import(entry, repo) if r == "import" else None)
+        dialog.present(self)
+
+    def _start_import(self, entry, repo) -> None:
+        self.close()
+
+        progress = _ProgressDialog(label="Downloading…")
+        root = self.get_root()
+        progress.present(root)
+
+        def _bg():
+            import shutil
+            import tempfile
+            try:
+                from cellar.backend.installer import (
+                    _build_source,        # noqa: PLC2701
+                    _find_bottle_dir,     # noqa: PLC2701
+                    _stream_and_extract,  # noqa: PLC2701
+                )
+                archive_uri = repo.resolve_asset_uri(entry.archive)
+                chunks, total = _build_source(
+                    archive_uri,
+                    expected_size=entry.archive_size,
+                    token=repo.token,
+                    ssl_verify=repo.ssl_verify,
+                    ca_cert=repo.ca_cert,
+                )
+
+                with tempfile.TemporaryDirectory(prefix="cellar-import-") as tmp_str:
+                    tmp = Path(tmp_str)
+                    extract_dir = tmp / "extracted"
+                    extract_dir.mkdir()
+
+                    _stream_and_extract(
+                        chunks, total,
+                        is_zst=archive_uri.endswith(".tar.zst"),
+                        dest=extract_dir,
+                        expected_crc32=entry.archive_crc32,
+                        cancel_event=None,
+                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+                        stats_cb=None,
+                        name_cb=None,
+                    )
+
+                    bottle_src = _find_bottle_dir(extract_dir)
+
+                    from cellar.backend.packager import slugify
+                    from cellar.backend.project import (
+                        Project,
+                        load_projects,
+                        save_project,
+                    )
+                    slug = slugify(entry.id)
+                    existing = {p.slug for p in load_projects()}
+                    base_slug, i = slug, 2
+                    while slug in existing:
+                        slug = f"{base_slug}-{i}"
+                        i += 1
+
+                    project = Project(
+                        name=entry.name,
+                        slug=slug,
+                        project_type="app",
+                        runner=entry.runner or "",
+                        entry_point=entry.entry_point or "",
+                        steam_appid=entry.steam_appid,
+                        initialized=True,
+                        origin_app_id=entry.id,
+                    )
+
+                    GLib.idle_add(progress.set_label, "Copying prefix…")
+                    project.prefix_path.mkdir(parents=True, exist_ok=True)
+                    for src in bottle_src.rglob("*"):
+                        rel = src.relative_to(bottle_src)
+                        dst = project.prefix_path / rel
+                        if src.is_dir():
+                            dst.mkdir(parents=True, exist_ok=True)
+                        elif src.is_file():
+                            dst.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.copy2(src, dst)
+
+                    save_project(project)
+                    GLib.idle_add(_done, project)
+
+            except Exception as exc:
+                log.error("Import failed: %s", exc)
+                GLib.idle_add(_error, str(exc))
+
+        def _done(project) -> None:
+            progress.force_close()
+            self._on_imported(project)
+
+        def _error(msg: str) -> None:
+            progress.force_close()
+            err = Adw.AlertDialog(heading="Import failed", body=msg)
+            err.add_response("ok", "OK")
+            err.present(root)
+
+        threading.Thread(target=_bg, daemon=True).start()
 
 
 class _DependencyPickerDialog(Adw.Dialog):

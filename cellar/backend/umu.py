@@ -32,19 +32,46 @@ def is_cellar_sandboxed() -> bool:
     return _FLATPAK_INFO.exists()
 
 
+def _umu_script_works(path: str) -> bool:
+    """Quick sanity-check: run the script with --help and see if it exits cleanly."""
+    try:
+        r = subprocess.run(
+            [path, "--help"],
+            capture_output=True,
+            timeout=5,
+        )
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
 def detect_umu(override: str | None = None) -> str | None:
-    """Return the path to the umu-run binary, or None if not found.
+    """Return an invocation string for umu-launcher, or None if not found.
 
     Search order:
     1. *override* (from ``config.json`` ``umu_path`` key)
-    2. ``umu-run`` on ``$PATH``
-    3. ``/app/bin/umu-run`` (Flatpak bundle location)
+    2. ``umu-run`` on ``$PATH`` — verified to actually work
+    3. ``python3 -m umu`` — fallback when the script exists but its shebang
+       Python doesn't have the ``umu`` package (common with pipx/venv installs)
+    4. ``/app/bin/umu-run`` (Flatpak bundle location)
     """
     if override:
         return override
     found = shutil.which("umu-run")
-    if found:
+    if found and _umu_script_works(found):
         return found
+    # Script broken or absent — try running via the current Python interpreter.
+    if shutil.which("python3"):
+        try:
+            r = subprocess.run(
+                ["python3", "-m", "umu", "--help"],
+                capture_output=True,
+                timeout=5,
+            )
+            if r.returncode == 0:
+                return "python3 -m umu"
+        except Exception:
+            pass
     bundled = Path("/app/bin/umu-run")
     if bundled.is_file():
         return str(bundled)
@@ -101,9 +128,11 @@ def _umu_cmd() -> list[str]:
     """Return the base umu-run command, prefixed with flatpak-spawn if sandboxed."""
     from cellar.backend.config import load_umu_path
     umu = detect_umu(load_umu_path()) or "umu-run"
+    # detect_umu may return a multi-word invocation like "python3 -m umu"
+    parts = umu.split()
     if is_cellar_sandboxed():
-        return ["flatpak-spawn", "--host", umu]
-    return [umu]
+        return ["flatpak-spawn", "--host"] + parts
+    return parts
 
 
 def launch_app(

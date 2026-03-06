@@ -102,7 +102,6 @@ def build_env(
     app_id: str,
     runner_name: str,
     steam_appid: int | None,
-    entry_point: str,
 ) -> dict[str, str]:
     """Return the environment variables dict for a umu invocation."""
     gameid = f"umu-{steam_appid}" if steam_appid else "0"
@@ -110,7 +109,6 @@ def build_env(
         "WINEPREFIX": str(prefixes_dir() / app_id),
         "PROTONPATH": str(runners_dir() / runner_name),
         "GAMEID": gameid,
-        "EXE": entry_point,
     }
 
 
@@ -136,13 +134,14 @@ def launch_app(
 ) -> None:
     """Launch *entry_point* inside the *app_id* prefix.  Fire-and-forget."""
     import os
-    umu_env = build_env(app_id, runner_name, steam_appid, entry_point)
+    umu_env = build_env(app_id, runner_name, steam_appid)
     env = {**os.environ, **umu_env}
-    cmd = _umu_cmd()
+    # Pass exe as positional arg — the primary documented umu-run form.
+    cmd = _umu_cmd() + [entry_point]
     log.info(
         "Launching app %s: %s\n  WINEPREFIX=%s\n  PROTONPATH=%s\n  GAMEID=%s\n  EXE=%s",
-        app_id, " ".join(cmd),
-        umu_env["WINEPREFIX"], umu_env["PROTONPATH"], umu_env["GAMEID"], umu_env["EXE"],
+        app_id, " ".join(cmd[:-1]),
+        umu_env["WINEPREFIX"], umu_env["PROTONPATH"], umu_env["GAMEID"], entry_point,
     )
     subprocess.Popen(cmd, env=env, start_new_session=True)
 
@@ -153,24 +152,26 @@ def init_prefix(
     *,
     timeout: int = 120,
 ) -> subprocess.CompletedProcess:
-    """Initialise a fresh WINEPREFIX using the wineboot binary from the Proton bundle.
+    """Initialise a fresh WINEPREFIX via ``umu-run ""``.
 
-    Uses wineboot directly rather than umu-run: umu expects ``EXE`` to be a
-    Windows executable path, which ``wineboot`` is not.
-
-    Raises ``RuntimeError`` if the wineboot binary is not found in the bundle.
+    Passing an empty string as the executable is the documented umu-launcher
+    way to create/initialise a prefix without running anything.  This lets
+    umu handle Steam Runtime setup correctly.
     """
     import os
-    wineboot = runners_dir() / runner_name / "files" / "bin" / "wineboot"
-    if not wineboot.is_file():
-        raise RuntimeError(
-            f"wineboot not found in Proton bundle: {wineboot}\n"
-            "Make sure the runner is fully extracted."
-        )
+    base_env: dict[str, str] = {
+        "WINEPREFIX": str(prefix_path),
+        "PROTONPATH": str(runners_dir() / runner_name),
+        "GAMEID": "0",
+    }
     prefix_path.mkdir(parents=True, exist_ok=True)
-    env = {**os.environ, "WINEPREFIX": str(prefix_path)}
-    cmd = [str(wineboot), "--init"]
-    log.info("init_prefix: %s  WINEPREFIX=%s", " ".join(cmd), prefix_path)
+    env = {**os.environ, **base_env}
+    # Empty-string positional arg → umu initialises the prefix, runs nothing.
+    cmd = _umu_cmd() + [""]
+    log.info(
+        "init_prefix: %s\n  WINEPREFIX=%s\n  PROTONPATH=%s",
+        " ".join(cmd), base_env["WINEPREFIX"], base_env["PROTONPATH"],
+    )
     result = subprocess.run(cmd, env=env, timeout=timeout, capture_output=False)
     log.info("init_prefix exited with code %d", result.returncode)
     return result
@@ -211,24 +212,25 @@ def run_winetricks(
 def run_in_prefix(
     prefix_path: Path,
     runner_name: str,
-    exe_or_verb: str,
+    exe_path: str,
     *,
     gameid: int = 0,
     extra_env: dict[str, str] | None = None,
     timeout: int = 300,
 ) -> subprocess.CompletedProcess:
-    """Run *exe_or_verb* inside *prefix_path* using *runner_name*.  Blocking.
+    """Run a Windows executable inside *prefix_path* using *runner_name*.  Blocking.
 
-    Used by the Package Builder for wineboot, winetricks, and installer runs.
+    Used by the Package Builder to run ``.exe`` installers.  The executable is
+    passed as a positional argument to ``umu-run`` (the primary documented form).
 
     Parameters
     ----------
     prefix_path:
         Full path to the WINEPREFIX directory.
     runner_name:
-        Name of a runner inside ``runners_dir()`` (e.g. ``"ge-proton10-32"``).
-    exe_or_verb:
-        Path to an executable or a winetricks verb.
+        Name of a runner inside ``runners_dir()`` (e.g. ``"GE-Proton10-32"``).
+    exe_path:
+        Absolute path to the Windows executable to run.
     gameid:
         umu GAMEID integer.  0 means no protonfixes.
     extra_env:
@@ -241,16 +243,16 @@ def run_in_prefix(
         "WINEPREFIX": str(prefix_path),
         "PROTONPATH": str(runners_dir() / runner_name),
         "GAMEID": str(gameid) if gameid else "0",
-        "EXE": exe_or_verb,
     }
     if extra_env:
         base_env.update(extra_env)
     env = {**os.environ, **base_env}
-    cmd = _umu_cmd()
+    # Pass exe as positional arg — the primary documented umu-run form.
+    cmd = _umu_cmd() + [exe_path]
     log.info(
         "run_in_prefix: %s\n  WINEPREFIX=%s\n  PROTONPATH=%s\n  GAMEID=%s\n  EXE=%s",
-        " ".join(cmd),
-        base_env["WINEPREFIX"], base_env["PROTONPATH"], base_env["GAMEID"], base_env["EXE"],
+        " ".join(cmd[:-1]),
+        base_env["WINEPREFIX"], base_env["PROTONPATH"], base_env["GAMEID"], exe_path,
     )
     result = subprocess.run(cmd, env=env, timeout=timeout, capture_output=False)
     log.info("run_in_prefix exited with code %d", result.returncode)

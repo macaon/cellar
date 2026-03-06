@@ -116,6 +116,51 @@ def install_base(
     database.mark_base_installed(runner, repo_source)
 
 
+def install_base_from_dir(
+    prefix_path: Path,
+    runner: str,
+    *,
+    progress_cb: Callable[[float], None] | None = None,
+    repo_source: str = "",
+    cancel_event=None,  # threading.Event | None
+) -> None:
+    """Copy an already-extracted prefix directory into the base store.
+
+    Equivalent to :func:`install_base` but skips the archive
+    extraction step — useful when the prefix is already available
+    locally (e.g. immediately after publishing from the Package Builder).
+
+    Raises :exc:`BaseStoreError` on failure.
+    """
+    from cellar.backend.installer import InstallCancelled  # noqa: PLC0415
+
+    dest = base_path(runner)
+    if dest.exists():
+        shutil.rmtree(dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+
+    all_files = [p for p in prefix_path.rglob("*") if not p.is_dir()]
+    total = len(all_files)
+    try:
+        for i, src in enumerate(all_files):
+            if cancel_event and cancel_event.is_set():
+                shutil.rmtree(dest, ignore_errors=True)
+                raise InstallCancelled("Base installation cancelled")
+            rel = src.relative_to(prefix_path)
+            dst = dest / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+            if progress_cb and total:
+                progress_cb((i + 1) / total)
+    except InstallCancelled:
+        raise
+    except Exception as exc:
+        shutil.rmtree(dest, ignore_errors=True)
+        raise BaseStoreError(f"Failed to store base: {exc}") from exc
+
+    database.mark_base_installed(runner, repo_source)
+
+
 def remove_base(runner: str) -> None:
     """Remove the installed base for *runner*.  No-op if not present."""
     dest = base_path(runner)

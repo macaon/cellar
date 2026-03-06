@@ -933,7 +933,7 @@ class PackageBuilderView(Gtk.Box):
         def _bg():
             try:
                 from cellar.backend.packager import compress_prefix_zst, upsert_base
-                from cellar.backend.base_store import install_base
+                from cellar.backend.base_store import install_base_from_dir
 
                 runner = project.runner
                 repo_root = repo.writable_path()
@@ -952,41 +952,16 @@ class PackageBuilderView(Gtk.Box):
                 # Update catalogue.json
                 upsert_base(repo_root, runner, archive_dest_rel, crc32, size)
 
-                # Install base locally for delta creation.
-                # install_base requires a local Path; if archive_dest is an
-                # SmbPath we download it to a temp file first.
+                # Install base locally from the project prefix — no need to
+                # read back the archive we just uploaded.
                 GLib.idle_add(progress.set_label, "Installing base locally…")
                 GLib.idle_add(progress.set_fraction, 0.0)
-                from pathlib import Path as _Path  # noqa: PLC0415
-                if isinstance(archive_dest, _Path):
-                    local_archive = archive_dest
-                    install_base(
-                        local_archive,
-                        runner,
-                        repo_source=repo.uri,
-                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                    )
-                else:
-                    import tempfile  # noqa: PLC0415
-                    suffix = "".join(_Path(archive_dest_rel).suffixes)
-                    with tempfile.NamedTemporaryFile(
-                        suffix=suffix, delete=False
-                    ) as tf:
-                        tmp_path = _Path(tf.name)
-                    try:
-                        GLib.idle_add(progress.set_label, "Downloading base for local install…")
-                        with archive_dest.open("rb") as src, tmp_path.open("wb") as dst:
-                            while chunk := src.read(4 * 1024 * 1024):
-                                dst.write(chunk)
-                        GLib.idle_add(progress.set_label, "Installing base locally…")
-                        install_base(
-                            tmp_path,
-                            runner,
-                            repo_source=repo.uri,
-                            progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                        )
-                    finally:
-                        tmp_path.unlink(missing_ok=True)
+                install_base_from_dir(
+                    project.prefix_path,
+                    runner,
+                    repo_source=repo.uri,
+                    progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+                )
 
                 GLib.idle_add(_done)
             except Exception as exc:

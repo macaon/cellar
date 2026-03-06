@@ -12,7 +12,8 @@ log = logging.getLogger(__name__)
 
 # Ordered preference list of known terminal emulators.
 _CANDIDATES = [
-    "kgx",              # GNOME Console
+    "xdg-terminal-exec",  # freedesktop.org standard; routes to DE default
+    "kgx",                # GNOME Console
     "gnome-terminal",
     "konsole",
     "xfce4-terminal",
@@ -26,8 +27,10 @@ _CANDIDATES = [
 ]
 
 # Map emulator name → flag used to pass the command.
+# None means the command is passed directly with no separator flag.
 # Most use "--", some use "-e".
-_EXEC_FLAG: dict[str, str] = {
+_EXEC_FLAG: dict[str, str | None] = {
+    "xdg-terminal-exec": None,
     "gnome-terminal": "--",
     "kgx": "--",
     "xterm": "-e",
@@ -38,6 +41,39 @@ _EXEC_FLAG: dict[str, str] = {
 }
 
 
+def _query_desktop_terminal() -> str | None:
+    """Ask the desktop environment which terminal it prefers."""
+    desktop = os.environ.get("XDG_CURRENT_DESKTOP", "").upper()
+    if "GNOME" in desktop or "UNITY" in desktop:
+        try:
+            out = subprocess.check_output(
+                ["gsettings", "get",
+                 "org.gnome.desktop.default-applications.terminal", "exec"],
+                stderr=subprocess.DEVNULL,
+                text=True,
+            ).strip().strip("'\"")
+            if out and shutil.which(out):
+                return out
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            pass
+    if "KDE" in desktop:
+        for tool in ("kreadconfig6", "kreadconfig5"):
+            if not shutil.which(tool):
+                continue
+            try:
+                out = subprocess.check_output(
+                    [tool, "--file", "kdeglobals",
+                     "--group", "General", "--key", "TerminalApplication"],
+                    stderr=subprocess.DEVNULL,
+                    text=True,
+                ).strip()
+                if out and shutil.which(out):
+                    return out
+            except (FileNotFoundError, subprocess.CalledProcessError):
+                pass
+    return None
+
+
 def find_terminal() -> str | None:
     """Return the path to an available terminal emulator, or ``None``."""
     # Honour user preference first.
@@ -45,6 +81,11 @@ def find_terminal() -> str | None:
         val = os.environ.get(env_var, "")
         if val and shutil.which(val):
             return val
+
+    # Ask the desktop environment.
+    de_terminal = _query_desktop_terminal()
+    if de_terminal:
+        return de_terminal
 
     for name in _CANDIDATES:
         if shutil.which(name):
@@ -80,7 +121,10 @@ def launch_in_terminal(
     inner = " ".join(_shell_quote(c) for c in cmd)
     bash_cmd = f"{inner}; echo; read -p 'Press Enter to close…'"
 
-    full_cmd = [terminal, exec_flag, "bash", "-c", bash_cmd]
+    if exec_flag is None:
+        full_cmd = [terminal, "bash", "-c", bash_cmd]
+    else:
+        full_cmd = [terminal, exec_flag, "bash", "-c", bash_cmd]
 
     env = {**os.environ, **(extra_env or {})}
     log.info("Launching in terminal: %s", " ".join(full_cmd))

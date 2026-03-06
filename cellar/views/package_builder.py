@@ -579,7 +579,7 @@ class PackageBuilderView(Gtk.Box):
                     title="Publish Update",
                     subtitle="Re-archive prefix and replace the catalogue entry",
                 )
-                pub_row.set_sensitive(project.initialized)
+                pub_row.set_sensitive(project.initialized and bool(project.entry_points))
                 pub_btn = Gtk.Button(label="Publish\u2026")
                 pub_btn.set_valign(Gtk.Align.CENTER)
                 pub_btn.add_css_class("suggested-action")
@@ -591,7 +591,7 @@ class PackageBuilderView(Gtk.Box):
                     title="Publish App",
                     subtitle="Archive prefix and open Add to Catalogue dialog",
                 )
-                publish_row.set_sensitive(project.initialized)
+                publish_row.set_sensitive(project.initialized and bool(project.entry_points))
                 pub_btn = Gtk.Button(label="Publish\u2026")
                 pub_btn.set_valign(Gtk.Align.CENTER)
                 pub_btn.add_css_class("suggested-action")

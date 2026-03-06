@@ -293,7 +293,11 @@ class PackageBuilderView(Gtk.Box):
         )
         dialog.present(self)
 
-    def _on_project_imported(self, project: Project) -> None:
+    def _on_project_imported(self, project: Project | None) -> None:
+        if project is None:
+            # A base image was downloaded — no new project, just show a toast.
+            self._show_toast("Base image installed.")
+            return
         self._reload_projects()
         for i, row in enumerate(self._project_rows):
             if row.project.slug == project.slug:
@@ -1621,7 +1625,7 @@ class _ImportFromCatalogueDialog(Adw.Dialog):
         super().__init__(title="Import from Catalogue", content_width=520)
         self._repos = repos
         self._on_imported = on_imported
-        self._entries: list[tuple] = []   # (entry, repo)
+        self._entries: list[tuple] = []   # (item, repo, kind) — kind = "app" | "base"
         self._selected_idx: int = -1
 
         toolbar = Adw.ToolbarView()
@@ -1675,26 +1679,46 @@ class _ImportFromCatalogueDialog(Adw.Dialog):
         threading.Thread(target=self._fetch_entries, daemon=True).start()
 
     def _fetch_entries(self) -> None:
-        results: list[tuple] = []
+        apps: list[tuple] = []
+        bases: list[tuple] = []
+        seen_bases: set[str] = set()
         for repo in self._repos:
             try:
                 for entry in repo.fetch_catalogue():
                     if entry.archive:
-                        results.append((entry, repo))
+                        apps.append((entry, repo, "app"))
             except Exception as exc:
                 log.warning("Could not fetch catalogue from %s: %s", repo.uri, exc)
-        results.sort(key=lambda t: t[0].name.lower())
-        GLib.idle_add(self._populate, results)
+            try:
+                for runner, base_entry in repo.fetch_bases().items():
+                    if runner not in seen_bases:
+                        seen_bases.add(runner)
+                        bases.append((base_entry, repo, "base"))
+            except Exception as exc:
+                log.warning("Could not fetch bases from %s: %s", repo.uri, exc)
+        apps.sort(key=lambda t: t[0].name.lower())
+        bases.sort(key=lambda t: t[0].runner.lower())
+        GLib.idle_add(self._populate, apps + bases)
 
     def _populate(self, results: list[tuple]) -> None:
         self._entries = results
-        for entry, repo in results:
-            size_mb = (entry.archive_size or 0) / (1024 * 1024)
+        for item, repo, kind in results:
+            size_mb = (item.archive_size or 0) / (1024 * 1024)
             size_str = f"{size_mb:.0f} MB" if size_mb else ""
             repo_name = repo.name or repo.uri
-            subtitle_parts = [entry.version or "", size_str, repo_name]
+            if kind == "base":
+                title = item.runner
+                subtitle_parts = [size_str, repo_name]
+            else:
+                title = item.name
+                subtitle_parts = [item.version or "", size_str, repo_name]
             subtitle = "  ·  ".join(p for p in subtitle_parts if p)
-            row = Adw.ActionRow(title=html.escape(entry.name), subtitle=html.escape(subtitle))
+            row = Adw.ActionRow(title=html.escape(title), subtitle=html.escape(subtitle))
+            if kind == "base":
+                chip = Gtk.Label(label="Base Image")
+                chip.add_css_class("tag")
+                chip.set_valign(Gtk.Align.CENTER)
+                row.add_suffix(chip)
             self._list_box.append(row)
 
         if not results:
@@ -1717,24 +1741,100 @@ class _ImportFromCatalogueDialog(Adw.Dialog):
     def _on_import_clicked(self, _btn) -> None:
         if not (0 <= self._selected_idx < len(self._entries)):
             return
-        entry, repo = self._entries[self._selected_idx]
+        item, repo, kind = self._entries[self._selected_idx]
 
-        size_mb = (entry.archive_size or 0) / (1024 * 1024)
+        size_mb = (item.archive_size or 0) / (1024 * 1024)
         size_str = f"{size_mb:.0f} MB" if size_mb else "unknown size"
-        dialog = Adw.AlertDialog(
-            heading=f'Import \u201c{entry.name}\u201d?',
-            body=(
-                f"The archive ({size_str}) will be downloaded and extracted "
-                f"into a new project directory. This may take a while."
-            ),
-        )
-        dialog.add_response("cancel", "Cancel")
-        dialog.add_response("import", "Import")
-        dialog.set_response_appearance("import", Adw.ResponseAppearance.SUGGESTED)
-        dialog.set_default_response("import")
-        dialog.set_close_response("cancel")
-        dialog.connect("response", lambda d, r: self._start_import(entry, repo) if r == "import" else None)
+
+        if kind == "base":
+            dialog = Adw.AlertDialog(
+                heading=f"Download base image?",
+                body=(
+                    f"The base image for \u201c{item.runner}\u201d ({size_str}) will be "
+                    f"downloaded and installed into local base storage. This may take a while."
+                ),
+            )
+            dialog.add_response("cancel", "Cancel")
+            dialog.add_response("download", "Download")
+            dialog.set_response_appearance("download", Adw.ResponseAppearance.SUGGESTED)
+            dialog.set_default_response("download")
+            dialog.set_close_response("cancel")
+            dialog.connect("response", lambda d, r: self._start_import_base(item, repo) if r == "download" else None)
+        else:
+            dialog = Adw.AlertDialog(
+                heading=f'Import \u201c{item.name}\u201d?',
+                body=(
+                    f"The archive ({size_str}) will be downloaded and extracted "
+                    f"into a new project directory. This may take a while."
+                ),
+            )
+            dialog.add_response("cancel", "Cancel")
+            dialog.add_response("import", "Import")
+            dialog.set_response_appearance("import", Adw.ResponseAppearance.SUGGESTED)
+            dialog.set_default_response("import")
+            dialog.set_close_response("cancel")
+            dialog.connect("response", lambda d, r: self._start_import(item, repo) if r == "import" else None)
         dialog.present(self)
+
+    def _start_import_base(self, base_entry, repo) -> None:
+        self.close()
+
+        progress = _ProgressDialog(label=f"Downloading {base_entry.runner}…")
+        root = self.get_root()
+        progress.present(root)
+
+        def _bg():
+            import tempfile
+            try:
+                from cellar.backend.base_store import install_base
+                from cellar.backend.installer import _build_source  # noqa: PLC2701
+
+                archive_uri = repo.resolve_asset_uri(base_entry.archive)
+                chunks, total = _build_source(
+                    archive_uri,
+                    expected_size=base_entry.archive_size,
+                    token=repo.token,
+                    ssl_verify=repo.ssl_verify,
+                    ca_cert=repo.ca_cert,
+                )
+
+                with tempfile.NamedTemporaryFile(
+                    prefix="cellar-base-", suffix=".tar.zst", delete=False,
+                ) as tmp:
+                    tmp_path = Path(tmp.name)
+                    received = 0
+                    for chunk in chunks:
+                        tmp.write(chunk)
+                        received += len(chunk)
+                        if total:
+                            GLib.idle_add(progress.set_fraction, received / total)
+
+                GLib.idle_add(progress.set_label, "Installing base…")
+                GLib.idle_add(progress.set_fraction, 0.0)
+                install_base(
+                    tmp_path,
+                    base_entry.runner,
+                    repo_source=repo.uri,
+                    progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+                )
+                tmp_path.unlink(missing_ok=True)
+                GLib.idle_add(_done)
+
+            except Exception as exc:
+                log.error("Base download failed: %s", exc)
+                GLib.idle_add(_error, str(exc))
+
+        def _done() -> None:
+            progress.force_close()
+            self._on_imported(None)
+
+        def _error(msg: str) -> None:
+            progress.force_close()
+            err = Adw.AlertDialog(heading="Download failed", body=msg)
+            err.add_response("ok", "OK")
+            err.present(root)
+
+        threading.Thread(target=_bg, daemon=True).start()
 
     def _start_import(self, entry, repo) -> None:
         self.close()

@@ -19,7 +19,7 @@ with GE-Proton. Linux native apps are extracted and launched directly.
 
 **For users**
 - GNOME Software-style browse grid — Explore, Installed, and Updates tabs
-- Category filter strip, full-text search
+- Category filter (funnel icon popover), full-text search
 - App detail view — hero banner, cover art, screenshots, metadata, changelog
 - One-click install, update (safe rsync overlay or full replacement), and remove
 - Delta package support — shared base images dramatically reduce download size
@@ -321,7 +321,7 @@ cellar/
     main.py               GApplication entry point; CSS provider; about dialog
     window.py             Main AdwApplicationWindow; catalogue load/refresh
     views/
-      browse.py           Explore / Installed / Updates grid; search; category filter
+      browse.py           Explore / Installed / Updates grid; search; category filter popover
       detail.py           App detail page — hero, screenshots, install/update/remove
       package_builder.py  Package Builder — create, build, and publish app/base projects
       edit_app.py         Edit / delete catalogue entries

@@ -127,22 +127,27 @@ class IGDBClient:
         ``summary``, ``cover_image_id``, ``category``, ``steam_appid``.
         """
         token = self._ensure_token()
-        body = (
+        session = make_session()
+        headers = {
+            "Client-ID": self._client_id,
+            "Authorization": f"Bearer {token}",
+        }
+
+        # Step 1: full-text search — get basic fields + IDs.
+        # external_games is a back-referenced relationship that IGDB's search
+        # command does not reliably expand, so we fetch it separately.
+        search_body = (
             f'search "{_escape(query)}"; '
             "fields name,first_release_date,"
             "involved_companies.developer,involved_companies.publisher,"
             "involved_companies.company.name,"
-            "summary,genres.name,cover.image_id,"
-            "external_games.uid,external_games.category; "
+            "summary,genres.name,cover.image_id; "
             f"limit {limit};"
         )
-        resp = make_session().post(
+        resp = session.post(
             f"{_API_BASE}/games",
-            headers={
-                "Client-ID": self._client_id,
-                "Authorization": f"Bearer {token}",
-            },
-            data=body,
+            headers=headers,
+            data=search_body,
             timeout=15,
         )
         if resp.status_code != 200:
@@ -150,7 +155,32 @@ class IGDBClient:
                 f"IGDB search failed ({resp.status_code}): {resp.text[:200]}"
             )
 
-        return [_normalise(g) for g in resp.json()]
+        games = resp.json()
+        if not games:
+            return []
+
+        # Step 2: fetch external_games by game ID — reliable when using `where`.
+        ids = ",".join(str(g["id"]) for g in games if "id" in g)
+        if ids:
+            ext_body = (
+                f"where id = ({ids}); "
+                "fields external_games.uid,external_games.category; "
+                f"limit {limit};"
+            )
+            ext_resp = session.post(
+                f"{_API_BASE}/games",
+                headers=headers,
+                data=ext_body,
+                timeout=15,
+            )
+            if ext_resp.status_code == 200:
+                ext_by_id = {g["id"]: g for g in ext_resp.json() if "id" in g}
+                for g in games:
+                    gid = g.get("id")
+                    if gid in ext_by_id:
+                        g["external_games"] = ext_by_id[gid].get("external_games", [])
+
+        return [_normalise(g) for g in games]
 
     def fetch_cover(self, image_id: str) -> bytes:
         """Download the cover image for *image_id* and return raw JPEG bytes."""

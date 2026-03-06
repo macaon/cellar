@@ -1369,10 +1369,10 @@ class PackageBuilderView(Gtk.Box):
 
         def _done() -> None:
             progress.force_close()
-            # Mark as an update project so subsequent publishes use update_in_repo.
-            project.origin_app_id = project.slug
-            save_project(project)
-            self._show_project(project)
+            delete_project(project.slug)
+            self._project = None
+            self._reload_projects()
+            self._detail_stack.set_visible_child_name("empty")
             self._show_toast(f"Published '{project.name}' to {repo.name or repo.uri}.")
             if self._on_catalogue_changed:
                 self._on_catalogue_changed()
@@ -1483,6 +1483,10 @@ class PackageBuilderView(Gtk.Box):
 
         def _done() -> None:
             progress.force_close()
+            delete_project(project.slug)
+            self._project = None
+            self._reload_projects()
+            self._detail_stack.set_visible_child_name("empty")
             self._show_toast(f"Update published for {project.name}.")
             if self._on_catalogue_changed:
                 self._on_catalogue_changed()

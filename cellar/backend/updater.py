@@ -87,21 +87,21 @@ _RSYNC_EXCLUDES: list[str] = [
 # ---------------------------------------------------------------------------
 
 def backup_bottle(
-    bottle_path: Path,
+    prefix_path: Path,
     dest_path: Path,
     *,
     progress_cb: Callable[[float], None] | None = None,
     phase_cb: Callable[[str], None] | None = None,
     cancel_event: threading.Event | None = None,
 ) -> None:
-    """Archive *bottle_path* as a ``.tar.gz`` at *dest_path*.
+    """Archive *prefix_path* as a ``.tar.gz`` at *dest_path*.
 
     The archive contains a single top-level directory named after the
     bottle so that it can be re-imported by Cellar if needed.
 
     Parameters
     ----------
-    bottle_path:
+    prefix_path:
         The bottle directory to back up.
     dest_path:
         Destination ``.tar.gz`` file path.  Parent directories are
@@ -126,7 +126,7 @@ def backup_bottle(
         progress_cb(0.0)
     dest_path.parent.mkdir(parents=True, exist_ok=True)
 
-    all_files = [p for p in bottle_path.rglob("*") if p.is_file()]
+    all_files = [p for p in prefix_path.rglob("*") if p.is_file()]
     total = max(len(all_files), 1)
 
     try:
@@ -134,7 +134,7 @@ def backup_bottle(
             for i, fp in enumerate(all_files):
                 if _cancelled():
                     raise UpdateCancelled
-                arcname = Path(bottle_path.name) / fp.relative_to(bottle_path)
+                arcname = Path(prefix_path.name) / fp.relative_to(prefix_path)
                 tf.add(fp, arcname=str(arcname))
                 if i % 20 == 0:
                     if phase_cb and i == 0:
@@ -155,7 +155,7 @@ def backup_bottle(
 def update_app_safe(
     entry,                          # AppEntry — avoid circular import
     archive_uri: str,
-    bottle_path: Path,
+    prefix_path: Path,
     *,
     backup_path: Path | None = None,
     base_entry=None,                # BaseEntry | None — accepted but unused; delta overlay
@@ -166,7 +166,7 @@ def update_app_safe(
     cancel_event: threading.Event | None = None,
     token: str | None = None,
 ) -> None:
-    """Overlay-update *bottle_path* with the contents of *archive_uri*.
+    """Overlay-update *prefix_path* with the contents of *archive_uri*.
 
     For delta packages (``entry.base_runner`` is set) the rsync overlay
     strategy works without base reconstruction: the delta archive contains
@@ -182,7 +182,7 @@ def update_app_safe(
         The ``AppEntry`` being updated (used for SHA-256 and size hints).
     archive_uri:
         Absolute path or HTTP(S) URL of the new archive.
-    bottle_path:
+    prefix_path:
         The existing installed bottle directory.
     backup_path:
         When supplied, the current bottle is archived here before the
@@ -226,7 +226,7 @@ def update_app_safe(
     # ── Phase 1: Backup ────────────────────────────────────────────────────
     if has_backup:
         backup_bottle(
-            bottle_path,
+            prefix_path,
             backup_path,
             progress_cb=_sub(0.0, 0.20),
             phase_cb=phase_cb,
@@ -285,7 +285,7 @@ def update_app_safe(
             progress_cb(ov_lo)
         _overlay(
             bottle_src,
-            bottle_path,
+            prefix_path,
             progress_cb=_sub(ov_lo, 1.0),
             cancel_event=cancel_event,
         )

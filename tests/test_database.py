@@ -29,8 +29,8 @@ def test_mark_and_get_installed(tmp_path):
         rec = db.get_installed("my-app")
     assert rec is not None
     assert rec["id"] == "my-app"
-    assert rec["bottle_name"] == "my-app"
-    assert rec["installed_version"] == "1.0"
+    assert rec["prefix_dir"] == "my-app"
+    assert rec["version"] == "1.0"
     assert rec["repo_source"] == "file:///repo"
 
 
@@ -59,8 +59,8 @@ def test_mark_installed_upsert_updates_version(tmp_path):
         db.mark_installed("app", "app", "1.0", "file:///repo")
         db.mark_installed("app", "app-renamed", "2.0", "file:///repo")
         rec = db.get_installed("app")
-    assert rec["installed_version"] == "2.0"
-    assert rec["bottle_name"] == "app-renamed"
+    assert rec["version"] == "2.0"
+    assert rec["prefix_dir"] == "app-renamed"
 
 
 def test_mark_installed_upsert_preserves_installed_at(tmp_path):
@@ -165,7 +165,7 @@ def test_runner_override_schema_migration_is_idempotent(tmp_path):
     """Opening the DB twice must not fail even though ALTER TABLE runs each time."""
     with _patch_db(tmp_path):
         db.mark_installed("app", "app", "1.0")
-        # Second call triggers _ensure_schema again — ALTER TABLE must not crash.
+        # Second call triggers migration check — must not crash.
         rec = db.get_installed("app")
     assert rec is not None
 

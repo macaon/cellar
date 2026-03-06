@@ -42,7 +42,7 @@ class UpdateDialog(Adw.Dialog):
         *,
         entry: AppEntry,
         installed_record: dict,
-        bottle_path: Path,
+        prefix_path: Path,
         archive_uri: str,
         on_success: Callable[[], None],
         base_entry=None,
@@ -52,7 +52,7 @@ class UpdateDialog(Adw.Dialog):
         super().__init__(title=f"Update {entry.name}", content_width=440)
         self._entry = entry
         self._installed_record = installed_record
-        self._bottle_path = bottle_path
+        self._prefix_path = prefix_path
         self._archive_uri = archive_uri
         self._on_success = on_success
         self._base_entry = base_entry
@@ -172,7 +172,7 @@ class UpdateDialog(Adw.Dialog):
 
     def _on_backup_row_activated(self, _row) -> None:
         import datetime
-        bottle_name = self._installed_record.get("bottle_name", "bottle")
+        bottle_name = self._installed_record.get("prefix_dir", self._entry.id)
         stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         suggested = f"{bottle_name}-pre-update-{stamp}.tar.gz"
 
@@ -255,7 +255,7 @@ class UpdateDialog(Adw.Dialog):
                 update_app_safe(
                     self._entry,
                     self._archive_uri,
-                    self._bottle_path,
+                    self._prefix_path,
                     backup_path=self._backup_path,
                     base_entry=self._base_entry,
                     base_archive_uri=self._base_archive_uri,

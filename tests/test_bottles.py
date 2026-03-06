@@ -234,41 +234,41 @@ def test_detect_bottles_uses_first_of_detect_all(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# config helpers — load/save bottles_data_path
+# config helpers — load/save umu_path
 # ---------------------------------------------------------------------------
 
-def test_load_bottles_data_path_unset(tmp_path):
+def test_load_umu_path_unset(tmp_path):
     cfg_file = tmp_path / "config.json"
     with patch("cellar.backend.config._config_path", new=lambda: cfg_file):
         from cellar.backend import config as cfg
-        assert cfg.load_bottles_data_path() is None
+        assert cfg.load_umu_path() is None
 
 
-def test_save_and_load_bottles_data_path(tmp_path):
+def test_save_and_load_umu_path(tmp_path):
     cfg_file = tmp_path / "config.json"
     with patch("cellar.backend.config._config_path", new=lambda: cfg_file):
         from cellar.backend import config as cfg
-        cfg.save_bottles_data_path("/some/path")
-        assert cfg.load_bottles_data_path() == "/some/path"
+        cfg.save_umu_path("/some/path/umu-run")
+        assert cfg.load_umu_path() == "/some/path/umu-run"
 
 
-def test_save_bottles_data_path_none_clears_key(tmp_path):
+def test_save_umu_path_none_clears_key(tmp_path):
     cfg_file = tmp_path / "config.json"
     with patch("cellar.backend.config._config_path", new=lambda: cfg_file):
         from cellar.backend import config as cfg
-        cfg.save_bottles_data_path("/some/path")
-        cfg.save_bottles_data_path(None)
-        assert cfg.load_bottles_data_path() is None
+        cfg.save_umu_path("/some/path/umu-run")
+        cfg.save_umu_path(None)
+        assert cfg.load_umu_path() is None
 
 
-def test_save_bottles_data_path_preserves_repos(tmp_path):
+def test_save_umu_path_preserves_repos(tmp_path):
     cfg_file = tmp_path / "config.json"
     with patch("cellar.backend.config._config_path", new=lambda: cfg_file):
         from cellar.backend import config as cfg
         cfg.save_repos([{"uri": "file:///some/repo"}])
-        cfg.save_bottles_data_path("/bottles")
+        cfg.save_umu_path("/usr/local/bin/umu-run")
         assert cfg.load_repos() == [{"uri": "file:///some/repo"}]
-        assert cfg.load_bottles_data_path() == "/bottles"
+        assert cfg.load_umu_path() == "/usr/local/bin/umu-run"
 
 
 # ---------------------------------------------------------------------------

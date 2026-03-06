@@ -95,17 +95,17 @@ def _refresh_desktop_db() -> None:
 
 def create_desktop_entry(
     entry,               # AppEntry — avoid circular import at module level
-    bottle_name: str,
-    program_name: str | None,
-    is_flatpak: bool,
+    bottle_name: str,    # prefix_dir for Windows apps; install dir name for Linux
+    program_name: str | None = None,  # unused; kept for API compatibility
+    is_flatpak: bool = False,         # unused; kept for API compatibility
     icon_source: str | None = None,
     install_path: str = "",
 ) -> None:
     """Write a .desktop entry for *entry* to ~/.local/share/applications.
 
-    For Linux native apps (``entry.platform == "linux"``), *install_path* is
-    the base directory and the Exec line runs the entry_point directly.
-    *bottle_name*, *program_name*, and *is_flatpak* are ignored for Linux apps.
+    For Windows apps: launches via umu-run with the correct prefix and runner.
+    For Linux native apps: *install_path* is the base directory and the Exec
+    line runs the entry_point directly.
     """
     _APPS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -126,18 +126,37 @@ def create_desktop_entry(
             exec_line = "true"  # placeholder; entry point unknown
         comment = (entry.summary or f"Launch {entry.name}.").replace("\n", " ")
     else:
-        cli = (
-            "flatpak run --command=bottles-cli com.usebottles.bottles"
-            if is_flatpak
-            else "bottles-cli"
+        # umu-launcher launch: set env vars then invoke umu-run.
+        from cellar.backend.umu import detect_umu, prefixes_dir, runners_dir  # noqa: PLC0415
+        from cellar.backend.config import load_umu_path  # noqa: PLC0415
+        umu_bin = detect_umu(load_umu_path()) or "umu-run"
+
+        steam_appid = getattr(entry, "steam_appid", None)
+        gameid = f"umu-{steam_appid}" if steam_appid else "0"
+
+        # Use the runner stored in the DB if available; fall back to built_with.
+        runner_name = ""
+        try:
+            from cellar.backend import database as _db  # noqa: PLC0415
+            rec = _db.get_installed(entry.id) or {}
+            runner_name = rec.get("runner_override") or rec.get("runner") or ""
+        except Exception:  # noqa: BLE001
+            pass
+        if not runner_name and getattr(entry, "built_with", None):
+            runner_name = entry.built_with.runner or ""
+
+        prefix = str(prefixes_dir() / entry.id)
+        proton = str(runners_dir() / runner_name) if runner_name else ""
+        exe_path = entry.entry_point or ""
+
+        env_prefix = (
+            f'env WINEPREFIX="{prefix}"'
+            + (f' PROTONPATH="{proton}"' if proton else "")
+            + f' GAMEID="{gameid}"'
+            + (f' EXE="{exe_path}"' if exe_path else "")
         )
-        if program_name:
-            exec_line = f"{cli} run -p '{program_name}' -b '{bottle_name}'"
-        elif entry.entry_point:
-            exec_line = f"{cli} run -e '{entry.entry_point}' -b '{bottle_name}'"
-        else:
-            exec_line = f"{cli} run -b '{bottle_name}'"
-        comment = (entry.summary or f"Launch {entry.name} using Bottles.").replace("\n", " ")
+        exec_line = f"{env_prefix} {umu_bin}"
+        comment = (entry.summary or f"Launch {entry.name} via umu-launcher.").replace("\n", " ")
 
     # Categories
     xdg_cat = _CATEGORY_MAP.get(entry.category or "", "")

@@ -99,11 +99,50 @@ class SettingsDialog(Adw.PreferencesDialog):
         add_base_btn.connect("clicked", self._on_upload_base_clicked)
         self._delta_group.set_header_suffix(add_base_btn)
 
+        # ── Group: umu-launcher ───────────────────────────────────────────
+        self._build_umu_group(page)
+
         # ── Group: IGDB Integration ────────────────────────────────────────
         self._build_igdb_group(page)
 
         self._rebuild_repo_rows()
         self._rebuild_delta_rows()
+
+    # ------------------------------------------------------------------
+    # umu-launcher
+    # ------------------------------------------------------------------
+
+    def _build_umu_group(self, page: Adw.PreferencesPage) -> None:
+        from cellar.backend.config import load_umu_path, save_umu_path
+        from cellar.backend.umu import detect_umu
+
+        umu_group = Adw.PreferencesGroup(
+            title="umu-launcher",
+            description="Path to umu-run binary. Leave empty to auto-detect.",
+        )
+        page.add(umu_group)
+
+        self._umu_path_row = Adw.EntryRow(title="umu-run path")
+        current = load_umu_path() or ""
+        if current:
+            self._umu_path_row.set_text(current)
+        else:
+            detected = detect_umu(None) or ""
+            self._umu_path_row.set_placeholder_text(detected or "auto-detect")
+        umu_group.add(self._umu_path_row)
+
+        save_row = Adw.ActionRow(title="Save umu-run path")
+        save_btn = Gtk.Button(label="Save")
+        save_btn.add_css_class("suggested-action")
+        save_btn.set_valign(Gtk.Align.CENTER)
+        save_btn.connect("clicked", self._on_umu_save_clicked)
+        save_row.add_suffix(save_btn)
+        umu_group.add(save_row)
+
+    def _on_umu_save_clicked(self, _btn) -> None:
+        from cellar.backend.config import save_umu_path
+        path = self._umu_path_row.get_text().strip() or None
+        save_umu_path(path)
 
     # ------------------------------------------------------------------
     # IGDB Integration

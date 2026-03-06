@@ -284,6 +284,12 @@ class AddAppDialog(Adw.Dialog):
         self._vkd3d_row.set_subtitle_selectable(True)
         self._wine_group.add(self._vkd3d_row)
 
+        self._steam_appid_entry = Adw.EntryRow(title="Steam App ID (optional)")
+        self._steam_appid_entry.set_tooltip_text(
+            "Used to set GAMEID for protonfixes. Leave empty to use GAMEID=0."
+        )
+        self._wine_group.add(self._steam_appid_entry)
+
         page.add(self._wine_group)
 
         # ── Images ────────────────────────────────────────────────────────
@@ -432,8 +438,9 @@ class AddAppDialog(Adw.Dialog):
         """Inspect the source in a background thread, then reveal the form.
 
         For a directory source: immediately switches to Linux mode.
-        For an archive source: reads ``bottle.yml``; if absent, shows a
-        rejection dialog (only Bottles backups are accepted as archives).
+        For an archive source: reads ``bottle.yml`` if present (legacy Bottles
+        backup) for pre-filling.  Archives without ``bottle.yml`` are accepted
+        as umu Windows archives (no pre-fill).
         """
         from cellar.backend.packager import read_bottle_yml
 
@@ -443,7 +450,7 @@ class AddAppDialog(Adw.Dialog):
             is_linux = True
         else:
             yml = read_bottle_yml(self._archive_path)
-            is_linux = not bool(yml)
+            is_linux = False  # archives are always Windows apps
 
         runner = yml.get("Runner", "")
 
@@ -452,26 +459,10 @@ class AddAppDialog(Adw.Dialog):
                 GLib.source_remove(self._pulse_id)
                 self._pulse_id = None
 
-            if is_linux and not self._source_dir:
-                # Archive without bottle.yml — reject it.
-                self._stack.set_visible_child_name("form")
-                alert = Adw.AlertDialog(
-                    heading="Not a Bottles Backup",
-                    body=(
-                        "This archive contains no bottle.yml. "
-                        "Only Bottles full backup archives (.tar.gz) are accepted here.\n\n"
-                        "To add a Linux native app, use \u201cAdd Linux App\u201d and select "
-                        "the app\u2019s directory instead."
-                    ),
-                )
-                alert.add_response("ok", "OK")
-                alert.connect("response", lambda *_: self.close())
-                alert.present(self)
-                return
-
             if is_linux:
                 self._switch_to_linux_mode()
-            else:
+            elif yml:
+                # Legacy Bottles archive — pre-fill from bottle.yml
                 name = yml.get("Name", "")
                 if name:
                     self._name_entry.set_text(name)
@@ -826,6 +817,8 @@ class AddAppDialog(Adw.Dialog):
             buf = self._desc_view.get_buffer()
             if not buf.get_text(buf.get_start_iter(), buf.get_end_iter(), False).strip():
                 buf.set_text(result["summary"])
+        if result.get("steam_appid") and not self._steam_appid_entry.get_text().strip():
+            self._steam_appid_entry.set_text(str(result["steam_appid"]))
 
         # Try to set category from IGDB genre mapping
         if result.get("category") and result["category"] in self._categories:
@@ -885,6 +878,8 @@ class AddAppDialog(Adw.Dialog):
         runner = self._runner_row.get_subtitle() or ""
         dxvk = self._dxvk_row.get_subtitle() or ""
         vkd3d = self._vkd3d_row.get_subtitle() or ""
+        steam_appid_text = self._steam_appid_entry.get_text().strip()
+        steam_appid = int(steam_appid_text) if steam_appid_text.isdigit() else None
         strategy = _STRATEGIES[self._strategy_row.get_selected()]
         entry_point = self._entry_point_entry.get_text().strip()
 
@@ -949,6 +944,7 @@ class AddAppDialog(Adw.Dialog):
             entry_point=entry_point,
             base_runner=base_runner_val,
             lock_runner=lock_runner_val,
+            steam_appid=steam_appid if not self._is_linux else None,
             platform=platform_val,
         )
 

@@ -232,6 +232,12 @@ class EditAppDialog(Adw.Dialog):
         self._vkd3d_row.set_subtitle_selectable(True)
         self._wine_group.add(self._vkd3d_row)
 
+        self._steam_appid_entry = Adw.EntryRow(title="Steam App ID (optional)")
+        self._steam_appid_entry.set_tooltip_text(
+            "Used to set GAMEID for protonfixes. Leave empty to use GAMEID=0."
+        )
+        self._wine_group.add(self._steam_appid_entry)
+
         page.add(self._wine_group)
 
         # ── Images ────────────────────────────────────────────────────────
@@ -414,6 +420,8 @@ class EditAppDialog(Adw.Dialog):
                 self._vkd3d_row.set_subtitle(bw.vkd3d or "")
             if e.lock_runner:
                 self._lock_runner_btn.set_active(True)
+            if e.steam_appid is not None:
+                self._steam_appid_entry.set_text(str(e.steam_appid))
 
         # Single images — show current filename + enable clear button
         if e.icon:
@@ -756,6 +764,8 @@ class EditAppDialog(Adw.Dialog):
         runner = self._runner_row.get_subtitle() or ""
         dxvk = self._dxvk_row.get_subtitle() or ""
         vkd3d = self._vkd3d_row.get_subtitle() or ""
+        steam_appid_text = self._steam_appid_entry.get_text().strip()
+        steam_appid = int(steam_appid_text) if steam_appid_text.isdigit() else None
         strategy = _STRATEGIES[self._strategy_row.get_selected()]
         entry_point = self._entry_point_entry.get_text().strip()
 
@@ -832,6 +842,7 @@ class EditAppDialog(Adw.Dialog):
             compatibility_notes=e.compatibility_notes,
             changelog=e.changelog,
             lock_runner=self._lock_runner_btn.get_active(),
+            steam_appid=steam_appid if e.platform != "linux" else None,
             platform=e.platform,
         )
 

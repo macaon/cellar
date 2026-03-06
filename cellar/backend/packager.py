@@ -715,15 +715,20 @@ def create_delta_archive(
         except tarfile.TarError as exc:
             raise RuntimeError(f"Failed to extract full archive: {exc}") from exc
 
-        # 2. Locate the bottle root inside the extracted archive
+        # 2. Locate the prefix root inside the extracted archive.
+        # Prefer a dir named "prefix/" (Cellar-native umu archive),
+        # then a dir containing "bottle.yml" (legacy Bottles backup),
+        # then fall back to the first subdirectory.
         subdirs = [d for d in extract_dir.iterdir() if d.is_dir()]
         if not subdirs:
-            raise RuntimeError("No bottle directory found in archive")
+            raise RuntimeError("No prefix directory found in archive")
         bottle_dir = subdirs[0]
         for d in subdirs:
-            if (d / "bottle.yml").exists():
+            if d.name == "prefix":
                 bottle_dir = d
                 break
+            if (d / "bottle.yml").exists():
+                bottle_dir = d
 
         bottle_name = bottle_dir.name
         delta_bottle = delta_dir / bottle_name

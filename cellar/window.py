@@ -103,9 +103,9 @@ class CellarWindow(Adw.ApplicationWindow):
 
         self.connect("realize", lambda _w: self._load_catalogue())
 
-        # Sync the component index (runner download URLs) in the background.
-        from cellar.backend import components
-        threading.Thread(target=components.sync_index, daemon=True).start()
+        # Pre-warm the GE-Proton release list in the background.
+        from cellar.backend import runners
+        threading.Thread(target=runners.fetch_releases, daemon=True).start()
 
     # ── Catalogue loading ─────────────────────────────────────────────────
 
@@ -192,11 +192,9 @@ class CellarWindow(Adw.ApplicationWindow):
         try:
             if entries:
                 from cellar.backend import database
-                from cellar.backend.bottles import detect_all_bottles
-                from cellar.backend.config import load_bottles_data_path
+                from cellar.backend.umu import prefixes_dir
+                from pathlib import Path as _Path  # noqa: PLC0415
                 resolver = self._first_repo.resolve_asset_uri if self._first_repo else None
-
-                all_bottles = detect_all_bottles(load_bottles_data_path())
 
                 installed_entries = []
                 update_entries = []
@@ -206,29 +204,26 @@ class CellarWindow(Adw.ApplicationWindow):
                         continue
                     # Reconcile against disk: remove stale records where the
                     # installed directory has been deleted outside Cellar.
-                    bottle_name = rec.get("bottle_name", "")
+                    prefix_dir = rec.get("prefix_dir", "")
                     if e.platform == "linux":
                         install_path = rec.get("install_path", "")
-                        if install_path and bottle_name:
-                            from pathlib import Path as _Path  # noqa: PLC0415
-                            if not (_Path(install_path) / bottle_name).is_dir():
+                        if install_path and prefix_dir:
+                            if not (_Path(install_path) / prefix_dir).is_dir():
                                 log.info(
                                     "Linux app dir %r gone from disk; removing stale record for %r",
-                                    bottle_name, e.id,
+                                    prefix_dir, e.id,
                                 )
                                 database.remove_installed(e.id)
                                 continue
-                    elif all_bottles and bottle_name and not any(
-                        (b.data_path / bottle_name).is_dir() for b in all_bottles
-                    ):
+                    elif prefix_dir and not (prefixes_dir() / prefix_dir).is_dir():
                         log.info(
-                            "Bottle %r gone from disk; removing stale record for %r",
-                            bottle_name, e.id,
+                            "Prefix %r gone from disk; removing stale record for %r",
+                            prefix_dir, e.id,
                         )
                         database.remove_installed(e.id)
                         continue
                     installed_entries.append(e)
-                    if rec.get("installed_version") != e.version and bool(e.archive):
+                    if rec.get("version") != e.version and bool(e.archive):
                         update_entries.append(e)
 
                 installed_ids = {e.id for e in installed_entries}
@@ -329,38 +324,33 @@ class CellarWindow(Adw.ApplicationWindow):
     def _on_app_selected(self, _browse, entry) -> None:
         from cellar.views.detail import DetailView
         from cellar.backend import database
-        from cellar.backend.bottles import detect_all_bottles
-        from cellar.backend.config import load_bottles_data_path
+        from cellar.backend.umu import prefixes_dir
+        from pathlib import Path as _Path  # noqa: PLC0415
 
         source_repos = self._entry_repos.get(entry.id, [])
         if not source_repos and self._first_repo:
             source_repos = [self._first_repo]
         can_write = self._first_repo is not None and self._first_repo.is_writable
 
-        all_bottles = detect_all_bottles(load_bottles_data_path())
-
         # Reconcile DB against disk: remove stale records where the installed
         # directory has been deleted outside Cellar.
         rec = database.get_installed(entry.id)
         if rec:
-            bottle_name = rec.get("bottle_name", "")
+            prefix_dir = rec.get("prefix_dir", "")
             if entry.platform == "linux":
                 install_path = rec.get("install_path", "")
-                if install_path and bottle_name:
-                    from pathlib import Path as _Path  # noqa: PLC0415
-                    if not (_Path(install_path) / bottle_name).is_dir():
+                if install_path and prefix_dir:
+                    if not (_Path(install_path) / prefix_dir).is_dir():
                         log.info(
                             "Linux app dir %r gone from disk; removing stale DB record for %r",
-                            bottle_name, entry.id,
+                            prefix_dir, entry.id,
                         )
                         database.remove_installed(entry.id)
                         rec = None
-            elif all_bottles and bottle_name and not any(
-                (b.data_path / bottle_name).is_dir() for b in all_bottles
-            ):
+            elif prefix_dir and not (prefixes_dir() / prefix_dir).is_dir():
                 log.info(
-                    "Bottle %r no longer exists on disk; removing stale DB record for %r",
-                    bottle_name, entry.id,
+                    "Prefix %r no longer on disk; removing stale DB record for %r",
+                    prefix_dir, entry.id,
                 )
                 database.remove_installed(entry.id)
                 rec = None
@@ -386,7 +376,6 @@ class CellarWindow(Adw.ApplicationWindow):
                         source_repos=self._entry_repos.get(updated_entry.id) or source_repos,
                         is_writable=can_write,
                         on_edit=_on_edit if can_write else None,
-                        bottles_installs=all_bottles,
                         is_installed=is_installed,
                         installed_record=rec,
                         on_install_done=_on_install_done,
@@ -405,12 +394,14 @@ class CellarWindow(Adw.ApplicationWindow):
                 on_deleted=self._on_entry_deleted,
             ).present(self)
 
-        def _on_install_done(bottle_name: str, install_path: str = "") -> None:
+        def _on_install_done(prefix_dir: str, install_path: str = "", runner: str = "") -> None:
             repo_uri = str(self._first_repo.uri) if self._first_repo else ""
             database.mark_installed(
-                entry.id, bottle_name, entry.version, repo_uri,
+                entry.id, prefix_dir, entry.version, repo_uri,
                 platform=entry.platform,
                 install_path=install_path,
+                runner=runner,
+                steam_appid=entry.steam_appid,
             )
             self._show_toast(f"{entry.name} installed successfully")
             self._load_catalogue()
@@ -421,7 +412,12 @@ class CellarWindow(Adw.ApplicationWindow):
 
         def _on_update_done() -> None:
             repo_uri = str(self._first_repo.uri) if self._first_repo else ""
-            database.mark_installed(entry.id, rec["bottle_name"], entry.version, repo_uri)
+            existing_rec = database.get_installed(entry.id) or {}
+            database.mark_installed(
+                entry.id, existing_rec.get("prefix_dir", entry.id), entry.version, repo_uri,
+                runner=existing_rec.get("runner", ""),
+                steam_appid=entry.steam_appid,
+            )
             self._show_toast(f"{entry.name} updated successfully")
             self._load_catalogue()
 
@@ -430,7 +426,6 @@ class CellarWindow(Adw.ApplicationWindow):
             source_repos=source_repos,
             is_writable=can_write,
             on_edit=_on_edit if can_write else None,
-            bottles_installs=all_bottles,
             is_installed=is_installed,
             installed_record=rec,
             on_install_done=_on_install_done,
@@ -450,26 +445,26 @@ class CellarWindow(Adw.ApplicationWindow):
             body="Choose the type of app to add.",
         )
         dialog.add_response("cancel", "Cancel")
-        dialog.add_response("bottles", "Bottles App")
+        dialog.add_response("windows", "Windows App")
         dialog.add_response("linux", "Linux Native App")
-        dialog.set_default_response("bottles")
+        dialog.set_default_response("windows")
         dialog.connect("response", self._on_add_type_chosen)
         dialog.present(self)
 
     def _on_add_type_chosen(self, _dialog, response) -> None:
-        if response == "bottles":
-            self._open_bottles_chooser()
+        if response == "windows":
+            self._open_archive_chooser()
         elif response == "linux":
             self._open_linux_dir_chooser()
 
-    def _open_bottles_chooser(self) -> None:
+    def _open_archive_chooser(self) -> None:
         chooser = Gtk.FileChooserNative(
-            title="Select Bottles Backup",
+            title="Select App Archive",
             transient_for=self,
             action=Gtk.FileChooserAction.OPEN,
         )
         f = Gtk.FileFilter()
-        f.set_name("Bottles backup (*.tar.gz)")
+        f.set_name("App archive (*.tar.gz)")
         f.add_pattern("*.tar.gz")
         chooser.add_filter(f)
         chooser.connect("response", self._on_archive_chosen, chooser)
@@ -524,7 +519,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="application-x-executable",
-            version="0.36.0",
+            version="0.37.0",
             comments="A GNOME storefront for Bottles-managed Windows apps.",
             license_type=Gtk.License.GPL_3_0,
         )

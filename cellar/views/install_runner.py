@@ -108,7 +108,7 @@ class InstallRunnerDialog(Adw.Dialog):
         row = Adw.ActionRow(
             title=self._runner_name,
             subtitle=(
-                "This runner will be downloaded and installed into Bottles. "
+                "This runner will be downloaded and installed for Cellar. "
                 "The download size may be several hundred megabytes."
             ),
         )

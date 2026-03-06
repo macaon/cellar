@@ -11,7 +11,6 @@ from unittest.mock import Mock, patch
 import pytest
 
 from cellar.backend import installer as ins
-from cellar.backend.bottles import BottlesInstall
 from cellar.models.app_entry import AppEntry
 
 
@@ -33,52 +32,28 @@ def _entry(**kwargs) -> AppEntry:
     return AppEntry(**defaults)
 
 
-def _bottles(tmp_path: Path) -> BottlesInstall:
-    data = tmp_path / "bottles"
-    data.mkdir()
-    return BottlesInstall(data_path=data, variant="native", cli_cmd=["bottles-cli"])
-
-
 def _make_archive(
     tmp_path: Path,
-    bottle_name: str = "TestBottle",
-    extra_yml: str = "",
+    prefix_name: str = "prefix",
+    extra_content: str = "",
 ) -> Path:
-    """Create a minimal .tar.gz containing a fake bottle directory."""
-    src = tmp_path / "_bottle_src" / bottle_name
+    """Create a minimal .tar.gz containing a fake umu prefix directory."""
+    src = tmp_path / "_archive_src" / prefix_name
     src.mkdir(parents=True)
-    yml = f"Name: {bottle_name}\nRunner: wine-7.0\n{extra_yml}"
-    (src / "bottle.yml").write_text(yml)
     (src / "drive_c").mkdir()
+    if extra_content:
+        (src / "extra.txt").write_text(extra_content)
     archive = tmp_path / "test-app-1.0.tar.gz"
     with tarfile.open(archive, "w:gz") as tf:
-        tf.add(src, arcname=bottle_name)
+        tf.add(src, arcname=prefix_name)
     return archive
 
 
-# ---------------------------------------------------------------------------
-# _safe_bottle_name
-# ---------------------------------------------------------------------------
-
-def test_safe_bottle_name_no_collision(tmp_path):
-    data = tmp_path / "bottles"
-    data.mkdir()
-    assert ins._safe_bottle_name("my-app", data) == "my-app"
-
-
-def test_safe_bottle_name_first_collision(tmp_path):
-    data = tmp_path / "bottles"
-    data.mkdir()
-    (data / "my-app").mkdir()
-    assert ins._safe_bottle_name("my-app", data) == "my-app-2"
-
-
-def test_safe_bottle_name_multiple_collisions(tmp_path):
-    data = tmp_path / "bottles"
-    data.mkdir()
-    (data / "my-app").mkdir()
-    (data / "my-app-2").mkdir()
-    assert ins._safe_bottle_name("my-app", data) == "my-app-3"
+def _patch_prefixes_dir(tmp_path: Path):
+    """Patch umu.prefixes_dir to use a temp directory."""
+    prefixes = tmp_path / "prefixes"
+    prefixes.mkdir(exist_ok=True)
+    return patch("cellar.backend.umu.prefixes_dir", return_value=prefixes)
 
 
 # ---------------------------------------------------------------------------
@@ -92,7 +67,17 @@ def test_find_bottle_dir_single_dir(tmp_path):
     assert ins._find_bottle_dir(extract) == bottle
 
 
+def test_find_bottle_dir_prefers_prefix_name(tmp_path):
+    """A directory named 'prefix' is preferred (Cellar-native umu archive)."""
+    extract = tmp_path / "extracted"
+    (extract / "dir1").mkdir(parents=True)
+    prefix = extract / "prefix"
+    prefix.mkdir()
+    assert ins._find_bottle_dir(extract) == prefix
+
+
 def test_find_bottle_dir_picks_bottle_yml(tmp_path):
+    """Legacy Bottles archive: directory with bottle.yml is preferred."""
     extract = tmp_path / "extracted"
     (extract / "dir1").mkdir(parents=True)
     bottle = extract / "dir2"
@@ -113,7 +98,7 @@ def test_find_bottle_dir_ambiguous_raises(tmp_path):
     extract = tmp_path / "extracted"
     (extract / "dir1").mkdir(parents=True)
     (extract / "dir2").mkdir()
-    # Neither has bottle.yml
+    # Neither is named 'prefix' nor has bottle.yml
     with pytest.raises(ins.InstallError, match="Cannot identify"):
         ins._find_bottle_dir(extract)
 
@@ -142,12 +127,11 @@ def test_verify_crc32_mismatch_raises(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_extract_archive_creates_contents(tmp_path):
-    archive = _make_archive(tmp_path, "MyBottle")
+    archive = _make_archive(tmp_path, "prefix")
     dest = tmp_path / "extracted"
     dest.mkdir()
     ins._extract_archive(archive, dest, None)
-    assert (dest / "MyBottle" / "bottle.yml").exists()
-    assert (dest / "MyBottle" / "drive_c").is_dir()
+    assert (dest / "prefix" / "drive_c").is_dir()
 
 
 def test_extract_archive_bad_file_raises(tmp_path):
@@ -257,82 +241,53 @@ def test_acquire_http_progress_reported(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_install_app_local_happy_path(tmp_path):
-    archive = _make_archive(tmp_path, "TestBottle")
-    bottles = _bottles(tmp_path)
+    archive = _make_archive(tmp_path, "prefix")
     entry = _entry()
-    bottle_name = ins.install_app(entry, str(archive), bottles)
-    # Directory name comes from the archive, not the entry ID
-    assert bottle_name == "TestBottle"
-    assert (bottles.data_path / "TestBottle" / "bottle.yml").exists()
-    assert (bottles.data_path / "TestBottle" / "drive_c").is_dir()
-
-
-def test_install_app_fixes_program_paths(tmp_path):
-    """bottle.yml External_Programs paths are rewritten to the install location."""
-    old_path = "/home/otheruser/.var/app/com.usebottles.bottles/data/bottles/bottles"
-    extra_yml = (
-        "External_Programs:\n"
-        "  myapp:\n"
-        f"    path: {old_path}/TestBottle/drive_c/MyApp/MyApp.exe\n"
-        "    name: MyApp\n"
-    )
-    archive = _make_archive(tmp_path, "TestBottle", extra_yml=extra_yml)
-    bottles = _bottles(tmp_path)
-    ins.install_app(_entry(), str(archive), bottles)
-    yml_text = (bottles.data_path / "TestBottle" / "bottle.yml").read_text()
-    expected_prefix = str(bottles.data_path / "TestBottle")
-    assert expected_prefix in yml_text
-    assert old_path not in yml_text
-
-
-def test_install_app_collision_suffix(tmp_path):
-    archive = _make_archive(tmp_path)  # archive dir is "TestBottle"
-    bottles = _bottles(tmp_path)
-    (bottles.data_path / "TestBottle").mkdir()   # pre-existing collision
-    entry = _entry()
-    bottle_name = ins.install_app(entry, str(archive), bottles)
-    assert bottle_name == "TestBottle-2"
-    assert (bottles.data_path / "TestBottle-2").is_dir()
+    with _patch_prefixes_dir(tmp_path):
+        prefix_dir = ins.install_app(entry, str(archive))
+    # Returns entry.id; prefix installed at prefixes_dir() / entry.id
+    assert prefix_dir == "test-app"
+    assert (tmp_path / "prefixes" / "test-app" / "drive_c").is_dir()
 
 
 def test_install_app_crc32_verified(tmp_path):
     archive = _make_archive(tmp_path)
-    bottles = _bottles(tmp_path)
     entry = _entry(archive_crc32="deadbeef")  # wrong hash
-    with pytest.raises(ins.InstallError, match="CRC32"):
-        ins.install_app(entry, str(archive), bottles)
+    with _patch_prefixes_dir(tmp_path):
+        with pytest.raises(ins.InstallError, match="CRC32"):
+            ins.install_app(entry, str(archive))
 
 
 def test_install_app_crc32_correct_passes(tmp_path):
     archive = _make_archive(tmp_path)
-    bottles = _bottles(tmp_path)
     crc = format(zlib.crc32(archive.read_bytes()) & 0xFFFFFFFF, "08x")
     entry = _entry(archive_crc32=crc)
-    bottle_name = ins.install_app(entry, str(archive), bottles)
-    assert bottle_name == "TestBottle"
+    with _patch_prefixes_dir(tmp_path):
+        prefix_dir = ins.install_app(entry, str(archive))
+    assert prefix_dir == "test-app"
 
 
 def test_install_app_cancel_before_start(tmp_path):
     archive = _make_archive(tmp_path)
-    bottles = _bottles(tmp_path)
     entry = _entry()
     cancel = threading.Event()
     cancel.set()
-    with pytest.raises(ins.InstallCancelled):
-        ins.install_app(entry, str(archive), bottles, cancel_event=cancel)
+    with _patch_prefixes_dir(tmp_path):
+        with pytest.raises(ins.InstallCancelled):
+            ins.install_app(entry, str(archive), cancel_event=cancel)
 
 
 def test_install_app_progress_reported(tmp_path):
     archive = _make_archive(tmp_path)
-    bottles = _bottles(tmp_path)
     entry = _entry()
     dl_calls: list[float] = []
     inst_calls: list[float] = []
-    ins.install_app(
-        entry, str(archive), bottles,
-        download_cb=lambda f: dl_calls.append(f),
-        install_cb=lambda f: inst_calls.append(f),
-    )
+    with _patch_prefixes_dir(tmp_path):
+        ins.install_app(
+            entry, str(archive),
+            download_cb=lambda f: dl_calls.append(f),
+            install_cb=lambda f: inst_calls.append(f),
+        )
     # Download bar: 0 → 1
     assert len(dl_calls) >= 2
     assert dl_calls[0] == 0.0
@@ -346,23 +301,22 @@ def test_install_app_progress_reported(tmp_path):
 
 
 def test_install_app_unsupported_scheme_raises(tmp_path):
-    bottles = _bottles(tmp_path)
     entry = _entry()
-    with pytest.raises(ins.InstallError, match="not yet supported"):
-        ins.install_app(entry, "ssh://host/path/archive.tar.gz", bottles)
+    with _patch_prefixes_dir(tmp_path):
+        with pytest.raises(ins.InstallError, match="not yet supported"):
+            ins.install_app(entry, "ssh://host/path/archive.tar.gz")
 
 
 def test_install_app_partial_copy_cleaned_up_on_error(tmp_path):
     """If the file copy loop fails mid-way, the partial destination is removed."""
-    archive = _make_archive(tmp_path)
-    bottles = _bottles(tmp_path)
+    archive = _make_archive(tmp_path, "prefix", extra_content="content")
     entry = _entry()
-    with patch("cellar.backend.installer.shutil.copy2",
-               side_effect=OSError("disk full")):
-        with pytest.raises(OSError, match="disk full"):
-            ins.install_app(entry, str(archive), bottles)
-    # Destination must not exist (cleaned up); archive dir name is "TestBottle"
-    assert not (bottles.data_path / "TestBottle").exists()
+    with _patch_prefixes_dir(tmp_path):
+        with patch("cellar.backend.installer.shutil.copy2",
+                   side_effect=OSError("disk full")):
+            with pytest.raises(OSError, match="disk full"):
+                ins.install_app(entry, str(archive))
+    assert not (tmp_path / "prefixes" / "test-app").exists()
 
 
 # ---------------------------------------------------------------------------

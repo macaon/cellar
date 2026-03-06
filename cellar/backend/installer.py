@@ -1,7 +1,7 @@
-"""Download, verify, extract, and import a Bottles backup.
+"""Download, verify, extract, and install a Cellar archive.
 
-Install flow
-------------
+Install flow (Windows / umu apps)
+----------------------------------
 1. **Acquire** — for local archives (``file://`` or bare path) the file is
    used in-place; for HTTP(S) it is streamed to a temp file in 1 MB chunks
    with progress reporting and cancel support.  SSH/SMB/NFS archives raise
@@ -10,20 +10,13 @@ Install flow
    (skipped when the field is empty).
 3. **Extract** — ``tarfile`` extracts to a temporary directory.
 4. **Identify** — the single top-level directory inside the archive is taken
-   as the bottle source; if there are multiple, the one containing
-   ``bottle.yml`` is preferred.
-5. **Name** — a collision-safe bottle directory name is derived from the
-   archive's top-level directory name (preserving original capitalisation),
-   e.g. ``My-App``, then ``My-App-2``, ``My-App-3`` …
-6. **Copy** — ``shutil.copytree`` moves the extracted bottle into the Bottles
-   data path; a partial copy is cleaned up on failure.
-7. **Fix paths** — absolute ``path:`` values inside ``bottle.yml``'s
-   ``External_Programs`` section are rewritten to use the actual install
-   location.  Bottles stores full host paths (e.g.
-   ``/home/alice/.var/…/bottles/MyApp/drive_c/…``) so they must be updated
-   whenever the target machine or user differs from the original.
-8. **Return** — the caller receives the ``bottle_name`` string and is
-   responsible for writing the DB record (``database.mark_installed``).
+   as the prefix source.  Both Cellar-native archives (``prefix/`` top-level)
+   and legacy Bottles archives (arbitrary name, may contain ``bottle.yml``)
+   are accepted.  ``bottle.yml`` is ignored if present.
+5. **Copy** — the extracted directory is copied to
+   ``umu.prefixes_dir() / app_id``; a partial copy is cleaned up on failure.
+6. **Return** — the caller receives ``entry.id`` as the ``prefix_dir`` string
+   and is responsible for writing the DB record (``database.mark_installed``).
 
 Threading
 ---------
@@ -332,7 +325,6 @@ def _stream_and_extract(
 def install_app(
     entry,                          # AppEntry — avoid circular import at module level
     archive_uri: str,               # resolved by Repo.resolve_asset_uri(entry.archive)
-    bottles_install,                # BottlesInstall from detect_bottles()
     *,
     base_entry=None,                # BaseEntry if entry.base_runner is set
     base_archive_uri: str = "",     # resolved URI for the base archive
@@ -347,7 +339,7 @@ def install_app(
     ssl_verify: bool = True,
     ca_cert: str | None = None,
 ) -> str:
-    """Download, verify, extract, and import *entry* into Bottles.
+    """Download, verify, extract, and install *entry* to the Cellar prefix store.
 
     Parameters
     ----------
@@ -356,8 +348,6 @@ def install_app(
     archive_uri:
         Absolute path or HTTP(S) URL of the archive, as returned by
         ``Repo.resolve_asset_uri(entry.archive)``.
-    bottles_install:
-        Active Bottles installation from ``detect_bottles()``.
     download_cb:
         Optional ``(fraction)`` callback for the download phase (0 → 1).
     install_cb:
@@ -374,7 +364,7 @@ def install_app(
     Returns
     -------
     str
-        The bottle directory name used (e.g. ``"my-app"`` or ``"my-app-2"``).
+        ``entry.id`` — the prefix directory name under ``umu.prefixes_dir()``.
     """
     _check_cancel(cancel_event)
 
@@ -427,17 +417,16 @@ def install_app(
             name_cb=extract_name_cb,
         )
 
-        # ── Step 4: Identify bottle directory ─────────────────────────
+        # ── Step 4: Identify prefix source directory ───────────────────
         bottle_src = _find_bottle_dir(extract_dir)
 
-        # ── Step 5: Collision-safe name ────────────────────────────────
-        # Use the directory name from the archive verbatim so that absolute
-        # paths stored in bottle.yml (External_Programs entries etc.) remain
-        # valid after installation.
-        bottle_name = _safe_bottle_name(bottle_src.name, bottles_install.data_path)
-        bottle_dest = bottles_install.data_path / bottle_name
+        # ── Step 5: Install destination ────────────────────────────────
+        # Each app gets its own prefix directory keyed by app ID.
+        # No collision handling needed — app IDs are unique in the catalogue.
+        from cellar.backend.umu import prefixes_dir  # noqa: PLC0415
+        bottle_dest = prefixes_dir() / entry.id
 
-        # ── Step 6: Populate bottle directory ─────────────────────────
+        # ── Step 6: Populate prefix directory ─────────────────────────
         _check_cancel(cancel_event)
         if entry.base_runner:
             # Delta path: seed from base with hardlinks, then overlay delta.
@@ -456,7 +445,7 @@ def install_app(
         else:
             # Full archive path: cancellable file-by-file copy.
             if phase_cb:
-                phase_cb("Copying to Bottles\u2026")
+                phase_cb("Installing\u2026")
             try:
                 for src in bottle_src.rglob("*"):
                     _check_cancel(cancel_event)
@@ -471,14 +460,12 @@ def install_app(
                 shutil.rmtree(bottle_dest, ignore_errors=True)
                 raise
 
-        # ── Step 7: Fix absolute paths in bottle.yml ───────────────────
         if phase_cb:
-            phase_cb("Finishing\u2026")
-        _fix_program_paths(bottle_dest, bottles_install.data_path)
+            phase_cb("Done")
 
     if install_cb:
         install_cb(1.0)
-    return bottle_name
+    return entry.id
 
 
 # ---------------------------------------------------------------------------
@@ -1002,29 +989,39 @@ def _extract_zst(
 # ---------------------------------------------------------------------------
 
 def _find_bottle_dir(extract_dir: Path) -> Path:
-    """Return the bottle source directory inside *extract_dir*.
+    """Return the prefix source directory inside *extract_dir*.
 
-    Expects a single top-level directory (the bottle).  When there are
-    multiple, the one containing ``bottle.yml`` is preferred.
+    Expects a single top-level directory.  Both Cellar-native archives
+    (``prefix/`` top-level) and legacy Bottles archives (arbitrary name,
+    may contain ``bottle.yml``) are accepted; ``bottle.yml`` is ignored.
+
+    When there are multiple top-level directories the one named ``prefix``
+    is preferred (Cellar-native format), then one containing ``bottle.yml``
+    (legacy Bottles format), otherwise raises ``InstallError``.
     """
     dirs = [d for d in extract_dir.iterdir() if d.is_dir()]
 
     if not dirs:
         raise InstallError(
-            "Archive contains no directories; expected a top-level bottle directory."
+            "Archive contains no directories; expected a top-level prefix directory."
         )
 
     if len(dirs) == 1:
         return dirs[0]
 
+    # Prefer the Cellar-native top-level name.
+    for d in dirs:
+        if d.name == "prefix":
+            return d
+
+    # Fall back to a Bottles-format archive.
     with_yml = [d for d in dirs if (d / "bottle.yml").exists()]
     if len(with_yml) == 1:
         return with_yml[0]
 
     raise InstallError(
-        f"Cannot identify bottle directory in archive "
-        f"({len(dirs)} top-level directories found, "
-        f"{len(with_yml)} contain bottle.yml)."
+        f"Cannot identify prefix directory in archive "
+        f"({len(dirs)} top-level directories found; expected exactly one)."
     )
 
 

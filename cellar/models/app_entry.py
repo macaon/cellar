@@ -119,9 +119,12 @@ class AppEntry:
     built_with: BuiltWith | None = None
     update_strategy: Literal["safe", "full"] = "safe"
     # Delta packaging — when set, this archive is a delta against the named
-    # base image; the installer must seed the bottle from that base first.
+    # base image; the installer must seed the prefix from that base first.
     base_runner: str = ""
-    # Platform: "windows" (Bottles/Wine) or "linux" (native Linux app).
+    # Steam App ID — used to set GAMEID=umu-<id> for umu-launcher / protonfixes.
+    # None means GAMEID=0 (no protonfixes applied).
+    steam_appid: int | None = None
+    # Platform: "windows" (umu/Wine) or "linux" (native Linux app).
     # For Linux apps, built_with is None and entry_point is the executable
     # path relative to the installed app directory (e.g. "bin/mygame").
     platform: str = "windows"
@@ -172,6 +175,7 @@ class AppEntry:
             built_with=BuiltWith.from_dict(built_with_raw) if built_with_raw else None,
             update_strategy=strategy,
             base_runner=data.get("base_runner", "") or data.get("base_win_ver", ""),
+            steam_appid=data.get("steam_appid"),
             platform=data.get("platform", "windows"),
             entry_point=data.get("entry_point", ""),
             compatibility_notes=data.get("compatibility_notes", ""),
@@ -219,6 +223,8 @@ class AppEntry:
             d["built_with"] = self.built_with.to_dict()
         d["update_strategy"] = self.update_strategy
         _opt_str(d, "base_runner", self.base_runner)
+        if self.steam_appid is not None:
+            d["steam_appid"] = self.steam_appid
         if self.platform != "windows":
             d["platform"] = self.platform
         _opt_str(d, "entry_point", self.entry_point)

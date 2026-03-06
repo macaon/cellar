@@ -45,7 +45,6 @@ class DetailView(Gtk.Box):
         source_repos: list | None = None,
         is_writable: bool = False,
         on_edit: Callable | None = None,
-        bottles_installs: list | None = None,
         is_installed: bool = False,
         installed_record: dict | None = None,
         on_install_done: Callable | None = None,
@@ -61,7 +60,6 @@ class DetailView(Gtk.Box):
         self._token = _first.token if _first else None
         self._is_writable = is_writable
         self._on_edit = on_edit
-        self._bottles_installs = bottles_installs or []
         self._is_installed = is_installed
         self._installed_record = installed_record
         self._on_install_done = on_install_done
@@ -70,7 +68,7 @@ class DetailView(Gtk.Box):
         self._has_update = (
             is_installed
             and installed_record is not None
-            and installed_record.get("installed_version") != entry.version
+            and installed_record.get("version") != entry.version
             and bool(entry.archive)
         )
         self._screenshot_paths: list[str] = []
@@ -175,17 +173,11 @@ class DetailView(Gtk.Box):
             btn.set_sensitive(True)
             btn.set_tooltip_text("")
             self._remove_btn.set_visible(True)
-        elif is_linux or self._bottles_installs:
+        else:
             btn.set_label("Install")
             btn.add_css_class("suggested-action")
             btn.set_sensitive(True)
             btn.set_tooltip_text("")
-            self._remove_btn.set_visible(False)
-        else:
-            btn.set_label("Install")
-            btn.add_css_class("suggested-action")
-            btn.set_sensitive(False)
-            btn.set_tooltip_text("Bottles is not installed")
             self._remove_btn.set_visible(False)
         self._update_btn.set_visible(self._has_update)
         self._gear_btn.set_visible(self._is_installed)
@@ -203,26 +195,21 @@ class DetailView(Gtk.Box):
         runner_to_install = ""
         if required_runner and self._runners_loaded and effective not in self._installed_runners:
             runner_to_install = effective
+        # Always show confirm page for Windows apps (runner selection)
         self._proceed_to_install(runner_to_install=runner_to_install)
 
     def _resolve_runner_info(self, runner_name: str) -> dict | None:
         """Return download info dict for *runner_name*, or ``None`` if unavailable."""
-        from cellar.backend.components import get_runner_info
-        from cellar.backend.bottles import runners_dir
+        from cellar.backend import runners
+        from cellar.backend.umu import runners_dir
 
-        if not self._bottles_installs:
-            return None
-        info = get_runner_info(runner_name)
+        info = runners.get_release_info(runner_name)
         if not info:
             return None
-        files = info.get("File") or []
-        if not files:
-            return None
-        f = files[0]
         return {
-            "url": f.get("url", ""),
-            "checksum": f.get("file_checksum", "") or f.get("checksum", ""),
-            "target_dir": runners_dir(self._bottles_installs[0]) / runner_name,
+            "url": info.get("url", ""),
+            "checksum": info.get("checksum", ""),
+            "target_dir": runners_dir() / runner_name,
         }
 
     def _proceed_to_install(self, *, runner_to_install: str = "") -> None:
@@ -242,7 +229,6 @@ class DetailView(Gtk.Box):
 
         dialog = InstallProgressDialog(
             entry=self._entry,
-            installs=self._bottles_installs,
             archive_uri=archive_uri,
             on_success=self._on_install_success,
             token=self._token,
@@ -256,94 +242,81 @@ class DetailView(Gtk.Box):
         )
         dialog.present(self.get_root())
 
-    def _on_install_success(self, bottle_name: str, install_path: str = "") -> None:
+    def _on_install_success(self, prefix_dir: str, install_path: str = "", runner: str = "") -> None:
         self._is_installed = True
-        self._installed_record = {"bottle_name": bottle_name, "install_path": install_path}
+        self._installed_record = {"prefix_dir": prefix_dir, "install_path": install_path}
         self._update_install_button()
         if self._on_install_done:
-            self._on_install_done(bottle_name, install_path)
-        # Apply runner override when the user pre-selected a different runner.
+            self._on_install_done(prefix_dir, install_path, runner)
+        # Persist runner override when the user pre-selected a different runner.
         built_with_runner = (self._entry.built_with.runner if self._entry.built_with else "") or ""
-        if self._runner_override and self._runner_override != built_with_runner and self._bottles_installs:
-            from cellar.backend.bottles import BottlesError, set_bottle_runner
+        if self._runner_override and self._runner_override != built_with_runner:
             from cellar.backend import database
-            install = self._bottles_installs[0]
-            try:
-                set_bottle_runner(install, bottle_name, self._runner_override)
-                database.set_runner_override(self._entry.id, self._runner_override)
-            except BottlesError as exc:
-                log.error("Failed to apply runner override after install: %s", exc)
+            database.set_runner_override(self._entry.id, self._runner_override)
 
     def _on_open_clicked(self) -> None:
         if self._entry.platform == "linux":
             self._launch_linux_app()
             return
-        from cellar.backend.bottles import launch_bottle, list_bottle_programs
-        bottle_name = (self._installed_record or {}).get("bottle_name", "")
-        if not bottle_name or not self._bottles_installs:
-            return
-        # Prefer the install that actually has the bottle directory.
-        install = self._bottles_installs[0]
-        for inst in self._bottles_installs:
-            if (inst.data_path / bottle_name).is_dir():
-                install = inst
-                break
-        programs = list_bottle_programs(install, bottle_name)
-        if not programs:
-            # Nothing registered — fall back to catalogue entry_point or GUI.
-            launch_bottle(install, bottle_name, self._entry.entry_point or None)
-        elif len(programs) == 1:
-            launch_bottle(install, bottle_name, program=programs[0])
-        else:
-            LaunchProgramDialog(
-                bottle_name=bottle_name,
-                install=install,
-                programs=programs,
-            ).present(self.get_root())
+        from cellar.backend.umu import launch_app
+        from cellar.backend import database
+        rec = self._installed_record or {}
+        runner_name = rec.get("runner_override") or rec.get("runner") or ""
+        if not runner_name:
+            db_rec = database.get_installed(self._entry.id) or {}
+            runner_name = db_rec.get("runner_override") or db_rec.get("runner") or ""
+        launch_app(
+            app_id=self._entry.id,
+            entry_point=self._entry.entry_point or "",
+            runner_name=runner_name,
+            steam_appid=self._entry.steam_appid,
+        )
 
     def _launch_linux_app(self) -> None:
         """Launch a native Linux app by executing its entry_point directly."""
         import subprocess as _sp
         rec = self._installed_record or {}
-        bottle_name = rec.get("bottle_name", "")
+        prefix_dir = rec.get("prefix_dir", "")
         install_path = rec.get("install_path", "")
-        if not install_path:
+        if not install_path or not prefix_dir:
             from cellar.backend import database
-            db_rec = database.get_installed(self._entry.id)
-            install_path = (db_rec or {}).get("install_path", "") or ""
-        if not bottle_name or not install_path or not self._entry.entry_point:
+            db_rec = database.get_installed(self._entry.id) or {}
+            prefix_dir = prefix_dir or db_rec.get("prefix_dir", "") or ""
+            install_path = install_path or db_rec.get("install_path", "") or ""
+        if not prefix_dir or not install_path or not self._entry.entry_point:
             return
-        exe = Path(install_path) / bottle_name / self._entry.entry_point
+        exe = Path(install_path) / prefix_dir / self._entry.entry_point
         _sp.Popen([str(exe)], start_new_session=True)
 
     def _on_remove_clicked(self) -> None:
-        bottle_name = (self._installed_record or {}).get("bottle_name", "")
-        bottle_path = None
-        if bottle_name:
-            for install in self._bottles_installs:
-                candidate = install.data_path / bottle_name
-                if candidate.is_dir() and candidate != install.data_path:
-                    bottle_path = candidate
-                    break
+        prefix_path = None
+        if self._entry.platform == "linux":
+            rec = self._installed_record or {}
+            prefix_dir = rec.get("prefix_dir", "")
+            install_path = rec.get("install_path", "")
+            if prefix_dir and install_path:
+                candidate = Path(install_path) / prefix_dir
+                if candidate.is_dir():
+                    prefix_path = candidate
+        else:
+            from cellar.backend.umu import prefixes_dir
+            candidate = prefixes_dir() / self._entry.id
+            if candidate.is_dir():
+                prefix_path = candidate
         dialog = RemoveDialog(
             entry=self._entry,
-            bottle_path=bottle_path,
+            prefix_path=prefix_path,
             on_confirm=self._on_remove_confirmed,
         )
         dialog.present(self.get_root())
 
     def _on_update_clicked(self, _btn) -> None:
         from cellar.views.update_app import UpdateDialog
+        from cellar.backend.umu import prefixes_dir
 
-        bottle_name = (self._installed_record or {}).get("bottle_name", "")
-        bottle_path = None
-        for install in self._bottles_installs:
-            candidate = install.data_path / bottle_name
-            if candidate.is_dir():
-                bottle_path = candidate
-                break
-        if bottle_path is None:
-            log.error("Could not locate bottle directory for %s", self._entry.id)
+        prefix_path = prefixes_dir() / self._entry.id
+        if not prefix_path.is_dir():
+            log.error("Could not locate prefix directory for %s", self._entry.id)
             return
 
         archive_uri = self._resolve(self._entry.archive) if self._entry.archive else ""
@@ -355,7 +328,7 @@ class DetailView(Gtk.Box):
         dialog = UpdateDialog(
             entry=self._entry,
             installed_record=self._installed_record or {},
-            bottle_path=bottle_path,
+            prefix_path=prefix_path,
             archive_uri=archive_uri,
             on_success=self._on_update_success,
             base_entry=base_entry,
@@ -374,22 +347,29 @@ class DetailView(Gtk.Box):
         import shutil
         from cellar.backend import database
 
-        bottle_name = (self._installed_record or {}).get("bottle_name", "")
-        if bottle_name:
-            for install in self._bottles_installs:
-                candidate = install.data_path / bottle_name
+        if self._entry.platform == "linux":
+            rec = self._installed_record or {}
+            prefix_dir = rec.get("prefix_dir", "")
+            install_path = rec.get("install_path", "")
+            if prefix_dir and install_path:
+                candidate = Path(install_path) / prefix_dir
                 if candidate.is_dir():
-                    # Safety: never delete the Bottles data root itself.
-                    if candidate == install.data_path:
-                        log.error("Refusing to delete Bottles data root %s", candidate)
-                        break
                     try:
                         shutil.rmtree(candidate)
                     except Exception as exc:
-                        log.error("Failed to remove bottle %s: %s", candidate, exc)
-                    break
+                        log.error("Failed to remove app dir %s: %s", candidate, exc)
+            else:
+                log.error("No prefix_dir/install_path for %s; skipping removal", self._entry.id)
         else:
-            log.error("No bottle_name for %s; skipping filesystem removal", self._entry.id)
+            from cellar.backend.umu import prefixes_dir
+            candidate = prefixes_dir() / self._entry.id
+            if candidate.is_dir():
+                try:
+                    shutil.rmtree(candidate)
+                except Exception as exc:
+                    log.error("Failed to remove prefix %s: %s", candidate, exc)
+            else:
+                log.warning("Prefix %s not found on disk; cleaning up DB only", candidate)
 
         database.remove_installed(self._entry.id)
         from cellar.utils.desktop import remove_desktop_entry
@@ -441,28 +421,19 @@ class DetailView(Gtk.Box):
     def _get_install_folder(self) -> str | None:
         """Return the install folder path for the current entry, or None."""
         rec = self._installed_record or {}
-        bottle_name = rec.get("bottle_name", "")
-        if not bottle_name:
-            from cellar.backend import database
-            db_rec = database.get_installed(self._entry.id)
-            bottle_name = (db_rec or {}).get("bottle_name", "") or ""
-        if not bottle_name:
-            return None
         if self._entry.platform == "linux":
+            prefix_dir = rec.get("prefix_dir", "")
             install_path = rec.get("install_path", "")
-            if not install_path:
+            if not install_path or not prefix_dir:
                 from cellar.backend import database
-                db_rec = database.get_installed(self._entry.id)
-                install_path = (db_rec or {}).get("install_path", "") or ""
-            return str(Path(install_path) / bottle_name) if install_path else None
-        # Wine/Bottles app — look up the bottle directory
-        for inst in self._bottles_installs:
-            p = inst.data_path / bottle_name
-            if p.is_dir():
-                return str(p)
-        if self._bottles_installs:
-            return str(self._bottles_installs[0].data_path / bottle_name)
-        return None
+                db_rec = database.get_installed(self._entry.id) or {}
+                prefix_dir = prefix_dir or db_rec.get("prefix_dir", "") or ""
+                install_path = install_path or db_rec.get("install_path", "") or ""
+            return str(Path(install_path) / prefix_dir) if install_path and prefix_dir else None
+        # Windows app — prefix is at umu prefixes_dir / app_id
+        from cellar.backend.umu import prefixes_dir
+        p = prefixes_dir() / self._entry.id
+        return str(p) if p.is_dir() else None
 
     def _on_create_shortcut(self, _action, _param) -> None:
         from cellar.utils.desktop import create_desktop_entry
@@ -475,19 +446,17 @@ class DetailView(Gtk.Box):
 
         if self._entry.platform == "linux":
             rec = self._installed_record or {}
-            bottle_name = rec.get("bottle_name", "")
+            prefix_dir = rec.get("prefix_dir", "")
             install_path = rec.get("install_path", "")
-            if not install_path or not bottle_name:
+            if not install_path or not prefix_dir:
                 from cellar.backend import database
                 db_rec = database.get_installed(self._entry.id) or {}
-                bottle_name = bottle_name or db_rec.get("bottle_name", "")
+                prefix_dir = prefix_dir or db_rec.get("prefix_dir", "")
                 install_path = install_path or db_rec.get("install_path", "") or ""
             try:
                 create_desktop_entry(
                     entry=self._entry,
-                    bottle_name=bottle_name,
-                    program_name=None,
-                    is_flatpak=False,
+                    bottle_name=prefix_dir,
                     icon_source=icon_source,
                     install_path=install_path,
                 )
@@ -498,30 +467,11 @@ class DetailView(Gtk.Box):
                 self._add_toast("Failed to create shortcut")
             return
 
-        from cellar.backend.bottles import _bottle_display_name, list_bottle_programs
-
-        bottle_name = (self._installed_record or {}).get("bottle_name", "")
-        if not bottle_name or not self._bottles_installs:
-            return
-
-        install = self._bottles_installs[0]
-        for inst in self._bottles_installs:
-            if (inst.data_path / bottle_name).is_dir():
-                install = inst
-                break
-
-        # bottles-cli -b expects the Name from bottle.yml, not the directory name.
-        display_name = _bottle_display_name(install, bottle_name)
-
-        programs = list_bottle_programs(install, bottle_name)
-        program_name = programs[0]["name"] if programs else None
-
+        # Windows app — umu desktop shortcut
         try:
             create_desktop_entry(
                 entry=self._entry,
-                bottle_name=display_name,
-                program_name=program_name,
-                is_flatpak=(install.variant == "flatpak"),
+                bottle_name=self._entry.id,
                 icon_source=icon_source,
             )
             self._refresh_gear_menu()
@@ -548,20 +498,14 @@ class DetailView(Gtk.Box):
 
     def _check_runners_async(self) -> None:
         """Start a background thread that lists installed runners and updates the banner."""
-        if not self._bottles_installs:
-            return
         bw = self._entry.built_with
         if not bw or not bw.runner:
             return
-        install = self._bottles_installs[0]
 
         def _run() -> None:
-            from cellar.backend.bottles import BottlesError, list_runners
-            try:
-                runners = list_runners(install)
-            except BottlesError:
-                runners = []
-            GLib.idle_add(self._on_runners_loaded, runners)
+            from cellar.backend import runners
+            runner_list = runners.installed_runners()
+            GLib.idle_add(self._on_runners_loaded, runner_list)
 
         threading.Thread(target=_run, daemon=True).start()
 
@@ -594,25 +538,21 @@ class DetailView(Gtk.Box):
         runner.  The optional *on_done* callback is invoked (in addition to the
         internal bookkeeping) once the runner is successfully installed.
         """
-        from cellar.backend.components import get_runner_info
-        from cellar.backend.bottles import runners_dir
+        from cellar.backend import runners
+        from cellar.backend.umu import runners_dir
         from cellar.views.install_runner import InstallRunnerDialog
 
         bw = self._entry.built_with
         effective_name = runner_name or (bw.runner if bw else "") or ""
-        if not effective_name or not self._bottles_installs:
+        if not effective_name:
             return
 
-        info = get_runner_info(effective_name)
+        info = runners.get_release_info(effective_name)
         if not info:
             return
-        files = info.get("File") or []
-        if not files:
-            return
-        file_info = files[0]
-        url = file_info.get("url", "")
-        checksum = file_info.get("file_checksum", "") or file_info.get("checksum", "")
-        target_dir = runners_dir(self._bottles_installs[0]) / effective_name
+        url = info.get("url", "")
+        checksum = info.get("checksum", "")
+        target_dir = runners_dir() / effective_name
 
         def _on_done_internal(rname: str) -> None:
             if rname not in self._installed_runners:
@@ -636,23 +576,15 @@ class DetailView(Gtk.Box):
         on_confirm: Callable[[str], None] | None = None,
     ) -> None:
         """Open :class:`RunnerManagerDialog` for selecting or managing runners."""
-        from cellar.backend.components import is_available, list_runners_by_category
-        from cellar.backend.bottles import get_runners_in_use, runners_dir
+        from cellar.backend import runners
+        from cellar.backend.umu import runners_dir
 
         bw = self._entry.built_with
         built_with_runner = (bw.runner if bw else "") or ""
         current = self._runner_override or built_with_runner
 
-        runners_in_use: set[str] = set()
-        rdir = None
-        if self._bottles_installs:
-            install = self._bottles_installs[0]
-            runners_in_use = get_runners_in_use(install)
-            rdir = runners_dir(install)
-
-        runners_by_cat: dict[str, list[str]] = {}
-        if is_available():
-            runners_by_cat = list_runners_by_category()
+        available_releases = runners.fetch_releases()
+        rdir = runners_dir()
 
         effective_on_confirm = on_confirm if on_confirm is not None else self._on_runner_selected
 
@@ -661,8 +593,7 @@ class DetailView(Gtk.Box):
 
         RunnerManagerDialog(
             installed_runners=self._installed_runners,
-            runners_in_use=runners_in_use,
-            runners_by_category=runners_by_cat,
+            available_releases=available_releases,
             runners_dir=rdir,
             current_runner=current,
             required_runner=required_runner or built_with_runner,
@@ -676,18 +607,10 @@ class DetailView(Gtk.Box):
             self._runner_label.set_label(runner_name)
         if self._runner_warning_icon and runner_name in self._installed_runners:
             self._runner_warning_icon.set_visible(False)
-        # If already installed, apply runner change immediately via bottle.yml.
-        if self._is_installed and self._installed_record and self._bottles_installs:
-            from cellar.backend.bottles import BottlesError, set_bottle_runner
+        # Persist the runner override to the database.
+        if self._is_installed:
             from cellar.backend import database
-            bottle_name = self._installed_record.get("bottle_name", "")
-            if bottle_name:
-                install = self._bottles_installs[0]
-                try:
-                    set_bottle_runner(install, bottle_name, runner_name)
-                    database.set_runner_override(self._entry.id, runner_name)
-                except BottlesError as exc:
-                    log.error("Failed to set runner: %s", exc)
+            database.set_runner_override(self._entry.id, runner_name)
 
     # ------------------------------------------------------------------
     # Section builders
@@ -1514,103 +1437,17 @@ class DetailView(Gtk.Box):
 
 
 # ---------------------------------------------------------------------------
-# Program picker dialog (shown when a bottle has multiple External_Programs)
-# ---------------------------------------------------------------------------
-
-
-class LaunchProgramDialog(Adw.Dialog):
-    """Let the user pick which program inside a bottle to launch."""
-
-    def __init__(
-        self,
-        *,
-        bottle_name: str,
-        install,          # BottlesInstall
-        programs: list[dict],
-    ) -> None:
-        super().__init__(title="Open", content_width=360)
-        self._bottle_name = bottle_name
-        self._install = install
-        self._programs = programs
-        self._selected: dict | None = programs[0] if programs else None
-        self._build_ui()
-
-    def _build_ui(self) -> None:
-        toolbar = Adw.ToolbarView()
-
-        header = Adw.HeaderBar()
-        header.set_show_end_title_buttons(False)
-
-        cancel_btn = Gtk.Button(label="Cancel")
-        cancel_btn.connect("clicked", lambda _: self.close())
-        header.pack_start(cancel_btn)
-
-        open_btn = Gtk.Button(label="Open")
-        open_btn.add_css_class("suggested-action")
-        open_btn.connect("clicked", self._on_open_clicked)
-        header.pack_end(open_btn)
-
-        toolbar.add_top_bar(header)
-
-        scroll = Gtk.ScrolledWindow(
-            hscrollbar_policy=Gtk.PolicyType.NEVER,
-            vscrollbar_policy=Gtk.PolicyType.AUTOMATIC,
-        )
-        scroll.set_propagate_natural_height(True)
-
-        page = Adw.PreferencesPage()
-        scroll.set_child(page)
-
-        group = Adw.PreferencesGroup(title="Select Program")
-        page.add(group)
-
-        radio_group: Gtk.CheckButton | None = None
-        for program in self._programs:
-            name = program.get("name") or program.get("executable") or "Unknown"
-            exe = program.get("executable") or ""
-            row = Adw.ActionRow(title=name, subtitle=exe)
-            radio = Gtk.CheckButton()
-            radio.set_valign(Gtk.Align.CENTER)
-            if radio_group is None:
-                radio_group = radio
-                radio.set_active(True)
-            else:
-                radio.set_group(radio_group)
-            radio.connect("toggled", self._on_radio_toggled, program)
-            row.add_prefix(radio)
-            row.set_activatable_widget(radio)
-            group.add(row)
-
-        toolbar.set_content(scroll)
-        self.set_child(toolbar)
-
-    def _on_radio_toggled(self, btn: Gtk.CheckButton, program: dict) -> None:
-        if btn.get_active():
-            self._selected = program
-
-    def _on_open_clicked(self, _btn) -> None:
-        from cellar.backend.bottles import launch_bottle
-        if self._selected:
-            launch_bottle(self._install, self._bottle_name, program=self._selected)
-        self.close()
-
-
-# ---------------------------------------------------------------------------
 # Runner manager dialog
 # ---------------------------------------------------------------------------
 
 
 class RunnerManagerDialog(Adw.Dialog):
-    """Browse, download, delete and (optionally) select a runner.
+    """Browse, download, delete and (optionally) select a GE-Proton runner.
 
-    Runners are grouped into collapsible :class:`Adw.ExpanderRow` sections by
-    family (Soda, Caffe, Wine GE, …).  Each runner row shows state-based
-    suffix icons:
+    Each runner row shows state-based suffix icons:
 
-    * **Installed + in use** — ``folder-open-symbolic`` only (cannot delete
-      while a bottle depends on it).
-    * **Installed + not in use** — ``folder-open-symbolic`` + ``user-trash-symbolic``.
-    * **Not installed** — ``folder-arrow-down-symbolic`` (download).
+    * **Installed** — ``folder-open-symbolic`` + ``user-trash-symbolic``.
+    * **Not installed** — ``folder-download-symbolic`` (download).
 
     When *on_confirm* is supplied the dialog acts as a picker: every installed
     runner row gets a radio-button prefix and a *Select* header button confirms
@@ -1621,18 +1458,16 @@ class RunnerManagerDialog(Adw.Dialog):
         self,
         *,
         installed_runners: list[str],
-        runners_in_use: set[str],
-        runners_by_category: dict[str, list[str]],
+        available_releases: list[dict],
         runners_dir: Path | None,
         current_runner: str = "",
         required_runner: str = "",
         on_confirm: Callable[[str], None] | None = None,
         on_install_runner: Callable[[str], None] | None = None,
     ) -> None:
-        super().__init__(title="Runners", content_width=500, content_height=500)
+        super().__init__(title="GE-Proton Runners", content_width=500, content_height=500)
         self._installed = set(installed_runners)
-        self._runners_in_use = runners_in_use
-        self._runners_by_category = runners_by_category
+        self._available_releases = available_releases
         self._runners_dir = runners_dir
         self._current_runner = current_runner
         self._required_runner = required_runner
@@ -1644,8 +1479,6 @@ class RunnerManagerDialog(Adw.Dialog):
         self._build_ui()
 
     def _build_ui(self) -> None:
-        from cellar.backend.components import _classify_runner, _version_sort_key, family_display_order, get_family_info
-
         toolbar = Adw.ToolbarView()
 
         header = Adw.HeaderBar()
@@ -1675,70 +1508,24 @@ class RunnerManagerDialog(Adw.Dialog):
         toolbar.set_content(scroll)
         self.set_child(toolbar)
 
-        # ── Determine family membership ────────────────────────────────────
-        # Map each indexed runner name → its family dir_name.
-        runner_to_family: dict[str, str] = {}
-        for dir_name, names in self._runners_by_category.items():
-            for rname in names:
-                if rname not in runner_to_family:
-                    runner_to_family[rname] = dir_name
+        # Build the flat list: available releases + any installed not in releases.
+        release_names = [r.get("name", "") for r in self._available_releases]
+        extra_installed = sorted(
+            (r for r in self._installed if r not in release_names),
+            reverse=True,
+        )
+        all_runners = release_names + extra_installed
 
-        # Classify installed runners not in the index by name prefix so
-        # they appear in the correct family (e.g. sys-wine-11.0 → wine).
-        for r in self._installed:
-            if r not in runner_to_family:
-                runner_to_family[r] = _classify_runner(r, "wine")
+        grp = Adw.PreferencesGroup()
+        page.add(grp)
 
-        # All families that have at least one runner (installed or indexed).
-        active_families: set[str] = set(self._runners_by_category.keys())
-        for r in self._installed:
-            fam = runner_to_family.get(r)
-            if fam:
-                active_families.add(fam)
-
-        display_order = family_display_order()
-        explicit = [f for f in display_order if f in active_families]
-        rest = sorted(f for f in active_families if f not in display_order and f != "other")
-        ordered: list[str] = explicit + rest
-        if "other" in active_families:
-            ordered.append("other")
-
-        # ── Family groups (collapsible) ────────────────────────────────────
-        if ordered:
-            families_grp = Adw.PreferencesGroup()
-            page.add(families_grp)
-
-            for dir_name in ordered:
-                display_name, description = get_family_info(dir_name)
-                expander = Adw.ExpanderRow(title=display_name)
-                if description:
-                    expander.set_subtitle(description)
-
-                index_runners: set[str] = set(self._runners_by_category.get(dir_name, []))
-                installed_in_family: set[str] = {
-                    r for r in self._installed if runner_to_family.get(r) == dir_name
-                }
-                all_runners = sorted(index_runners | installed_in_family, key=_version_sort_key)
-
-                # Auto-expand if the family contains the current or required runner.
-                should_expand = (
-                    bool(self._current_runner and self._current_runner in (index_runners | installed_in_family))
-                    or bool(self._required_runner and self._required_runner in (index_runners | installed_in_family))
-                )
-                expander.set_expanded(should_expand)
-
-                for runner in all_runners:
-                    expander.add_row(self._make_runner_row(runner, is_installed=runner in self._installed))
-
-                families_grp.add(expander)
-
-        # Placeholder when nothing is available at all.
-        if not ordered:
-            grp = Adw.PreferencesGroup()
-            page.add(grp)
+        if all_runners:
+            for runner in all_runners:
+                grp.add(self._make_runner_row(runner, is_installed=runner in self._installed))
+        else:
             grp.add(Adw.ActionRow(
                 title="No runners found",
-                subtitle="Install runners in Bottles or sync the component index.",
+                subtitle="Check your internet connection and try again.",
             ))
 
     def _make_runner_row(self, runner: str, *, is_installed: bool) -> Adw.ActionRow:
@@ -1768,7 +1555,6 @@ class RunnerManagerDialog(Adw.Dialog):
 
         # Suffix buttons.
         if is_installed:
-            in_use = runner in self._runners_in_use
             folder_btn = Gtk.Button(icon_name="folder-open-symbolic")
             folder_btn.add_css_class("flat")
             folder_btn.set_valign(Gtk.Align.CENTER)
@@ -1777,15 +1563,14 @@ class RunnerManagerDialog(Adw.Dialog):
             folder_btn.connect("clicked", self._on_open_folder, runner)
             row.add_suffix(folder_btn)
 
-            if not in_use:
-                trash_btn = Gtk.Button(icon_name="user-trash-symbolic")
-                trash_btn.add_css_class("flat")
-                trash_btn.set_valign(Gtk.Align.CENTER)
-                trash_btn.set_tooltip_text("Delete runner")
-                trash_btn.set_sensitive(self._runners_dir is not None)
-                trash_btn.connect("clicked", self._on_delete, runner)
-                row.add_suffix(trash_btn)
-        elif not self._on_confirm:
+            trash_btn = Gtk.Button(icon_name="user-trash-symbolic")
+            trash_btn.add_css_class("flat")
+            trash_btn.set_valign(Gtk.Align.CENTER)
+            trash_btn.set_tooltip_text("Delete runner")
+            trash_btn.set_sensitive(self._runners_dir is not None)
+            trash_btn.connect("clicked", self._on_delete, runner)
+            row.add_suffix(trash_btn)
+        else:
             dl_btn = Gtk.Button(icon_name="folder-download-symbolic")
             dl_btn.add_css_class("flat")
             dl_btn.set_valign(Gtk.Align.CENTER)
@@ -1861,17 +1646,6 @@ class RunnerManagerDialog(Adw.Dialog):
 
 
 
-_VARIANT_LABELS = {
-    "flatpak": "Bottles (Flatpak)",
-    "native": "Bottles (Native)",
-    "custom": "Bottles (Custom path)",
-}
-
-
-def _variant_label(variant: str) -> str:
-    return _VARIANT_LABELS.get(variant, "Bottles")
-
-
 def _short_path(path) -> str:
     """Return path as a string with the home directory replaced by ~."""
     return str(path).replace(os.path.expanduser("~"), "~", 1)
@@ -1880,22 +1654,19 @@ def _short_path(path) -> str:
 class InstallProgressDialog(Adw.Dialog):
     """Two-phase install dialog: confirmation → progress.
 
-    Phase 1 (confirm): shows the detected Bottles installation(s).  If more
-    than one is found the user can choose which to use.  Header has "Cancel"
-    (start) and "Install" (end).
+    Phase 1 (confirm): shown for Linux apps (install path) and when a runner
+    needs downloading.  Skipped automatically for simple Windows installs.
 
     Phase 2 (progress): background install with a progress bar and a body
-    Cancel button.  The header buttons are hidden so the only affordance is
-    the in-body Cancel.
+    Cancel button.
     """
 
     def __init__(
         self,
         *,
         entry: AppEntry,
-        installs: list,        # list[BottlesInstall]
         archive_uri: str,
-        on_success: Callable,  # (bottle_name: str, install_path: str = "") -> None
+        on_success: Callable,  # (prefix_dir: str, install_path: str, runner: str) -> None
         token: str | None = None,
         runner_to_install: str = "",
         runner_info: dict | None = None,
@@ -1907,12 +1678,10 @@ class InstallProgressDialog(Adw.Dialog):
     ) -> None:
         super().__init__(title=f"Install {entry.name}", content_width=360)
         self._entry = entry
-        self._installs = installs
         self._archive_uri = archive_uri
         self._on_success = on_success
         self._token = token
         self._cancel_event = threading.Event()
-        self._selected_install = installs[0] if installs else None
         self._runner_to_install = runner_to_install
         self._runner_info = runner_info
         self._installed_runners = installed_runners or []
@@ -1929,7 +1698,6 @@ class InstallProgressDialog(Adw.Dialog):
         self._needs_confirm = (
             entry.platform == "linux"
             or bool(runner_to_install)
-            or len(installs) > 1
         )
 
         self._build_ui()
@@ -2012,41 +1780,6 @@ class InstallProgressDialog(Adw.Dialog):
             page.add(runner_group)
             self._runner_row = row
 
-        # ── Bottles group (Wine/Windows apps only) ────────────────────────
-        if self._entry.platform != "linux":
-            if len(self._installs) == 1:
-                group = Adw.PreferencesGroup(title="Bottles Installation")
-                install = self._installs[0]
-                row = Adw.ActionRow(
-                    title=_variant_label(install.variant),
-                    subtitle=_short_path(install.data_path),
-                )
-                row.add_prefix(Gtk.Image.new_from_icon_name("com.usebottles.bottles"))
-                group.add(row)
-            else:
-                group = Adw.PreferencesGroup(
-                    title="Select Bottles Installation",
-                    description="Both a Flatpak and a native installation of Bottles were found.",
-                )
-                radio_group: Gtk.CheckButton | None = None
-                for install in self._installs:
-                    row = Adw.ActionRow(
-                        title=_variant_label(install.variant),
-                        subtitle=_short_path(install.data_path),
-                    )
-                    radio = Gtk.CheckButton()
-                    radio.set_valign(Gtk.Align.CENTER)
-                    if radio_group is None:
-                        radio_group = radio
-                        radio.set_active(True)
-                    else:
-                        radio.set_group(radio_group)
-                    radio.connect("toggled", self._on_radio_toggled, install)
-                    row.add_prefix(radio)
-                    row.set_activatable_widget(radio)
-                    group.add(row)
-            page.add(group)
-
         return scroll
 
     def _on_runner_change_clicked(self, _btn) -> None:
@@ -2120,10 +1853,6 @@ class InstallProgressDialog(Adw.Dialog):
             if f:
                 self._linux_install_path = f.get_path()
                 self._linux_path_row.set_subtitle(self._linux_install_path)
-
-    def _on_radio_toggled(self, btn: Gtk.CheckButton, install) -> None:
-        if btn.get_active():
-            self._selected_install = install
 
     def _on_proceed_clicked(self, _btn) -> None:
         self._stack.set_visible_child_name("progress")
@@ -2203,10 +1932,12 @@ class InstallProgressDialog(Adw.Dialog):
 
                 # ── App install phase (includes base download if needed) ───
                 _set_phase("Downloading & extracting\u2026")
-                bottle_name = install_app(
+                effective_runner = self._runner_to_install or (
+                    self._installed_runners[0] if self._installed_runners else ""
+                )
+                prefix_dir = install_app(
                     self._entry,
                     self._archive_uri,
-                    self._selected_install,
                     base_entry=self._base_entry,
                     base_archive_uri=self._base_archive_uri,
                     download_cb=_dl_progress,
@@ -2216,7 +1947,7 @@ class InstallProgressDialog(Adw.Dialog):
                     cancel_event=self._cancel_event,
                     token=self._token,
                 )
-                GLib.idle_add(self._on_done, bottle_name, "")
+                GLib.idle_add(self._on_done, prefix_dir, "", effective_runner)
             except InstallCancelled:
                 GLib.idle_add(self._on_cancelled)
             except Exception as exc:  # noqa: BLE001
@@ -2286,9 +2017,9 @@ class InstallProgressDialog(Adw.Dialog):
         self._progress_bar.pulse()
         return True  # keep calling
 
-    def _on_done(self, bottle_name: str, install_path: str = "") -> None:
+    def _on_done(self, prefix_dir: str, install_path: str = "", runner: str = "") -> None:
         self.close()
-        self._on_success(bottle_name, install_path)
+        self._on_success(prefix_dir, install_path, runner)
 
     def _on_cancelled(self) -> None:
         self.close()
@@ -2307,20 +2038,20 @@ class InstallProgressDialog(Adw.Dialog):
 
 
 class RemoveDialog(Adw.AlertDialog):
-    """Confirmation dialog shown before removing an installed bottle."""
+    """Confirmation dialog shown before removing an installed app."""
 
     def __init__(
         self,
         *,
         entry: AppEntry,
-        bottle_path,          # pathlib.Path | None
+        prefix_path,          # pathlib.Path | None
         on_confirm: Callable,
     ) -> None:
-        path_str = _short_path(bottle_path) if bottle_path else "unknown location"
+        path_str = _short_path(prefix_path) if prefix_path else "unknown location"
         super().__init__(
             heading=f"Remove {entry.name}?",
             body=(
-                f"The bottle at {path_str} will be permanently deleted. "
+                f"The directory at {path_str} will be permanently deleted. "
                 "Any data stored inside the prefix — saved games, configuration "
                 "files, and registry changes — will be lost."
             ),

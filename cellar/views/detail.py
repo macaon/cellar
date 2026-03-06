@@ -152,6 +152,7 @@ class DetailView(Gtk.Box):
 
         # ── Header bar ────────────────────────────────────────────────────
         header = Adw.HeaderBar()
+        header.set_title_widget(Gtk.Label())  # no centred title — mimics GNOME Software
 
         if self._is_writable and self._on_edit:
             edit_btn = Gtk.Button(

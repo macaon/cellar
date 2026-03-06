@@ -12,7 +12,7 @@ every DB open :func:`_open_db` reads the version and runs any pending
 migrations in order, then stamps the new version.  A fresh install creates
 the current schema directly (no migration required).
 
-Schema v1 (current)
+Schema v2 (current)
 -------------------
 ::
 
@@ -25,6 +25,7 @@ Schema v1 (current)
         prefix_dir      TEXT NOT NULL,
         platform        TEXT NOT NULL DEFAULT 'windows',
         version         TEXT,
+        archive_crc32   TEXT,
         runner          TEXT,
         runner_override TEXT,
         steam_appid     INTEGER,
@@ -52,7 +53,7 @@ from cellar.backend.config import data_dir
 
 log = logging.getLogger(__name__)
 
-_CURRENT_VERSION = 1
+_CURRENT_VERSION = 2
 
 
 # ---------------------------------------------------------------------------
@@ -113,6 +114,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
     # Run any missing migrations in order.
     if current < 1:
         _migrate_v0_to_v1(conn)
+    if current < 2:
+        _migrate_v1_to_v2(conn)
 
 
 def _create_schema_v1(conn: sqlite3.Connection) -> None:
@@ -127,6 +130,7 @@ def _create_schema_v1(conn: sqlite3.Connection) -> None:
             prefix_dir      TEXT NOT NULL,
             platform        TEXT NOT NULL DEFAULT 'windows',
             version         TEXT,
+            archive_crc32   TEXT,
             runner          TEXT,
             runner_override TEXT,
             steam_appid     INTEGER,
@@ -210,6 +214,23 @@ def _migrate_v0_to_v1(conn: sqlite3.Connection) -> None:
         raise
 
 
+def _migrate_v1_to_v2(conn: sqlite3.Connection) -> None:
+    """Add ``archive_crc32`` column to the ``installed`` table."""
+    log.info("Migrating cellar.db from v1 to v2")
+    try:
+        with conn:
+            conn.execute(
+                "ALTER TABLE installed ADD COLUMN archive_crc32 TEXT"
+            )
+            conn.execute(
+                "INSERT OR REPLACE INTO schema_version (version) VALUES (?)",
+                (2,),
+            )
+    except Exception:
+        log.exception("v1→v2 migration failed; database left unchanged")
+        raise
+
+
 # ---------------------------------------------------------------------------
 # Public API — installed apps
 # ---------------------------------------------------------------------------
@@ -223,6 +244,7 @@ def mark_installed(
     install_path: str = "",
     runner: str = "",
     steam_appid: int | None = None,
+    archive_crc32: str = "",
 ) -> None:
     """Record (or update) an installed app.
 
@@ -238,7 +260,7 @@ def mark_installed(
         equals *app_id*; for Linux native apps it is the directory created by
         the installer (potentially collision-suffixed).
     version:
-        Installed catalogue version string.
+        Installed catalogue version string (for display only).
     repo_source:
         URI of the source repo.
     platform:
@@ -251,27 +273,32 @@ def mark_installed(
         ``"GE-Proton10-32"``).  Empty if unknown.
     steam_appid:
         umu Steam App ID integer, or ``None`` (GAMEID=0 fallback).
+    archive_crc32:
+        CRC32 checksum of the installed archive.  Used to detect content
+        changes on catalogue refresh (update available when it differs from
+        the catalogue entry's ``archive_crc32``).
     """
     now = datetime.now(timezone.utc).isoformat()
     with _open_db() as conn:
         conn.execute(
             """
             INSERT INTO installed
-                (id, prefix_dir, platform, version, runner, steam_appid,
-                 install_path, repo_source, installed_at, last_updated)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (id, prefix_dir, platform, version, archive_crc32, runner,
+                 steam_appid, install_path, repo_source, installed_at, last_updated)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 prefix_dir    = excluded.prefix_dir,
                 platform      = excluded.platform,
                 version       = excluded.version,
+                archive_crc32 = excluded.archive_crc32,
                 runner        = excluded.runner,
                 steam_appid   = excluded.steam_appid,
                 install_path  = excluded.install_path,
                 repo_source   = excluded.repo_source,
                 last_updated  = excluded.last_updated
             """,
-            (app_id, prefix_dir, platform, version, runner or None,
-             steam_appid, install_path or None, repo_source,
+            (app_id, prefix_dir, platform, version, archive_crc32 or None,
+             runner or None, steam_appid, install_path or None, repo_source,
              now, now),
         )
 

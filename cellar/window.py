@@ -17,6 +17,22 @@ from cellar.utils.paths import ui_file
 log = logging.getLogger(__name__)
 
 
+def _has_update(installed_rec: dict, entry) -> bool:
+    """Return True if the catalogue entry differs from what is installed.
+
+    Prefers CRC32 comparison (content-addressed, triggers on any archive
+    change without requiring a manual version bump).  Falls back to version
+    string comparison when either side lacks a CRC — covers records written
+    before schema v2 and catalogue entries that pre-date CRC tracking.
+    """
+    cat_crc = entry.archive_crc32 or ""
+    stored_crc = installed_rec.get("archive_crc32") or ""
+    if cat_crc and stored_crc:
+        return cat_crc != stored_crc
+    # Fallback: version string comparison
+    return bool(entry.version) and installed_rec.get("version") != entry.version
+
+
 @Gtk.Template(filename=ui_file("window.ui"))
 class CellarWindow(Adw.ApplicationWindow):
     __gtype_name__ = "CellarWindow"
@@ -234,7 +250,7 @@ class CellarWindow(Adw.ApplicationWindow):
                         database.remove_installed(e.id)
                         continue
                     installed_entries.append(e)
-                    if rec.get("version") != e.version and bool(e.archive):
+                    if bool(e.archive) and _has_update(rec, e):
                         update_entries.append(e)
 
                 installed_ids = {e.id for e in installed_entries}
@@ -413,6 +429,7 @@ class CellarWindow(Adw.ApplicationWindow):
                 install_path=install_path,
                 runner=runner,
                 steam_appid=entry.steam_appid,
+                archive_crc32=entry.archive_crc32,
             )
             self._show_toast(f"{entry.name} installed successfully")
             self._load_catalogue()
@@ -428,6 +445,7 @@ class CellarWindow(Adw.ApplicationWindow):
                 entry.id, existing_rec.get("prefix_dir", entry.id), entry.version, repo_uri,
                 runner=existing_rec.get("runner", ""),
                 steam_appid=entry.steam_appid,
+                archive_crc32=entry.archive_crc32,
             )
             self._show_toast(f"{entry.name} updated successfully")
             self._load_catalogue()
@@ -530,7 +548,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="application-x-executable",
-            version="0.40.4",
+            version="0.40.5",
             comments="A GNOME storefront for Bottles-managed Windows apps.",
             license_type=Gtk.License.GPL_3_0,
         )

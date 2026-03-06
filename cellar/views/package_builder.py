@@ -14,6 +14,7 @@ Maintainers use this view to:
 
 from __future__ import annotations
 
+import html
 import logging
 import os
 import subprocess
@@ -1230,11 +1231,11 @@ class _DependencyPickerDialog(Adw.Dialog):
         self._list_box.set_margin_end(12)
 
         for category, verbs in _VERB_CATALOGUE:
-            exp_row = Adw.ExpanderRow(title=category)
+            exp_row = Adw.ExpanderRow(title=html.escape(category))
             verb_rows: list[Adw.ActionRow] = []
 
             for verb, description in verbs:
-                verb_row = Adw.ActionRow(title=verb, subtitle=description)
+                verb_row = Adw.ActionRow(title=verb, subtitle=html.escape(description))
                 verb_row._verb = verb  # type: ignore[attr-defined]
                 verb_row._search_key = f"{verb} {description} {category}".lower()  # type: ignore[attr-defined]
                 suffix = self._make_suffix(verb)

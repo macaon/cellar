@@ -543,7 +543,8 @@ class EditAppDialog(Adw.Dialog):
             action=Gtk.FileChooserAction.OPEN,
         )
         f = Gtk.FileFilter()
-        f.set_name("Bottles backup (*.tar.gz)")
+        f.set_name("App archive (*.tar.zst, *.tar.gz)")
+        f.add_pattern("*.tar.zst")
         f.add_pattern("*.tar.gz")
         chooser.add_filter(f)
         chooser.connect("response", self._on_archive_chosen, chooser)
@@ -554,22 +555,6 @@ class EditAppDialog(Adw.Dialog):
             return
         self._new_archive_src = chooser.get_file().get_path()
         self._archive_row.set_subtitle(GLib.markup_escape_text(Path(self._new_archive_src).name))
-        # Refresh Wine component rows from the new archive in a background thread
-        threading.Thread(target=self._read_new_archive_yml, daemon=True).start()
-
-    def _read_new_archive_yml(self) -> None:
-        from cellar.backend.packager import read_bottle_yml
-
-        yml = read_bottle_yml(self._new_archive_src)
-        runner = yml.get("Runner", "")
-        dxvk = yml.get("DXVK", "")
-        vkd3d = yml.get("VKD3D", "")
-        if runner:
-            GLib.idle_add(self._runner_row.set_subtitle, runner)
-        if dxvk:
-            GLib.idle_add(self._dxvk_row.set_subtitle, dxvk)
-        if vkd3d:
-            GLib.idle_add(self._vkd3d_row.set_subtitle, vkd3d)
 
     # ── Image pickers ─────────────────────────────────────────────────────
 

@@ -1,7 +1,6 @@
 """Packaging helpers for writing apps into a local Cellar repo.
 
 This module handles:
-- Reading ``bottle.yml`` from a Bottles backup archive
 - Generating URL-safe app IDs from human names
 - Writing a complete archive + images + catalogue entry into a repo
 """
@@ -12,7 +11,6 @@ import json
 import os
 import re
 import shutil
-import subprocess
 import sys
 import tarfile
 import time
@@ -80,131 +78,6 @@ CATEGORY_ICON_OPTIONS: list[str] = [
 
 
 # ---------------------------------------------------------------------------
-# bottle.yml extraction
-# ---------------------------------------------------------------------------
-
-def read_bottle_yml(archive_path: str) -> dict:
-    """Extract and parse ``bottle.yml`` from a Bottles ``.tar.gz`` backup.
-
-    Tries the system ``tar`` binary first with ``--occurrence=1`` so it stops
-    reading immediately after extracting the first match.  Without that flag
-    tar scans the entire archive for further matches, which blocks
-    ``subprocess.run`` for 20+ seconds on a 2 GB archive.  Falls back to
-    Python ``tarfile`` when ``tar`` is not available (e.g. inside a
-    restricted Flatpak sandbox).
-
-    Returns an empty dict if the file is not found or cannot be parsed.
-    """
-    import yaml
-
-    # Fast path: system tar with --occurrence=1 stops after the first match.
-    # Without --occurrence, tar reads the entire archive looking for further
-    # matches even after printing the file — subprocess.run blocks until exit.
-    if shutil.which("tar"):
-        try:
-            result = subprocess.run(
-                ["tar", "-xOf", str(archive_path),
-                 "--wildcards", "--occurrence=1", "*/bottle.yml"],
-                capture_output=True,
-                timeout=120,
-            )
-            if result.returncode == 0 and result.stdout:
-                data = yaml.safe_load(result.stdout)
-                return data if isinstance(data, dict) else {}
-        except Exception:
-            pass  # fall through to Python path
-
-    # Python fallback (no system tar / wildcard support).
-    try:
-        with open(archive_path, "rb") as raw:
-            with tarfile.open(fileobj=raw, mode="r:gz") as tf:
-                for member in tf:
-                    if member.name == "bottle.yml" or member.name.endswith("/bottle.yml"):
-                        f = tf.extractfile(member)
-                        if f:
-                            data = yaml.safe_load(f.read())
-                            return data if isinstance(data, dict) else {}
-    except (tarfile.TarError, OSError, yaml.YAMLError):
-        pass
-    return {}
-
-
-# ---------------------------------------------------------------------------
-# Archive member listing (for Linux app entry-point picker)
-# ---------------------------------------------------------------------------
-
-def list_archive_members(archive_path: str) -> list[tuple[str, bool]]:
-    """Return ``(path, is_executable)`` for every regular file in the archive.
-
-    *path* is the member path exactly as stored in the archive (including any
-    top-level directory prefix).  *is_executable* is ``True`` when the Unix
-    permission bits in the tar header include any execute bit.
-
-    Supports ``.tar.gz``, ``.tar.bz2``, ``.tar.xz``, and ``.tar.zst``
-    (zstandard package required for the last format).  Returns an empty list
-    on any error.
-
-    Uses the system ``tar -tvf`` fast path when available so large archives
-    are read without decompressing the whole stream in Python.
-    """
-    # Fast path: system tar is much faster for large archives because it is
-    # implemented in C and avoids Python's per-member overhead.
-    if shutil.which("tar"):
-        try:
-            result = subprocess.run(
-                ["tar", "--list", "--verbose", "--file", archive_path],
-                capture_output=True,
-                text=True,
-                timeout=120,
-            )
-            if result.returncode == 0:
-                members: list[tuple[str, bool]] = []
-                for line in result.stdout.splitlines():
-                    # Verbose line: "-rwxr-xr-x user/group size date time name"
-                    parts = line.split(None, 5)
-                    if len(parts) < 6:
-                        continue
-                    perms = parts[0]
-                    # Only include regular files (perms[0] == '-')
-                    if not perms or perms[0] != "-":
-                        continue
-                    name = parts[5]
-                    # Strip trailing " -> target" for symlinks that sneak through
-                    name = name.split(" -> ")[0]
-                    is_exec = len(perms) > 3 and perms[3] == "x"
-                    members.append((name, is_exec))
-                return members
-        except Exception:
-            pass  # fall through to Python path
-
-    # Python tarfile fallback.
-    try:
-        if archive_path.endswith(".tar.zst"):
-            try:
-                import zstandard as zstd  # noqa: PLC0415
-                dctx = zstd.ZstdDecompressor()
-                with open(archive_path, "rb") as raw:
-                    with dctx.stream_reader(raw) as decompressed:
-                        with tarfile.open(fileobj=decompressed, mode="r|") as tf:
-                            return [
-                                (m.name, bool(m.mode & 0o111))
-                                for m in tf.getmembers()
-                                if m.isfile()
-                            ]
-            except ImportError:
-                return []
-        else:
-            with tarfile.open(archive_path, "r:*") as tf:
-                return [
-                    (m.name, bool(m.mode & 0o111))
-                    for m in tf.getmembers()
-                    if m.isfile()
-                ]
-    except tarfile.TarError:
-        return []
-
-
-# ---------------------------------------------------------------------------
 # Directory compression
 # ---------------------------------------------------------------------------
 
@@ -220,78 +93,6 @@ class _CRCWriter:
     def write(self, data: bytes) -> int:
         self.crc = zlib.crc32(data, self.crc)
         return self._fp.write(data)
-
-
-def compress_directory_zst(
-    src_dir: Path,
-    dest_path: Path,
-    *,
-    cancel_event=None,
-    progress_cb: Callable[[float], None] | None = None,
-    stats_cb: Callable[[int, int, float], None] | None = None,
-) -> tuple[int, str]:
-    """Compress *src_dir* into a ``.tar.zst`` archive at *dest_path*.
-
-    Uses zstandard level 3 (fast compression, good ratio).  Preserves Unix
-    permissions and symlinks via ``tarfile``.
-
-    Returns ``(size_bytes, crc32_hex)`` where *crc32_hex* is the CRC32 of the
-    compressed archive as an 8-character lowercase hex string.
-    Raises ``CancelledError`` if *cancel_event* is set during compression.
-
-    *stats_cb*, when provided, is called as ``stats_cb(done_bytes, total_bytes,
-    speed_bps)`` each time a file is added, where values are in uncompressed
-    source bytes.
-    """
-    import zstandard as zstd  # noqa: PLC0415
-
-    dest_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # Single os.walk to gather both file count and total uncompressed size.
-    total_files = 0
-    total_bytes = 0
-    for dirpath, _, filenames in os.walk(src_dir):
-        for fn in filenames:
-            total_files += 1
-            try:
-                total_bytes += os.path.getsize(os.path.join(dirpath, fn))
-            except OSError:
-                pass
-
-    done = [0]
-    done_bytes = [0]
-    start = time.monotonic()
-
-    def _filter(ti: tarfile.TarInfo) -> tarfile.TarInfo:
-        if cancel_event and cancel_event.is_set():
-            raise CancelledError("Compression cancelled by user")
-        if ti.isfile():
-            done[0] += 1
-            done_bytes[0] += ti.size
-            if progress_cb and total_files:
-                progress_cb(done[0] / total_files)
-            if stats_cb:
-                elapsed = time.monotonic() - start
-                speed = done_bytes[0] / elapsed if elapsed > 0.1 else 0.0
-                stats_cb(done_bytes[0], total_bytes, speed)
-        return ti
-
-    cctx = zstd.ZstdCompressor(level=3)
-    try:
-        with dest_path.open("wb") as out_f:
-            crc_writer = _CRCWriter(out_f)
-            with cctx.stream_writer(crc_writer, closefd=False) as compressor:
-                with tarfile.open(fileobj=compressor, mode="w|") as tf:
-                    tf.add(str(src_dir), arcname=src_dir.name, recursive=True, filter=_filter)
-            crc32_hex = format(crc_writer.crc & 0xFFFFFFFF, "08x")
-    except CancelledError:
-        dest_path.unlink(missing_ok=True)
-        raise
-    except (tarfile.TarError, OSError) as exc:
-        dest_path.unlink(missing_ok=True)
-        raise RuntimeError(f"Failed to compress directory: {exc}") from exc
-
-    return dest_path.stat().st_size, crc32_hex
 
 
 def compress_prefix_zst(

@@ -47,13 +47,7 @@
                         <property name="tooltip-text" translatable="yes">Refresh catalogue</property>
                       </object>
                     </child>
-                    <child type="end">
-                      <object class="GtkButton" id="add_button">
-                        <property name="icon-name">list-add-symbolic</property>
-                        <property name="tooltip-text" translatable="yes">Add app to catalogue</property>
-                        <property name="visible">false</property>
-                      </object>
-                    </child>
+
                   </object>
                 </child>
                 <child type="top">

@@ -1,11 +1,10 @@
 """Local base-image store for delta-package installs.
 
 Base images live at ``~/.local/share/cellar/bases/<runner>/`` as extracted
-bottle directories (not archives).  They are managed entirely by Cellar and
-are never visible to Bottles.
+prefix directories (not archives).  They are managed entirely by Cellar.
 
 When a delta app is installed the installer calls ``base_path(runner)`` to
-get the ``--link-dest`` reference directory, which seeds the new bottle with
+get the ``--link-dest`` reference directory, which seeds the new prefix with
 hardlinks before the delta archive is overlaid on top.
 """
 
@@ -54,9 +53,9 @@ def install_base(
 ) -> None:
     """Extract *archive_path* and store it as the base for *runner*.
 
-    The archive must be a standard Bottles backup (``.tar.gz``) whose
-    top-level directory is the bottle root.  Any previously installed base
-    for *runner* is atomically replaced.
+    The archive must be a Cellar prefix archive (``.tar.zst``) with a
+    single top-level directory.  Any previously installed base for *runner*
+    is atomically replaced.
 
     *progress_cb* receives a 0 → 1 fraction during extraction.
     *repo_source* is the URI or path of the repo the archive came from,

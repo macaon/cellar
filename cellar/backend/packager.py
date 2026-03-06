@@ -394,7 +394,7 @@ def compress_prefix_delta_zst(
     *stats_cb* is called as ``stats_cb(done_files, total_files, speed_bps)``
     during the pack phase.
 
-    Returns ``(delta_uncompressed_bytes, crc32_hex)``.
+    Returns ``(compressed_archive_bytes, crc32_hex)``.
     """
     import hashlib
     import io
@@ -500,7 +500,7 @@ def compress_prefix_delta_zst(
         dest_path.unlink(missing_ok=True)
         raise RuntimeError(f"Failed to create delta archive: {exc}") from exc
 
-    return delta_uncompressed, crc32_hex
+    return dest_path.stat().st_size, crc32_hex
 
 
 # ---------------------------------------------------------------------------

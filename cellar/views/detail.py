@@ -2218,7 +2218,7 @@ def _base_status_subtitle(installed: bool) -> str:
 
 def _fmt_bytes(n: int) -> str:
     for unit in ("B", "KB", "MB", "GB", "TB"):
-        if n < 1024:
+        if n < 1000:
             return f"{n:.1f} {unit}" if unit != "B" else f"{n} B"
-        n /= 1024
+        n /= 1000
     return f"{n:.1f} PB"

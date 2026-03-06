@@ -1781,7 +1781,7 @@ class _RunnerPickerDialog(Adw.Dialog):
             already = _runners.is_installed(rel["tag"])
 
             row = Adw.ActionRow(title=rel["name"])
-            size_mb = rel["size"] / (1024 * 1024) if rel.get("size") else 0
+            size_mb = rel["size"] / 1_000_000 if rel.get("size") else 0
             subtitle = f"{size_mb:.0f} MB" if size_mb else ""
             if already:
                 subtitle = ("  ·  " if subtitle else "") + "Installed"
@@ -1923,7 +1923,7 @@ class _BasePickerDialog(Adw.Dialog):
         for base_entry, repo in results:
             already = is_base_installed(base_entry.runner)
             row = Adw.ActionRow(title=base_entry.runner)
-            size_mb = base_entry.archive_size / (1024 * 1024) if base_entry.archive_size else 0
+            size_mb = base_entry.archive_size / 1_000_000 if base_entry.archive_size else 0
             subtitle = f"{size_mb:.0f} MB" if size_mb else ""
             repo_name = repo.name or repo.uri
             if subtitle:
@@ -2118,7 +2118,7 @@ class _ImportFromCatalogueDialog(Adw.Dialog):
     def _populate(self, results: list[tuple]) -> None:
         self._entries = results
         for item, repo, kind in results:
-            size_mb = (item.archive_size or 0) / (1024 * 1024)
+            size_mb = (item.archive_size or 0) / 1_000_000
             size_str = f"{size_mb:.0f} MB" if size_mb else ""
             repo_name = repo.name or repo.uri
             if kind == "base":

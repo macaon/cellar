@@ -21,6 +21,7 @@ import logging
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Callable
 
 log = logging.getLogger(__name__)
 
@@ -204,11 +205,16 @@ def run_winetricks(
     *,
     gameid: int = 0,
     timeout: int = 600,
+    line_cb: Callable[[str], None] | None = None,
 ) -> subprocess.CompletedProcess:
     """Run winetricks verbs inside *prefix_path* via umu-run.
 
     Winetricks is a positional argument to umu, not an ``EXE`` env var:
     ``umu-run winetricks <verb1> <verb2> …``
+
+    If *line_cb* is provided, stdout and stderr are merged and each output
+    line is passed to *line_cb* as it arrives; otherwise output is inherited
+    from the parent process (printed to the terminal).
     """
     import os
     base_env: dict[str, str] = {
@@ -224,7 +230,29 @@ def run_winetricks(
         base_env["WINEPREFIX"], base_env["PROTONPATH"], base_env["GAMEID"],
         " ".join(verbs),
     )
-    result = subprocess.run(cmd, env=env, timeout=timeout, capture_output=False)
+
+    if line_cb is None:
+        result = subprocess.run(cmd, env=env, timeout=timeout, capture_output=False)
+    else:
+        with subprocess.Popen(
+            cmd,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        ) as proc:
+            assert proc.stdout is not None
+            for raw in proc.stdout:
+                # curl uses \r for in-place updates; treat each \r-segment as
+                # a separate line so callers see clean final-state lines.
+                for part in raw.split("\r"):
+                    line = part.rstrip("\n")
+                    if line:
+                        line_cb(line)
+            proc.wait(timeout=timeout)
+        result = subprocess.CompletedProcess(cmd, proc.returncode)
+
     log.info("run_winetricks exited with code %d", result.returncode)
     return result
 

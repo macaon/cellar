@@ -39,6 +39,44 @@ from cellar.backend.project import (
 
 log = logging.getLogger(__name__)
 
+# Curated list of common winetricks verbs shown in the dependency picker.
+# Tuple: (category, verb, description)
+_VERB_CATALOGUE: list[tuple[str, str, str]] = [
+    ("Visual C++ Runtimes", "vcrun2005", "Visual C++ 2005 Redistributable"),
+    ("Visual C++ Runtimes", "vcrun2008", "Visual C++ 2008 Redistributable"),
+    ("Visual C++ Runtimes", "vcrun2010", "Visual C++ 2010 Redistributable"),
+    ("Visual C++ Runtimes", "vcrun2012", "Visual C++ 2012 Redistributable"),
+    ("Visual C++ Runtimes", "vcrun2013", "Visual C++ 2013 Redistributable"),
+    ("Visual C++ Runtimes", "vcrun2015", "Visual C++ 2015–2022 Redistributable"),
+    ("Visual C++ Runtimes", "vcrun2017", "Visual C++ 2017 Redistributable"),
+    ("Visual C++ Runtimes", "vcrun2019", "Visual C++ 2019 Redistributable"),
+    ("Visual C++ Runtimes", "vcrun2022", "Visual C++ 2022 Redistributable"),
+    (".NET Framework", "dotnet40", ".NET Framework 4.0"),
+    (".NET Framework", "dotnet48", ".NET Framework 4.8"),
+    (".NET Framework", "dotnet6", ".NET 6.0 desktop runtime"),
+    (".NET Framework", "dotnet7", ".NET 7.0 desktop runtime"),
+    (".NET Framework", "dotnet8", ".NET 8.0 desktop runtime"),
+    ("DirectX", "d3dx9", "DirectX 9 runtime libraries"),
+    ("DirectX", "d3dcompiler_43", "D3DCompiler 43"),
+    ("DirectX", "d3dcompiler_47", "D3DCompiler 47"),
+    ("DirectX", "xact", "Microsoft XACT Engine"),
+    ("Media", "xna40", "Microsoft XNA Framework 4.0"),
+    ("Media", "wmp11", "Windows Media Player 11"),
+    ("Media", "quartz", "DirectShow (quartz.dll)"),
+    ("Fonts", "corefonts", "Microsoft Core Fonts (Arial, Times New Roman…)"),
+    ("Fonts", "allfonts", "All winetricks fonts"),
+    ("Fonts", "tahoma", "MS Tahoma"),
+    ("Fonts", "liberation", "Liberation fonts (free Arial/Times/Courier)"),
+    ("System", "mfc42", "MFC 4.2 (mfc42.dll)"),
+    ("System", "mfc100", "MFC 10.0 (mfc100.dll)"),
+    ("System", "mfc110", "MFC 11.0 (mfc110.dll)"),
+    ("System", "mfc120", "MFC 12.0 (mfc120.dll)"),
+    ("System", "mfc140", "MFC 14.0 (mfc140.dll)"),
+    ("System", "physx", "NVIDIA PhysX"),
+    ("System", "msxml6", "Microsoft XML 6.0 SP1"),
+    ("System", "gdiplus", "Microsoft GDI+"),
+]
+
 
 class PackageBuilderView(Gtk.Box):
     """Two-panel package builder: project list on the left, detail on the right."""
@@ -255,8 +293,9 @@ class PackageBuilderView(Gtk.Box):
             self._runner_row.set_selected(runners.index(project.runner))
         self._runner_row.connect("notify::selected", self._on_runner_changed)
 
-        dl_btn = Gtk.Button(label="Download…")
+        dl_btn = Gtk.Button(icon_name="list-add-symbolic")
         dl_btn.set_valign(Gtk.Align.CENTER)
+        dl_btn.set_tooltip_text("Download runner…")
         dl_btn.add_css_class("flat")
         dl_btn.connect("clicked", self._on_download_runner_clicked)
         self._runner_row.add_suffix(dl_btn)
@@ -298,7 +337,8 @@ class PackageBuilderView(Gtk.Box):
             row.add_suffix(rm_btn)
             dep_group.add(row)
 
-        add_dep_btn = Gtk.Button(label="Add dependency…")
+        add_dep_btn = Gtk.Button(icon_name="list-add-symbolic")
+        add_dep_btn.set_tooltip_text("Add dependency…")
         add_dep_btn.add_css_class("flat")
         add_dep_btn.connect("clicked", self._on_add_dep_clicked)
         dep_group.set_header_suffix(add_dep_btn)
@@ -498,46 +538,14 @@ class PackageBuilderView(Gtk.Box):
     def _on_add_dep_clicked(self, _btn) -> None:
         if self._project is None:
             return
-        dialog = _AddDepDialog(on_add=self._on_dep_chosen)
+        if not self._project.runner:
+            self._show_toast("Select a runner before adding dependencies.")
+            return
+        dialog = _DependencyPickerDialog(
+            project=self._project,
+            on_dep_changed=lambda: self._show_project(self._project),
+        )
         dialog.present(self)
-
-    def _on_dep_chosen(self, verbs: str) -> None:
-        if self._project is None or not verbs.strip():
-            return
-        project = self._project
-        verb_list = verbs.strip().split()
-        if not project.runner:
-            self._show_toast("Select a runner first.")
-            return
-
-        progress = _ProgressDialog(label=f"Installing {verbs.strip()}…")
-        progress.present(self)
-
-        def _bg():
-            try:
-                from cellar.backend.umu import run_winetricks
-                result = run_winetricks(project.prefix_path, project.runner, verb_list)
-                ok = result.returncode == 0
-            except Exception as exc:
-                log.error("run_winetricks failed: %s", exc)
-                ok = False
-            GLib.idle_add(_finish, ok)
-
-        def _finish(ok: bool) -> None:
-            progress.force_close()
-            self._on_dep_done(project, verbs.strip(), ok)
-            if not ok:
-                self._show_toast("Dependency install failed. Check logs.")
-
-        threading.Thread(target=_bg, daemon=True).start()
-
-    def _on_dep_done(self, project: Project, verbs: str, ok: bool) -> None:
-        if ok:
-            for verb in verbs.split():
-                if verb not in project.deps_installed:
-                    project.deps_installed.append(verb)
-            save_project(project)
-            self._show_project(project)
 
     def _on_remove_dep_clicked(self, _btn, verb: str) -> None:
         if self._project is None:
@@ -940,8 +948,9 @@ class _CreateProjectDialog(Adw.Dialog):
             self._runner_row.set_model(runner_model)
             self._runner_row.connect("notify::selected", self._validate)
 
-            dl_btn = Gtk.Button(label="Download…")
+            dl_btn = Gtk.Button(icon_name="list-add-symbolic")
             dl_btn.set_valign(Gtk.Align.CENTER)
+            dl_btn.set_tooltip_text("Download runner…")
             dl_btn.add_css_class("flat")
             dl_btn.connect("clicked", self._on_download_runner_clicked)
             self._runner_row.add_suffix(dl_btn)
@@ -1129,51 +1138,246 @@ class _RunnerPickerDialog(Adw.Dialog):
         self._on_installed(runner_name)
 
 
-class _AddDepDialog(Adw.Dialog):
-    """Simple dialog to enter winetricks verbs."""
+class _DependencyPickerDialog(Adw.Dialog):
+    """Browse and install winetricks dependencies.
 
-    def __init__(self, on_add: Callable[[str], None]) -> None:
-        super().__init__(title="Add Dependency", content_width=380)
-        self._on_add = on_add
+    Presents a searchable list of curated verbs — each with a per-row
+    install (download icon) or remove (trash icon) button.  A custom-verb
+    entry at the bottom allows arbitrary verbs not in the catalogue.
+    Installing runs winetricks in a background thread; a per-row spinner
+    replaces the install button while the verb is being installed.
+    """
+
+    def __init__(self, project: Project, on_dep_changed: Callable) -> None:
+        super().__init__(title="Dependencies", content_width=500)
+        self._project = project
+        self._on_dep_changed = on_dep_changed
+        self._verb_rows: list[Adw.ActionRow] = []
 
         toolbar = Adw.ToolbarView()
+
+        # Header with search entry as title widget
         header = Adw.HeaderBar()
         header.set_show_end_title_buttons(False)
 
-        cancel_btn = Gtk.Button(label="Cancel")
-        cancel_btn.connect("clicked", lambda _: self.close())
-        header.pack_start(cancel_btn)
+        close_btn = Gtk.Button(label="Close")
+        close_btn.connect("clicked", lambda _: self.close())
+        header.pack_start(close_btn)
 
-        self._add_btn = Gtk.Button(label="Install")
-        self._add_btn.add_css_class("suggested-action")
-        self._add_btn.set_sensitive(False)
-        self._add_btn.connect("clicked", self._on_add_clicked)
-        header.pack_end(self._add_btn)
-
+        self._search_entry = Gtk.SearchEntry()
+        self._search_entry.set_placeholder_text("Search…")
+        self._search_entry.set_hexpand(True)
+        self._search_entry.connect(
+            "search-changed",
+            lambda _: self._list_box.invalidate_filter(),
+        )
+        header.set_title_widget(self._search_entry)
         toolbar.add_top_bar(header)
 
-        page = Adw.PreferencesPage()
-        group = Adw.PreferencesGroup()
-        group.set_description(
-            "Enter one or more winetricks verbs separated by spaces, "
-            "e.g. dotnet48 vcrun2022 corefonts"
+        # Main scroll area
+        outer_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+
+        scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
+        scroll.set_min_content_height(380)
+        scroll.set_vexpand(True)
+
+        self._list_box = Gtk.ListBox()
+        self._list_box.set_selection_mode(Gtk.SelectionMode.NONE)
+        self._list_box.add_css_class("boxed-list")
+        self._list_box.set_margin_top(12)
+        self._list_box.set_margin_bottom(0)
+        self._list_box.set_margin_start(12)
+        self._list_box.set_margin_end(12)
+        self._list_box.set_filter_func(self._filter_func)
+
+        for category, verb, description in _VERB_CATALOGUE:
+            row = Adw.ActionRow(
+                title=verb,
+                subtitle=f"{category}  ·  {description}",
+            )
+            row._verb = verb  # type: ignore[attr-defined]
+            row._search_key = f"{verb} {category} {description}".lower()  # type: ignore[attr-defined]
+            suffix = self._make_suffix(verb)
+            row._suffix_stack = suffix  # type: ignore[attr-defined]
+            row.add_suffix(suffix)
+            self._list_box.append(row)
+            self._verb_rows.append(row)
+
+        scroll.set_child(self._list_box)
+        outer_box.append(scroll)
+
+        # ── Custom verb footer ──────────────────────────────────────────────
+        sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        sep.set_margin_top(12)
+        outer_box.append(sep)
+
+        custom_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        custom_box.set_margin_top(0)
+        custom_box.set_margin_bottom(12)
+        custom_box.set_margin_start(12)
+        custom_box.set_margin_end(12)
+
+        custom_list = Gtk.ListBox()
+        custom_list.set_selection_mode(Gtk.SelectionMode.NONE)
+        custom_list.add_css_class("boxed-list")
+
+        custom_row = Adw.ActionRow(
+            title="Custom verb",
+            subtitle="Install an arbitrary winetricks verb",
         )
-        self._verb_entry = Adw.EntryRow(title="Winetricks verbs")
-        self._verb_entry.connect("changed", self._on_verb_changed)
-        self._verb_entry.connect("entry-activated", lambda _: self._add_btn.emit("clicked"))
-        group.add(self._verb_entry)
-        page.add(group)
-        toolbar.set_content(page)
+        self._custom_entry = Gtk.Entry()
+        self._custom_entry.set_placeholder_text("e.g. dotnet48 vcrun2022")
+        self._custom_entry.set_valign(Gtk.Align.CENTER)
+        self._custom_entry.set_size_request(200, -1)
+        self._custom_entry.connect("activate", self._on_custom_install)
+
+        self._custom_install_btn = Gtk.Button(icon_name="folder-download-symbolic")
+        self._custom_install_btn.set_valign(Gtk.Align.CENTER)
+        self._custom_install_btn.set_tooltip_text("Install custom verb")
+        self._custom_install_btn.add_css_class("flat")
+        self._custom_install_btn.connect("clicked", self._on_custom_install)
+
+        custom_row.add_suffix(self._custom_entry)
+        custom_row.add_suffix(self._custom_install_btn)
+        custom_list.append(custom_row)
+        custom_box.append(custom_list)
+        outer_box.append(custom_box)
+
+        toolbar.set_content(outer_box)
         self.set_child(toolbar)
 
-    def _on_verb_changed(self, entry) -> None:
-        self._add_btn.set_sensitive(bool(entry.get_text().strip()))
+    # ── Suffix stack: idle / installing / installed ─────────────────────────
 
-    def _on_add_clicked(self, _btn) -> None:
-        verbs = self._verb_entry.get_text().strip()
-        if verbs:
-            self.close()
-            self._on_add(verbs)
+    def _make_suffix(self, verb: str) -> Gtk.Stack:
+        stack = Gtk.Stack()
+        stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+
+        # idle: download button
+        install_btn = Gtk.Button(icon_name="folder-download-symbolic")
+        install_btn.set_valign(Gtk.Align.CENTER)
+        install_btn.set_tooltip_text(f"Install {verb}")
+        install_btn.add_css_class("flat")
+        install_btn.connect("clicked", self._on_install_clicked, verb, stack)
+        stack.add_named(install_btn, "idle")
+
+        # installing: spinner
+        spinner = Gtk.Spinner(spinning=True)
+        spinner.set_valign(Gtk.Align.CENTER)
+        spinner.set_size_request(16, 16)
+        stack.add_named(spinner, "installing")
+
+        # installed: check icon + remove button
+        installed_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        installed_box.set_valign(Gtk.Align.CENTER)
+        check = Gtk.Image.new_from_icon_name("emblem-ok-symbolic")
+        check.add_css_class("success")
+        remove_btn = Gtk.Button(icon_name="edit-delete-symbolic")
+        remove_btn.set_valign(Gtk.Align.CENTER)
+        remove_btn.set_tooltip_text(f"Remove {verb} from tracking")
+        remove_btn.add_css_class("flat")
+        remove_btn.connect("clicked", self._on_remove_clicked, verb, stack)
+        installed_box.append(check)
+        installed_box.append(remove_btn)
+        stack.add_named(installed_box, "installed")
+
+        state = "installed" if verb in self._project.deps_installed else "idle"
+        stack.set_visible_child_name(state)
+        return stack
+
+    # ── Filter ──────────────────────────────────────────────────────────────
+
+    def _filter_func(self, row: Gtk.ListBoxRow) -> bool:
+        query = self._search_entry.get_text().lower().strip()
+        if not query:
+            return True
+        key = getattr(row, "_search_key", "")
+        return query in key
+
+    # ── Install handlers ────────────────────────────────────────────────────
+
+    def _on_install_clicked(self, _btn, verb: str, stack: Gtk.Stack) -> None:
+        self._install_verbs([verb], stack)
+
+    def _on_custom_install(self, _widget) -> None:
+        raw = self._custom_entry.get_text().strip()
+        if not raw:
+            return
+        verbs = raw.split()
+        self._custom_entry.set_text("")
+        self._custom_entry.set_sensitive(False)
+        self._custom_install_btn.set_sensitive(False)
+
+        def _bg():
+            from cellar.backend.umu import run_winetricks
+            try:
+                result = run_winetricks(
+                    self._project.prefix_path,
+                    self._project.runner,
+                    verbs,
+                )
+                ok = result.returncode == 0
+            except Exception as exc:
+                log.error("run_winetricks failed: %s", exc)
+                ok = False
+            GLib.idle_add(_finish, ok)
+
+        def _finish(ok: bool) -> None:
+            self._custom_entry.set_sensitive(True)
+            self._custom_install_btn.set_sensitive(True)
+            if ok:
+                for v in verbs:
+                    if v not in self._project.deps_installed:
+                        self._project.deps_installed.append(v)
+                    # update catalogue row if present
+                    for row in self._verb_rows:
+                        if row._verb == v:  # type: ignore[attr-defined]
+                            row._suffix_stack.set_visible_child_name("installed")  # type: ignore[attr-defined]
+                save_project(self._project)
+                self._on_dep_changed()
+            else:
+                log.warning("Custom winetricks install failed for: %s", verbs)
+
+        threading.Thread(target=_bg, daemon=True).start()
+
+    def _install_verbs(self, verbs: list[str], stack: Gtk.Stack) -> None:
+        stack.set_visible_child_name("installing")
+
+        def _bg():
+            from cellar.backend.umu import run_winetricks
+            try:
+                result = run_winetricks(
+                    self._project.prefix_path,
+                    self._project.runner,
+                    verbs,
+                )
+                ok = result.returncode == 0
+            except Exception as exc:
+                log.error("run_winetricks failed: %s", exc)
+                ok = False
+            GLib.idle_add(_finish, ok)
+
+        def _finish(ok: bool) -> None:
+            if ok:
+                for v in verbs:
+                    if v not in self._project.deps_installed:
+                        self._project.deps_installed.append(v)
+                save_project(self._project)
+                stack.set_visible_child_name("installed")
+                self._on_dep_changed()
+            else:
+                stack.set_visible_child_name("idle")
+                log.warning("winetricks install failed for: %s", verbs)
+
+        threading.Thread(target=_bg, daemon=True).start()
+
+    # ── Remove handler ──────────────────────────────────────────────────────
+
+    def _on_remove_clicked(self, _btn, verb: str, stack: Gtk.Stack) -> None:
+        if verb in self._project.deps_installed:
+            self._project.deps_installed.remove(verb)
+        save_project(self._project)
+        stack.set_visible_child_name("idle")
+        self._on_dep_changed()
 
 
 class _ProgressDialog(Adw.Dialog):

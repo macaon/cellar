@@ -136,7 +136,7 @@ def install_base_from_dir(
 
     dest = base_path(runner)
     if dest.exists():
-        shutil.rmtree(dest)
+        return
     dest.parent.mkdir(parents=True, exist_ok=True)
 
     all_files = [p for p in prefix_path.rglob("*") if not p.is_dir()]

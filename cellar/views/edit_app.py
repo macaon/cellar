@@ -447,9 +447,9 @@ class EditAppDialog(Adw.Dialog):
 
     def _desc_fmt_wrap(self, marker: str) -> None:
         buf = self._desc_view.get_buffer()
-        has_sel, start, end = buf.get_selection_bounds()
         buf.begin_user_action()
-        if has_sel:
+        if buf.get_has_selection():
+            start, end = buf.get_selection_bounds()
             text = buf.get_text(start, end, False)
             buf.delete(start, end)
             buf.insert(buf.get_iter_at_mark(buf.get_insert()), f"{marker}{text}{marker}")

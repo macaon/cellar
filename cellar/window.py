@@ -36,20 +36,18 @@ def _reconcile_installed_record(entry) -> dict | None:
     Removes the record and returns ``None`` if the installed directory has
     been deleted outside Cellar (stale record).
     """
-    from pathlib import Path  # noqa: PLC0415
     from cellar.backend import database  # noqa: PLC0415
-    from cellar.backend.umu import prefixes_dir  # noqa: PLC0415
+    from cellar.backend.umu import prefixes_dir, native_dir  # noqa: PLC0415
 
     rec = database.get_installed(entry.id)
     if rec is None:
         return None
     prefix_dir = rec.get("prefix_dir", "")
     if entry.platform == "linux":
-        install_path = rec.get("install_path", "")
-        if install_path and prefix_dir and not (Path(install_path) / prefix_dir).is_dir():
+        if not (native_dir() / entry.id).is_dir():
             log.info(
                 "Linux app dir %r gone from disk; removing stale record for %r",
-                prefix_dir, entry.id,
+                entry.id, entry.id,
             )
             database.remove_installed(entry.id)
             return None
@@ -452,7 +450,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="io.github.cellar",
-            version="0.43.16",
+            version="0.43.17",
             comments="A GNOME storefront for Windows and Linux apps.",
             license_type=Gtk.License.GPL_3_0,
         )

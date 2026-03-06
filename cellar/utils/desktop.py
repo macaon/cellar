@@ -119,8 +119,9 @@ def create_desktop_entry(
     # Exec — branch on platform
     platform = getattr(entry, "platform", "windows")
     if platform == "linux":
-        if install_path and bottle_name and entry.entry_point:
-            exe = Path(install_path) / bottle_name / entry.entry_point
+        if entry.entry_point:
+            from cellar.backend.umu import native_dir
+            exe = native_dir() / entry.id / entry.entry_point
             exec_line = f'"{exe}"'
         else:
             exec_line = "true"  # placeholder; entry point unknown

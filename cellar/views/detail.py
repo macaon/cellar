@@ -334,29 +334,19 @@ class DetailView(Gtk.Box):
     def _launch_linux_app(self) -> None:
         """Launch a native Linux app by executing its entry_point directly."""
         import subprocess as _sp
-        rec = self._installed_record or {}
-        prefix_dir = rec.get("prefix_dir", "")
-        install_path = rec.get("install_path", "")
-        if not install_path or not prefix_dir:
-            from cellar.backend import database
-            db_rec = database.get_installed(self._entry.id) or {}
-            prefix_dir = prefix_dir or db_rec.get("prefix_dir", "") or ""
-            install_path = install_path or db_rec.get("install_path", "") or ""
-        if not prefix_dir or not install_path or not self._entry.entry_point:
+        if not self._entry.entry_point:
             return
-        exe = Path(install_path) / prefix_dir / self._entry.entry_point
+        from cellar.backend.umu import native_dir
+        exe = native_dir() / self._entry.id / self._entry.entry_point
         _sp.Popen([str(exe)], start_new_session=True)
 
     def _on_remove_clicked(self) -> None:
         prefix_path = None
         if self._entry.platform == "linux":
-            rec = self._installed_record or {}
-            prefix_dir = rec.get("prefix_dir", "")
-            install_path = rec.get("install_path", "")
-            if prefix_dir and install_path:
-                candidate = Path(install_path) / prefix_dir
-                if candidate.is_dir():
-                    prefix_path = candidate
+            from cellar.backend.umu import native_dir
+            candidate = native_dir() / self._entry.id
+            if candidate.is_dir():
+                prefix_path = candidate
         else:
             from cellar.backend.umu import prefixes_dir
             candidate = prefixes_dir() / self._entry.id
@@ -409,18 +399,13 @@ class DetailView(Gtk.Box):
         from cellar.backend import database
 
         if self._entry.platform == "linux":
-            rec = self._installed_record or {}
-            prefix_dir = rec.get("prefix_dir", "")
-            install_path = rec.get("install_path", "")
-            if prefix_dir and install_path:
-                candidate = Path(install_path) / prefix_dir
-                if candidate.is_dir():
-                    try:
-                        shutil.rmtree(candidate)
-                    except Exception as exc:
-                        log.error("Failed to remove app dir %s: %s", candidate, exc)
-            else:
-                log.error("No prefix_dir/install_path for %s; skipping removal", self._entry.id)
+            from cellar.backend.umu import native_dir
+            candidate = native_dir() / self._entry.id
+            if candidate.is_dir():
+                try:
+                    shutil.rmtree(candidate)
+                except Exception as exc:
+                    log.error("Failed to remove app dir %s: %s", candidate, exc)
         else:
             from cellar.backend.umu import prefixes_dir
             candidate = prefixes_dir() / self._entry.id
@@ -489,16 +474,10 @@ class DetailView(Gtk.Box):
 
     def _get_install_folder(self) -> str | None:
         """Return the install folder path for the current entry, or None."""
-        rec = self._installed_record or {}
         if self._entry.platform == "linux":
-            prefix_dir = rec.get("prefix_dir", "")
-            install_path = rec.get("install_path", "")
-            if not install_path or not prefix_dir:
-                from cellar.backend import database
-                db_rec = database.get_installed(self._entry.id) or {}
-                prefix_dir = prefix_dir or db_rec.get("prefix_dir", "") or ""
-                install_path = install_path or db_rec.get("install_path", "") or ""
-            return str(Path(install_path) / prefix_dir) if install_path and prefix_dir else None
+            from cellar.backend.umu import native_dir
+            p = native_dir() / self._entry.id
+            return str(p) if p.is_dir() else None
         # Windows app — prefix is at umu prefixes_dir / app_id
         from cellar.backend.umu import prefixes_dir
         p = prefixes_dir() / self._entry.id
@@ -514,20 +493,13 @@ class DetailView(Gtk.Box):
                 icon_source = resolved
 
         if self._entry.platform == "linux":
-            rec = self._installed_record or {}
-            prefix_dir = rec.get("prefix_dir", "")
-            install_path = rec.get("install_path", "")
-            if not install_path or not prefix_dir:
-                from cellar.backend import database
-                db_rec = database.get_installed(self._entry.id) or {}
-                prefix_dir = prefix_dir or db_rec.get("prefix_dir", "")
-                install_path = install_path or db_rec.get("install_path", "") or ""
+            from cellar.backend.umu import native_dir
             try:
                 create_desktop_entry(
                     entry=self._entry,
-                    bottle_name=prefix_dir,
+                    bottle_name=self._entry.id,
                     icon_source=icon_source,
-                    install_path=install_path,
+                    install_path=str(native_dir()),
                 )
                 self._refresh_gear_menu()
                 self._add_toast(f"Shortcut created for {self._entry.name}")
@@ -1754,15 +1726,8 @@ class InstallProgressDialog(Adw.Dialog):
         self._runner_row: Adw.ActionRow | None = None
         self._base_entry = base_entry
         self._base_archive_uri = base_archive_uri
-        # Linux install path (pre-filled to ~/Games; user may change via Browse)
-        self._linux_install_path: str = str(Path.home() / "Games")
-
         # Determine whether we need to show the confirm page at all.
-        # Linux apps always show confirm so the user can set the install path.
-        self._needs_confirm = (
-            entry.platform == "linux"
-            or bool(runner_to_install)
-        )
+        self._needs_confirm = bool(runner_to_install)
 
         self._build_ui()
         self.connect("closed", lambda _d: self._cancel_event.set())
@@ -1808,22 +1773,6 @@ class InstallProgressDialog(Adw.Dialog):
         page = Adw.PreferencesPage()
         scroll.set_child(page)
 
-        # ── Linux install path ────────────────────────────────────────────
-        if self._entry.platform == "linux":
-            linux_group = Adw.PreferencesGroup(
-                title="Install Location",
-                description="A subfolder named after the app will be created here.",
-            )
-            self._linux_path_row = Adw.ActionRow(
-                title="Install to",
-                subtitle=self._linux_install_path,
-            )
-            browse_btn = Gtk.Button(label="Browse\u2026")
-            browse_btn.set_valign(Gtk.Align.CENTER)
-            browse_btn.connect("clicked", self._on_browse_install_path)
-            self._linux_path_row.add_suffix(browse_btn)
-            linux_group.add(self._linux_path_row)
-            page.add(linux_group)
 
         # ── Runner group (shown when a runner needs downloading) ──────────
         if self._runner_to_install:
@@ -1899,24 +1848,6 @@ class InstallProgressDialog(Adw.Dialog):
         return box
 
     # ── Signal handlers ───────────────────────────────────────────────────
-
-    def _on_browse_install_path(self, _btn) -> None:
-        """Open a folder chooser to select the Linux install base path."""
-        chooser = Gtk.FileChooserNative(
-            title="Select Install Location",
-            transient_for=self.get_root(),
-            action=Gtk.FileChooserAction.SELECT_FOLDER,
-        )
-        chooser.set_current_folder(Gio.File.new_for_path(str(Path.home())))
-        chooser.connect("response", self._on_browse_response, chooser)
-        chooser.show()
-
-    def _on_browse_response(self, _chooser, response, chooser) -> None:
-        if response == Gtk.ResponseType.ACCEPT:
-            f = chooser.get_file()
-            if f:
-                self._linux_install_path = f.get_path()
-                self._linux_path_row.set_subtitle(self._linux_install_path)
 
     def _on_proceed_clicked(self, _btn) -> None:
         self._stack.set_visible_child_name("progress")
@@ -2027,7 +1958,6 @@ class InstallProgressDialog(Adw.Dialog):
         from cellar.backend.installer import InstallCancelled, install_linux_app
 
         self._pulse_id: int | None = None
-        install_base = Path(self._linux_install_path).expanduser()
 
         def _set_phase(label: str) -> None:
             GLib.idle_add(self._on_phase_change, label)
@@ -2043,10 +1973,9 @@ class InstallProgressDialog(Adw.Dialog):
 
         def _run() -> None:
             try:
-                dir_name, _full_path = install_linux_app(
+                _app_id, install_dest = install_linux_app(
                     self._entry,
                     self._archive_uri,
-                    install_base,
                     download_cb=_dl_progress,
                     download_stats_cb=_dl_stats,
                     install_cb=_inst_progress,
@@ -2055,8 +1984,8 @@ class InstallProgressDialog(Adw.Dialog):
                     token=self._token,
                 )
                 from cellar.utils.paths import dir_size_bytes as _dir_size
-                _install_size = _dir_size(install_base / dir_name)
-                GLib.idle_add(self._on_done, dir_name, str(install_base), "", _install_size)
+                _install_size = _dir_size(install_dest)
+                GLib.idle_add(self._on_done, self._entry.id, "", "", _install_size)
             except InstallCancelled:
                 GLib.idle_add(self._on_cancelled)
             except Exception as exc:  # noqa: BLE001

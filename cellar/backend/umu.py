@@ -79,8 +79,8 @@ def runners_dir() -> Path:
 
 def prefixes_dir() -> Path:
     """Return (and create if needed) the Cellar prefixes directory."""
-    from cellar.backend.config import data_dir
-    d = data_dir() / "prefixes"
+    from cellar.backend.config import install_data_dir
+    d = install_data_dir() / "prefixes"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -89,6 +89,14 @@ def projects_dir() -> Path:
     """Return (and create if needed) the Cellar projects directory."""
     from cellar.backend.config import data_dir
     d = data_dir() / "projects"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def native_dir() -> Path:
+    """Return (and create if needed) the Cellar Linux native apps directory."""
+    from cellar.backend.config import install_data_dir
+    d = install_data_dir() / "native"
     d.mkdir(parents=True, exist_ok=True)
     return d
 

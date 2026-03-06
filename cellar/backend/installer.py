@@ -460,7 +460,6 @@ def install_app(
 def install_linux_app(
     entry,                          # AppEntry with platform == "linux"
     archive_uri: str,
-    install_base_path: "Path",
     *,
     download_cb: Callable[[float], None] | None = None,
     download_stats_cb: Callable[[int, int, float], None] | None = None,
@@ -474,14 +473,14 @@ def install_linux_app(
 ) -> tuple[str, Path]:
     """Download, verify, extract, and install a Linux native app.
 
-    Returns ``(dir_name, install_path)`` where ``dir_name`` is the name of
-    the directory created under ``install_base_path`` and ``install_path``
-    is the full path to that directory.
+    Installs to ``~/.local/share/cellar/native/<entry.id>/``.
+
+    Returns ``(entry.id, install_dest)``.
 
     The caller is responsible for writing the DB record via
-    ``database.mark_installed`` with ``platform="linux"`` and
-    ``install_path=str(install_base_path)``.
+    ``database.mark_installed`` with ``platform="linux"``.
     """
+    from cellar.backend.umu import native_dir  # noqa: PLC0415
     _check_cancel(cancel_event)
 
     with tempfile.TemporaryDirectory(prefix="cellar-linux-install-") as tmp_str:
@@ -529,15 +528,14 @@ def install_linux_app(
             app_src = extract_dir
             dir_name = entry.id
 
-        # ── Step 5: Collision-safe name ────────────────────────────────
-        install_name = _safe_linux_name(dir_name, install_base_path)
-        install_dest = install_base_path / install_name
+        # ── Step 5: Fixed install destination ─────────────────────────
+        install_dest = native_dir() / entry.id
 
         # ── Step 6: Copy to install path ──────────────────────────────
         _check_cancel(cancel_event)
         if phase_cb:
             phase_cb("Installing\u2026")
-        install_base_path.mkdir(parents=True, exist_ok=True)
+        install_dest.mkdir(parents=True, exist_ok=True)
         try:
             for src in app_src.rglob("*"):
                 _check_cancel(cancel_event)
@@ -560,7 +558,7 @@ def install_linux_app(
 
     if install_cb:
         install_cb(1.0)
-    return install_name, install_dest
+    return entry.id, install_dest
 
 
 def _safe_linux_name(dir_name: str, base_path: Path) -> str:

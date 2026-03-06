@@ -18,11 +18,15 @@ from typing import Callable
 
 from cellar.backend import database
 
-_BASES_DIR = Path.home() / ".local" / "share" / "cellar" / "bases"
-
-
 class BaseStoreError(Exception):
     """Raised when a base store operation fails."""
+
+
+def _bases_dir() -> Path:
+    from cellar.backend.config import install_data_dir
+    d = install_data_dir() / "bases"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
 
 
 # ---------------------------------------------------------------------------
@@ -31,7 +35,7 @@ class BaseStoreError(Exception):
 
 def base_path(runner: str) -> Path:
     """Return the local directory path for the extracted *runner* base."""
-    return _BASES_DIR / runner
+    return _bases_dir() / runner
 
 
 def is_base_installed(runner: str) -> bool:

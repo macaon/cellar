@@ -32,10 +32,30 @@ _CONFIG_FILE = "config.json"
 
 
 def data_dir() -> Path:
-    """Return (and create if needed) the Cellar data directory."""
+    """Return (and create if needed) the Cellar metadata directory.
+
+    Always ``~/.local/share/cellar/`` (or XDG equivalent).  Large install
+    data (prefixes, native apps, bases) lives under ``install_data_dir()``.
+    """
     xdg = os.environ.get("XDG_DATA_HOME")
     base = Path(xdg) if xdg else Path.home() / ".local" / "share"
     d = base / "cellar"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def install_data_dir() -> Path:
+    """Return (and create if needed) the root for large install data.
+
+    Defaults to ``data_dir()``.  When the user sets an install base in
+    Preferences a ``Cellar/`` subdirectory is created there instead.
+    """
+    cfg = _load()
+    base = cfg.get("install_base", "")
+    if base:
+        d = Path(base).expanduser() / "Cellar"
+    else:
+        d = data_dir()
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -115,6 +135,28 @@ def save_umu_path(path: str | None) -> None:
         cfg.pop("umu_path", None)
     else:
         cfg["umu_path"] = path
+    _save(cfg)
+
+
+# ---------------------------------------------------------------------------
+# Install location helpers
+# ---------------------------------------------------------------------------
+
+def load_install_base() -> str:
+    """Return the user-configured install base directory, or '' (use default)."""
+    return _load().get("install_base", "")
+
+
+def save_install_base(path: str) -> None:
+    """Persist an install base directory override.
+
+    Pass an empty string to reset to the default (``data_dir()``).
+    """
+    cfg = _load()
+    if path:
+        cfg["install_base"] = path
+    else:
+        cfg.pop("install_base", None)
     _save(cfg)
 
 

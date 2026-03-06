@@ -13,7 +13,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, GLib, Gtk
+from gi.repository import Adw, GLib, Gio, Gtk
 
 from cellar.backend.config import (
     certs_dir,
@@ -67,6 +67,9 @@ class SettingsDialog(Adw.PreferencesDialog):
         gen_row.add_suffix(gen_btn)
         access_group.add(gen_row)
 
+        # ── Group: Install Location ───────────────────────────────────────
+        self._build_install_location_group(page)
+
         # ── Group: umu-launcher ───────────────────────────────────────────
         self._build_umu_group(page)
 
@@ -74,6 +77,69 @@ class SettingsDialog(Adw.PreferencesDialog):
         self._build_bases_group(page)
 
         self._rebuild_repo_rows()
+
+    # ------------------------------------------------------------------
+    # Install location
+    # ------------------------------------------------------------------
+
+    def _build_install_location_group(self, page: Adw.PreferencesPage) -> None:
+        from cellar.backend.config import install_data_dir, load_install_base
+
+        group = Adw.PreferencesGroup(
+            title="Install Location",
+            description=(
+                "Where Cellar stores prefixes, native apps, and base images. "
+                "A \u2018Cellar\u2019 subfolder is created at the chosen location. "
+                "Changing this does not move existing installs."
+            ),
+        )
+        page.add(group)
+
+        self._install_location_row = Adw.ActionRow(
+            title="Location",
+            subtitle=str(install_data_dir()),
+        )
+
+        browse_btn = Gtk.Button(label="Browse\u2026")
+        browse_btn.set_valign(Gtk.Align.CENTER)
+        browse_btn.connect("clicked", self._on_install_location_browse)
+        self._install_location_row.add_suffix(browse_btn)
+
+        reset_btn = Gtk.Button(label="Reset")
+        reset_btn.set_valign(Gtk.Align.CENTER)
+        reset_btn.connect("clicked", self._on_install_location_reset)
+        self._install_location_row.add_suffix(reset_btn)
+
+        group.add(self._install_location_row)
+
+    def _on_install_location_browse(self, _btn) -> None:
+        from cellar.backend.config import install_data_dir, load_install_base, save_install_base
+
+        chooser = Gtk.FileChooserNative(
+            title="Select Install Base Folder",
+            transient_for=self.get_root(),
+            action=Gtk.FileChooserAction.SELECT_FOLDER,
+        )
+        current = load_install_base()
+        start = current if current else str(Path.home())
+        chooser.set_current_folder(Gio.File.new_for_path(start))
+        chooser.connect("response", self._on_install_location_response, chooser)
+        chooser.show()
+
+    def _on_install_location_response(self, _chooser, response, chooser) -> None:
+        from cellar.backend.config import install_data_dir, save_install_base
+
+        if response == Gtk.ResponseType.ACCEPT:
+            f = chooser.get_file()
+            if f:
+                save_install_base(f.get_path())
+                self._install_location_row.set_subtitle(str(install_data_dir()))
+
+    def _on_install_location_reset(self, _btn) -> None:
+        from cellar.backend.config import install_data_dir, save_install_base
+
+        save_install_base("")
+        self._install_location_row.set_subtitle(str(install_data_dir()))
 
     # ------------------------------------------------------------------
     # umu-launcher

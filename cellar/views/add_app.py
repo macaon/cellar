@@ -44,6 +44,12 @@ class AddAppDialog(Adw.Dialog):
 
     Pass *archive_path* for a Bottles ``.tar.gz`` backup, or *source_dir* for
     a Linux native app directory.  Exactly one must be non-empty.
+
+    *prefill* is an optional dict with keys matching form fields
+    (``name``, ``runner``, ``entry_point``, ``steam_appid``, ``category``,
+    ``developer``, ``publisher``, ``summary``) pre-populated from a Package
+    Builder project.  Values in *prefill* are applied after the archive scan,
+    so they override bottle.yml data.
     """
 
     def __init__(
@@ -53,6 +59,7 @@ class AddAppDialog(Adw.Dialog):
         source_dir: str = "",
         repos,          # list[cellar.backend.repo.Repo] — all writable repos
         on_done,        # callable()
+        prefill: dict | None = None,
     ) -> None:
         super().__init__(title="Add App to Catalogue", content_width=560)
 
@@ -61,6 +68,7 @@ class AddAppDialog(Adw.Dialog):
         self._repos = repos
         self._repo = repos[0]
         self._on_done = on_done
+        self._prefill = prefill or {}
         self._cancel_event = threading.Event()
 
         # Image selections
@@ -488,6 +496,28 @@ class AddAppDialog(Adw.Dialog):
                 if runner:
                     self._runner = runner
                     self._check_delta_base(runner)
+
+            # Apply prefill data (from Package Builder) — overrides bottle.yml
+            pf = self._prefill
+            if pf.get("name") and not self._name_entry.get_text().strip():
+                self._name_entry.set_text(pf["name"])
+            if pf.get("runner"):
+                self._runner_row.set_subtitle(pf["runner"])
+                if not runner:
+                    self._runner = pf["runner"]
+                    self._check_delta_base(pf["runner"])
+            if pf.get("entry_point"):
+                self._entry_point_entry.set_text(pf["entry_point"])
+            if pf.get("steam_appid") is not None:
+                self._steam_appid_entry.set_text(str(pf["steam_appid"]))
+            if pf.get("developer"):
+                self._developer_entry.set_text(pf["developer"])
+            if pf.get("publisher"):
+                self._publisher_entry.set_text(pf["publisher"])
+            if pf.get("summary"):
+                self._summary_entry.set_text(pf["summary"])
+            if pf.get("category") and pf["category"] in self._categories:
+                self._category_row.set_selected(self._categories.index(pf["category"]))
 
             self._stack.set_visible_child_name("form")
 

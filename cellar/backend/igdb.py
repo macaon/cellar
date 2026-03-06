@@ -124,7 +124,7 @@ class IGDBClient:
 
         Returns a list of normalised dicts with keys:
         ``id``, ``name``, ``year``, ``developer``, ``publisher``,
-        ``summary``, ``cover_image_id``, ``category``.
+        ``summary``, ``cover_image_id``, ``category``, ``steam_appid``.
         """
         token = self._ensure_token()
         body = (
@@ -132,7 +132,8 @@ class IGDBClient:
             "fields name,first_release_date,"
             "involved_companies.developer,involved_companies.publisher,"
             "involved_companies.company.name,"
-            "summary,genres.name,cover.image_id; "
+            "summary,genres.name,cover.image_id,"
+            "external_games.uid,external_games.category; "
             f"limit {limit};"
         )
         resp = make_session().post(
@@ -201,6 +202,16 @@ def _normalise(raw: dict) -> dict:
 
     cover_id: str | None = (raw.get("cover") or {}).get("image_id") or None
 
+    # Steam App ID from external_games (category 1 = Steam)
+    steam_appid: int | None = None
+    for eg in raw.get("external_games") or []:
+        if eg.get("category") == 1:
+            try:
+                steam_appid = int(eg["uid"])
+            except (KeyError, ValueError, TypeError):
+                pass
+            break
+
     return {
         "id": raw.get("id"),
         "name": raw.get("name", ""),
@@ -210,4 +221,5 @@ def _normalise(raw: dict) -> dict:
         "summary": raw.get("summary", ""),
         "cover_image_id": cover_id,
         "category": category,
+        "steam_appid": steam_appid,
     }

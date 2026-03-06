@@ -280,6 +280,58 @@ def compress_directory_zst(
     return dest_path.stat().st_size, crc32_hex
 
 
+def compress_prefix_zst(
+    prefix_path: Path,
+    dest_path: Path,
+    *,
+    cancel_event=None,
+    progress_cb: Callable[[float], None] | None = None,
+) -> tuple[int, str]:
+    """Archive *prefix_path* as a Cellar-native ``prefix/``-rooted ``.tar.zst``.
+
+    The top-level directory in the archive is always ``prefix/`` regardless of
+    the actual directory name.  Symlinks under ``drive_c/users/`` (home-dir
+    pointers) are stripped — umu/Proton recreates them on first launch.
+
+    Returns ``(size_bytes, crc32_hex)``.
+    """
+    import zstandard as zstd  # noqa: PLC0415
+
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
+
+    total_files = sum(len(files) for _, _, files in os.walk(prefix_path))
+    done = [0]
+
+    def _filter(ti: tarfile.TarInfo) -> tarfile.TarInfo | None:
+        if cancel_event and cancel_event.is_set():
+            raise CancelledError("Cancelled")
+        # Strip symlinks under drive_c/users/ (per-user home dir pointers)
+        if (ti.issym() or ti.islnk()) and "drive_c/users/" in ti.name:
+            return None
+        if ti.isfile():
+            done[0] += 1
+            if progress_cb and total_files:
+                progress_cb(done[0] / total_files)
+        return ti
+
+    cctx = zstd.ZstdCompressor(level=3)
+    try:
+        with open(dest_path, "wb") as out_f:
+            crc_writer = _CRCWriter(out_f)
+            with cctx.stream_writer(crc_writer, closefd=False) as compressor:
+                with tarfile.open(fileobj=compressor, mode="w|") as tf:
+                    tf.add(str(prefix_path), arcname="prefix", recursive=True, filter=_filter)
+            crc32_hex = format(crc_writer.crc & 0xFFFFFFFF, "08x")
+    except CancelledError:
+        dest_path.unlink(missing_ok=True)
+        raise
+    except (tarfile.TarError, OSError) as exc:
+        dest_path.unlink(missing_ok=True)
+        raise RuntimeError(f"Failed to compress prefix: {exc}") from exc
+
+    return dest_path.stat().st_size, crc32_hex
+
+
 # ---------------------------------------------------------------------------
 # ID generation
 # ---------------------------------------------------------------------------

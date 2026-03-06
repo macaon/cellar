@@ -34,6 +34,8 @@ class CellarWindow(Adw.ApplicationWindow):
     installed_box: Gtk.Box = Gtk.Template.Child()
     updates_box: Gtk.Box = Gtk.Template.Child()
     updates_page: Adw.ViewStackPage = Gtk.Template.Child()
+    builder_box: Gtk.Box = Gtk.Template.Child()
+    builder_page: Adw.ViewStackPage = Gtk.Template.Child()
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
@@ -101,6 +103,13 @@ class CellarWindow(Adw.ApplicationWindow):
         self._browse_updates.connect("app-selected", self._on_app_selected)
         self.updates_box.append(self._browse_updates)
 
+        from cellar.views.package_builder import PackageBuilderView
+        self._package_builder = PackageBuilderView(
+            on_catalogue_changed=self._load_catalogue,
+        )
+        self._package_builder.set_vexpand(True)
+        self.builder_box.append(self._package_builder)
+
         self.connect("realize", lambda _w: self._load_catalogue())
 
         # Pre-warm the GE-Proton release list in the background.
@@ -161,6 +170,8 @@ class CellarWindow(Adw.ApplicationWindow):
         self._writable_repos = [r for r in manager if r.is_writable]
         self._all_repos = list(manager)
         self.add_button.set_visible(bool(self._writable_repos))
+        self.builder_page.set_visible(bool(self._writable_repos))
+        self._package_builder.update_repos(self._writable_repos)
 
         if not list(manager):
             self._browse_explore.show_error(
@@ -519,7 +530,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="application-x-executable",
-            version="0.37.0",
+            version="0.38.0",
             comments="A GNOME storefront for Bottles-managed Windows apps.",
             license_type=Gtk.License.GPL_3_0,
         )

@@ -106,6 +106,19 @@
                             </property>
                           </object>
                         </child>
+                        <child>
+                          <object class="AdwViewStackPage" id="builder_page">
+                            <property name="name">builder</property>
+                            <property name="title" translatable="yes">Builder</property>
+                            <property name="icon-name">applications-engineering-symbolic</property>
+                            <property name="visible">false</property>
+                            <property name="child">
+                              <object class="GtkBox" id="builder_box">
+                                <property name="orientation">vertical</property>
+                              </object>
+                            </property>
+                          </object>
+                        </child>
                       </object>
                     </property>
                   </object>

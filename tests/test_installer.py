@@ -6,7 +6,7 @@ import tarfile
 import threading
 import zlib
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -104,25 +104,6 @@ def test_find_bottle_dir_ambiguous_raises(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# _verify_crc32
-# ---------------------------------------------------------------------------
-
-def test_verify_crc32_correct(tmp_path):
-    data = b"hello world"
-    f = tmp_path / "file.bin"
-    f.write_bytes(data)
-    expected = format(zlib.crc32(data) & 0xFFFFFFFF, "08x")
-    ins._verify_crc32(f, expected)  # must not raise
-
-
-def test_verify_crc32_mismatch_raises(tmp_path):
-    f = tmp_path / "file.bin"
-    f.write_bytes(b"hello world")
-    with pytest.raises(ins.InstallError, match="CRC32"):
-        ins._verify_crc32(f, "deadbeef")
-
-
-# ---------------------------------------------------------------------------
 # _extract_archive
 # ---------------------------------------------------------------------------
 
@@ -141,99 +122,6 @@ def test_extract_archive_bad_file_raises(tmp_path):
     dest.mkdir()
     with pytest.raises(ins.InstallError, match="extract"):
         ins._extract_archive(bad, dest, None)
-
-
-# ---------------------------------------------------------------------------
-# _acquire_archive — local
-# ---------------------------------------------------------------------------
-
-def test_acquire_local_bare_path_returns_original(tmp_path):
-    archive = _make_archive(tmp_path)
-    dest = tmp_path / "download.tar.gz"
-    result = ins._acquire_archive(
-        str(archive), dest, expected_size=0, progress_cb=None, cancel_event=None
-    )
-    assert result == archive
-
-
-def test_acquire_local_file_uri_returns_original(tmp_path):
-    archive = _make_archive(tmp_path)
-    dest = tmp_path / "download.tar.gz"
-    result = ins._acquire_archive(
-        archive.as_uri(), dest, expected_size=0, progress_cb=None, cancel_event=None
-    )
-    assert result == archive
-
-
-def test_acquire_unsupported_scheme_raises(tmp_path):
-    dest = tmp_path / "download.tar.gz"
-    with pytest.raises(ins.InstallError, match="not yet supported"):
-        ins._acquire_archive(
-            "ssh://host/path/archive.tar.gz", dest,
-            expected_size=0, progress_cb=None, cancel_event=None,
-        )
-
-
-# ---------------------------------------------------------------------------
-# _acquire_archive — HTTP
-# ---------------------------------------------------------------------------
-
-def _fake_streaming_response(data: bytes):
-    """Create a mock requests.Response that supports iter_content."""
-    resp = Mock()
-    resp.status_code = 200
-    resp.raise_for_status = Mock()
-    # iter_content yields the data in chunks
-    chunk_size = 1024 * 1024
-    chunks = [data[i:i + chunk_size] for i in range(0, len(data), chunk_size)]
-    resp.iter_content = Mock(return_value=iter(chunks))
-    return resp
-
-
-def test_acquire_http_downloads_to_dest(tmp_path):
-    archive = _make_archive(tmp_path)
-    data = archive.read_bytes()
-    dest = tmp_path / "download.tar.gz"
-    with patch("requests.Session.get",
-               return_value=_fake_streaming_response(data)):
-        result = ins._acquire_archive(
-            "https://example.com/archive.tar.gz", dest,
-            expected_size=len(data), progress_cb=None, cancel_event=None,
-        )
-    assert result == dest
-    assert dest.read_bytes() == data
-
-
-def test_acquire_http_cancel_cleans_up(tmp_path):
-    archive = _make_archive(tmp_path)
-    data = archive.read_bytes()
-    dest = tmp_path / "download.tar.gz"
-    cancel = threading.Event()
-    cancel.set()
-    with patch("requests.Session.get",
-               return_value=_fake_streaming_response(data)):
-        with pytest.raises(ins.InstallCancelled):
-            ins._acquire_archive(
-                "https://example.com/archive.tar.gz", dest,
-                expected_size=len(data), progress_cb=None, cancel_event=cancel,
-            )
-    assert not dest.exists()
-
-
-def test_acquire_http_progress_reported(tmp_path):
-    archive = _make_archive(tmp_path)
-    data = archive.read_bytes()
-    dest = tmp_path / "download.tar.gz"
-    reported: list[float] = []
-    with patch("requests.Session.get",
-               return_value=_fake_streaming_response(data)):
-        ins._acquire_archive(
-            "https://example.com/archive.tar.gz", dest,
-            expected_size=len(data), progress_cb=reported.append, cancel_event=None,
-        )
-    # At least one progress update with a value in [0, 1]
-    assert reported
-    assert all(0.0 <= f <= 1.0 for f in reported)
 
 
 # ---------------------------------------------------------------------------

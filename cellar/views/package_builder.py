@@ -414,6 +414,7 @@ class PackageBuilderView(Gtk.Box):
         add_dep_btn.connect("clicked", self._on_add_dep_clicked)
         add_dep_row.add_suffix(add_dep_btn)
         add_dep_row.set_activatable_widget(add_dep_btn)
+        add_dep_row.set_sensitive(project.initialized)
         dep_group.add(add_dep_row)
         page.add(dep_group)
 
@@ -425,6 +426,7 @@ class PackageBuilderView(Gtk.Box):
                 title="Run Installer",
                 subtitle="Run a .exe inside the prefix",
             )
+            run_installer_row.set_sensitive(project.initialized)
             run_btn = Gtk.Button(label="Choose\u2026")
             run_btn.set_valign(Gtk.Align.CENTER)
             run_btn.connect("clicked", self._on_run_installer_clicked)
@@ -437,6 +439,7 @@ class PackageBuilderView(Gtk.Box):
                 subtitle=ep_subtitle,
             )
             self._ep_row.set_subtitle_selectable(True)
+            self._ep_row.set_sensitive(project.initialized)
             ep_btn = Gtk.Button(label="Set\u2026")
             ep_btn.set_valign(Gtk.Align.CENTER)
             ep_btn.connect("clicked", self._on_set_entry_point_clicked)
@@ -453,6 +456,7 @@ class PackageBuilderView(Gtk.Box):
             title="Browse Prefix",
             subtitle="Open drive_c in the file manager",
         )
+        browse_row.set_sensitive(project.initialized)
         browse_btn = Gtk.Button(icon_name="folder-open-symbolic")
         browse_btn.set_valign(Gtk.Align.CENTER)
         browse_btn.add_css_class("flat")
@@ -476,6 +480,7 @@ class PackageBuilderView(Gtk.Box):
                 title="Test Launch",
                 subtitle="Launch the app to verify it works",
             )
+            test_row.set_sensitive(project.initialized)
             test_btn = Gtk.Button(label="Launch")
             test_btn.set_valign(Gtk.Align.CENTER)
             test_btn.connect("clicked", self._on_test_launch_clicked)
@@ -494,6 +499,7 @@ class PackageBuilderView(Gtk.Box):
                     title="Publish Update",
                     subtitle="Re-archive prefix and replace the catalogue entry",
                 )
+                pub_row.set_sensitive(project.initialized)
                 pub_btn = Gtk.Button(label="Publish\u2026")
                 pub_btn.set_valign(Gtk.Align.CENTER)
                 pub_btn.add_css_class("suggested-action")
@@ -505,6 +511,7 @@ class PackageBuilderView(Gtk.Box):
                     title="Publish App",
                     subtitle="Archive prefix and open Add to Catalogue dialog",
                 )
+                publish_row.set_sensitive(project.initialized)
                 pub_btn = Gtk.Button(label="Publish\u2026")
                 pub_btn.set_valign(Gtk.Align.CENTER)
                 pub_btn.add_css_class("suggested-action")
@@ -518,6 +525,7 @@ class PackageBuilderView(Gtk.Box):
                 title="Publish Base",
                 subtitle="Archive prefix and upload to repository",
             )
+            publish_row.set_sensitive(project.initialized)
             pub_btn = Gtk.Button(label="Publish\u2026")
             pub_btn.set_valign(Gtk.Align.CENTER)
             pub_btn.add_css_class("suggested-action")

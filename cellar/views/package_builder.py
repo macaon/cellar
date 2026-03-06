@@ -732,6 +732,14 @@ class PackageBuilderView(Gtk.Box):
         bases = get_all_installed_bases()
         base_runners = [b["runner"] for b in bases]
 
+        # If no runner set yet, default to the latest installed base (last by installed_at)
+        effective_runner = project.runner or (base_runners[-1] if base_runners else "")
+        if effective_runner and not project.runner:
+            project.runner = effective_runner
+            save_project(project)
+            if hasattr(self, "_sel_expander"):
+                self._sel_expander.set_subtitle(effective_runner)
+
         first_check: Gtk.CheckButton | None = None
         for runner in base_runners:
             row = Adw.ActionRow(title=runner)
@@ -741,7 +749,7 @@ class PackageBuilderView(Gtk.Box):
                 first_check = check
             else:
                 check.set_group(first_check)
-            check.set_active(runner == project.runner)
+            check.set_active(runner == effective_runner)
             check.connect("toggled", self._on_base_radio_toggled, runner)
             row.add_prefix(check)
             row.set_activatable_widget(check)
@@ -1785,12 +1793,6 @@ class _AppMetadataDialog(Adw.Dialog):
         if result.get("screenshots"):
             self._steam_screenshots_data = result["screenshots"]
             self._steam_ss_btn.set_visible(True)
-            from cellar.views.steam_screenshot_picker import SteamScreenshotPickerDialog
-            picker = SteamScreenshotPickerDialog(
-                screenshots_data=self._steam_screenshots_data,
-                on_confirmed=self._on_steam_screenshots_confirmed,
-            )
-            picker.present(self.get_root())
 
     def _on_steam_screenshots_clicked(self, _btn) -> None:
         if not self._steam_screenshots_data:

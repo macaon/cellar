@@ -31,7 +31,7 @@ class SteamScreenshotPickerDialog(Adw.Dialog):
 
     *screenshots_data* is a list of ``{"thumbnail": url, "full": url}`` dicts
     as returned by :func:`cellar.backend.steam.fetch_details`.
-    All screenshots are pre-selected; the user unchecks any they don't want.
+    All screenshots start unselected; the user checks the ones they want.
     """
 
     def __init__(
@@ -43,7 +43,7 @@ class SteamScreenshotPickerDialog(Adw.Dialog):
         super().__init__(title="Select Screenshots", content_width=560, content_height=520)
         self._data = screenshots_data
         self._on_confirmed = on_confirmed
-        self._selected: set[int] = set(range(len(screenshots_data)))
+        self._selected: set[int] = set()
         self._local_paths: list[str] = []
         self._tmp_dir: Path | None = None
         self._chooser = None
@@ -104,12 +104,12 @@ class SteamScreenshotPickerDialog(Adw.Dialog):
             card.set_margin_end(4)
 
             pic = Gtk.Picture()
-            pic.set_size_request(240, 135)
-            pic.set_content_fit(Gtk.ContentFit.FILL)
+            pic.set_size_request(240, -1)
+            pic.set_content_fit(Gtk.ContentFit.CONTAIN)
             card.append(pic)
             self._pictures.append(pic)
 
-            cb = Gtk.CheckButton(label=f"Screenshot {i + 1}", active=True)
+            cb = Gtk.CheckButton(label=f"Screenshot {i + 1}", active=False)
             cb.connect("toggled", self._on_toggle, i)
             card.append(cb)
             self._checks.append(cb)

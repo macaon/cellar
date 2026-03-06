@@ -134,6 +134,9 @@ def launch_app(
 ) -> None:
     """Launch *entry_point* inside the *app_id* prefix.  Fire-and-forget."""
     import os
+    # entry_point is prefix-relative (e.g. "drive_c/Program Files/App/App.exe").
+    if entry_point and not entry_point.startswith("/"):
+        entry_point = str(prefixes_dir() / app_id / entry_point)
     umu_env = build_env(app_id, runner_name, steam_appid)
     env = {**os.environ, **umu_env}
     # Pass exe as positional arg — the primary documented umu-run form.

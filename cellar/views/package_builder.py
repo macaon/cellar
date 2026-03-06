@@ -1211,7 +1211,7 @@ class PackageBuilderView(Gtk.Box):
             return
         path = chooser.get_file().get_path()
         try:
-            rel = os.path.relpath(path, str(drive_c))
+            rel = os.path.relpath(path, str(project.prefix_path))
         except ValueError:
             rel = path
         project.entry_point = rel
@@ -1243,7 +1243,7 @@ class PackageBuilderView(Gtk.Box):
         from cellar.backend.umu import launch_app
         launch_app(
             app_id=f"project-{project.slug}",
-            entry_point=str(project.prefix_path / "drive_c" / project.entry_point),
+            entry_point=str(project.prefix_path / project.entry_point),
             runner_name=project.runner,
             steam_appid=project.steam_appid,
         )

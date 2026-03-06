@@ -346,7 +346,7 @@ class AddAppDialog(Adw.Dialog):
 
         self._entry_point_entry = Adw.EntryRow(title="Entry Point (optional)")
         self._entry_point_entry.set_tooltip_text(
-            "Relative path from drive_c to the main .exe, e.g. Program Files/App/app.exe"
+            "Path relative to the prefix root, e.g. drive_c/Program Files/App/app.exe"
         )
         self._entry_point_entry.connect("changed", self._on_field_changed)
         # "Pick from archive" button — shown only in Linux mode

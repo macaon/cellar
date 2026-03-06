@@ -105,6 +105,7 @@ class AppCard(Gtk.FlowBoxChild):
     ) -> None:
         super().__init__()
         self.entry = entry
+        self.add_css_class("app-card-cell")
 
         self.set_margin_start(6)
         self.set_margin_end(6)

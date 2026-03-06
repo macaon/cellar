@@ -2158,27 +2158,10 @@ class _ImportFromCatalogueDialog(Adw.Dialog):
             return
         item, repo, kind = self._entries[self._selected_idx]
 
-        size_mb = (item.archive_size or 0) / (1024 * 1024)
-        size_str = f"{size_mb:.0f} MB" if size_mb else "unknown size"
-
         if kind == "base":
             self._start_import_base(item, repo)
-            return
-
-        dialog = Adw.AlertDialog(
-            heading=f'Import \u201c{item.name}\u201d?',
-            body=(
-                f"The archive ({size_str}) will be downloaded and extracted "
-                f"into a new project directory. This may take a while."
-            ),
-        )
-        dialog.add_response("cancel", "Cancel")
-        dialog.add_response("import", "Import")
-        dialog.set_response_appearance("import", Adw.ResponseAppearance.SUGGESTED)
-        dialog.set_default_response("import")
-        dialog.set_close_response("cancel")
-        dialog.connect("response", lambda d, r: self._start_import(item, repo) if r == "import" else None)
-        dialog.present(self)
+        else:
+            self._start_import(item, repo)
 
     def _start_import_base(self, base_entry, repo) -> None:
         root = self.get_root()
@@ -2307,7 +2290,7 @@ class _ImportFromCatalogueDialog(Adw.Dialog):
                         name=entry.name,
                         slug=slug,
                         project_type="app",
-                        runner=entry.runner or "",
+                        runner=entry.built_with.runner if entry.built_with else "",
                         entry_point=entry.entry_point or "",
                         steam_appid=entry.steam_appid,
                         initialized=True,

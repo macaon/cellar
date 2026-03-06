@@ -1083,24 +1083,25 @@ class DetailView(Gtk.Box):
 
             return card, val_lbl
 
-        if e.archive_size > 0:
-            dl_card, dl_val_lbl = _simple_card(
-                "folder-download-symbolic", _fmt_bytes(e.archive_size), "Download",
-            )
-            _make_interactive(dl_card, self._show_download_dialog)
-            _add(dl_card)
-            self._resolve_base_async(dl_val_lbl)
-
         if self._is_installed:
             stored_size = (self._installed_record or {}).get("install_size") or 0
             if stored_size:
                 _add(_simple_card("drive-harddisk-symbolic", _fmt_bytes(stored_size), "Install size")[0])
-        elif e.install_size_estimate > 0:
-            _add(_simple_card(
-                "drive-harddisk-symbolic",
-                _fmt_bytes(e.install_size_estimate),
-                "Disk space",
-            )[0])
+        else:
+            if e.archive_size > 0:
+                dl_card, dl_val_lbl = _simple_card(
+                    "folder-download-symbolic", _fmt_bytes(e.archive_size), "Download",
+                )
+                _make_interactive(dl_card, self._show_download_dialog)
+                _add(dl_card)
+                self._resolve_base_async(dl_val_lbl)
+
+            if e.install_size_estimate > 0:
+                _add(_simple_card(
+                    "drive-harddisk-symbolic",
+                    _fmt_bytes(e.install_size_estimate),
+                    "Disk space",
+                )[0])
 
         if e.built_with:
             wine_card = self._make_wine_card()

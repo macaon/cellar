@@ -173,7 +173,14 @@ def init_prefix(
         " ".join(cmd), base_env["WINEPREFIX"], base_env["PROTONPATH"],
     )
     result = subprocess.run(cmd, env=env, timeout=timeout, capture_output=False)
-    log.info("init_prefix exited with code %d", result.returncode)
+    # umu-run "" exits with code 1 because Wine rejects an empty executable path,
+    # but the WINEPREFIX is fully initialized at that point.  Callers should check
+    # for drive_c existence rather than relying solely on returncode.
+    log.info(
+        "init_prefix exited with code %d (drive_c exists: %s)",
+        result.returncode,
+        (prefix_path / "drive_c").is_dir(),
+    )
     return result
 
 

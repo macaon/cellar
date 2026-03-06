@@ -465,7 +465,10 @@ class PackageBuilderView(Gtk.Box):
             try:
                 from cellar.backend.umu import init_prefix
                 result = init_prefix(project.prefix_path, project.runner)
-                ok = result.returncode == 0
+                # umu-run "" initializes the prefix then tries to execute an
+                # empty string, which Wine rejects with exit code 1.  Use the
+                # presence of drive_c as the real success indicator.
+                ok = result.returncode == 0 or (project.prefix_path / "drive_c").is_dir()
             except Exception as exc:
                 log.error("init_prefix failed: %s", exc)
                 ok = False

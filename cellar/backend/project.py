@@ -45,8 +45,9 @@ class Project:
     steam_appid: int | None = None
     deps_installed: list[str] = field(default_factory=list)
     notes: str = ""
-    initialized: bool = False  # True once prefix has been initialized
+    initialized: bool = False  # True once prefix has been initialized (Windows) or source_dir is set (Linux)
     origin_app_id: str = ""    # set when project was imported from a catalogue entry
+    source_dir: str = ""       # Linux projects only: path to the pre-installed app directory
 
     # ── Catalogue metadata (App only) ─────────────────────────────────────
     version: str = "1.0"
@@ -99,6 +100,7 @@ class Project:
             notes=data.get("notes", ""),
             initialized=bool(data.get("initialized", False)),
             origin_app_id=data.get("origin_app_id", ""),
+            source_dir=data.get("source_dir", ""),
             version=data.get("version", "1.0"),
             category=data.get("category", ""),
             developer=data.get("developer", ""),
@@ -135,6 +137,8 @@ class Project:
             d["initialized"] = True
         if self.origin_app_id:
             d["origin_app_id"] = self.origin_app_id
+        if self.source_dir:
+            d["source_dir"] = self.source_dir
         if self.version and self.version != "1.0":
             d["version"] = self.version
         if self.category:

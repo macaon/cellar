@@ -440,30 +440,22 @@ class PackageBuilderView(Gtk.Box):
             else:
                 self._populate_base_expander(project)
 
-        # ── 3. Prefix / Directory ──────────────────────────────────────────
-        if project.project_type == "linux":
-            prefix_group = Adw.PreferencesGroup(title="Directory")
-        else:
+        # ── 3. Prefix (Windows / Base only) ───────────────────────────────
+        if project.project_type != "linux":
             prefix_group = Adw.PreferencesGroup(title="Prefix")
-        prefix_exists = project.prefix_path.is_dir()
-        status_text = "Initialized" if (prefix_exists and project.initialized) else (
-            "Directory exists (not initialized)" if prefix_exists else "Not initialized"
-        )
-        self._prefix_status_row = Adw.ActionRow(
-            title="Status",
-            subtitle=status_text,
-        )
-        self._init_btn = Gtk.Button(label="Initialize")
-        self._init_btn.set_valign(Gtk.Align.CENTER)
-        self._init_btn.add_css_class("suggested-action")
-        if project.project_type == "linux":
-            self._init_btn.set_sensitive(not project.initialized)
-        else:
+            prefix_exists = project.prefix_path.is_dir()
+            status_text = "Initialized" if (prefix_exists and project.initialized) else (
+                "Directory exists (not initialized)" if prefix_exists else "Not initialized"
+            )
+            self._prefix_status_row = Adw.ActionRow(title="Status", subtitle=status_text)
+            self._init_btn = Gtk.Button(label="Initialize")
+            self._init_btn.set_valign(Gtk.Align.CENTER)
+            self._init_btn.add_css_class("suggested-action")
             self._init_btn.set_sensitive(bool(project.runner) and not project.initialized)
-        self._init_btn.connect("clicked", self._on_init_prefix_clicked)
-        self._prefix_status_row.add_suffix(self._init_btn)
-        prefix_group.add(self._prefix_status_row)
-        page.add(prefix_group)
+            self._init_btn.connect("clicked", self._on_init_prefix_clicked)
+            self._prefix_status_row.add_suffix(self._init_btn)
+            prefix_group.add(self._prefix_status_row)
+            page.add(prefix_group)
 
         # ── 4. Dependencies (Windows packages only) ───────────────────────
         if project.project_type != "linux":
@@ -487,7 +479,7 @@ class PackageBuilderView(Gtk.Box):
             dep_group.add(add_dep_row)
             page.add(dep_group)
 
-        # ── 5. Files section ──────────────────────────────────────────────
+        # ── 5. Files section (Windows app only) ───────────────────────────
         if project.project_type == "app":
             files_group = Adw.PreferencesGroup(title="Files")
 
@@ -516,33 +508,29 @@ class PackageBuilderView(Gtk.Box):
 
             page.add(files_group)
 
+        # ── 5b. Source Folder (Linux only) ────────────────────────────────
         elif project.project_type == "linux":
-            files_group = Adw.PreferencesGroup(title="Files")
+            _linux_ready = bool(project.source_dir) and Path(project.source_dir).is_dir()
+            src_group = Adw.PreferencesGroup(title="Source Folder")
 
-            run_installer_row = Adw.ActionRow(
-                title="Run Installer",
-                subtitle="$HOME is set to the install directory",
-            )
-            run_installer_row.set_sensitive(project.initialized)
-            run_btn = Gtk.Button(label="Choose\u2026")
-            run_btn.set_valign(Gtk.Align.CENTER)
-            run_btn.connect("clicked", self._on_run_native_installer_clicked)
-            run_installer_row.add_suffix(run_btn)
-            files_group.add(run_installer_row)
+            src_row = Adw.ActionRow(title="Folder")
+            src_row.set_subtitle(project.source_dir or "Not set")
+            src_row.set_subtitle_selectable(True)
 
-            _browse_row = Adw.ActionRow(
-                title="Browse Directory",
-                subtitle="Open the install directory in the file manager",
-            )
-            _browse_row.set_sensitive(project.initialized)
-            _browse_btn = Gtk.Button(icon_name="folder-open-symbolic")
-            _browse_btn.set_valign(Gtk.Align.CENTER)
-            _browse_btn.add_css_class("flat")
-            _browse_btn.connect("clicked", self._on_browse_prefix_clicked)
-            _browse_row.add_suffix(_browse_btn)
-            files_group.add(_browse_row)
+            if _linux_ready:
+                _open_btn = Gtk.Button(icon_name="folder-open-symbolic")
+                _open_btn.set_valign(Gtk.Align.CENTER)
+                _open_btn.add_css_class("flat")
+                _open_btn.connect("clicked", self._on_browse_prefix_clicked)
+                src_row.add_suffix(_open_btn)
 
-            page.add(files_group)
+            _choose_btn = Gtk.Button(label="Choose\u2026")
+            _choose_btn.set_valign(Gtk.Align.CENTER)
+            _choose_btn.connect("clicked", self._on_choose_source_dir_clicked)
+            src_row.add_suffix(_choose_btn)
+
+            src_group.add(src_row)
+            page.add(src_group)
 
             # Launch Targets
             targets_group = Adw.PreferencesGroup(title="Launch Targets")
@@ -571,6 +559,7 @@ class PackageBuilderView(Gtk.Box):
             page.add(targets_group)
 
         if project.project_type == "linux":
+            _linux_ready = bool(project.source_dir) and Path(project.source_dir).is_dir()
             targets_group = Adw.PreferencesGroup(title="Launch Targets")
             for _ep in project.entry_points:
                 _ep_row = Adw.ActionRow(
@@ -586,7 +575,7 @@ class PackageBuilderView(Gtk.Box):
                 targets_group.add(_ep_row)
 
             _add_ep_row = Adw.ActionRow(title="Add Launch Target\u2026")
-            _add_ep_row.set_sensitive(project.initialized)
+            _add_ep_row.set_sensitive(_linux_ready)
             _add_ep_btn = Gtk.Button(label="Add\u2026", valign=Gtk.Align.CENTER)
             _add_ep_btn.add_css_class("suggested-action")
             _add_ep_btn.connect("clicked", self._on_add_entry_point_clicked)
@@ -616,12 +605,18 @@ class PackageBuilderView(Gtk.Box):
         pkg_group = Adw.PreferencesGroup(title="Publish")
 
         if project.project_type in ("app", "linux"):
+            _ready = (
+                bool(project.source_dir) and Path(project.source_dir).is_dir()
+                if project.project_type == "linux"
+                else project.initialized
+            )
+
             # Test launch
             test_row = Adw.ActionRow(
                 title="Test Launch",
                 subtitle="Launch the app to verify it works",
             )
-            test_row.set_sensitive(project.initialized)
+            test_row.set_sensitive(_ready)
             test_btn = Gtk.Button(label="Launch")
             test_btn.set_valign(Gtk.Align.CENTER)
             test_btn.connect("clicked", self._on_test_launch_clicked)
@@ -640,7 +635,7 @@ class PackageBuilderView(Gtk.Box):
                     title="Publish Update",
                     subtitle="Re-archive and replace the catalogue entry",
                 )
-                pub_row.set_sensitive(project.initialized and bool(project.entry_points))
+                pub_row.set_sensitive(_ready and bool(project.entry_points))
                 pub_btn = Gtk.Button(label="Publish\u2026")
                 pub_btn.set_valign(Gtk.Align.CENTER)
                 pub_btn.add_css_class("suggested-action")
@@ -652,7 +647,7 @@ class PackageBuilderView(Gtk.Box):
                     title="Publish App",
                     subtitle="Archive and open Add to Catalogue dialog",
                 )
-                publish_row.set_sensitive(project.initialized and bool(project.entry_points))
+                publish_row.set_sensitive(_ready and bool(project.entry_points))
                 pub_btn = Gtk.Button(label="Publish\u2026")
                 pub_btn.set_valign(Gtk.Align.CENTER)
                 pub_btn.add_css_class("suggested-action")
@@ -1074,113 +1069,65 @@ class PackageBuilderView(Gtk.Box):
             on_done=lambda ok: log.info("Installer exited ok=%s", ok),
         )
 
-    def _on_browse_prefix_clicked(self, _btn) -> None:
-        if self._project is None:
-            return
-        if self._project.project_type == "linux":
-            target = self._project.prefix_path
-        else:
-            target = self._project.prefix_path / "drive_c"
-            if not target.is_dir():
-                target = self._project.prefix_path
-        if not target.is_dir():
-            self._show_toast("Directory not initialized yet.")
-            return
-        subprocess.Popen(["xdg-open", str(target)], start_new_session=True)
-
-    def _on_run_native_installer_clicked(self, _btn) -> None:
+    def _on_choose_source_dir_clicked(self, _btn) -> None:
         if self._project is None:
             return
         project = self._project
         chooser = Gtk.FileChooserNative(
-            title="Select Installer",
-            action=Gtk.FileChooserAction.OPEN,
-            accept_label="Run",
+            title="Select Installation Folder",
+            action=Gtk.FileChooserAction.SELECT_FOLDER,
+            accept_label="Select",
         )
         win = self.get_root()
         if isinstance(win, Gtk.Window):
             chooser.set_transient_for(win)
-        chooser.connect(
-            "response",
-            lambda c, r: self._on_native_installer_chosen(c, r, project),
-        )
+        if project.source_dir and Path(project.source_dir).parent.is_dir():
+            chooser.set_current_folder(
+                Gio.File.new_for_path(str(Path(project.source_dir).parent))
+            )
+        chooser.connect("response", lambda c, r: self._on_source_dir_chosen(c, r, project))
         chooser.show()
-        self._installer_chooser = chooser
+        self._source_dir_chooser = chooser
 
-    def _on_native_installer_chosen(
+    def _on_source_dir_chosen(
         self, chooser: Gtk.FileChooserNative, response: int, project: Project
     ) -> None:
         if response != Gtk.ResponseType.ACCEPT:
             return
-        exe_path = chooser.get_file().get_path()
-        name = Path(exe_path).name
-        progress = _ProgressDialog(label=f"Running {name}…")
-        progress.present(self)
+        path = chooser.get_file().get_path()
+        project.source_dir = path
+        save_project(project)
+        self._show_project(project)
 
-        def _bg():
-            import shutil as _shutil
-            try:
-                prefix = str(project.prefix_path)
-
-                # Redirect $HOME and XDG dirs into the prefix so installers
-                # that default to ~/Games/ or $HOME/.local/share/ land there
-                # automatically — no manual navigation needed.
-                env = os.environ.copy()
-                env["HOME"] = prefix
-                env["XDG_DATA_HOME"] = str(project.prefix_path / ".local" / "share")
-                env["XDG_CONFIG_HOME"] = str(project.prefix_path / ".config")
-                env["XDG_CACHE_HOME"] = str(project.prefix_path / ".cache")
-
-                # Use an interpreter for script types so we never need execute
-                # permission on the file — chmod fails on GVFS/SMB paths.
-                suffix = Path(exe_path).suffix.lower()
-                _interpreters = {".sh": ["bash"], ".py": ["python3"], ".rb": ["ruby"]}
-                interp = _interpreters.get(suffix)
-
-                # Use bwrap for stronger isolation if available: bind / read-write
-                # but mount the prefix over $HOME so writes outside $HOME still
-                # work (e.g. /tmp) while $HOME-relative installs land in prefix.
-                _bwrap = _shutil.which("bwrap")
-                if _bwrap and not interp:
-                    # bwrap only needed for binaries that don't go through an
-                    # interpreter — scripts already honour the env HOME override.
-                    cmd = [
-                        _bwrap,
-                        "--bind", "/", "/",
-                        "--bind", prefix, env["HOME"],
-                        "--proc", "/proc",
-                        "--dev", "/dev",
-                        "--",
-                        exe_path,
-                    ]
-                elif interp:
-                    cmd = interp + [exe_path]
-                else:
-                    cmd = [exe_path]
-
-                proc = subprocess.run(
-                    cmd,
-                    cwd=prefix,
-                    env=env,
-                    timeout=600,
-                )
-                ok = proc.returncode == 0
-            except Exception as exc:
-                log.error("native installer failed: %s", exc)
-                ok = False
-            GLib.idle_add(progress.force_close)
-            if not ok:
-                GLib.idle_add(self._show_toast, "Installer exited with non-zero status.")
-
-        threading.Thread(target=_bg, daemon=True).start()
+    def _on_browse_prefix_clicked(self, _btn) -> None:
+        if self._project is None:
+            return
+        if self._project.project_type == "linux":
+            target = Path(self._project.source_dir) if self._project.source_dir else None
+        else:
+            target = self._project.prefix_path / "drive_c"
+            if not target.is_dir():
+                target = self._project.prefix_path
+        if not target or not target.is_dir():
+            self._show_toast("Directory not set yet.")
+            return
+        subprocess.Popen(["xdg-open", str(target)], start_new_session=True)
 
     def _on_add_entry_point_clicked(self, _btn) -> None:
         if self._project is None:
             return
         project = self._project
-        platform = "linux" if project.project_type == "linux" else "windows"
+        if project.project_type == "linux":
+            if not project.source_dir:
+                self._show_toast("Choose a source folder first.")
+                return
+            prefix_path = Path(project.source_dir)
+            platform = "linux"
+        else:
+            prefix_path = project.prefix_path
+            platform = "windows"
         dialog = _AddLaunchTargetDialog(
-            prefix_path=project.prefix_path,
+            prefix_path=prefix_path,
             platform=platform,
             on_added=lambda ep: self._on_entry_point_added(project, ep),
         )
@@ -1213,7 +1160,10 @@ class PackageBuilderView(Gtk.Box):
             self._show_toast("Add a launch target before test launching.")
             return
         if project.project_type == "linux":
-            exe = project.prefix_path / project.entry_point
+            if not project.source_dir:
+                self._show_toast("Set a source folder first.")
+                return
+            exe = Path(project.source_dir) / project.entry_point
             if not exe.exists():
                 self._show_toast(f"Executable not found: {exe}")
                 return
@@ -1238,6 +1188,9 @@ class PackageBuilderView(Gtk.Box):
         if not project.entry_point:
             self._show_toast("Add a launch target before publishing.")
             return
+        if project.project_type == "linux" and not project.source_dir:
+            self._show_toast("Choose a source folder before publishing.")
+            return
         if project.project_type != "linux" and not project.runner:
             self._show_toast("Select a runner before publishing.")
             return
@@ -1249,6 +1202,7 @@ class PackageBuilderView(Gtk.Box):
             return
 
         repo = self._writable_repos[0]
+        _src_path = Path(project.source_dir) if project.project_type == "linux" else project.prefix_path
 
         # Build AppEntry from project metadata.
         from cellar.models.app_entry import AppEntry, BuiltWith
@@ -1310,7 +1264,7 @@ class PackageBuilderView(Gtk.Box):
                 if project.project_type == "linux":
                     # Native Linux apps have no base image — always full compress.
                     size, crc32 = compress_prefix_zst(
-                        project.prefix_path,
+                        _src_path,
                         archive_dest,
                         cancel_event=cancel_event,
                         progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f * 0.9),
@@ -1325,7 +1279,7 @@ class PackageBuilderView(Gtk.Box):
                     if _use_delta:
                         GLib.idle_add(progress.set_label, "Scanning files…")
                         size, crc32 = compress_prefix_delta_zst(
-                            project.prefix_path,
+                            _src_path,
                             base_path(project.runner),
                             archive_dest,
                             cancel_event=cancel_event,
@@ -1398,12 +1352,17 @@ class PackageBuilderView(Gtk.Box):
         if not project.entry_point:
             self._show_toast("Add a launch target before publishing.")
             return
+        if project.project_type == "linux" and not project.source_dir:
+            self._show_toast("Choose a source folder before publishing.")
+            return
         if project.project_type != "linux" and not project.runner:
             self._show_toast("Select a runner before publishing.")
             return
         if not self._writable_repos:
             self._show_toast("No writable repository configured.")
             return
+
+        _src_path = Path(project.source_dir) if project.project_type == "linux" else project.prefix_path
 
         # Find a writable repo that has this entry.
         repo = None
@@ -1438,7 +1397,7 @@ class PackageBuilderView(Gtk.Box):
 
                 if project.project_type == "linux":
                     size, crc32 = compress_prefix_zst(
-                        project.prefix_path,
+                        _src_path,
                         archive_dest,
                         cancel_event=cancel_event,
                         progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f * 0.9),

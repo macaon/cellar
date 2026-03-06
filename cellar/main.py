@@ -7,6 +7,9 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(name)s %(levelname)s: %(message)s",
 )
+# smbprotocol is very chatty at INFO level (logs every read/write response).
+logging.getLogger("smbprotocol").setLevel(logging.WARNING)
+logging.getLogger("smbclient").setLevel(logging.WARNING)
 
 import gi
 

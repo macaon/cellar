@@ -63,8 +63,6 @@ class CellarWindow(Adw.ApplicationWindow):
         # All writable repos from the last catalogue load — passed to AddAppDialog
         # so the user can choose which one to add a package to.
         self._writable_repos: list = []
-        # All repos (writable + read-only) — passed to SettingsDialog so it can
-        # list bases available in any repo, not just writable ones.
         self._all_repos: list = []
         # Maps entry.id → list of Repo objects that carry the entry, for the
         # source selector shown in the detail view.
@@ -532,18 +530,14 @@ class CellarWindow(Adw.ApplicationWindow):
     def _on_preferences_activated(self, _action, _param) -> None:
         from cellar.views.settings import SettingsDialog
 
-        dialog = SettingsDialog(
-            on_repos_changed=self._load_catalogue,
-            writable_repos=self._writable_repos,
-            all_repos=self._all_repos,
-        )
+        dialog = SettingsDialog(on_repos_changed=self._load_catalogue)
         dialog.present(self)
 
     def _on_about_activated(self, _action, _param) -> None:
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="application-x-executable",
-            version="0.42.1",
+            version="0.42.2",
             comments="A GNOME storefront for Bottles-managed Windows apps.",
             license_type=Gtk.License.GPL_3_0,
         )

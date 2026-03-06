@@ -26,26 +26,55 @@ log = logging.getLogger(__name__)
 _ICON_SIZE = 96
 
 
-def _md_to_pango(text: str) -> str:
-    """Convert a small subset of Markdown to Pango markup for display.
+def _html_to_pango(text: str) -> str:
+    """Convert a limited HTML subset to Pango markup for display.
 
-    Supports: **bold**, *italic*, and lines starting with "- " as bullets.
+    Supported tags: <b>, <i>, <h1>, <h2>, <h3>, <li>, <hr>, <br>, <p>, <ul>.
+    All other tags and their content are stripped; bare text is XML-escaped.
     """
-    escaped = GLib.markup_escape_text(text)
-    # ***bold+italic*** — must precede the individual patterns to avoid star bleed
-    escaped = re.sub(r"\*\*\*([^*\n]+?)\*\*\*", r"<b><i>\1</i></b>", escaped)
-    # **bold**
-    escaped = re.sub(r"\*\*([^*\n]+?)\*\*", r"<b>\1</b>", escaped)
-    # *italic*
-    escaped = re.sub(r"\*([^*\n]+?)\*", r"<i>\1</i>", escaped)
-    # Lines starting with "- " → bullet
-    lines = []
-    for line in escaped.split("\n"):
-        if line.startswith("- "):
-            lines.append("\u2022 " + line[2:])
+    # Split on tags, preserving them as tokens
+    tokens = re.split(r"(<[^>]+>)", text)
+    out: list[str] = []
+    skip_until: str | None = None  # set when inside an unsupported container
+
+    for tok in tokens:
+        if not tok:
+            continue
+        if tok.startswith("<"):
+            low = tok.lower().strip("<>").split()[0].lstrip("/")
+            closing = tok.lstrip("<").startswith("/")
+            if skip_until:
+                if closing and low == skip_until:
+                    skip_until = None
+                continue
+            if low == "b":
+                out.append("</b>" if closing else "<b>")
+            elif low == "i":
+                out.append("</i>" if closing else "<i>")
+            elif low in ("h1", "h2", "h3"):
+                out.append("</b></big>\n" if closing else "\n<big><b>")
+            elif low == "li":
+                if not closing:
+                    out.append("\n\u2022\u00a0")
+            elif low == "hr":
+                out.append("\n\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\n")
+            elif low in ("br",):
+                out.append("\n")
+            elif low == "p":
+                if closing:
+                    out.append("\n")
+            elif low in ("ul", "ol", "li", "div", "span"):
+                pass  # silently skip structural tags
+            else:
+                # Unknown tag — skip it (don't try to emit it as Pango)
+                pass
         else:
-            lines.append(line)
-    return "\n".join(lines)
+            out.append(GLib.markup_escape_text(tok))
+
+    result = "".join(out).strip()
+    # Collapse 3+ consecutive newlines to 2
+    result = re.sub(r"\n{3,}", "\n\n", result)
+    return result
 
 
 class DetailView(Gtk.Box):
@@ -850,7 +879,7 @@ class DetailView(Gtk.Box):
 
         if e.description:
             lbl = Gtk.Label()
-            lbl.set_markup(_md_to_pango(e.description))
+            lbl.set_markup(_html_to_pango(e.description))
             lbl.set_wrap(True)
             lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
             lbl.set_xalign(0)

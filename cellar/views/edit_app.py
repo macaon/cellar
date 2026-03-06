@@ -162,19 +162,29 @@ class EditAppDialog(Adw.Dialog):
         fmt_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
         bold_btn = Gtk.Button(label="B")
         bold_btn.add_css_class("flat")
-        bold_btn.set_tooltip_text("Bold (**text**)")
-        bold_btn.connect("clicked", lambda _: self._desc_fmt_wrap("**"))
+        bold_btn.set_tooltip_text("Bold (<b>text</b>)")
+        bold_btn.connect("clicked", lambda _: self._desc_fmt_wrap("b"))
         italic_btn = Gtk.Button(label="I")
         italic_btn.add_css_class("flat")
-        italic_btn.set_tooltip_text("Italic (*text*)")
-        italic_btn.connect("clicked", lambda _: self._desc_fmt_wrap("*"))
+        italic_btn.set_tooltip_text("Italic (<i>text</i>)")
+        italic_btn.connect("clicked", lambda _: self._desc_fmt_wrap("i"))
+        h2_btn = Gtk.Button(label="H2")
+        h2_btn.add_css_class("flat")
+        h2_btn.set_tooltip_text("Heading (<h2>text</h2>)")
+        h2_btn.connect("clicked", lambda _: self._desc_fmt_wrap("h2"))
         bullet_btn = Gtk.Button(icon_name="view-list-bullet-symbolic")
         bullet_btn.add_css_class("flat")
-        bullet_btn.set_tooltip_text("Bullet list (- item)")
+        bullet_btn.set_tooltip_text("Bullet list (<li>item</li>)")
         bullet_btn.connect("clicked", lambda _: self._desc_fmt_bullet())
+        hr_btn = Gtk.Button(label="—")
+        hr_btn.add_css_class("flat")
+        hr_btn.set_tooltip_text("Horizontal rule (<hr>)")
+        hr_btn.connect("clicked", lambda _: self._desc_fmt_hr())
         fmt_box.append(bold_btn)
         fmt_box.append(italic_btn)
+        fmt_box.append(h2_btn)
         fmt_box.append(bullet_btn)
+        fmt_box.append(hr_btn)
         desc_header.append(fmt_box)
         desc_outer.append(desc_header)
 
@@ -445,24 +455,36 @@ class EditAppDialog(Adw.Dialog):
 
     # ── Description formatting helpers ────────────────────────────────────
 
-    def _desc_fmt_wrap(self, marker: str) -> None:
+    def _desc_fmt_wrap(self, tag: str) -> None:
         buf = self._desc_view.get_buffer()
         buf.begin_user_action()
         if buf.get_has_selection():
             start, end = buf.get_selection_bounds()
             text = buf.get_text(start, end, False)
             buf.delete(start, end)
-            buf.insert(buf.get_iter_at_mark(buf.get_insert()), f"{marker}{text}{marker}")
+            buf.insert(buf.get_iter_at_mark(buf.get_insert()), f"<{tag}>{text}</{tag}>")
         else:
-            buf.insert_at_cursor(f"{marker}{marker}")
+            buf.insert_at_cursor(f"<{tag}></{tag}>")
         buf.end_user_action()
 
     def _desc_fmt_bullet(self) -> None:
         buf = self._desc_view.get_buffer()
+        buf.begin_user_action()
+        if buf.get_has_selection():
+            start, end = buf.get_selection_bounds()
+            text = buf.get_text(start, end, False)
+            buf.delete(start, end)
+            buf.insert(buf.get_iter_at_mark(buf.get_insert()), f"<li>{text}</li>")
+        else:
+            buf.insert_at_cursor("<li></li>")
+        buf.end_user_action()
+
+    def _desc_fmt_hr(self) -> None:
+        buf = self._desc_view.get_buffer()
         it = buf.get_iter_at_mark(buf.get_insert())
         it.set_line_offset(0)
         buf.begin_user_action()
-        buf.insert(it, "- ")
+        buf.insert(it, "<hr>\n")
         buf.end_user_action()
 
     # ── Image pickers ─────────────────────────────────────────────────────

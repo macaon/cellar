@@ -132,13 +132,8 @@ class CellarWindow(Adw.ApplicationWindow):
     # ── Catalogue loading ─────────────────────────────────────────────────
 
     def _load_catalogue(self) -> None:
-        from cellar.backend.config import load_repos
+        from cellar.backend.config import load_repos, load_smb_password
         from cellar.backend.repo import Repo, RepoError, RepoManager  # noqa: F401
-
-        # A single MountOperation with this window as parent covers all repos
-        # in this load pass.  Gtk.MountOperation shows credential dialogs and
-        # saves accepted passwords to the GNOME Keyring automatically.
-        mount_op = Gtk.MountOperation(parent=self)
 
         manager = RepoManager()
         self._first_repo = None
@@ -150,7 +145,7 @@ class CellarWindow(Adw.ApplicationWindow):
         env_uri = os.environ.get("CELLAR_REPO", "")
         if env_uri:
             try:
-                r = Repo(env_uri, mount_op=mount_op)
+                r = Repo(env_uri)
                 manager.add(r)
                 self._first_repo = self._first_repo or r
             except RepoError as exc:
@@ -166,14 +161,17 @@ class CellarWindow(Adw.ApplicationWindow):
                     ca_cert_path = str(resolved) if resolved.exists() else None
                     if not ca_cert_path:
                         log.warning("CA cert %r not found in certs dir; ignoring", ca_cert_name)
+                smb_username = cfg.get("smb_username") or None
+                smb_password = load_smb_password(cfg["uri"]) if smb_username else None
                 r = Repo(
                     cfg["uri"],
                     cfg.get("name", ""),
                     ssh_identity=cfg.get("ssh_identity"),
-                    mount_op=mount_op,
                     ssl_verify=cfg.get("ssl_verify", True),
                     ca_cert=ca_cert_path,
                     token=cfg.get("token") or None,
+                    smb_username=smb_username,
+                    smb_password=smb_password,
                 )
                 manager.add(r)
                 self._first_repo = self._first_repo or r
@@ -545,7 +543,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="application-x-executable",
-            version="0.41.1",
+            version="0.42.0",
             comments="A GNOME storefront for Bottles-managed Windows apps.",
             license_type=Gtk.License.GPL_3_0,
         )

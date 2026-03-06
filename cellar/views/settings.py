@@ -258,13 +258,24 @@ class SettingsDialog(Adw.PreferencesDialog):
         ca_cert = repo_cfg.get("ca_cert") or ""
         ssl_verify = repo_cfg.get("ssl_verify", True)
         token = repo_cfg.get("token") or ""
+        smb_username = repo_cfg.get("smb_username") or ""
 
         title = name if name else uri
         subtitle = uri if name else ""
 
         row = Adw.ActionRow(title=title, subtitle=subtitle)
 
-        if token:
+        if smb_username:
+            from cellar.backend.config import load_smb_password
+            has_pw = bool(load_smb_password(uri))
+            icon = Gtk.Image.new_from_icon_name(
+                "channel-secure-symbolic" if has_pw else "dialog-password-symbolic"
+            )
+            icon.set_tooltip_text(
+                f"SMB: {smb_username}" + (" (password stored)" if has_pw else " (no password)")
+            )
+            row.add_prefix(icon)
+        elif token:
             icon = Gtk.Image.new_from_icon_name("channel-secure-symbolic")
             icon.set_tooltip_text("Bearer token configured")
             row.add_prefix(icon)
@@ -1176,15 +1187,43 @@ class AddEditRepoDialog(Adw.Dialog):
         # URI (required)
         self._uri_row = Adw.EntryRow(title="URI *")
         self._uri_row.connect("entry-activated", lambda _: self._on_save_clicked(None))
+        self._uri_row.connect("changed", self._on_uri_changed)
         if self._existing:
             self._uri_row.set_text(self._existing.get("uri") or "")
         group.add(self._uri_row)
 
+        # SMB credentials group (shown only when URI scheme is smb://)
+        self._smb_group = Adw.PreferencesGroup(
+            title="SMB Credentials",
+            description="Optional — leave blank for anonymous/guest access.",
+        )
+        page.add(self._smb_group)
+
+        self._smb_user_row = Adw.EntryRow(title="Username")
+        if self._existing:
+            self._smb_user_row.set_text(self._existing.get("smb_username") or "")
+        self._smb_group.add(self._smb_user_row)
+
+        self._smb_pass_row = Adw.PasswordEntryRow(title="Password")
+        if self._existing:
+            from cellar.backend.config import load_smb_password
+            stored_pw = load_smb_password(self._existing.get("uri", "")) or ""
+            self._smb_pass_row.set_text(stored_pw)
+        self._smb_group.add(self._smb_pass_row)
+
+        # Show SMB group only for smb:// URIs
+        is_smb = urlparse(self._existing.get("uri", "") if self._existing else "").scheme.lower() == "smb"
+        self._smb_group.set_visible(is_smb)
+
+        # HTTP-only group
+        http_group = Adw.PreferencesGroup(title="HTTP Authentication")
+        page.add(http_group)
+
         # Access token (password-masked)
-        self._token_row = Adw.PasswordEntryRow(title="Access token")
+        self._token_row = Adw.PasswordEntryRow(title="Bearer token")
         if self._existing:
             self._token_row.set_text(self._existing.get("token") or "")
-        group.add(self._token_row)
+        http_group.add(self._token_row)
 
         # SSL verification toggle
         self._ssl_row = Adw.SwitchRow(title="Verify SSL certificate")
@@ -1193,7 +1232,7 @@ class AddEditRepoDialog(Adw.Dialog):
             ssl_active = self._existing.get("ssl_verify", True)
         self._ssl_row.set_active(ssl_active)
         self._ssl_row.connect("notify::active", self._on_ssl_toggled)
-        group.add(self._ssl_row)
+        http_group.add(self._ssl_row)
 
         # CA certificate selector (hidden when ssl_verify is off)
         self._ca_row = Adw.ActionRow(title="CA Certificate")
@@ -1207,7 +1246,11 @@ class AddEditRepoDialog(Adw.Dialog):
         select_btn.connect("clicked", self._on_select_ca_cert)
         self._ca_row.add_suffix(select_btn)
         self._ca_row.set_visible(ssl_active)
-        group.add(self._ca_row)
+        http_group.add(self._ca_row)
+
+        # Show HTTP group only for non-SMB URIs
+        http_group.set_visible(not is_smb)
+        self._http_group = http_group
 
         toolbar.set_content(scroll)
         self.set_child(toolbar)
@@ -1215,6 +1258,13 @@ class AddEditRepoDialog(Adw.Dialog):
     # ------------------------------------------------------------------
     # Signal handlers
     # ------------------------------------------------------------------
+
+    def _on_uri_changed(self, _entry) -> None:
+        """Show/hide SMB and HTTP credential groups based on current URI scheme."""
+        scheme = urlparse(self._uri_row.get_text().strip()).scheme.lower()
+        is_smb = scheme == "smb"
+        self._smb_group.set_visible(is_smb)
+        self._http_group.set_visible(not is_smb)
 
     def _on_ssl_toggled(self, row: Adw.SwitchRow, _param) -> None:
         self._ca_row.set_visible(row.get_active())
@@ -1252,8 +1302,13 @@ class AddEditRepoDialog(Adw.Dialog):
             return
 
         name = self._name_row.get_text().strip()
-        token = self._token_row.get_text().strip() or None
-        ssl_verify = self._ssl_row.get_active()
+        scheme = urlparse(uri).scheme.lower()
+        is_smb = scheme == "smb"
+
+        token = self._token_row.get_text().strip() or None if not is_smb else None
+        ssl_verify = self._ssl_row.get_active() if not is_smb else True
+        smb_username = self._smb_user_row.get_text().strip() or None if is_smb else None
+        smb_password = self._smb_pass_row.get_text() or None if is_smb else None
 
         # Duplicate check — only if URI is new.
         old_uri = self._existing.get("uri") if self._existing else None
@@ -1266,16 +1321,11 @@ class AddEditRepoDialog(Adw.Dialog):
             parsed = urlparse(uri)
             local_path = Path(parsed.path if parsed.path else uri).expanduser()
             if not local_path.is_dir():
-                self._ask_init(uri, name, token, ssl_verify)
+                self._ask_init(uri, name, token, ssl_verify, smb_username, smb_password)
                 return
 
         # Resolve CA cert path for the connection attempt.
         ca_cert_path, ca_cert_name = self._resolve_ca_cert(ssl_verify)
-
-        root = self.get_root()
-        mount_op = Gtk.MountOperation(
-            parent=root if isinstance(root, Gtk.Window) else None
-        )
 
         from cellar.backend.repo import Repo, RepoError
 
@@ -1283,10 +1333,11 @@ class AddEditRepoDialog(Adw.Dialog):
             repo = Repo(
                 uri,
                 name,
-                mount_op=mount_op,
                 ssl_verify=ssl_verify,
                 ca_cert=ca_cert_path,
                 token=token,
+                smb_username=smb_username,
+                smb_password=smb_password,
             )
         except RepoError as exc:
             self._alert("Invalid Repository", str(exc))
@@ -1298,7 +1349,7 @@ class AddEditRepoDialog(Adw.Dialog):
             err = str(exc)
             if _looks_like_missing(err):
                 if repo.is_writable:
-                    self._ask_init(uri, name, token, ssl_verify)
+                    self._ask_init(uri, name, token, ssl_verify, smb_username, smb_password)
                 else:
                     self._alert(
                         "No Catalogue Found",
@@ -1348,14 +1399,20 @@ class AddEditRepoDialog(Adw.Dialog):
             if not dest.exists():
                 shutil.copy2(src, dest)
 
-        self._finish_save(uri, name, token, ssl_verify, ca_cert_name)
+        self._finish_save(uri, name, token, ssl_verify, ca_cert_name, smb_username, smb_password)
 
     # ------------------------------------------------------------------
     # Init flow (catalogue missing on a writable repo)
     # ------------------------------------------------------------------
 
     def _ask_init(
-        self, uri: str, name: str, token: str | None, ssl_verify: bool
+        self,
+        uri: str,
+        name: str,
+        token: str | None,
+        ssl_verify: bool,
+        smb_username: str | None = None,
+        smb_password: str | None = None,
     ) -> None:
         if _is_local_uri(uri):
             body = (
@@ -1373,7 +1430,10 @@ class AddEditRepoDialog(Adw.Dialog):
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("init", "Initialise")
         dialog.set_response_appearance("init", Adw.ResponseAppearance.SUGGESTED)
-        dialog.connect("response", self._on_init_response, uri, name, token, ssl_verify)
+        dialog.connect(
+            "response", self._on_init_response,
+            uri, name, token, ssl_verify, smb_username, smb_password,
+        )
         dialog.present(self)
 
     def _on_init_response(
@@ -1384,16 +1444,18 @@ class AddEditRepoDialog(Adw.Dialog):
         name: str,
         token: str | None,
         ssl_verify: bool,
+        smb_username: str | None = None,
+        smb_password: str | None = None,
     ) -> None:
         if response != "init":
             return
         scheme = urlparse(uri).scheme.lower()
         if _is_local_uri(uri):
-            self._init_local_repo(uri, name, token, ssl_verify)
-        elif scheme in ("smb", "nfs"):
-            self._init_gio_repo(uri, name, token, ssl_verify)
+            self._init_local_repo(uri, name, token, ssl_verify, smb_username, smb_password)
+        elif scheme == "smb":
+            self._init_smb_repo(uri, name, token, ssl_verify, smb_username, smb_password)
         elif scheme == "ssh":
-            self._init_ssh_repo(uri, name, token, ssl_verify)
+            self._init_ssh_repo(uri, name, token, ssl_verify, smb_username, smb_password)
         else:
             self._alert(
                 "Not Supported",
@@ -1401,7 +1463,13 @@ class AddEditRepoDialog(Adw.Dialog):
             )
 
     def _init_local_repo(
-        self, uri: str, name: str, token: str | None, ssl_verify: bool
+        self,
+        uri: str,
+        name: str,
+        token: str | None,
+        ssl_verify: bool,
+        smb_username: str | None = None,
+        smb_password: str | None = None,
     ) -> None:
         parsed = urlparse(uri)
         target = Path(parsed.path if parsed.path else uri).expanduser()
@@ -1415,30 +1483,54 @@ class AddEditRepoDialog(Adw.Dialog):
         except OSError as exc:
             self._alert("Could Not Initialise", str(exc))
             return
-        self._finish_save(uri, name, token, ssl_verify, None)
+        self._finish_save(uri, name, token, ssl_verify, None, smb_username, smb_password)
 
-    def _init_gio_repo(
-        self, uri: str, name: str, token: str | None, ssl_verify: bool
+    def _init_smb_repo(
+        self,
+        uri: str,
+        name: str,
+        token: str | None,
+        ssl_verify: bool,
+        smb_username: str | None = None,
+        smb_password: str | None = None,
     ) -> None:
-        from cellar.utils.gio_io import gio_makedirs, gio_write_bytes
+        from cellar.utils.smb import smb_uri_to_unc
 
-        root = self.get_root()
-        mount_op = Gtk.MountOperation(
-            parent=root if isinstance(root, Gtk.Window) else None
-        )
+        unc = smb_uri_to_unc(uri)
+        cat_unc = unc.rstrip("/") + "/catalogue.json"
         data = json.dumps(_empty_catalogue(), indent=2, ensure_ascii=False).encode()
-        catalogue_uri = uri.rstrip("/") + "/catalogue.json"
+        server = urlparse(uri).hostname or ""
         try:
-            gio_makedirs(uri, mount_op=mount_op)
-            gio_write_bytes(catalogue_uri, data, mount_op=mount_op)
-            log.info("Initialised new GIO repo at %s", uri)
-        except OSError as exc:
+            import smbclient  # type: ignore[import]
+            kwargs: dict = {}
+            if smb_username:
+                kwargs["username"] = smb_username
+            if smb_password:
+                kwargs["password"] = smb_password
+            smbclient.register_session(server, **kwargs)
+            smbclient.makedirs(unc, exist_ok=True)
+            with smbclient.open_file(cat_unc, mode="wb") as f:
+                f.write(data)
+            log.info("Initialised new SMB repo at %s", uri)
+        except ImportError:
+            self._alert(
+                "Could Not Initialise",
+                "smbprotocol is not installed. Install it with: pip install smbprotocol",
+            )
+            return
+        except Exception as exc:
             self._alert("Could Not Initialise", str(exc))
             return
-        self._finish_save(uri, name, token, ssl_verify, None)
+        self._finish_save(uri, name, token, ssl_verify, None, smb_username, smb_password)
 
     def _init_ssh_repo(
-        self, uri: str, name: str, token: str | None, ssl_verify: bool
+        self,
+        uri: str,
+        name: str,
+        token: str | None,
+        ssl_verify: bool,
+        smb_username: str | None = None,
+        smb_password: str | None = None,
     ) -> None:
         import shlex
         import subprocess
@@ -1499,7 +1591,7 @@ class AddEditRepoDialog(Adw.Dialog):
             return
 
         log.info("Initialised new SSH repo at %s", uri)
-        self._finish_save(uri, name, token, ssl_verify, None)
+        self._finish_save(uri, name, token, ssl_verify, None, smb_username, smb_password)
 
     # ------------------------------------------------------------------
     # Helpers
@@ -1525,8 +1617,20 @@ class AddEditRepoDialog(Adw.Dialog):
         token: str | None,
         ssl_verify: bool,
         ca_cert_name: str | None,
+        smb_username: str | None = None,
+        smb_password: str | None = None,
     ) -> None:
+        # Persist SMB password to keyring before saving config.
+        if smb_password:
+            from cellar.backend.config import save_smb_password
+            save_smb_password(uri, smb_password)
+        elif smb_username is None:
+            # Clearing credentials: remove stored password if URI changed.
+            pass
+
         cfg: dict = {"uri": uri, "name": name}
+        if smb_username:
+            cfg["smb_username"] = smb_username
         if token:
             cfg["token"] = token
         if not ssl_verify:

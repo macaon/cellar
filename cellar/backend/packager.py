@@ -26,6 +26,20 @@ from typing import Callable
 from cellar.utils.images import optimize_image as _optimize_image
 
 
+def _rmtree(path, ignore_errors: bool = False) -> None:
+    """Remove a directory tree; works for both :class:`pathlib.Path` and
+    :class:`~cellar.utils.smb.SmbPath`."""
+    from cellar.utils.smb import SmbPath
+    if isinstance(path, SmbPath):
+        try:
+            path.rmtree()
+        except Exception:
+            if not ignore_errors:
+                raise
+    else:
+        shutil.rmtree(path, ignore_errors=ignore_errors)
+
+
 # ---------------------------------------------------------------------------
 # Category constants
 # ---------------------------------------------------------------------------
@@ -264,7 +278,7 @@ def compress_directory_zst(
 
     cctx = zstd.ZstdCompressor(level=3)
     try:
-        with open(dest_path, "wb") as out_f:
+        with dest_path.open("wb") as out_f:
             crc_writer = _CRCWriter(out_f)
             with cctx.stream_writer(crc_writer, closefd=False) as compressor:
                 with tarfile.open(fileobj=compressor, mode="w|") as tf:
@@ -316,7 +330,7 @@ def compress_prefix_zst(
 
     cctx = zstd.ZstdCompressor(level=3)
     try:
-        with open(dest_path, "wb") as out_f:
+        with dest_path.open("wb") as out_f:
             crc_writer = _CRCWriter(out_f)
             with cctx.stream_writer(crc_writer, closefd=False) as compressor:
                 with tarfile.open(fileobj=compressor, mode="w|") as tf:
@@ -403,7 +417,7 @@ def import_to_repo(
         crc = 0
         start = time.monotonic()
         try:
-            with open(archive_src, "rb") as src_f, open(archive_dest, "wb") as dst_f:
+            with open(archive_src, "rb") as src_f, archive_dest.open("wb") as dst_f:
                 while True:
                     if cancel_event and cancel_event.is_set():
                         dst_f.close()
@@ -487,7 +501,7 @@ def update_in_repo(
         crc = 0
         start = time.monotonic()
         try:
-            with open(new_archive_src, "rb") as src_f, open(archive_dest, "wb") as dst_f:
+            with open(new_archive_src, "rb") as src_f, archive_dest.open("wb") as dst_f:
                 while True:
                     if cancel_event and cancel_event.is_set():
                         dst_f.close()
@@ -532,7 +546,7 @@ def update_in_repo(
     if new_screenshots is not None:
         ss_dir = repo_root / "apps" / new_entry.id / "screenshots"
         if ss_dir.exists():
-            shutil.rmtree(ss_dir)
+            _rmtree(ss_dir)
         if new_screenshots:
             ss_dir.mkdir(parents=True, exist_ok=True)
             for i, src in enumerate(new_screenshots, 1):
@@ -569,7 +583,7 @@ def remove_from_repo(
     if cancel_event and cancel_event.is_set():
         raise CancelledError("Delete cancelled by user")
 
-    shutil.rmtree(repo_root / "apps" / entry.id, ignore_errors=True)
+    _rmtree(repo_root / "apps" / entry.id, ignore_errors=True)
 
     if cancel_event and cancel_event.is_set():
         raise CancelledError("Delete cancelled by user")

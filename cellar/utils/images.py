@@ -167,14 +167,31 @@ def to_texture(png_bytes: bytes):
 # Import-time image optimisation (packager)
 # ---------------------------------------------------------------------------
 
-def optimize_image(src: str | Path, dest: Path, role: str) -> None:
+def optimize_image(src: str | Path, dest, role: str) -> None:
     """Copy *src* to *dest*, converting/downscaling as needed.
+
+    *dest* may be a :class:`pathlib.Path` or any object with ``.write_bytes()``
+    (e.g. :class:`~cellar.utils.smb.SmbPath`).  Non-``Path`` destinations are
+    handled by writing to a temporary local file first, then uploading.
 
     - ICO files are converted to PNG (Pillow handles all ICO frame types).
     - Images exceeding the role's max dimensions are downscaled and saved
       as JPEG at 85 % quality.
     - Images already within limits are copied as-is.
     """
+    if not isinstance(dest, Path):
+        # Non-local destination (e.g. SmbPath): use a temp file then upload.
+        import tempfile
+        suffix = getattr(dest, "suffix", "") or Path(str(src)).suffix or ".png"
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tf:
+            tmp = Path(tf.name)
+        try:
+            optimize_image(src, tmp, role)
+            dest.write_bytes(tmp.read_bytes())
+        finally:
+            tmp.unlink(missing_ok=True)
+        return
+
     src = Path(src)
 
     # ICO → PNG conversion (any role).

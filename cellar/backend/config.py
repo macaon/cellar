@@ -165,3 +165,61 @@ def clear_igdb_creds() -> None:
     for key in ("igdb_client_id", "igdb_client_secret", "igdb_token", "igdb_token_expiry"):
         cfg.pop(key, None)
     _save(cfg)
+
+
+# ---------------------------------------------------------------------------
+# SMB credential helpers
+# ---------------------------------------------------------------------------
+
+_KEYRING_SERVICE = "cellar-repo"
+
+
+def save_smb_password(uri: str, password: str) -> None:
+    """Store *password* for *uri* in the system keyring.
+
+    Falls back to ``config.json`` if the keyring is unavailable (e.g. on
+    headless systems).  The fallback is logged as a warning.
+    """
+    try:
+        import keyring  # type: ignore[import]
+        keyring.set_password(_KEYRING_SERVICE, uri, password)
+        return
+    except Exception as exc:
+        log.warning(
+            "Keyring unavailable (%s); storing SMB password in config.json", exc
+        )
+    cfg = _load()
+    cfg.setdefault("smb_passwords", {})[uri] = password
+    _save(cfg)
+    # Restrict permissions on config file so the password is not world-readable.
+    try:
+        import os
+        _config_path().chmod(0o600)
+    except OSError:
+        pass
+
+
+def load_smb_password(uri: str) -> str | None:
+    """Return the stored SMB password for *uri*, or ``None`` if not found."""
+    try:
+        import keyring  # type: ignore[import]
+        pw = keyring.get_password(_KEYRING_SERVICE, uri)
+        if pw is not None:
+            return pw
+    except Exception:
+        pass
+    return _load().get("smb_passwords", {}).get(uri)
+
+
+def clear_smb_password(uri: str) -> None:
+    """Remove the stored SMB password for *uri* from keyring and config."""
+    try:
+        import keyring  # type: ignore[import]
+        keyring.delete_password(_KEYRING_SERVICE, uri)
+    except Exception:
+        pass
+    cfg = _load()
+    passwords = cfg.get("smb_passwords", {})
+    if uri in passwords:
+        del passwords[uri]
+        _save(cfg)

@@ -7,10 +7,10 @@ Supported URI schemes
 - ``ssh://[user@]host[:port]/path`` → streams files through the system ssh client;
   key auth handled by SSH agent / ``~/.ssh/config``;
   explicit identity file via ``ssh_identity=``
-- ``smb://`` / ``nfs://``        → delegates to GVFS through GIO
+- ``smb://``                     → pure-Python SMBv2/v3 via ``smbprotocol``
 
 HTTP(S) repos are always read-only — the client cannot initialise or modify
-them.  All other transports support write operations (phase 9).
+them.  All other transports support write operations.
 
 catalogue.json format
 ---------------------
@@ -184,142 +184,81 @@ class _SshFetcher:
         )
 
 
-class _GioFetcher:
-    """Reads files via GVFS through GIO — used for ``smb://`` and ``nfs://``.
+class _SmbFetcher:
+    """Reads files from an SMB share via ``smbprotocol`` (no GVFS/FUSE mount).
 
-    GIO is imported lazily so that the rest of the backend can be used
-    (and tested) without a display or GObject environment.
+    ``smbprotocol`` is a pure-Python SMBv2/v3 implementation that works on
+    GNOME *and* KDE without creating mount points visible in the file manager.
 
-    *mount_op* should be a ``Gtk.MountOperation`` (or any ``Gio.MountOperation``
-    subclass) created by the UI layer with the parent window set.  When the
-    share is not yet mounted, the fetcher will attempt to mount it via GIO and
-    block using a nested GLib main loop so that any credential dialog shown by
-    the mount operation can be interacted with.  Credentials entered this way
-    are stored in the GNOME Keyring automatically when the user ticks
-    "Remember Password".
-
-    If *mount_op* is ``None`` a bare ``Gio.MountOperation`` is used instead —
-    this works for shares that are already mounted or need no credentials, but
-    will not show a password prompt.
+    *username* and *password* are optional; many SMB shares accept guest/anonymous
+    access when omitted.  The session is registered once on construction and
+    reused for all subsequent calls.
     """
 
-    def __init__(self, base_uri: str, *, mount_op: object | None = None) -> None:
+    def __init__(
+        self,
+        base_uri: str,
+        *,
+        username: str | None = None,
+        password: str | None = None,
+    ) -> None:
+        from cellar.utils.smb import smb_uri_to_unc
+        self._base_uri = base_uri.rstrip("/")
+        self._base_unc = smb_uri_to_unc(base_uri).rstrip("/")
+        self._server = urlparse(base_uri).hostname or ""
+        self._username = username
+        self._password = password
+        self._connect()
+
+    def _connect(self) -> None:
         try:
-            import gi
-            gi.require_version("Gio", "2.0")
-            from gi.repository import Gio, GLib  # type: ignore[import]
-        except (ImportError, ValueError) as exc:
+            import smbclient  # type: ignore[import]
+        except ImportError as exc:
             raise RepoError(
-                "GIO is unavailable; cannot use smb:// or nfs:// URIs"
+                "smbprotocol is not installed; cannot use smb:// repos. "
+                "Install it with: pip install smbprotocol"
             ) from exc
-        self._Gio = Gio
-        self._GLib = GLib
-        self._base = base_uri.rstrip("/")
-        self._mount_op = mount_op  # Gio.MountOperation (or Gtk.MountOperation subclass)
-
-    # ------------------------------------------------------------------
-    # Mount helpers
-    # ------------------------------------------------------------------
-
-    def _ensure_mounted(self, gfile: object) -> None:
-        """Mount the enclosing GVFS volume, blocking via a nested GLib loop.
-
-        Uses *self._mount_op* to present credential prompts.  Raises
-        ``RepoError`` on failure.  ``ALREADY_MOUNTED`` is silently ignored.
-        """
-        main_loop = self._GLib.MainLoop()
-        _err: list = [None]
-
-        def _on_mounted(src, result, _):
-            try:
-                src.mount_enclosing_volume_finish(result)
-            except self._GLib.Error as exc:
-                if not exc.matches(
-                    self._Gio.io_error_quark(),
-                    self._Gio.IOErrorEnum.ALREADY_MOUNTED,
-                ):
-                    _err[0] = exc
-            finally:
-                main_loop.quit()
-
-        mount_op = self._mount_op or self._Gio.MountOperation()
-        gfile.mount_enclosing_volume(
-            self._Gio.MountMountFlags.NONE,
-            mount_op,
-            None,       # cancellable
-            _on_mounted,
-            None,       # user_data
-        )
-        main_loop.run()  # spins nested loop; GTK events (dialogs) are processed
-
-        if _err[0] is not None:
-            exc = _err[0]
-            # FAILED_HANDLED means the user cancelled an auth dialog — GIO has
-            # already shown any error UI, so give a terse message.
-            if exc.matches(
-                self._Gio.io_error_quark(),
-                self._Gio.IOErrorEnum.FAILED_HANDLED,
-            ):
-                raise RepoError("Authentication cancelled by user")
-            raise RepoError(f"Could not mount {self._base}: {exc.message}")
-
-    # ------------------------------------------------------------------
-    # _Fetcher interface
-    # ------------------------------------------------------------------
+        try:
+            kwargs: dict = {}
+            if self._username:
+                kwargs["username"] = self._username
+            if self._password:
+                kwargs["password"] = self._password
+            smbclient.register_session(self._server, **kwargs)
+        except Exception as exc:
+            raise RepoError(
+                f"Could not connect to SMB server {self._server!r}: {exc}"
+            ) from exc
 
     def fetch_bytes(self, rel_path: str) -> bytes:
-        uri = f"{self._base}/{rel_path.lstrip('/')}"
-        gfile = self._Gio.File.new_for_uri(uri)
+        import smbclient  # type: ignore[import]
+        unc = self._base_unc + "/" + rel_path.lstrip("/")
         try:
-            _ok, contents, _etag = gfile.load_contents(None)
-            return bytes(contents)
-        except self._GLib.Error as exc:
-            if exc.matches(
-                self._Gio.io_error_quark(),
-                self._Gio.IOErrorEnum.NOT_MOUNTED,
-            ):
-                # The GVFS backend exists but the share hasn't been mounted
-                # yet.  Attempt a mount (may prompt for credentials) then retry.
-                self._ensure_mounted(gfile)
-                try:
-                    _ok, contents, _etag = gfile.load_contents(None)
-                    return bytes(contents)
-                except self._GLib.Error as exc2:
-                    raise RepoError(
-                        f"GIO could not read {uri}: {exc2.message}"
-                    ) from exc2
-            raise RepoError(f"GIO could not read {uri}: {exc.message}") from exc
+            with smbclient.open_file(unc, mode="rb") as f:
+                return f.read()
+        except Exception as exc:
+            raise RepoError(f"SMB could not read {unc}: {exc}") from exc
 
     def resolve_uri(self, rel_path: str) -> str:
-        uri = f"{self._base}/{rel_path.lstrip('/')}"
-        # Prefer the GVFS FUSE path — a plain filesystem path that GdkPixbuf,
-        # os.path.isfile, and tarfile can use without any GIO calls.  The share
-        # is already mounted at this point (we fetched the catalogue through it),
-        # so get_path() returns the gvfsd-fuse path immediately.
-        try:
-            fuse_path = self._Gio.File.new_for_uri(uri).get_path()
-            if fuse_path:
-                return fuse_path
-        except Exception:
-            pass
-        return uri
+        return self._base_uri + "/" + rel_path.lstrip("/")
 
 
 # ---------------------------------------------------------------------------
 # Fetcher factory
 # ---------------------------------------------------------------------------
 
-_SUPPORTED_SCHEMES = "local path, file://, http(s)://, ssh://, smb://, nfs://"
+_SUPPORTED_SCHEMES = "local path, file://, http(s)://, ssh://, smb://"
 
 
 def _make_fetcher(
     uri: str,
     *,
     ssh_identity: str | None = None,
-    mount_op: object | None = None,
     ssl_verify: bool = True,
     ca_cert: str | None = None,
     token: str | None = None,
+    smb_username: str | None = None,
+    smb_password: str | None = None,
 ) -> _Fetcher:
     """Return the appropriate fetcher for *uri*."""
     parsed = urlparse(uri)
@@ -347,8 +286,12 @@ def _make_fetcher(
             identity=ssh_identity,
         )
 
-    if scheme in ("smb", "nfs"):
-        return _GioFetcher(uri, mount_op=mount_op)
+    if scheme == "smb":
+        return _SmbFetcher(
+            uri,
+            username=smb_username or parsed.username or None,
+            password=smb_password or parsed.password or None,
+        )
 
     raise RepoError(
         f"Unsupported URI scheme {scheme!r}. Supported: {_SUPPORTED_SCHEMES}"
@@ -377,25 +320,31 @@ class Repo:
         name: str = "",
         *,
         ssh_identity: str | None = None,
-        mount_op: object | None = None,
         ssl_verify: bool = True,
         ca_cert: str | None = None,
         token: str | None = None,
+        smb_username: str | None = None,
+        smb_password: str | None = None,
+        # mount_op is accepted but ignored — kept for call-site compatibility
+        # while callers are updated to remove it.
+        mount_op: object | None = None,
     ) -> None:
         self.uri = uri
         self.name = name or uri
         self._token = token
         self._ssl_verify = ssl_verify
         self._ca_cert = ca_cert
+        self._smb_username = smb_username
         self._cache_dir: Path | None = None
         self._bases: dict[str, BaseEntry] = {}
         self._fetcher: _Fetcher = _make_fetcher(
             uri,
             ssh_identity=ssh_identity,
-            mount_op=mount_op,
             ssl_verify=ssl_verify,
             ca_cert=ca_cert,
             token=token,
+            smb_username=smb_username,
+            smb_password=smb_password,
         )
 
     @property
@@ -487,7 +436,7 @@ class Repo:
     def resolve_asset_uri(self, repo_relative: str) -> str:
         """Return a URI/path string for a repo-relative asset (icon, screenshot…).
 
-        For non-local repos (HTTP, SSH, SMB, NFS), image assets are downloaded
+        For non-local repos (HTTP, SSH, SMB), image assets are downloaded
         to a persistent cache directory and the local path is returned so that
         Pillow and ``os.path.isfile()`` work correctly.  Archives are returned
         as-is so the installer's own download code handles them.
@@ -618,48 +567,34 @@ class Repo:
     def local_path(self, rel_path: str = "") -> Path:
         """Return the absolute local filesystem path for a repo-relative path.
 
-        Raises :exc:`RepoError` for non-local repos (HTTP, SSH, SMB, NFS).
+        Raises :exc:`RepoError` for non-local repos (HTTP, SSH, SMB).
         """
         if not isinstance(self._fetcher, _LocalFetcher):
             raise RepoError("local_path() is only available for local repos")
         return self._fetcher._root / rel_path.lstrip("/")
 
-    def writable_path(self, rel_path: str = "") -> Path:
-        """Return a writable local filesystem path to the repo root (or a sub-path).
+    def writable_path(self, rel_path: str = ""):
+        """Return a writable path to the repo root (or a sub-path).
 
-        For local repos this is identical to :meth:`local_path`.
+        For local repos returns a :class:`pathlib.Path`.
 
-        For SMB/NFS repos the share must already be mounted.  GVFS exposes
-        every mounted network share through ``gvfsd-fuse`` under
-        ``/run/user/<uid>/gvfs/``; ``Gio.File.get_path()`` returns that FUSE
-        path transparently.  ``packager.py`` can then use ordinary
-        :class:`pathlib.Path` operations on it without any GIO-specific code.
+        For SMB repos returns a :class:`~cellar.utils.smb.SmbPath` — a
+        path-like object that delegates all I/O to ``smbclient`` without
+        creating a GVFS/FUSE mount point.  ``packager.py`` can use the same
+        path arithmetic (``/``, ``.mkdir()``, ``.open()``, etc.) on either
+        object type.
 
-        Raises :exc:`RepoError` for HTTP/SSH repos or when GVFS FUSE is
-        unavailable (non-GNOME systems without gvfsd-fuse).
+        Raises :exc:`RepoError` for HTTP/SSH repos.
         """
         if isinstance(self._fetcher, _LocalFetcher):
             return self._fetcher._root / rel_path.lstrip("/")
 
-        if isinstance(self._fetcher, _GioFetcher):
-            try:
-                import gi
-                gi.require_version("Gio", "2.0")
-                from gi.repository import Gio
-            except (ImportError, ValueError) as exc:
-                raise RepoError("GIO is unavailable") from exc
-
-            gfile = Gio.File.new_for_uri(
-                self._fetcher._base.rstrip("/") + "/" + rel_path.lstrip("/")
-                if rel_path else self._fetcher._base
-            )
-            fuse_path = gfile.get_path()
-            if fuse_path:
-                return Path(fuse_path)
-            raise RepoError(
-                "GVFS FUSE mount is not available for this share. "
-                "Ensure gvfsd-fuse is running (standard on GNOME)."
-            )
+        if isinstance(self._fetcher, _SmbFetcher):
+            from cellar.utils.smb import SmbPath
+            base = SmbPath(self._fetcher._base_unc)
+            if rel_path:
+                return base / rel_path.lstrip("/")
+            return base
 
         scheme = urlparse(self.uri).scheme.lower()
         raise RepoError(

@@ -39,42 +39,86 @@ from cellar.backend.project import (
 
 log = logging.getLogger(__name__)
 
-# Curated list of common winetricks verbs shown in the dependency picker.
-# Tuple: (category, verb, description)
-_VERB_CATALOGUE: list[tuple[str, str, str]] = [
-    ("Visual C++ Runtimes", "vcrun2005", "Visual C++ 2005 Redistributable"),
-    ("Visual C++ Runtimes", "vcrun2008", "Visual C++ 2008 Redistributable"),
-    ("Visual C++ Runtimes", "vcrun2010", "Visual C++ 2010 Redistributable"),
-    ("Visual C++ Runtimes", "vcrun2012", "Visual C++ 2012 Redistributable"),
-    ("Visual C++ Runtimes", "vcrun2013", "Visual C++ 2013 Redistributable"),
-    ("Visual C++ Runtimes", "vcrun2015", "Visual C++ 2015–2022 Redistributable"),
-    ("Visual C++ Runtimes", "vcrun2017", "Visual C++ 2017 Redistributable"),
-    ("Visual C++ Runtimes", "vcrun2019", "Visual C++ 2019 Redistributable"),
-    ("Visual C++ Runtimes", "vcrun2022", "Visual C++ 2022 Redistributable"),
-    (".NET Framework", "dotnet40", ".NET Framework 4.0"),
-    (".NET Framework", "dotnet48", ".NET Framework 4.8"),
-    (".NET Framework", "dotnet6", ".NET 6.0 desktop runtime"),
-    (".NET Framework", "dotnet7", ".NET 7.0 desktop runtime"),
-    (".NET Framework", "dotnet8", ".NET 8.0 desktop runtime"),
-    ("DirectX", "d3dx9", "DirectX 9 runtime libraries"),
-    ("DirectX", "d3dcompiler_43", "D3DCompiler 43"),
-    ("DirectX", "d3dcompiler_47", "D3DCompiler 47"),
-    ("DirectX", "xact", "Microsoft XACT Engine"),
-    ("Media", "xna40", "Microsoft XNA Framework 4.0"),
-    ("Media", "wmp11", "Windows Media Player 11"),
-    ("Media", "quartz", "DirectShow (quartz.dll)"),
-    ("Fonts", "corefonts", "Microsoft Core Fonts (Arial, Times New Roman…)"),
-    ("Fonts", "allfonts", "All winetricks fonts"),
-    ("Fonts", "tahoma", "MS Tahoma"),
-    ("Fonts", "liberation", "Liberation fonts (free Arial/Times/Courier)"),
-    ("System", "mfc42", "MFC 4.2 (mfc42.dll)"),
-    ("System", "mfc100", "MFC 10.0 (mfc100.dll)"),
-    ("System", "mfc110", "MFC 11.0 (mfc110.dll)"),
-    ("System", "mfc120", "MFC 12.0 (mfc120.dll)"),
-    ("System", "mfc140", "MFC 14.0 (mfc140.dll)"),
-    ("System", "physx", "NVIDIA PhysX"),
-    ("System", "msxml6", "Microsoft XML 6.0 SP1"),
-    ("System", "gdiplus", "Microsoft GDI+"),
+# Curated winetricks verbs grouped by category and sorted alphabetically.
+# Format: (category_name, [(verb, description), ...])
+_VERB_CATALOGUE: list[tuple[str, list[tuple[str, str]]]] = [
+    ("Visual C++ Runtimes", [
+        ("vcrun2003", "Visual C++ 2003 Redistributable"),
+        ("vcrun2005", "Visual C++ 2005 Redistributable"),
+        ("vcrun2008", "Visual C++ 2008 Redistributable"),
+        ("vcrun2010", "Visual C++ 2010 Redistributable"),
+        ("vcrun2012", "Visual C++ 2012 Redistributable"),
+        ("vcrun2013", "Visual C++ 2013 Redistributable"),
+        ("vcrun2015", "Visual C++ 2015 Redistributable"),
+        ("vcrun2017", "Visual C++ 2017 Redistributable"),
+        ("vcrun2019", "Visual C++ 2019 Redistributable"),
+        ("vcrun2022", "Visual C++ 2022 Redistributable"),
+        ("vcrun6",    "Visual C++ 6.0 SP6 runtime"),
+    ]),
+    (".NET Framework", [
+        ("dotnet11",  ".NET Framework 1.1"),
+        ("dotnet20",  ".NET Framework 2.0"),
+        ("dotnet30",  ".NET Framework 3.0"),
+        ("dotnet35",  ".NET Framework 3.5"),
+        ("dotnet40",  ".NET Framework 4.0"),
+        ("dotnet45",  ".NET Framework 4.5"),
+        ("dotnet452", ".NET Framework 4.5.2"),
+        ("dotnet46",  ".NET Framework 4.6"),
+        ("dotnet461", ".NET Framework 4.6.1"),
+        ("dotnet462", ".NET Framework 4.6.2"),
+        ("dotnet471", ".NET Framework 4.7.1"),
+        ("dotnet472", ".NET Framework 4.7.2"),
+        ("dotnet48",  ".NET Framework 4.8"),
+        ("dotnet6",   ".NET 6.0 desktop runtime"),
+        ("dotnet7",   ".NET 7.0 desktop runtime"),
+        ("dotnet8",   ".NET 8.0 desktop runtime"),
+    ]),
+    ("DirectX", [
+        ("d3dcompiler_43", "D3DCompiler 43"),
+        ("d3dcompiler_47", "D3DCompiler 47"),
+        ("d3dx10",         "DirectX 10 DLLs"),
+        ("d3dx11_42",      "DirectX 11 DLL (d3dx11_42)"),
+        ("d3dx11_43",      "DirectX 11 DLL (d3dx11_43)"),
+        ("d3dx9",          "DirectX 9 DLLs (all versions)"),
+        ("dinput8",        "DirectInput 8"),
+        ("xact",           "XACT Engine"),
+        ("xactengine3_7",  "XACT Engine 3.7"),
+    ]),
+    ("Media & Codecs", [
+        ("amstream",   "DirectShow amstream.dll"),
+        ("devenum",    "DirectShow devenum.dll"),
+        ("lavfilters", "LAV Filters (open-source media codecs)"),
+        ("openal",     "OpenAL audio library"),
+        ("quartz",     "DirectShow quartz.dll"),
+        ("wmp10",      "Windows Media Player 10"),
+        ("wmp11",      "Windows Media Player 11"),
+        ("wmp9",       "Windows Media Player 9"),
+        ("wmv9vcm",    "MS WMV9 Video Codec"),
+    ]),
+    ("Fonts", [
+        ("allfonts",   "All winetricks fonts"),
+        ("corefonts",  "Microsoft Core Fonts (Arial, Times New Roman…)"),
+        ("liberation", "Liberation fonts (free Arial/Times/Courier)"),
+        ("tahoma",     "MS Tahoma"),
+    ]),
+    ("System DLLs", [
+        ("gdiplus",  "Microsoft GDI+"),
+        ("mfc100",   "Microsoft Foundation Classes 10.0"),
+        ("mfc110",   "Microsoft Foundation Classes 11.0"),
+        ("mfc120",   "Microsoft Foundation Classes 12.0"),
+        ("mfc140",   "Microsoft Foundation Classes 14.0"),
+        ("mfc42",    "Microsoft Foundation Classes 4.2"),
+        ("msvcirt",  "MS VC++ 6.0 C++ runtime (msvcirt.dll)"),
+        ("msxml3",   "MS XML 3.0"),
+        ("msxml4",   "MS XML 4.0"),
+        ("msxml6",   "MS XML 6.0 SP1"),
+    ]),
+    ("Game Runtimes", [
+        ("gfw",   "Games for Windows LIVE"),
+        ("physx", "NVIDIA PhysX"),
+        ("xna31", "Microsoft XNA Framework 3.1"),
+        ("xna40", "Microsoft XNA Framework 4.0"),
+    ]),
 ]
 
 
@@ -1141,18 +1185,19 @@ class _RunnerPickerDialog(Adw.Dialog):
 class _DependencyPickerDialog(Adw.Dialog):
     """Browse and install winetricks dependencies.
 
-    Presents a searchable list of curated verbs — each with a per-row
-    install (download icon) or remove (trash icon) button.  A custom-verb
-    entry at the bottom allows arbitrary verbs not in the catalogue.
-    Installing runs winetricks in a background thread; a per-row spinner
-    replaces the install button while the verb is being installed.
+    Presents verbs grouped in collapsible Adw.ExpanderRow sections (one per
+    category).  Each verb row has a per-row install (download icon) or remove
+    (trash icon) button; a spinner replaces the button while installing.
+    The search entry in the header bar auto-expands matching sections and hides
+    non-matching verbs.
     """
 
     def __init__(self, project: Project, on_dep_changed: Callable) -> None:
         super().__init__(title="Dependencies", content_width=500)
         self._project = project
         self._on_dep_changed = on_dep_changed
-        self._verb_rows: list[Adw.ActionRow] = []
+        # list of (ExpanderRow, [ActionRow, ...]) for search visibility control
+        self._category_rows: list[tuple[Adw.ExpanderRow, list[Adw.ActionRow]]] = []
 
         toolbar = Adw.ToolbarView()
 
@@ -1167,83 +1212,42 @@ class _DependencyPickerDialog(Adw.Dialog):
         self._search_entry = Gtk.SearchEntry()
         self._search_entry.set_placeholder_text("Search…")
         self._search_entry.set_hexpand(True)
-        self._search_entry.connect(
-            "search-changed",
-            lambda _: self._list_box.invalidate_filter(),
-        )
+        self._search_entry.connect("search-changed", self._on_search_changed)
         header.set_title_widget(self._search_entry)
         toolbar.add_top_bar(header)
 
         # Main scroll area
-        outer_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-
         scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
-        scroll.set_min_content_height(380)
+        scroll.set_min_content_height(420)
         scroll.set_vexpand(True)
 
         self._list_box = Gtk.ListBox()
         self._list_box.set_selection_mode(Gtk.SelectionMode.NONE)
         self._list_box.add_css_class("boxed-list")
         self._list_box.set_margin_top(12)
-        self._list_box.set_margin_bottom(0)
+        self._list_box.set_margin_bottom(12)
         self._list_box.set_margin_start(12)
         self._list_box.set_margin_end(12)
-        self._list_box.set_filter_func(self._filter_func)
 
-        for category, verb, description in _VERB_CATALOGUE:
-            row = Adw.ActionRow(
-                title=verb,
-                subtitle=f"{category}  ·  {description}",
-            )
-            row._verb = verb  # type: ignore[attr-defined]
-            row._search_key = f"{verb} {category} {description}".lower()  # type: ignore[attr-defined]
-            suffix = self._make_suffix(verb)
-            row._suffix_stack = suffix  # type: ignore[attr-defined]
-            row.add_suffix(suffix)
-            self._list_box.append(row)
-            self._verb_rows.append(row)
+        for category, verbs in _VERB_CATALOGUE:
+            exp_row = Adw.ExpanderRow(title=category)
+            verb_rows: list[Adw.ActionRow] = []
+
+            for verb, description in verbs:
+                verb_row = Adw.ActionRow(title=verb, subtitle=description)
+                verb_row._verb = verb  # type: ignore[attr-defined]
+                verb_row._search_key = f"{verb} {description} {category}".lower()  # type: ignore[attr-defined]
+                suffix = self._make_suffix(verb)
+                verb_row._suffix_stack = suffix  # type: ignore[attr-defined]
+                verb_row.add_suffix(suffix)
+                exp_row.add_row(verb_row)
+                verb_rows.append(verb_row)
+
+            self._list_box.append(exp_row)
+            self._category_rows.append((exp_row, verb_rows))
 
         scroll.set_child(self._list_box)
-        outer_box.append(scroll)
-
-        # ── Custom verb footer ──────────────────────────────────────────────
-        sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
-        sep.set_margin_top(12)
-        outer_box.append(sep)
-
-        custom_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        custom_box.set_margin_top(0)
-        custom_box.set_margin_bottom(12)
-        custom_box.set_margin_start(12)
-        custom_box.set_margin_end(12)
-
-        custom_list = Gtk.ListBox()
-        custom_list.set_selection_mode(Gtk.SelectionMode.NONE)
-        custom_list.add_css_class("boxed-list")
-
-        custom_row = Adw.ActionRow(
-            title="Custom verb",
-            subtitle="Install an arbitrary winetricks verb",
-        )
-        self._custom_entry = Gtk.Entry()
-        self._custom_entry.set_placeholder_text("e.g. dotnet48 vcrun2022")
-        self._custom_entry.set_valign(Gtk.Align.CENTER)
-        self._custom_entry.set_size_request(200, -1)
-        self._custom_entry.connect("activate", self._on_custom_install)
-
-        self._custom_install_btn = Gtk.Button(icon_name="folder-download-symbolic")
-        self._custom_install_btn.set_valign(Gtk.Align.CENTER)
-        self._custom_install_btn.set_tooltip_text("Install custom verb")
-        self._custom_install_btn.add_css_class("flat")
-        self._custom_install_btn.connect("clicked", self._on_custom_install)
-
-        custom_row.add_suffix(self._custom_entry)
-        custom_row.add_suffix(self._custom_install_btn)
-        custom_list.append(custom_row)
-        custom_box.append(custom_list)
-        outer_box.append(custom_box)
-
-        toolbar.set_content(outer_box)
+        toolbar.set_content(scroll)
         self.set_child(toolbar)
 
     # ── Suffix stack: idle / installing / installed ─────────────────────────
@@ -1284,60 +1288,33 @@ class _DependencyPickerDialog(Adw.Dialog):
         stack.set_visible_child_name(state)
         return stack
 
-    # ── Filter ──────────────────────────────────────────────────────────────
+    # ── Search ──────────────────────────────────────────────────────────────
 
-    def _filter_func(self, row: Gtk.ListBoxRow) -> bool:
+    def _on_search_changed(self, _entry) -> None:
         query = self._search_entry.get_text().lower().strip()
         if not query:
-            return True
-        key = getattr(row, "_search_key", "")
-        return query in key
+            for exp_row, verb_rows in self._category_rows:
+                exp_row.set_visible(True)
+                exp_row.set_expanded(False)
+                for vr in verb_rows:
+                    vr.set_visible(True)
+            return
+
+        for exp_row, verb_rows in self._category_rows:
+            has_match = False
+            for vr in verb_rows:
+                match = query in vr._search_key  # type: ignore[attr-defined]
+                vr.set_visible(match)
+                if match:
+                    has_match = True
+            exp_row.set_visible(has_match)
+            if has_match:
+                exp_row.set_expanded(True)
 
     # ── Install handlers ────────────────────────────────────────────────────
 
     def _on_install_clicked(self, _btn, verb: str, stack: Gtk.Stack) -> None:
         self._install_verbs([verb], stack)
-
-    def _on_custom_install(self, _widget) -> None:
-        raw = self._custom_entry.get_text().strip()
-        if not raw:
-            return
-        verbs = raw.split()
-        self._custom_entry.set_text("")
-        self._custom_entry.set_sensitive(False)
-        self._custom_install_btn.set_sensitive(False)
-
-        def _bg():
-            from cellar.backend.umu import run_winetricks
-            try:
-                result = run_winetricks(
-                    self._project.prefix_path,
-                    self._project.runner,
-                    verbs,
-                )
-                ok = result.returncode == 0
-            except Exception as exc:
-                log.error("run_winetricks failed: %s", exc)
-                ok = False
-            GLib.idle_add(_finish, ok)
-
-        def _finish(ok: bool) -> None:
-            self._custom_entry.set_sensitive(True)
-            self._custom_install_btn.set_sensitive(True)
-            if ok:
-                for v in verbs:
-                    if v not in self._project.deps_installed:
-                        self._project.deps_installed.append(v)
-                    # update catalogue row if present
-                    for row in self._verb_rows:
-                        if row._verb == v:  # type: ignore[attr-defined]
-                            row._suffix_stack.set_visible_child_name("installed")  # type: ignore[attr-defined]
-                save_project(self._project)
-                self._on_dep_changed()
-            else:
-                log.warning("Custom winetricks install failed for: %s", verbs)
-
-        threading.Thread(target=_bg, daemon=True).start()
 
     def _install_verbs(self, verbs: list[str], stack: Gtk.Stack) -> None:
         stack.set_visible_child_name("installing")

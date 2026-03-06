@@ -2130,6 +2130,7 @@ class _ProgressDialog(Adw.Dialog):
 
         self._bar = Gtk.ProgressBar()
         self._bar.set_show_text(True)
+        self._bar.set_text("")
         self._pulse_id = GLib.timeout_add(80, self._pulse)
 
         box.append(self._label)

@@ -104,7 +104,7 @@ class SteamScreenshotPickerDialog(Adw.Dialog):
             card.set_margin_end(4)
 
             pic = Gtk.Picture()
-            pic.set_size_request(240, -1)
+            pic.set_size_request(240, 135)
             pic.set_content_fit(Gtk.ContentFit.CONTAIN)
             card.append(pic)
             self._pictures.append(pic)

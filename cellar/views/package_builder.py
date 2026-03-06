@@ -8,8 +8,8 @@ Maintainers use this view to:
 3. Install dependencies (winetricks verbs) and run installers.
 4. Set an entry point (App projects only).
 5. Test-launch the app to verify it works.
-6. Publish — archive the prefix and open AddAppDialog pre-filled with
-   project metadata (App), or upload the base directly to the repo (Base).
+6. Publish — stream-compress the prefix directly to the repo and update
+   catalogue.json (App and Base alike).  No intermediate local archive.
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ import logging
 import os
 import subprocess
 import threading
+from dataclasses import replace as _dc_replace
 from pathlib import Path
 from typing import Callable
 
@@ -1301,43 +1302,44 @@ class PackageBuilderView(Gtk.Box):
         if project.screenshot_paths:
             images["screenshots"] = list(project.screenshot_paths)
 
-        progress = _ProgressDialog(label="Packaging prefix…")
+        progress = _ProgressDialog(label="Compressing and uploading…")
         progress.present(self)
 
         cancel_event = threading.Event()
 
         def _bg():
             try:
-                archive_path, _size, _crc = package_project(
-                    project,
+                from cellar.backend.packager import compress_prefix_zst, import_to_repo
+                from cellar.utils.progress import fmt_file_count
+                repo_root = repo.writable_path()
+                archive_dest = repo_root / entry.archive
+                archive_dest.parent.mkdir(parents=True, exist_ok=True)
+
+                # Stream compress directly to repo — no intermediate local copy.
+                size, crc32 = compress_prefix_zst(
+                    project.prefix_path,
+                    archive_dest,
                     cancel_event=cancel_event,
                     progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+                    stats_cb=lambda done, total, _speed: GLib.idle_add(
+                        progress.set_stats, fmt_file_count(done, total)
+                    ),
                 )
-                GLib.idle_add(_upload, archive_path)
+
+                # Images + catalogue (fast, no separate progress needed).
+                GLib.idle_add(progress.set_stats, "")
+                final_entry = _dc_replace(entry, archive_crc32=crc32, archive_size=size)
+                import_to_repo(
+                    repo_root,
+                    final_entry,
+                    "",
+                    images,
+                    archive_in_place=True,
+                    phase_cb=lambda s: GLib.idle_add(progress.set_label, s),
+                )
+                GLib.idle_add(_done)
             except Exception as exc:
                 GLib.idle_add(_error, str(exc))
-
-        def _upload(archive_path: Path) -> None:
-            GLib.idle_add(progress.set_label, "Uploading to repository…")
-            GLib.idle_add(progress.set_fraction, 0.0)
-
-            def _do_upload():
-                try:
-                    from cellar.backend.packager import import_to_repo
-                    repo_root = repo.writable_path()
-                    import_to_repo(
-                        repo_root,
-                        entry,
-                        str(archive_path),
-                        images,
-                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                        phase_cb=lambda s: GLib.idle_add(progress.set_label, s),
-                    )
-                    GLib.idle_add(_done)
-                except Exception as exc:
-                    GLib.idle_add(_error, str(exc))
-
-            threading.Thread(target=_do_upload, daemon=True).start()
 
         def _done() -> None:
             progress.force_close()
@@ -1390,41 +1392,44 @@ class PackageBuilderView(Gtk.Box):
             )
             return
 
-        progress = _ProgressDialog(label="Packaging prefix…")
+        progress = _ProgressDialog(label="Compressing and uploading…")
         progress.present(self)
+
+        cancel_event = threading.Event()
 
         def _bg():
             try:
-                archive_path, size, _crc = package_project(
-                    project,
+                from cellar.backend.packager import compress_prefix_zst, update_in_repo
+                from cellar.utils.progress import fmt_file_count
+                repo_root = repo.writable_path()
+                archive_dest = repo_root / old_entry.archive
+                archive_dest.parent.mkdir(parents=True, exist_ok=True)
+
+                # Stream compress directly to repo — no intermediate local copy.
+                size, crc32 = compress_prefix_zst(
+                    project.prefix_path,
+                    archive_dest,
+                    cancel_event=cancel_event,
                     progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+                    stats_cb=lambda done, total, _speed: GLib.idle_add(
+                        progress.set_stats, fmt_file_count(done, total)
+                    ),
                 )
-                GLib.idle_add(_upload, archive_path, size)
+
+                # Update entry CRC then write catalogue — no archive copy.
+                GLib.idle_add(progress.set_stats, "")
+                new_entry = _dc_replace(old_entry, archive_crc32=crc32, archive_size=size)
+                update_in_repo(
+                    repo_root,
+                    old_entry,
+                    new_entry,
+                    images={},
+                    new_archive_src=None,
+                    phase_cb=lambda s: GLib.idle_add(progress.set_label, s),
+                )
+                GLib.idle_add(_done)
             except Exception as exc:
                 GLib.idle_add(_error, str(exc))
-
-        def _upload(archive_path: Path, size: int) -> None:
-            GLib.idle_add(progress.set_label, "Uploading to repository…")
-            GLib.idle_add(progress.set_fraction, 0.0)
-
-            def _do_upload():
-                try:
-                    from cellar.backend.packager import update_in_repo
-                    repo_root = repo.writable_path()
-                    update_in_repo(
-                        repo_root,
-                        old_entry,
-                        old_entry,          # keep same ID/name/images; CRC updated inside
-                        images={},
-                        new_archive_src=str(archive_path),
-                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                        phase_cb=lambda s: GLib.idle_add(progress.set_label, s),
-                    )
-                    GLib.idle_add(_done)
-                except Exception as exc:
-                    GLib.idle_add(_error, str(exc))
-
-            threading.Thread(target=_do_upload, daemon=True).start()
 
         def _done() -> None:
             progress.force_close()

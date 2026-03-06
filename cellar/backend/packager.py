@@ -300,6 +300,7 @@ def compress_prefix_zst(
     *,
     cancel_event=None,
     progress_cb: Callable[[float], None] | None = None,
+    stats_cb: Callable[[int, int, float], None] | None = None,
 ) -> tuple[int, str]:
     """Archive *prefix_path* as a Cellar-native ``prefix/``-rooted ``.tar.zst``.
 
@@ -307,14 +308,28 @@ def compress_prefix_zst(
     the actual directory name.  Symlinks under ``drive_c/users/`` (home-dir
     pointers) are stripped — umu/Proton recreates them on first launch.
 
+    *stats_cb*, when provided, is called as ``stats_cb(done_files, total_files,
+    speed_bps)`` on each file so the UI can show file-count / throughput text.
+
     Returns ``(size_bytes, crc32_hex)``.
     """
     import zstandard as zstd  # noqa: PLC0415
 
     dest_path.parent.mkdir(parents=True, exist_ok=True)
 
-    total_files = sum(len(files) for _, _, files in os.walk(prefix_path))
+    total_files = 0
+    total_bytes = 0
+    for dirpath, _, filenames in os.walk(prefix_path):
+        for fn in filenames:
+            total_files += 1
+            try:
+                total_bytes += os.path.getsize(os.path.join(dirpath, fn))
+            except OSError:
+                pass
+
     done = [0]
+    done_bytes = [0]
+    start = time.monotonic()
 
     def _filter(ti: tarfile.TarInfo) -> tarfile.TarInfo | None:
         if cancel_event and cancel_event.is_set():
@@ -324,8 +339,13 @@ def compress_prefix_zst(
             return None
         if ti.isfile():
             done[0] += 1
+            done_bytes[0] += ti.size
             if progress_cb and total_files:
                 progress_cb(done[0] / total_files)
+            if stats_cb:
+                elapsed = time.monotonic() - start
+                speed = done_bytes[0] / elapsed if elapsed > 0.1 else 0.0
+                stats_cb(done[0], total_files, speed)
         return ti
 
     cctx = zstd.ZstdCompressor(level=3)

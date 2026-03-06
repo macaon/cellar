@@ -122,13 +122,12 @@ class SettingsDialog(Adw.PreferencesDialog):
         )
         page.add(umu_group)
 
-        self._umu_path_row = Adw.EntryRow(title="umu-run path")
+        detected = detect_umu(None) or ""
+        hint = f"e.g. {detected}" if detected else "leave empty to auto-detect"
+        self._umu_path_row = Adw.EntryRow(title=f"umu-run path ({hint})")
         current = load_umu_path() or ""
         if current:
             self._umu_path_row.set_text(current)
-        else:
-            detected = detect_umu(None) or ""
-            self._umu_path_row.set_placeholder_text(detected or "auto-detect")
         umu_group.add(self._umu_path_row)
 
         save_row = Adw.ActionRow(title="Save umu-run path")

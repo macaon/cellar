@@ -277,7 +277,11 @@ class PackageBuilderView(Gtk.Box):
         self._show_create_dialog("app")
 
     def _on_new_base_clicked(self, _btn) -> None:
-        self._show_create_dialog("base")
+        from cellar.backend import runners as _runners
+        installed = _runners.installed_runners()
+        runner = installed[0] if installed else ""
+        project = create_project("", "base", runner=runner)
+        self._on_project_created(project)
 
     def _on_import_clicked(self, _btn) -> None:
         if not self._all_repos:

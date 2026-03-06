@@ -45,13 +45,24 @@ def _rmtree(path, ignore_errors: bool = False) -> None:
 #: Built-in categories always present in every repo.  Custom user-defined
 #: categories are stored in the ``categories`` key of ``catalogue.json`` and
 #: merged with this list at read time.
-BASE_CATEGORIES: list[str] = ["Games", "Productivity", "Graphics", "Utility"]
+BASE_CATEGORIES: list[str] = [
+    "Games",
+    "Productivity",
+    "Graphics",
+    "Video",
+    "Audio",
+    "Education",
+    "Utility",
+]
 
 #: Default symbolic icon name for each built-in category.
 BASE_CATEGORY_ICONS: dict[str, str] = {
     "Games": "input-gaming-symbolic",
     "Productivity": "document-edit-symbolic",
     "Graphics": "applications-graphics-symbolic",
+    "Video": "video-x-generic-symbolic",
+    "Audio": "audio-x-generic-symbolic",
+    "Education": "applications-science-symbolic",
     "Utility": "applications-utilities-symbolic",
 }
 

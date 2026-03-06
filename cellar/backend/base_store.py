@@ -128,43 +128,24 @@ def install_base_from_dir(
     repo_source: str = "",
     cancel_event=None,  # threading.Event | None
 ) -> None:
-    """Copy an already-extracted prefix directory into the base store.
+    """Move *prefix_path* into the base store for *runner*.
 
-    Equivalent to :func:`install_base` but skips the archive
-    extraction step — useful when the prefix is already available
-    locally (e.g. immediately after publishing from the Package Builder).
+    The directory is moved (not copied) — callers should treat the prefix
+    as consumed after this call.  No-op if the base is already installed.
 
     Raises :exc:`BaseStoreError` on failure.
     """
-    from cellar.backend.installer import InstallCancelled  # noqa: PLC0415
-
     dest = base_path(runner)
     if dest.exists():
         return
     dest.parent.mkdir(parents=True, exist_ok=True)
-
-    all_items = [p for p in prefix_path.rglob("*") if not p.is_dir() or p.is_symlink()]
-    total = len(all_items)
     try:
-        for i, src in enumerate(all_items):
-            if cancel_event and cancel_event.is_set():
-                shutil.rmtree(dest, ignore_errors=True)
-                raise InstallCancelled("Base installation cancelled")
-            rel = src.relative_to(prefix_path)
-            dst = dest / rel
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            if src.is_symlink():
-                os.symlink(os.readlink(src), dst)
-            else:
-                shutil.copy2(src, dst)
-            if progress_cb and total:
-                progress_cb((i + 1) / total)
-    except InstallCancelled:
-        raise
+        shutil.move(str(prefix_path), dest)
     except Exception as exc:
         shutil.rmtree(dest, ignore_errors=True)
         raise BaseStoreError(f"Failed to store base: {exc}") from exc
-
+    if progress_cb:
+        progress_cb(1.0)
     database.mark_base_installed(runner, repo_source)
 
 

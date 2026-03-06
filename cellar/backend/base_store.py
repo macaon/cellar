@@ -139,17 +139,22 @@ def install_base_from_dir(
         return
     dest.parent.mkdir(parents=True, exist_ok=True)
 
-    all_files = [p for p in prefix_path.rglob("*") if not p.is_dir()]
-    total = len(all_files)
+    import os  # noqa: PLC0415
+
+    all_items = [p for p in prefix_path.rglob("*") if not p.is_dir() or p.is_symlink()]
+    total = len(all_items)
     try:
-        for i, src in enumerate(all_files):
+        for i, src in enumerate(all_items):
             if cancel_event and cancel_event.is_set():
                 shutil.rmtree(dest, ignore_errors=True)
                 raise InstallCancelled("Base installation cancelled")
             rel = src.relative_to(prefix_path)
             dst = dest / rel
             dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
+            if src.is_symlink():
+                os.symlink(os.readlink(src), dst)
+            else:
+                shutil.copy2(src, dst)
             if progress_cb and total:
                 progress_cb((i + 1) / total)
     except InstallCancelled:

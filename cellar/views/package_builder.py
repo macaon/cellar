@@ -2129,16 +2129,11 @@ class _ProgressDialog(Adw.Dialog):
         self._label.add_css_class("dim-label")
 
         self._bar = Gtk.ProgressBar()
-        self._bar.set_show_text(False)
+        self._bar.set_show_text(True)
         self._pulse_id = GLib.timeout_add(80, self._pulse)
-
-        self._stats_label = Gtk.Label(label="", xalign=0.5)
-        self._stats_label.add_css_class("dim-label")
-        self._stats_label.set_visible(False)
 
         box.append(self._label)
         box.append(self._bar)
-        box.append(self._stats_label)
         toolbar.set_content(box)
         self.set_child(toolbar)
 
@@ -2156,8 +2151,7 @@ class _ProgressDialog(Adw.Dialog):
         self._bar.set_fraction(fraction)
 
     def set_stats(self, text: str) -> None:
-        self._stats_label.set_text(text)
-        self._stats_label.set_visible(bool(text))
+        self._bar.set_text(text)
 
     def force_close(self) -> None:
         if self._pulse_id is not None:

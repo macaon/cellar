@@ -305,7 +305,7 @@ def _stream_and_extract(
                         if name_cb:
                             name_cb(Path(member.name).name or member.name)
                         if use_filter:
-                            tf.extract(member, dest, filter="data")
+                            tf.extract(member, dest, filter="tar")
                         else:
                             tf.extract(member, dest)  # noqa: S202
         else:
@@ -316,7 +316,7 @@ def _stream_and_extract(
                     if name_cb:
                         name_cb(Path(member.name).name or member.name)
                     if use_filter:
-                        tf.extract(member, dest, filter="data")
+                        tf.extract(member, dest, filter="tar")
                     else:
                         tf.extract(member, dest)  # noqa: S202
     except InstallCancelled:
@@ -909,7 +909,8 @@ def _extract_archive(
     """Extract *archive_path* into *dest*, reporting per-member progress.
 
     Supports ``.tar.gz`` and ``.tar.zst`` (via the ``zstandard`` package).
-    Uses ``filter='data'`` on Python 3.12+ to strip unsafe tar entries.
+    Uses ``filter='tar'`` on Python 3.12+ to block path traversal while allowing
+    absolute symlinks (needed for Wine prefix device entries like dosdevices/).
     Progress is based on compressed bytes consumed so that large archives
     report progress without needing an upfront member scan.
 
@@ -942,7 +943,7 @@ def _extract_gz(
                     if name_cb:
                         name_cb(Path(member.name).name or member.name)
                     if use_filter:
-                        tf.extract(member, dest, filter="data")
+                        tf.extract(member, dest, filter="tar")
                     else:
                         tf.extract(member, dest)  # noqa: S202
                     if progress_cb:
@@ -991,7 +992,7 @@ def _extract_zst(
                         if name_cb:
                             name_cb(Path(member.name).name or member.name)
                         if use_filter:
-                            tf.extract(member, dest, filter="data")
+                            tf.extract(member, dest, filter="tar")
                         else:
                             tf.extract(member, dest)  # noqa: S202
                         if progress_cb:

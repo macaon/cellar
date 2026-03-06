@@ -54,6 +54,8 @@ class Project:
     developer: str = ""
     publisher: str = ""
     release_year: int | None = None
+    website: str = ""
+    genres: list[str] = field(default_factory=list)
     summary: str = ""
     description: str = ""
     icon_path: str = ""        # local file path to icon image
@@ -100,6 +102,8 @@ class Project:
             developer=data.get("developer", ""),
             publisher=data.get("publisher", ""),
             release_year=data.get("release_year"),
+            website=data.get("website", ""),
+            genres=list(data.get("genres", [])),
             summary=data.get("summary", ""),
             description=data.get("description", ""),
             icon_path=data.get("icon_path", ""),
@@ -137,6 +141,10 @@ class Project:
             d["publisher"] = self.publisher
         if self.release_year is not None:
             d["release_year"] = self.release_year
+        if self.website:
+            d["website"] = self.website
+        if self.genres:
+            d["genres"] = list(self.genres)
         if self.summary:
             d["summary"] = self.summary
         if self.description:

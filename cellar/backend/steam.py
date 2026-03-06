@@ -111,7 +111,7 @@ def _normalise(raw: dict) -> dict:
             except ValueError:
                 continue
 
-    genres = [g.get("description", "") for g in (raw.get("genres") or [])]
+    genres = [g.get("description", "") for g in (raw.get("genres") or []) if g.get("description")]
     category: str | None = None
     for g in genres:
         if g in _GENRE_TO_CATEGORY:
@@ -120,6 +120,11 @@ def _normalise(raw: dict) -> dict:
     if category is None and genres:
         category = "Games"
 
+    # about_the_game is cleaner (no external images/links) than detailed_description
+    about = raw.get("about_the_game") or ""
+    detailed = raw.get("detailed_description") or ""
+    description = _strip_html(about) if about else _strip_html(detailed)
+
     return {
         "appid": raw.get("steam_appid"),
         "name": raw.get("name", ""),
@@ -127,13 +132,15 @@ def _normalise(raw: dict) -> dict:
         "developer": ", ".join(raw.get("developers") or []),
         "publisher": ", ".join(raw.get("publishers") or []),
         "summary": raw.get("short_description", ""),
-        "description": _strip_html(raw.get("detailed_description", "")),
+        "description": description,
         "category": category,
         "steam_appid": raw.get("steam_appid"),
+        "website": raw.get("website") or "",
+        "genres": genres,
         "header_image": raw.get("header_image", ""),
         "screenshots": [
-            s["path_full"]
+            {"thumbnail": s["path_thumbnail"], "full": s["path_full"]}
             for s in (raw.get("screenshots") or [])
-            if s.get("path_full")
+            if s.get("path_thumbnail") and s.get("path_full")
         ],
     }

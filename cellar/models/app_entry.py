@@ -100,6 +100,7 @@ class AppEntry:
     release_year: int | None = None
     content_rating: str = ""
     languages: tuple[str, ...] = ()
+    genres: tuple[str, ...] = ()
     website: str = ""
     store_links: dict[str, str] = field(default_factory=dict)
 
@@ -160,6 +161,7 @@ class AppEntry:
             release_year=data.get("release_year"),
             content_rating=data.get("content_rating", ""),
             languages=tuple(data.get("languages", [])),
+            genres=tuple(data.get("genres", [])),
             website=data.get("website", ""),
             store_links=dict(data.get("store_links", {})),
             icon=data.get("icon", ""),
@@ -203,6 +205,7 @@ class AppEntry:
             d["release_year"] = self.release_year
         _opt_str(d, "content_rating", self.content_rating)
         _opt_seq(d, "languages", self.languages)
+        _opt_seq(d, "genres", self.genres)
         _opt_str(d, "website", self.website)
         if self.store_links:
             d["store_links"] = dict(self.store_links)

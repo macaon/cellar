@@ -891,6 +891,10 @@ class PackageBuilderView(Gtk.Box):
             p.description = result["description"]
         if result.get("steam_appid") and p.steam_appid is None:
             p.steam_appid = result["steam_appid"]
+        if result.get("website") and not p.website:
+            p.website = result["website"]
+        if result.get("genres") and not p.genres:
+            p.genres = list(result["genres"])
         if result.get("category") and not p.category:
             from cellar.backend.packager import BASE_CATEGORIES as _BASE_CATS
             if result["category"] in _BASE_CATS:
@@ -1099,6 +1103,8 @@ class PackageBuilderView(Gtk.Box):
             developer=project.developer,
             publisher=project.publisher,
             release_year=project.release_year,
+            website=project.website,
+            genres=tuple(project.genres),
             steam_appid=project.steam_appid,
             icon=f"apps/{_slug}/icon{_icon_ext}" if project.icon_path else "",
             cover=f"apps/{_slug}/cover{_cover_ext}" if project.cover_path else "",
@@ -1500,6 +1506,7 @@ class _AppMetadataDialog(Adw.Dialog):
         self._tmp_cover: str = ""
         self._tmp_screenshots: list[str] = []
         self._chooser = None
+        self._steam_screenshots_data: list[dict] = []
 
         self._build_ui()
 
@@ -1604,6 +1611,20 @@ class _AppMetadataDialog(Adw.Dialog):
             self._steam_row.connect("changed", self._on_steam_changed)
         det_group.add(self._steam_row)
 
+        self._website_row = Adw.EntryRow(title="Website")
+        self._website_row.set_text(p.website if p else "")
+        if self._is_edit:
+            self._website_row.connect("changed", lambda r: self._save("website", r.get_text()))
+        det_group.add(self._website_row)
+
+        self._genres_row = Adw.EntryRow(title="Genres")
+        self._genres_row.set_tooltip_text("Comma-separated list, e.g. Action, RPG")
+        if p and p.genres:
+            self._genres_row.set_text(", ".join(p.genres))
+        if self._is_edit:
+            self._genres_row.connect("changed", self._on_genres_changed)
+        det_group.add(self._genres_row)
+
         page.add(det_group)
 
         # ── Description ───────────────────────────────────────────────────
@@ -1648,9 +1669,16 @@ class _AppMetadataDialog(Adw.Dialog):
             f"{ss_count} file{'s' if ss_count != 1 else ''} selected"
             if ss_count else "None selected"
         )
-        ss_btn = Gtk.Button(label="Choose\u2026", valign=Gtk.Align.CENTER)
-        ss_btn.connect("clicked", self._on_pick_screenshots)
-        self._ss_row.add_suffix(ss_btn)
+        ss_btns = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        ss_btns.set_valign(Gtk.Align.CENTER)
+        self._steam_ss_btn = Gtk.Button(label="From Steam\u2026")
+        self._steam_ss_btn.set_visible(False)
+        self._steam_ss_btn.connect("clicked", self._on_steam_screenshots_clicked)
+        ss_btns.append(self._steam_ss_btn)
+        browse_btn = Gtk.Button(label="Browse\u2026")
+        browse_btn.connect("clicked", self._on_pick_screenshots)
+        ss_btns.append(browse_btn)
+        self._ss_row.add_suffix(ss_btns)
         img_group.add(self._ss_row)
 
         page.add(img_group)
@@ -1717,6 +1745,11 @@ class _AppMetadataDialog(Adw.Dialog):
         txt = row.get_text().strip()
         self._save("steam_appid", int(txt) if txt.isdigit() else None)
 
+    def _on_genres_changed(self, row) -> None:
+        txt = row.get_text().strip()
+        genres = [g.strip() for g in txt.split(",") if g.strip()] if txt else []
+        self._save("genres", genres)
+
     def _on_steam_lookup(self, _btn) -> None:
         from cellar.views.steam_picker import SteamPickerDialog
         if isinstance(self._title_row, Adw.EntryRow):
@@ -1743,8 +1776,80 @@ class _AppMetadataDialog(Adw.Dialog):
             self._desc_row.set_text(result["description"])
         if result.get("steam_appid") and not self._steam_row.get_text().strip():
             self._steam_row.set_text(str(result["steam_appid"]))
+        if result.get("website") and not self._website_row.get_text().strip():
+            self._website_row.set_text(result["website"])
+        if result.get("genres") and not self._genres_row.get_text().strip():
+            self._genres_row.set_text(", ".join(result["genres"]))
         if result.get("category") and result["category"] in self._cats:
             self._cat_row.set_selected(self._cats.index(result["category"]) + 1)
+        if result.get("screenshots"):
+            self._steam_screenshots_data = result["screenshots"]
+            self._steam_ss_btn.set_visible(True)
+            from cellar.views.steam_screenshot_picker import SteamScreenshotPickerDialog
+            picker = SteamScreenshotPickerDialog(
+                screenshots_data=self._steam_screenshots_data,
+                on_confirmed=self._on_steam_screenshots_confirmed,
+            )
+            picker.present(self.get_root())
+
+    def _on_steam_screenshots_clicked(self, _btn) -> None:
+        if not self._steam_screenshots_data:
+            return
+        from cellar.views.steam_screenshot_picker import SteamScreenshotPickerDialog
+        picker = SteamScreenshotPickerDialog(
+            screenshots_data=self._steam_screenshots_data,
+            on_confirmed=self._on_steam_screenshots_confirmed,
+        )
+        picker.present(self.get_root())
+
+    def _on_steam_screenshots_confirmed(
+        self, selected_urls: list[str], local_paths: list[str]
+    ) -> None:
+        if not selected_urls:
+            all_paths = list(local_paths)
+            self._apply_screenshot_paths(all_paths)
+            return
+
+        self._ss_row.set_subtitle("Downloading\u2026")
+
+        if self._project:
+            dl_dir = self._project.project_dir / "screenshots"
+            dl_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            import tempfile as _tmp
+            dl_dir = Path(_tmp.mkdtemp(prefix="cellar-ss-"))
+
+        def _download() -> None:
+            from cellar.utils.http import make_session
+            session = make_session()
+            downloaded: list[str] = []
+            for i, url in enumerate(selected_urls):
+                try:
+                    resp = session.get(url, timeout=30)
+                    if resp.ok:
+                        suffix = ".jpg" if url.lower().endswith(".jpg") else ".png"
+                        dest = dl_dir / f"steam_{i:02d}{suffix}"
+                        dest.write_bytes(resp.content)
+                        downloaded.append(str(dest))
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("Screenshot download failed: %s", exc)
+            GLib.idle_add(self._on_screenshots_downloaded, downloaded + list(local_paths))
+
+        threading.Thread(target=_download, daemon=True).start()
+
+    def _on_screenshots_downloaded(self, paths: list[str]) -> None:
+        self._apply_screenshot_paths(paths)
+
+    def _apply_screenshot_paths(self, paths: list[str]) -> None:
+        count = len(paths)
+        self._ss_row.set_subtitle(
+            f"{count} file{'s' if count != 1 else ''} selected" if count else "None selected"
+        )
+        if self._project:
+            self._project.screenshot_paths = paths
+            save_project(self._project)
+        else:
+            self._tmp_screenshots = paths
 
     def _on_pick_icon(self, _btn) -> None:
         self._pick_image("Select Icon", False, self._on_icon_chosen)
@@ -1815,6 +1920,9 @@ class _AppMetadataDialog(Adw.Dialog):
         project.summary = summary
         project.description = self._desc_row.get_text().strip() or summary
         project.steam_appid = int(steam_txt) if steam_txt.isdigit() else None
+        project.website = self._website_row.get_text().strip()
+        genres_txt = self._genres_row.get_text().strip()
+        project.genres = [g.strip() for g in genres_txt.split(",") if g.strip()] if genres_txt else []
         if self._tmp_icon:
             project.icon_path = self._tmp_icon
         if self._tmp_cover:

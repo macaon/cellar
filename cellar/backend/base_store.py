@@ -11,6 +11,7 @@ hardlinks before the delta archive is overlaid on top.
 
 from __future__ import annotations
 
+import os
 import shutil
 import tempfile
 from pathlib import Path
@@ -102,9 +103,12 @@ def install_base(
                     raise InstallCancelled("Base installation cancelled")
                 rel = src.relative_to(bottle_src)
                 dst = dest / rel
-                if src.is_dir():
+                if src.is_symlink():
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    os.symlink(os.readlink(src), dst)
+                elif src.is_dir():
                     dst.mkdir(parents=True, exist_ok=True)
-                elif src.is_file():
+                else:
                     dst.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(src, dst)
         except InstallCancelled:
@@ -138,8 +142,6 @@ def install_base_from_dir(
     if dest.exists():
         return
     dest.parent.mkdir(parents=True, exist_ok=True)
-
-    import os  # noqa: PLC0415
 
     all_items = [p for p in prefix_path.rglob("*") if not p.is_dir() or p.is_symlink()]
     total = len(all_items)

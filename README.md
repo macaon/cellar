@@ -1,15 +1,17 @@
 # Cellar
 
 A GNOME desktop application that acts as a private software storefront for
-[Bottles](https://usebottles.com/)-managed Windows applications. Think GNOME
-Software, but the "packages" are pre-configured Bottles backups stored on a
-network share or web server.
+Windows and Linux applications. Think GNOME Software, but the "packages" are
+pre-configured app archives stored on a network share or web server.
 
 The primary use case is a home-lab or family server: a maintainer packages and
-publishes apps from their machine; everyone else browses the catalogue and
-installs with one click. Cellar handles downloading, verifying, and importing
-the backup into Bottles — including auto-downloading any missing Wine runner
-the app requires.
+publishes apps from their machine using the built-in Package Builder; everyone
+else browses the catalogue and installs with one click. Cellar handles
+downloading, verifying, and setting up the app — including auto-downloading any
+missing GE-Proton runner the app requires.
+
+Windows apps run via [umu-launcher](https://github.com/Open-Wine-Components/umu-launcher)
+with GE-Proton. Linux native apps are extracted and launched directly.
 
 ---
 
@@ -21,17 +23,23 @@ the app requires.
 - App detail view — hero banner, cover art, screenshots, metadata, changelog
 - One-click install, update (safe rsync overlay or full replacement), and remove
 - Delta package support — shared base images dramatically reduce download size
-- Runner compatibility check — prompts to download the required Wine runner if absent
+- Runner compatibility check — prompts to download GE-Proton if the required version is absent
 - Linux native app support alongside Windows/Wine apps
 - Desktop shortcut creation for installed apps
-- Launch apps directly from Cellar or via generated `.desktop` files
+- Launch apps directly from Cellar (standard or in a terminal window)
 
 **For maintainers** (requires a writable repo)
-- Add and edit catalogue entries from within Cellar
-- IGDB metadata lookup — auto-fills title, description, developer, cover art
+- Package Builder — guided workflow to create and publish app packages and base images
+  - Initialize a fresh WINEPREFIX with a chosen GE-Proton runner
+  - Install dependencies via winetricks (Visual C++ runtimes, .NET, DirectX, and more)
+  - Run `.exe` installers inside the prefix
+  - Set one or more entry points, then test-launch before publishing
+  - Stream-compress and publish directly to the repo; no intermediate local archive
+- Steam Store metadata lookup — auto-fills title, description, developer, genres, cover art, and screenshots
+- Edit existing catalogue entries
 - Delta archive creation — diff against a base image using BLAKE2b content hashing
 - Base image management — publish and download shared base images per runner
-- Multiple simultaneous repos — local, SSH, SMB, NFS, or HTTP(S)
+- Multiple simultaneous repos — local, SSH, SMB, or HTTP(S)
 
 ---
 
@@ -39,14 +47,15 @@ the app requires.
 
 - **Language:** Python 3.11+
 - **UI toolkit:** GTK4 + libadwaita (GNOME 46+)
+- **Windows compatibility:** [umu-launcher](https://github.com/Open-Wine-Components/umu-launcher) + GE-Proton
+- **Runner index:** GitHub Releases API (GloriousEggroll/proton-ge-custom), cached in memory
 - **Local data:** SQLite via `sqlite3` stdlib
-- **Network I/O:** `requests` for HTTP/HTTPS; system `ssh` for SSH; GIO/GVFS for SMB and NFS
+- **Network I/O:** `requests` for HTTP/HTTPS; system `ssh` for SSH; `smbprotocol` for SMB
+- **SMB credentials:** `keyring` (system keyring) with `config.json` fallback
 - **Image handling:** Pillow (load, resize, crop, ICO→PNG, optimise)
 - **Archive handling:** `tarfile` stdlib; `zstandard` for `.tar.zst` delta archives
 - **File sync:** `rsync` subprocess; Python fallback if rsync is absent
-- **Runner index:** `dulwich` (pure-Python git) syncing `bottlesdevs/components`
-- **Bottles integration:** `bottles-cli` subprocess + `PyYAML` for `bottle.yml`
-- **IGDB:** Twitch/IGDB API via `requests` with cached bearer token
+- **Metadata:** Steam Store API (no authentication required)
 
 ---
 
@@ -56,8 +65,8 @@ the app requires.
 
 - Python 3.11+
 - GTK 4 and libadwaita 1.x (`python3-gobject` / `pygobject`)
-- `pip install requests Pillow PyYAML dulwich zstandard pytest`
-- Bottles installed (Flatpak or native)
+- `pip install requests Pillow zstandard smbprotocol keyring pytest`
+- [umu-launcher](https://github.com/Open-Wine-Components/umu-launcher) for launching/building Windows apps
 
 ### Quick start
 
@@ -65,13 +74,13 @@ the app requires.
 git clone https://github.com/macaon/cellar
 cd cellar
 
-# Run against the bundled test fixtures (no Bottles required for browsing)
+# Run against the bundled test fixtures
 PYTHONPATH=. CELLAR_REPO=tests/fixtures python3 -m cellar.main
 ```
 
 `CELLAR_REPO` accepts a local path, a `file://` URI, or any supported remote
-URI (`https://`, `ssh://`, `smb://`, `nfs://`). The test fixtures under
-`tests/fixtures/` work out of the box for local development.
+URI (`https://`, `ssh://`, `smb://`). The test fixtures under `tests/fixtures/`
+work out of the box for local development.
 
 ### Running tests
 
@@ -98,11 +107,12 @@ repo/
       logo.png            transparent logo — overlays name in detail view
       screenshots/
         01.png
-      <id>-1.0.tar.gz     full Bottles backup archive, OR
-      <id>-1.0.tar.zst    delta archive (requires a base image, see below)
+      <id>-1.0.tar.zst    full archive, OR delta archive (requires a base image)
   bases/
-    <runner>-base.tar.gz  shared base image for delta packages
+    <runner>-base.tar.zst shared base image for delta packages
 ```
+
+Archives contain a single top-level `prefix/` directory holding the WINEPREFIX.
 
 ### `catalogue.json`
 
@@ -119,8 +129,8 @@ to the repo root.
   },
   "categories": ["My Custom Category"],
   "bases": {
-    "ge-proton10-32": {
-      "archive": "bases/ge-proton10-32-base.tar.gz",
+    "GE-Proton10-32": {
+      "archive": "bases/GE-Proton10-32-base.tar.zst",
       "archive_size": 2684354560,
       "archive_crc32": "aabbccdd"
     }
@@ -139,6 +149,7 @@ to the repo root.
       "release_year": 2022,
       "content_rating": "PEGI 16",
       "languages": ["English", "German"],
+      "genres": ["Action", "Adventure"],
       "website": "https://example.com",
       "store_links": { "steam": "https://store.steampowered.com/app/12345" },
 
@@ -154,13 +165,14 @@ to the repo root.
       "archive_crc32": "11223344",
       "install_size_estimate": 524288000,
       "built_with": {
-        "runner": "ge-proton10-32",
+        "runner": "GE-Proton10-32",
         "dxvk": "2.3",
         "vkd3d": "2.11"
       },
-      "base_runner": "ge-proton10-32",
+      "base_runner": "GE-Proton10-32",
+      "steam_appid": 12345,
       "update_strategy": "safe",
-      "entry_point": "Program Files/MyApp/myapp.exe",
+      "entry_point": "C:\\Program Files\\MyApp\\myapp.exe",
       "compatibility_notes": "Runs well at high settings.",
       "changelog": "Updated to 1.2.3.",
       "lock_runner": false
@@ -172,15 +184,21 @@ to the repo root.
 **Key fields:**
 
 - `base_runner` — when set, the archive is a delta against the named base
-  image. The installer seeds the bottle from the base before applying the
+  image. The installer seeds the prefix from the base before applying the
   delta. Omit for a full archive.
+- `steam_appid` — sets `GAMEID=umu-<id>` for umu-launcher, enabling
+  [protonfixes](https://github.com/Open-Wine-Components/umu-protonfixes) for
+  that title. Omit or set to `null` for `GAMEID=0` (no protonfixes).
 - `update_strategy` — `"safe"` (rsync overlay, preserves user data) or
   `"full"` (complete replacement with a warning).
 - `hide_title` — suppress the app name label in the detail view when a
   transparent `logo` image is provided (Steam-style).
 - `lock_runner` — prevent the user from changing the runner for this app.
-- `entry_point` — path to the main executable relative to `drive_c/` for
-  Windows apps, or relative to the install directory for Linux native apps.
+- `entry_point` — Windows path to the main executable (e.g.
+  `C:\Program Files\App\App.exe`) for Windows apps, or a path relative to the
+  install directory for Linux native apps.
+- `platform` — `"windows"` (default, omitted from JSON) or `"linux"` for
+  native Linux apps.
 - `category_icons` — optional top-level map of category name → symbolic icon
   name. Uses standard Adwaita icon names.
 - `categories` — optional list of custom categories beyond the built-in ones
@@ -191,19 +209,19 @@ All fields except `id`, `name`, `version`, and `category` are optional.
 ### Delta packages
 
 Delta archives contain only files that differ from a shared base image,
-dramatically reducing download size. A base is a clean, fully-configured
-bottle (runner + common dependencies like fonts and runtime libraries) without
-any specific app installed.
+dramatically reducing download size. A base is a clean, fully-initialised
+WINEPREFIX (runner + common dependencies like fonts and runtime libraries)
+without any specific app installed.
 
 **Workflow:**
-1. Maintainer creates a base bottle, uploads it via Settings → Delta Base
-   Images → Add.
-2. When adding an app whose runner matches an installed base, Cellar
-   automatically computes the delta (BLAKE2b-128 content hashing) and
-   produces a `.tar.zst` archive containing only changed files plus a
+1. Maintainer creates a Base project in the Package Builder, installs shared
+   dependencies, and publishes it to the repo.
+2. When building an app whose runner matches an installed base, the Package
+   Builder computes the delta (BLAKE2b-128 content hashing) and produces a
+   `.tar.zst` archive containing only changed/added files plus a
    `.cellar_delete` manifest for removed files.
-3. On install, Cellar seeds the new bottle from the base (using copy-on-write
-   or hardlinks where available), then overlays the delta. The result is
+3. On install, Cellar seeds the new prefix from the base (using hardlinks or
+   copy-on-write where available), then overlays the delta. The result is
    byte-for-byte identical to a full archive install.
 
 ### Supported repo URI schemes
@@ -215,7 +233,10 @@ any specific app installed.
 | `http://` / `https://` | `https://cellar.home.arpa/repo` | No |
 | `ssh://` | `ssh://alice@nas.home.arpa/srv/cellar` | Yes |
 | `smb://` | `smb://nas.home.arpa/cellar` | Yes |
-| `nfs://` | `nfs://nas.home.arpa/export/cellar` | Yes |
+
+SMB uses pure-Python `smbprotocol` (SMBv2/v3) — no GVFS mount or system
+credential dialog required. Credentials are stored per-repo in the system
+keyring (`keyring`) with a `config.json` fallback.
 
 ### Bearer token authentication for HTTP(S) repos
 
@@ -268,6 +289,30 @@ cellar.example.com {
 
 ---
 
+## Local data layout
+
+```
+~/.local/share/cellar/
+  cellar.db             SQLite database (installed apps, base images)
+  config.json           Repos, bearer tokens, umu path override
+  runners/
+    GE-Proton10-32/     GE-Proton runner (managed by Cellar)
+  prefixes/
+    <app-id>/           WINEPREFIX for each installed Windows app
+  projects/
+    <slug>/             Package Builder working area
+      project.json
+      prefix/           WINEPREFIX being built
+      <slug>.tar.zst    Generated archive (created on Publish)
+  bases/
+    <runner>/           Installed base images (for delta seeding)
+
+~/.cache/cellar/
+  assets/               Persistent image asset cache (HTTP(S) repos)
+```
+
+---
+
 ## Project structure
 
 ```
@@ -278,32 +323,35 @@ cellar/
     views/
       browse.py           Explore / Installed / Updates grid; search; category filter
       detail.py           App detail page — hero, screenshots, install/update/remove
-      add_app.py          Add app to catalogue; IGDB lookup; delta creation
+      package_builder.py  Package Builder — create, build, and publish app/base projects
       edit_app.py         Edit / delete catalogue entries
-      update_app.py       Safe update dialog — backup + rsync overlay
-      install_runner.py   Runner download + extract dialog
-      igdb_picker.py      IGDB game search and metadata picker dialog
-      settings.py         Repos, access control, delta base images, IGDB credentials
+      update_app.py       Safe update dialog — rsync overlay
+      install_runner.py   GE-Proton download + extract dialog
+      steam_picker.py     Steam Store game search and metadata picker
+      steam_screenshot_picker.py  Steam screenshot browser and importer
+      settings.py         Repos, access control, umu path, runners
     backend/
-      repo.py             Catalogue fetch; all transport backends (local, HTTP, SSH, GIO)
+      repo.py             Catalogue fetch; transport backends (local, HTTP, SSH, SMB)
       packager.py         import_to_repo, update_in_repo, remove_from_repo, create_delta_archive
-      installer.py        Download → verify → extract → import pipeline; delta install
-      updater.py          Safe rsync overlay update; bottle backup
+      installer.py        Download → verify → extract → install pipeline; delta install
+      updater.py          Safe rsync overlay update; prefix backup
       base_store.py       Delta base image store — install, remove, path helpers
-      bottles.py          Bottles detection; bottles-cli wrapper; launch helpers
-      components.py       bottlesdevs/components runner index sync via dulwich
-      igdb.py             IGDB API client; bearer token management; metadata normalisation
+      umu.py              umu-launcher detection, launch, prefix init, winetricks
+      runners.py          GE-Proton release listing (GitHub API) and install management
+      project.py          Package Builder project CRUD and packaging
+      steam.py            Steam Store API client; metadata normalisation
       database.py         SQLite tracking — installed apps, base images
       config.py           JSON config persistence (~/.local/share/cellar/config.json)
     models/
       app_entry.py        AppEntry, BuiltWith, BaseEntry dataclasses
     utils/
-      gio_io.py           GIO file and network helpers
+      smb.py              SmbPath — pathlib.Path-compatible SMB file access
       http.py             requests.Session factory (User-Agent, bearer auth, SSL)
       images.py           Pillow helpers — load, crop, fit, ICO→PNG, optimise
       paths.py            UI file and icon dir resolution (source tree vs installed)
       desktop.py          .desktop shortcut creation and removal
       progress.py         Progress formatting helpers (size, speed, filename truncation)
+      terminal.py         Terminal emulator detection and launch helpers
   data/
     icons/
       hicolor/symbolic/apps/   Bundled tab and category icons (CC0-1.0)
@@ -311,16 +359,7 @@ cellar/
       window.ui                Main window GtkTemplate
   tests/
     fixtures/             Sample catalogue.json and assets for local development
-    test_repo.py
-    test_bottles.py
-    test_components.py
-    test_database.py
-    test_images.py
-    test_installer.py
-    test_packager.py
-    test_updater.py
-    test_igdb.py
-    test_desktop.py
+    test_*.py
 ```
 
 ---
@@ -329,13 +368,10 @@ cellar/
 
 | Feature | GNOME | KDE |
 |---|---|---|
-| Browse, install, update (HTTP(S) / SSH repo) | ✅ | ✅ |
-| Browse, install, update (local path) | ✅ | ✅ |
-| SMB / NFS repos | ✅ | ❌ Requires GVFS |
-| SMB / NFS credential dialogs | ✅ | ❌ Uses GNOME Keyring; KWallet not supported |
-| Visual integration | ✅ Native Adwaita | ⚠️ Renders with Adwaita styling |
-
-KDE support (GVFS/smbclient fallback, KWallet integration) is planned for a future release.
+| Browse, install, update (HTTP(S) / SSH repo) | Yes | Yes |
+| Browse, install, update (local path) | Yes | Yes |
+| SMB repos | Yes | Yes |
+| Visual integration | Native Adwaita | Renders with Adwaita styling |
 
 ---
 

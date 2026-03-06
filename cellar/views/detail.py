@@ -1078,7 +1078,9 @@ class DetailView(Gtk.Box):
                     "Disk space",
                 )[0])
 
-        if e.built_with:
+        if e.platform == "linux":
+            _add(_simple_card("penguin-alt-symbolic", "Native", "Linux")[0])
+        elif e.built_with:
             wine_card = self._make_wine_card()
             if e.built_with.dxvk or e.built_with.vkd3d:
                 _make_interactive(wine_card, self._show_wine_dialog)

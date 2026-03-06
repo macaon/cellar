@@ -179,12 +179,12 @@ class PackageBuilderView(Gtk.Box):
         btn_box.set_margin_start(4)
         btn_box.set_margin_end(4)
 
-        new_app_btn = Gtk.Button(icon_name="windows-symbolic")
+        new_app_btn = Gtk.Button(icon_name="grid-large-symbolic")
         new_app_btn.set_tooltip_text("New Windows package")
         new_app_btn.add_css_class("flat")
         new_app_btn.connect("clicked", self._on_new_app_clicked)
 
-        new_linux_btn = Gtk.Button(icon_name="linux-symbolic")
+        new_linux_btn = Gtk.Button(icon_name="penguin-alt-symbolic")
         new_linux_btn.set_tooltip_text("New Linux package")
         new_linux_btn.add_css_class("flat")
         new_linux_btn.connect("clicked", self._on_new_linux_clicked)

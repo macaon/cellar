@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
 import time
 from pathlib import Path
@@ -23,6 +24,26 @@ from cellar.utils.progress import fmt_stats as _fmt_dl_stats, trunc_middle as _t
 log = logging.getLogger(__name__)
 
 _ICON_SIZE = 96
+
+
+def _md_to_pango(text: str) -> str:
+    """Convert a small subset of Markdown to Pango markup for display.
+
+    Supports: **bold**, *italic*, and lines starting with "- " as bullets.
+    """
+    escaped = GLib.markup_escape_text(text)
+    # **bold**
+    escaped = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", escaped)
+    # *italic* (single star, not next to another star)
+    escaped = re.sub(r"\*([^*\n]+?)\*", r"<i>\1</i>", escaped)
+    # Lines starting with "- " → bullet
+    lines = []
+    for line in escaped.split("\n"):
+        if line.startswith("- "):
+            lines.append("\u2022 " + line[2:])
+        else:
+            lines.append(line)
+    return "\n".join(lines)
 
 
 class DetailView(Gtk.Box):
@@ -826,7 +847,8 @@ class DetailView(Gtk.Box):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
 
         if e.description:
-            lbl = Gtk.Label(label=e.description)
+            lbl = Gtk.Label()
+            lbl.set_markup(_md_to_pango(e.description))
             lbl.set_wrap(True)
             lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
             lbl.set_xalign(0)

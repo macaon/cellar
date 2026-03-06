@@ -4,8 +4,7 @@ Flow
 ----
 1. Opened from the detail view's Edit button (writable repos only).
 2. All form fields are pre-filled from the existing ``AppEntry``.
-3. The user may update any metadata field, swap individual images, or replace
-   the archive entirely.
+3. The user may update any metadata field or swap individual images.
 4. On "Save Changes" a background thread calls ``update_in_repo()``.
 5. The "Danger Zone" section exposes a "Delete Entry…" button which prompts
    the user to either delete or move the archive before removing the entry
@@ -49,9 +48,6 @@ class EditAppDialog(Adw.Dialog):
         self._on_deleted = on_deleted
         self._cancel_event = threading.Event()
 
-        # Optional archive replacement
-        self._new_archive_src: str = ""
-
         # Image selections
         # None = keep existing; "" = clear from catalogue; str = replace with new file
         self._icon_path: str | None = None
@@ -61,6 +57,7 @@ class EditAppDialog(Adw.Dialog):
         # Screenshot list + dirty flag
         self._screenshot_paths: list[str] = []   # effective local paths
         self._screenshots_dirty: bool = False    # True once user adds or removes anything
+        self._steam_screenshots_data: list[dict] = []
 
         # Load category list from repo
         from cellar.backend.packager import BASE_CATEGORIES as _BASE_CATS
@@ -111,19 +108,6 @@ class EditAppDialog(Adw.Dialog):
         page = Adw.PreferencesPage()
         scroll.set_child(page)
 
-        # ── Archive ───────────────────────────────────────────────────────
-        archive_group = Adw.PreferencesGroup(title="Archive")
-        self._archive_row = Adw.ActionRow(
-            title="Current Archive",
-            subtitle=GLib.markup_escape_text(Path(self._old_entry.archive).name) if self._old_entry.archive else "—",
-        )
-        replace_btn = Gtk.Button(label="Replace…")
-        replace_btn.set_valign(Gtk.Align.CENTER)
-        replace_btn.connect("clicked", self._pick_archive)
-        self._archive_row.add_suffix(replace_btn)
-        archive_group.add(self._archive_row)
-        page.add(archive_group)
-
         # ── Identity ──────────────────────────────────────────────────────
         identity_group = Adw.PreferencesGroup(title="Identity")
 
@@ -160,27 +144,54 @@ class EditAppDialog(Adw.Dialog):
 
         page.add(details_group)
 
-        # Description (multi-line) in a card-styled frame
-        desc_row = Adw.ActionRow(title="Description")
-        desc_row.set_activatable(False)
+        # Description — markdown-aware editor in a card-styled frame
+        desc_outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        desc_outer.add_css_class("card")
+
+        desc_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        desc_header.set_margin_top(8)
+        desc_header.set_margin_bottom(4)
+        desc_header.set_margin_start(12)
+        desc_header.set_margin_end(6)
+        desc_label = Gtk.Label(label="Description")
+        desc_label.set_hexpand(True)
+        desc_label.set_xalign(0)
+        desc_header.append(desc_label)
+
+        # Formatting toolbar
+        fmt_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
+        bold_btn = Gtk.Button(label="B")
+        bold_btn.add_css_class("flat")
+        bold_btn.set_tooltip_text("Bold (**text**)")
+        bold_btn.connect("clicked", lambda _: self._desc_fmt_wrap("**"))
+        italic_btn = Gtk.Button(label="I")
+        italic_btn.add_css_class("flat")
+        italic_btn.set_tooltip_text("Italic (*text*)")
+        italic_btn.connect("clicked", lambda _: self._desc_fmt_wrap("*"))
+        bullet_btn = Gtk.Button(icon_name="view-list-bullet-symbolic")
+        bullet_btn.add_css_class("flat")
+        bullet_btn.set_tooltip_text("Bullet list (- item)")
+        bullet_btn.connect("clicked", lambda _: self._desc_fmt_bullet())
+        fmt_box.append(bold_btn)
+        fmt_box.append(italic_btn)
+        fmt_box.append(bullet_btn)
+        desc_header.append(fmt_box)
+        desc_outer.append(desc_header)
+
+        sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        desc_outer.append(sep)
+
         self._desc_view = Gtk.TextView()
         self._desc_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-        self._desc_view.set_margin_top(6)
-        self._desc_view.set_margin_bottom(6)
-        self._desc_view.set_margin_start(6)
-        self._desc_view.set_margin_end(6)
-        self._desc_view.set_size_request(-1, 80)
-        self._desc_view.add_css_class("monospace")
-        desc_frame = Gtk.Frame()
-        desc_frame.set_child(self._desc_view)
-        desc_frame.set_margin_top(6)
-        desc_frame.set_margin_bottom(6)
-        desc_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        desc_box.append(desc_row)
-        desc_box.append(desc_frame)
-        desc_box.add_css_class("card")
+        self._desc_view.set_margin_top(8)
+        self._desc_view.set_margin_bottom(8)
+        self._desc_view.set_margin_start(12)
+        self._desc_view.set_margin_end(12)
+        self._desc_view.set_size_request(-1, 100)
+        desc_outer.append(self._desc_view)
+
         desc_wrapper = Adw.PreferencesGroup()
-        desc_wrapper.add(desc_box)
+        desc_wrapper.add(desc_outer)
         page.add(desc_wrapper)
 
         # ── Attribution ───────────────────────────────────────────────────
@@ -198,21 +209,7 @@ class EditAppDialog(Adw.Dialog):
 
         self._runner_row = Adw.ActionRow(title="Runner")
         self._runner_row.set_subtitle_selectable(True)
-        self._lock_runner_btn = Gtk.ToggleButton()
-        self._lock_runner_btn.set_icon_name("changes-prevent-symbolic")
-        self._lock_runner_btn.set_valign(Gtk.Align.CENTER)
-        self._lock_runner_btn.set_tooltip_text("Lock runner — users cannot change the runner after install")
-        self._lock_runner_btn.connect("toggled", self._on_lock_runner_toggled)
-        self._runner_row.add_suffix(self._lock_runner_btn)
         self._wine_group.add(self._runner_row)
-
-        self._dxvk_row = Adw.ActionRow(title="DXVK")
-        self._dxvk_row.set_subtitle_selectable(True)
-        self._wine_group.add(self._dxvk_row)
-
-        self._vkd3d_row = Adw.ActionRow(title="VKD3D")
-        self._vkd3d_row.set_subtitle_selectable(True)
-        self._wine_group.add(self._vkd3d_row)
 
         self._steam_appid_entry = Adw.EntryRow(title="Steam App ID (optional)")
         self._steam_appid_entry.set_tooltip_text(
@@ -258,11 +255,18 @@ class EditAppDialog(Adw.Dialog):
         self._ss_listbox.set_visible(False)
         ss_group.add(self._ss_listbox)
 
-        add_ss_row = Adw.ActionRow(title="Add Screenshots…")
-        add_ss_row.set_activatable(True)
-        add_ss_row.add_prefix(Gtk.Image.new_from_icon_name("list-add-symbolic"))
-        add_ss_row.connect("activated", lambda _: self._pick_screenshots(None))
-        ss_group.add(add_ss_row)
+        ss_add_row = Adw.ActionRow(title="Add Screenshots")
+        ss_btns = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        ss_btns.set_valign(Gtk.Align.CENTER)
+        self._steam_ss_btn = Gtk.Button(label="From Steam\u2026")
+        self._steam_ss_btn.set_visible(False)
+        self._steam_ss_btn.connect("clicked", self._on_steam_screenshots_clicked)
+        ss_btns.append(self._steam_ss_btn)
+        browse_ss_btn = Gtk.Button(label="Browse\u2026")
+        browse_ss_btn.connect("clicked", self._pick_screenshots)
+        ss_btns.append(browse_ss_btn)
+        ss_add_row.add_suffix(ss_btns)
+        ss_group.add(ss_add_row)
 
         page.add(ss_group)
 
@@ -395,10 +399,6 @@ class EditAppDialog(Adw.Dialog):
             bw = e.built_with
             if bw:
                 self._runner_row.set_subtitle(bw.runner or "")
-                self._dxvk_row.set_subtitle(bw.dxvk or "")
-                self._vkd3d_row.set_subtitle(bw.vkd3d or "")
-            if e.lock_runner:
-                self._lock_runner_btn.set_active(True)
             if e.steam_appid is not None:
                 self._steam_appid_entry.set_text(str(e.steam_appid))
 
@@ -437,39 +437,33 @@ class EditAppDialog(Adw.Dialog):
         idx = self._category_row.get_selected()
         return self._categories[idx] if 0 <= idx < len(self._categories) else ""
 
-    def _on_lock_runner_toggled(self, btn) -> None:
-        if btn.get_active():
-            btn.add_css_class("destructive-action")
-        else:
-            btn.remove_css_class("destructive-action")
-
     def _on_name_changed(self, _entry) -> None:
         self._update_save_button()
 
     def _update_save_button(self) -> None:
         self._save_btn.set_sensitive(bool(self._name_entry.get_text().strip()))
 
-    # ── Archive picker ────────────────────────────────────────────────────
+    # ── Description formatting helpers ────────────────────────────────────
 
-    def _pick_archive(self, _btn) -> None:
-        chooser = Gtk.FileChooserNative(
-            title="Select Replacement Archive",
-            transient_for=self.get_root(),
-            action=Gtk.FileChooserAction.OPEN,
-        )
-        f = Gtk.FileFilter()
-        f.set_name("App archive (*.tar.zst, *.tar.gz)")
-        f.add_pattern("*.tar.zst")
-        f.add_pattern("*.tar.gz")
-        chooser.add_filter(f)
-        chooser.connect("response", self._on_archive_chosen, chooser)
-        chooser.show()
+    def _desc_fmt_wrap(self, marker: str) -> None:
+        buf = self._desc_view.get_buffer()
+        has_sel, start, end = buf.get_selection_bounds()
+        buf.begin_user_action()
+        if has_sel:
+            text = buf.get_text(start, end, False)
+            buf.delete(start, end)
+            buf.insert(buf.get_iter_at_mark(buf.get_insert()), f"{marker}{text}{marker}")
+        else:
+            buf.insert_at_cursor(f"{marker}{marker}")
+        buf.end_user_action()
 
-    def _on_archive_chosen(self, _chooser, response, chooser) -> None:
-        if response != Gtk.ResponseType.ACCEPT:
-            return
-        self._new_archive_src = chooser.get_file().get_path()
-        self._archive_row.set_subtitle(GLib.markup_escape_text(Path(self._new_archive_src).name))
+    def _desc_fmt_bullet(self) -> None:
+        buf = self._desc_view.get_buffer()
+        it = buf.get_iter_at_mark(buf.get_insert())
+        it.set_line_offset(0)
+        buf.begin_user_action()
+        buf.insert(it, "- ")
+        buf.end_user_action()
 
     # ── Image pickers ─────────────────────────────────────────────────────
 
@@ -530,6 +524,52 @@ class EditAppDialog(Adw.Dialog):
             self._screenshot_paths.extend(new_paths)
             self._screenshots_dirty = True
             self._rebuild_screenshot_list()
+
+    def _on_steam_screenshots_clicked(self, _btn) -> None:
+        if not self._steam_screenshots_data:
+            return
+        from cellar.views.steam_screenshot_picker import SteamScreenshotPickerDialog
+        picker = SteamScreenshotPickerDialog(
+            screenshots_data=self._steam_screenshots_data,
+            on_confirmed=self._on_steam_screenshots_confirmed,
+        )
+        picker.present(self.get_root())
+
+    def _on_steam_screenshots_confirmed(
+        self, selected_urls: list[str], local_paths: list[str]
+    ) -> None:
+        if not selected_urls:
+            self._screenshot_paths.extend(local_paths)
+            self._screenshots_dirty = True
+            self._rebuild_screenshot_list()
+            return
+
+        import tempfile as _tmp
+        dl_dir = Path(_tmp.mkdtemp(prefix="cellar_ss_"))
+
+        def _download():
+            from cellar.utils.http import make_session
+            session = make_session()
+            downloaded: list[str] = []
+            for url in selected_urls:
+                fname = url.split("/")[-1].split("?")[0] or "screenshot.jpg"
+                dest = dl_dir / fname
+                try:
+                    r = session.get(url, timeout=30)
+                    r.raise_for_status()
+                    dest.write_bytes(r.content)
+                    downloaded.append(str(dest))
+                except Exception as exc:  # noqa: BLE001
+                    import logging
+                    logging.getLogger(__name__).warning("Screenshot download failed: %s", exc)
+            GLib.idle_add(self._on_screenshots_downloaded, downloaded + list(local_paths))
+
+        threading.Thread(target=_download, daemon=True).start()
+
+    def _on_screenshots_downloaded(self, paths: list[str]) -> None:
+        self._screenshot_paths.extend(paths)
+        self._screenshots_dirty = True
+        self._rebuild_screenshot_list()
 
     # ── Image clear handlers ──────────────────────────────────────────────
 
@@ -604,6 +644,9 @@ class EditAppDialog(Adw.Dialog):
             buf = self._desc_view.get_buffer()
             if not buf.get_text(buf.get_start_iter(), buf.get_end_iter(), False).strip():
                 buf.set_text(result["description"])
+        if result.get("screenshots"):
+            self._steam_screenshots_data = result["screenshots"]
+            self._steam_ss_btn.set_visible(True)
 
     # ── Save flow ─────────────────────────────────────────────────────────
 
@@ -626,18 +669,10 @@ class EditAppDialog(Adw.Dialog):
         year_text = self._year_entry.get_text().strip()
         release_year = int(year_text) if year_text.isdigit() else None
         runner = self._runner_row.get_subtitle() or ""
-        dxvk = self._dxvk_row.get_subtitle() or ""
-        vkd3d = self._vkd3d_row.get_subtitle() or ""
         steam_appid_text = self._steam_appid_entry.get_text().strip()
         steam_appid = int(steam_appid_text) if steam_appid_text.isdigit() else None
         strategy = _STRATEGIES[self._strategy_row.get_selected()]
         entry_point = self._entry_point_entry.get_text().strip()
-
-        # Archive: use new filename if replaced, otherwise keep old path
-        if self._new_archive_src:
-            archive_rel = f"apps/{app_id}/{Path(self._new_archive_src).name}"
-        else:
-            archive_rel = e.archive
 
         # Single images: None=keep existing, ""=clear, str=new file
         if self._icon_path is None:
@@ -678,7 +713,12 @@ class EditAppDialog(Adw.Dialog):
         if e.platform == "linux":
             built_with = None
         else:
-            built_with = BuiltWith(runner=runner, dxvk=dxvk, vkd3d=vkd3d) if runner else None
+            old_bw = e.built_with
+            built_with = BuiltWith(
+                runner=runner,
+                dxvk=old_bw.dxvk if old_bw else "",
+                vkd3d=old_bw.vkd3d if old_bw else "",
+            ) if runner else None
 
         new_entry = AppEntry(
             id=app_id,
@@ -696,16 +736,16 @@ class EditAppDialog(Adw.Dialog):
             logo=logo_rel,
             hide_title=self._hide_title_btn.get_active(),
             screenshots=screenshot_rels,
-            archive=archive_rel,
+            archive=e.archive,
             archive_size=e.archive_size,
-            archive_crc32="" if self._new_archive_src else e.archive_crc32,
+            archive_crc32=e.archive_crc32,
             install_size_estimate=e.install_size_estimate,
             built_with=built_with,
             update_strategy=strategy,
             entry_point=entry_point,
             compatibility_notes=e.compatibility_notes,
             changelog=e.changelog,
-            lock_runner=self._lock_runner_btn.get_active(),
+            lock_runner=e.lock_runner,
             steam_appid=steam_appid if e.platform != "linux" else None,
             platform=e.platform,
         )
@@ -752,7 +792,6 @@ class EditAppDialog(Adw.Dialog):
                     e,
                     new_entry,
                     images,
-                    self._new_archive_src or None,
                     progress_cb=_progress,
                     phase_cb=_phase,
                     stats_cb=_stats,

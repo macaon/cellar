@@ -168,19 +168,29 @@ class PackageBuilderView(Gtk.Box):
         header = Adw.HeaderBar()
         header.set_show_start_title_buttons(False)
         header.set_show_end_title_buttons(False)
-        header.set_title_widget(Gtk.Label(label="Projects"))
+        header.set_title_widget(Gtk.Label())  # no centred title — label is at start
+
+        title_label = Gtk.Label(label="Packages")
+        title_label.add_css_class("heading")
+        title_label.set_margin_start(8)
+        header.pack_start(title_label)
 
         btn_box = Gtk.Box(spacing=4)
         btn_box.set_margin_start(4)
         btn_box.set_margin_end(4)
 
-        new_app_btn = Gtk.Button(icon_name="list-add-symbolic")
-        new_app_btn.set_tooltip_text("New App Project")
+        new_app_btn = Gtk.Button(icon_name="windows-symbolic")
+        new_app_btn.set_tooltip_text("New Windows package")
         new_app_btn.add_css_class("flat")
         new_app_btn.connect("clicked", self._on_new_app_clicked)
 
+        new_linux_btn = Gtk.Button(icon_name="linux-symbolic")
+        new_linux_btn.set_tooltip_text("New Linux package")
+        new_linux_btn.add_css_class("flat")
+        new_linux_btn.connect("clicked", self._on_new_linux_clicked)
+
         new_base_btn = Gtk.Button(icon_name="package-x-generic-symbolic")
-        new_base_btn.set_tooltip_text("New Base Project")
+        new_base_btn.set_tooltip_text("New Base package")
         new_base_btn.add_css_class("flat")
         new_base_btn.connect("clicked", self._on_new_base_clicked)
 
@@ -190,13 +200,14 @@ class PackageBuilderView(Gtk.Box):
         import_btn.connect("clicked", self._on_import_clicked)
 
         self._delete_btn = Gtk.Button(icon_name="edit-delete-symbolic")
-        self._delete_btn.set_tooltip_text("Delete project")
+        self._delete_btn.set_tooltip_text("Delete package")
         self._delete_btn.add_css_class("flat")
         self._delete_btn.add_css_class("destructive-action")
         self._delete_btn.set_sensitive(False)
         self._delete_btn.connect("clicked", self._on_delete_clicked)
 
         btn_box.append(new_app_btn)
+        btn_box.append(new_linux_btn)
         btn_box.append(new_base_btn)
         btn_box.append(import_btn)
         btn_box.append(self._delete_btn)
@@ -226,8 +237,7 @@ class PackageBuilderView(Gtk.Box):
 
         # Empty state
         empty = Adw.StatusPage(
-            title="No Project Selected",
-            description="Create a new project or select one from the list.",
+            description="Create a new package or select one from the list.",
             icon_name="package-x-generic-symbolic",
         )
         self._detail_stack.add_named(empty, "empty")
@@ -283,6 +293,9 @@ class PackageBuilderView(Gtk.Box):
     def _on_new_app_clicked(self, _btn) -> None:
         dialog = _AppMetadataDialog(on_created=self._on_project_created)
         dialog.present(self)
+
+    def _on_new_linux_clicked(self, _btn) -> None:
+        self._show_toast("Linux package support coming soon.")
 
     def _on_new_base_clicked(self, _btn) -> None:
         from cellar.backend import runners as _runners

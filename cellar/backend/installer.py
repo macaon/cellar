@@ -171,6 +171,18 @@ def _http_source(
     return _iter(), total
 
 
+def _smb_chunks(unc: str) -> Iterator[bytes]:
+    """Yield 1 MB chunks from an SMB UNC path via smbprotocol."""
+    import smbclient  # type: ignore[import]
+    _CHUNK = 1 * 1024 * 1024
+    try:
+        with smbclient.open_file(unc, mode="rb") as fh:
+            for chunk in iter(lambda: fh.read(_CHUNK), b""):
+                yield chunk
+    except Exception as exc:
+        raise InstallError(f"SMB read error for {unc}: {exc}") from exc
+
+
 def _gio_chunks(uri: str) -> Iterator[bytes]:
     """Yield 1 MB chunks from *uri* via a GIO InputStream (SMB/NFS without FUSE)."""
     try:
@@ -231,21 +243,25 @@ def _build_source(
             ca_cert=ca_cert,
         )
 
-    if scheme in ("smb", "nfs"):
-        fuse_path: str | None = None
+    if scheme == "smb":
+        # Use smbprotocol directly.  The _SmbFetcher already called
+        # smbclient.register_session() for this host, so no credentials
+        # are needed here — they are already cached by the library.
         try:
-            import gi
-            gi.require_version("Gio", "2.0")
-            from gi.repository import Gio
-            fuse_path = Gio.File.new_for_uri(uri).get_path()
-        except (ImportError, ValueError):
-            pass
-        if fuse_path:
-            local = Path(fuse_path)
-            size = expected_size if expected_size > 0 else local.stat().st_size
-            return _file_chunks(local), size
-        else:
-            return _gio_chunks(uri), expected_size
+            import smbclient  # type: ignore[import]
+            from cellar.utils.smb import smb_uri_to_unc
+        except ImportError as exc:
+            raise InstallError(
+                "smbprotocol is not installed; cannot stream from smb:// URIs"
+            ) from exc
+        unc = smb_uri_to_unc(uri)
+        size = expected_size
+        if not size:
+            try:
+                size = smbclient.stat(unc).st_size
+            except Exception:
+                size = 0
+        return _smb_chunks(unc), size
 
     raise InstallError(
         f"Downloading from {scheme!r} repos is not yet supported. "

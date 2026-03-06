@@ -164,6 +164,7 @@ def init_prefix(
     prefix_path: Path,
     runner_name: str,
     *,
+    steam_appid: int | None = None,
     timeout: int = 120,
 ) -> subprocess.CompletedProcess:
     """Initialise a fresh WINEPREFIX via ``umu-run ""``.
@@ -173,18 +174,19 @@ def init_prefix(
     umu handle Steam Runtime setup correctly.
     """
     import os
+    gameid = f"umu-{steam_appid}" if steam_appid else "0"
     base_env: dict[str, str] = {
         "WINEPREFIX": str(prefix_path),
         "PROTONPATH": str(runners_dir() / runner_name),
-        "GAMEID": "0",
+        "GAMEID": gameid,
     }
     prefix_path.mkdir(parents=True, exist_ok=True)
     env = {**os.environ, **base_env}
     # Empty-string positional arg → umu initialises the prefix, runs nothing.
     cmd = _umu_cmd() + [""]
     log.info(
-        "init_prefix: %s\n  WINEPREFIX=%s\n  PROTONPATH=%s",
-        " ".join(cmd), base_env["WINEPREFIX"], base_env["PROTONPATH"],
+        "init_prefix: %s\n  WINEPREFIX=%s\n  PROTONPATH=%s\n  GAMEID=%s",
+        " ".join(cmd), base_env["WINEPREFIX"], base_env["PROTONPATH"], gameid,
     )
     result = subprocess.run(cmd, env=env, timeout=timeout, capture_output=False)
     # umu-run "" exits with code 1 because Wine rejects an empty executable path,

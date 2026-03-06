@@ -368,11 +368,17 @@ class PackageBuilderView(Gtk.Box):
         # ── 1. Metadata section (App projects only — first, to set title/slug) ──
         if project.project_type == "app":
             from cellar.backend.config import load_igdb_creds as _load_igdb
+            from cellar.backend.packager import BASE_CATEGORIES as _BASE_CATS
             _igdb_ok = _load_igdb() is not None
+
+            def _save_meta(attr: str, value) -> None:
+                if self._project:
+                    setattr(self._project, attr, value)
+                    save_project(self._project)
 
             meta_group = Adw.PreferencesGroup(title="Metadata")
 
-            # Title — always visible
+            # Title
             self._meta_name_row = Adw.EntryRow(title="Title")
             self._meta_name_row.set_text(project.name)
             if _igdb_ok:
@@ -395,23 +401,167 @@ class PackageBuilderView(Gtk.Box):
             self._meta_name_row.connect("changed", _on_name_changed)
             meta_group.add(self._meta_name_row)
 
-            # App ID — always visible, read-only
+            # App ID — read-only
             _slug_row = Adw.ActionRow(title="App ID", subtitle=project.slug)
             _slug_row.add_css_class("property")
             meta_group.add(_slug_row)
 
-            # Details summary row — opens _MetadataDetailsDialog
-            _details_row = Adw.ActionRow(title="Details")
-            _details_summary = self._make_metadata_summary(project)
-            if _details_summary:
-                _details_row.set_subtitle(_details_summary)
-            _details_btn = Gtk.Button(label="Edit\u2026", valign=Gtk.Align.CENTER)
-            _details_btn.connect("clicked", self._on_edit_metadata_clicked)
-            _details_row.add_suffix(_details_btn)
-            _details_row.set_activatable_widget(_details_btn)
-            meta_group.add(_details_row)
+            # Version
+            _ver_row = Adw.EntryRow(title="Version")
+            _ver_row.set_text(project.version)
+            _ver_row.connect("changed", lambda r: _save_meta("version", r.get_text()))
+            meta_group.add(_ver_row)
+
+            # Category
+            _cats = list(_BASE_CATS)
+            _cat_row = Adw.ComboRow(title="Category")
+            _cat_row.set_model(Gtk.StringList.new(["(none)"] + _cats))
+            if project.category in _cats:
+                _cat_row.set_selected(_cats.index(project.category) + 1)
+
+            def _on_cat_changed(row, _param):
+                if self._project:
+                    idx = row.get_selected()
+                    self._project.category = _cats[idx - 1] if idx > 0 else ""
+                    save_project(self._project)
+
+            _cat_row.connect("notify::selected", _on_cat_changed)
+            meta_group.add(_cat_row)
+
+            # Developer
+            _dev_row = Adw.EntryRow(title="Developer")
+            _dev_row.set_text(project.developer)
+            _dev_row.connect("changed", lambda r: _save_meta("developer", r.get_text()))
+            meta_group.add(_dev_row)
+
+            # Publisher
+            _pub_row = Adw.EntryRow(title="Publisher")
+            _pub_row.set_text(project.publisher)
+            _pub_row.connect("changed", lambda r: _save_meta("publisher", r.get_text()))
+            meta_group.add(_pub_row)
+
+            # Release Year
+            _year_row = Adw.EntryRow(title="Release Year")
+            if project.release_year:
+                _year_row.set_text(str(project.release_year))
+
+            def _on_year_changed(row):
+                if self._project:
+                    txt = row.get_text().strip()
+                    try:
+                        self._project.release_year = int(txt) if txt else None
+                    except ValueError:
+                        return
+                    save_project(self._project)
+
+            _year_row.connect("changed", _on_year_changed)
+            meta_group.add(_year_row)
+
+            # Steam App ID
+            self._steam_appid_row = Adw.EntryRow(title="Steam App ID")
+            self._steam_appid_row.set_tooltip_text(
+                "Used for protonfixes. Leave empty for GAMEID=0."
+            )
+            if project.steam_appid is not None:
+                self._steam_appid_row.set_text(str(project.steam_appid))
+
+            def _on_steam_changed(row):
+                if self._project:
+                    txt = row.get_text().strip()
+                    self._project.steam_appid = int(txt) if txt.isdigit() else None
+                    save_project(self._project)
+
+            self._steam_appid_row.connect("changed", _on_steam_changed)
+            meta_group.add(self._steam_appid_row)
 
             page.add(meta_group)
+
+            # Description group
+            desc_group = Adw.PreferencesGroup(title="Description")
+
+            _summary_row = Adw.EntryRow(title="Summary")
+            _summary_row.set_text(project.summary)
+            _summary_row.connect("changed", lambda r: _save_meta("summary", r.get_text()))
+            desc_group.add(_summary_row)
+
+            _desc_row = Adw.EntryRow(title="Description")
+            _desc_row.set_text(project.description)
+            _desc_row.connect("changed", lambda r: _save_meta("description", r.get_text()))
+            desc_group.add(_desc_row)
+
+            page.add(desc_group)
+
+            # Assets group
+            img_group = Adw.PreferencesGroup(title="Assets")
+
+            _icon_row = Adw.ActionRow(title="Icon")
+            _icon_row.set_subtitle(
+                Path(project.icon_path).name if project.icon_path else "Not set"
+            )
+            _icon_btn = Gtk.Button(label="Choose\u2026", valign=Gtk.Align.CENTER)
+
+            def _on_pick_icon(_btn, _row=_icon_row):
+                def _chosen(_c, response, chooser):
+                    if response == Gtk.ResponseType.ACCEPT and self._project:
+                        path = chooser.get_file().get_path()
+                        self._project.icon_path = path
+                        _row.set_subtitle(GLib.markup_escape_text(Path(path).name))
+                        save_project(self._project)
+                self._pick_asset("Select Icon", False, _chosen)
+
+            _icon_btn.connect("clicked", _on_pick_icon)
+            _icon_row.add_suffix(_icon_btn)
+            img_group.add(_icon_row)
+
+            _cover_row = Adw.ActionRow(title="Cover")
+            _cover_row.set_subtitle(
+                Path(project.cover_path).name if project.cover_path else "Not set"
+            )
+            _cover_btn = Gtk.Button(label="Choose\u2026", valign=Gtk.Align.CENTER)
+
+            def _on_pick_cover(_btn, _row=_cover_row):
+                def _chosen(_c, response, chooser):
+                    if response == Gtk.ResponseType.ACCEPT and self._project:
+                        path = chooser.get_file().get_path()
+                        self._project.cover_path = path
+                        _row.set_subtitle(GLib.markup_escape_text(Path(path).name))
+                        save_project(self._project)
+                self._pick_asset("Select Cover", False, _chosen)
+
+            _cover_btn.connect("clicked", _on_pick_cover)
+            _cover_row.add_suffix(_cover_btn)
+            img_group.add(_cover_row)
+
+            _ss_count = len(project.screenshot_paths)
+            _ss_row = Adw.ActionRow(title="Screenshots")
+            _ss_row.set_subtitle(
+                f"{_ss_count} file{'s' if _ss_count != 1 else ''} selected"
+                if _ss_count else "None selected"
+            )
+            _ss_btn = Gtk.Button(label="Choose\u2026", valign=Gtk.Align.CENTER)
+
+            def _on_pick_ss(_btn, _row=_ss_row):
+                def _chosen(_c, response, chooser):
+                    if response == Gtk.ResponseType.ACCEPT and self._project:
+                        files = chooser.get_files()
+                        paths = [
+                            files.get_item(i).get_path()
+                            for i in range(files.get_n_items())
+                        ]
+                        self._project.screenshot_paths = paths
+                        count = len(paths)
+                        _row.set_subtitle(
+                            f"{count} file{'s' if count != 1 else ''} selected"
+                            if count else "None selected"
+                        )
+                        save_project(self._project)
+                self._pick_asset("Select Screenshots", True, _chosen)
+
+            _ss_btn.connect("clicked", _on_pick_ss)
+            _ss_row.add_suffix(_ss_btn)
+            img_group.add(_ss_row)
+
+            page.add(img_group)
 
         # ── 2. Runner / Base Image ────────────────────────────────────────
         sel_group = Adw.PreferencesGroup()
@@ -835,7 +985,11 @@ class PackageBuilderView(Gtk.Box):
         def _bg():
             try:
                 from cellar.backend.umu import init_prefix
-                result = init_prefix(project.prefix_path, project.runner)
+                result = init_prefix(
+                    project.prefix_path,
+                    project.runner,
+                    steam_appid=project.steam_appid,
+                )
                 # umu-run "" initializes the prefix then tries to execute an
                 # empty string, which Wine rejects with exit code 1.  Use the
                 # presence of drive_c as the real success indicator.
@@ -924,14 +1078,25 @@ class PackageBuilderView(Gtk.Box):
                     pass
             _t.Thread(target=_fetch, daemon=True).start()
 
-    def _on_edit_metadata_clicked(self, _btn) -> None:
-        if self._project is None:
-            return
-        dialog = _MetadataDetailsDialog(
-            project=self._project,
-            on_changed=lambda: self._show_project(self._project),
+    def _pick_asset(self, title: str, multi: bool, callback) -> None:
+        """Open a file-chooser for image assets; keeps a reference to prevent GC."""
+        chooser = Gtk.FileChooserNative(
+            title=title,
+            transient_for=self.get_root(),
+            action=Gtk.FileChooserAction.OPEN,
+            select_multiple=multi,
         )
-        dialog.present(self)
+        img_filter = Gtk.FileFilter()
+        img_filter.set_name("Images (PNG, JPG, ICO, SVG)")
+        img_filter.add_mime_type("image/png")
+        img_filter.add_mime_type("image/jpeg")
+        img_filter.add_mime_type("image/x-icon")
+        img_filter.add_mime_type("image/vnd.microsoft.icon")
+        img_filter.add_mime_type("image/svg+xml")
+        chooser.add_filter(img_filter)
+        chooser.connect("response", callback, chooser)
+        chooser.show()
+        self._asset_chooser = chooser
 
     def _get_next_step_hint(self, project: Project) -> str:
         """Return a short hint string for the banner, or '' if no guidance needed."""
@@ -1637,204 +1802,6 @@ class _NewAppDialog(Adw.Dialog):
 
         self.close()
         self._on_created(project)
-
-
-class _MetadataDetailsDialog(Adw.Dialog):
-    """Dialog for editing optional metadata fields of an App project."""
-
-    def __init__(self, project: Project, on_changed: Callable | None = None) -> None:
-        super().__init__(title="Details", content_width=480)
-        self._project = project
-        self._on_changed = on_changed
-        self._build_ui()
-
-    def _build_ui(self) -> None:
-        from cellar.backend.packager import BASE_CATEGORIES as _BASE_CATS
-
-        toolbar = Adw.ToolbarView()
-        header = Adw.HeaderBar()
-        header.set_show_end_title_buttons(False)
-        done_btn = Gtk.Button(label="Done")
-        done_btn.add_css_class("suggested-action")
-        done_btn.connect("clicked", lambda _: self.close())
-        header.pack_end(done_btn)
-        toolbar.add_top_bar(header)
-
-        page = Adw.PreferencesPage()
-
-        # General group
-        gen_group = Adw.PreferencesGroup()
-
-        self._version_row = Adw.EntryRow(title="Version")
-        self._version_row.set_text(self._project.version)
-        self._version_row.connect("changed", lambda r: self._save("version", r.get_text()))
-        gen_group.add(self._version_row)
-
-        self._cats = list(_BASE_CATS)
-        self._cat_row = Adw.ComboRow(title="Category")
-        self._cat_row.set_model(Gtk.StringList.new(["(none)"] + self._cats))
-        if self._project.category in self._cats:
-            self._cat_row.set_selected(self._cats.index(self._project.category) + 1)
-        self._cat_row.connect("notify::selected", self._on_cat_changed)
-        gen_group.add(self._cat_row)
-
-        self._dev_row = Adw.EntryRow(title="Developer")
-        self._dev_row.set_text(self._project.developer)
-        self._dev_row.connect("changed", lambda r: self._save("developer", r.get_text()))
-        gen_group.add(self._dev_row)
-
-        self._pub_row = Adw.EntryRow(title="Publisher")
-        self._pub_row.set_text(self._project.publisher)
-        self._pub_row.connect("changed", lambda r: self._save("publisher", r.get_text()))
-        gen_group.add(self._pub_row)
-
-        self._year_row = Adw.EntryRow(title="Release Year")
-        if self._project.release_year:
-            self._year_row.set_text(str(self._project.release_year))
-        self._year_row.connect("changed", self._on_year_changed)
-        gen_group.add(self._year_row)
-
-        self._steam_row = Adw.EntryRow(title="Steam App ID")
-        self._steam_row.set_tooltip_text("Used for protonfixes. Leave empty for GAMEID=0.")
-        if self._project.steam_appid is not None:
-            self._steam_row.set_text(str(self._project.steam_appid))
-        self._steam_row.connect("changed", self._on_steam_changed)
-        gen_group.add(self._steam_row)
-
-        page.add(gen_group)
-
-        # Description group
-        desc_group = Adw.PreferencesGroup(title="Description")
-
-        self._summary_row = Adw.EntryRow(title="Summary")
-        self._summary_row.set_text(self._project.summary)
-        self._summary_row.connect("changed", lambda r: self._save("summary", r.get_text()))
-        desc_group.add(self._summary_row)
-
-        self._desc_row = Adw.EntryRow(title="Description")
-        self._desc_row.set_text(self._project.description)
-        self._desc_row.connect("changed", lambda r: self._save("description", r.get_text()))
-        desc_group.add(self._desc_row)
-
-        page.add(desc_group)
-
-        # Images group
-        img_group = Adw.PreferencesGroup(title="Images")
-
-        self._icon_row = Adw.ActionRow(title="Icon")
-        self._icon_row.set_subtitle(
-            Path(self._project.icon_path).name if self._project.icon_path else "Not set"
-        )
-        icon_btn = Gtk.Button(label="Choose\u2026", valign=Gtk.Align.CENTER)
-        icon_btn.connect("clicked", self._on_pick_icon)
-        self._icon_row.add_suffix(icon_btn)
-        img_group.add(self._icon_row)
-
-        self._cover_row = Adw.ActionRow(title="Cover")
-        self._cover_row.set_subtitle(
-            Path(self._project.cover_path).name if self._project.cover_path else "Not set"
-        )
-        cover_btn = Gtk.Button(label="Choose\u2026", valign=Gtk.Align.CENTER)
-        cover_btn.connect("clicked", self._on_pick_cover)
-        self._cover_row.add_suffix(cover_btn)
-        img_group.add(self._cover_row)
-
-        ss_count = len(self._project.screenshot_paths)
-        self._ss_row = Adw.ActionRow(title="Screenshots")
-        self._ss_row.set_subtitle(
-            f"{ss_count} file{'s' if ss_count != 1 else ''} selected"
-            if ss_count else "None selected"
-        )
-        ss_btn = Gtk.Button(label="Choose\u2026", valign=Gtk.Align.CENTER)
-        ss_btn.connect("clicked", self._on_pick_screenshots)
-        self._ss_row.add_suffix(ss_btn)
-        img_group.add(self._ss_row)
-
-        page.add(img_group)
-        toolbar.set_content(page)
-        self.set_child(toolbar)
-
-    def _save(self, attr: str, value) -> None:
-        setattr(self._project, attr, value)
-        save_project(self._project)
-        if self._on_changed:
-            self._on_changed()
-
-    def _on_cat_changed(self, row, _param) -> None:
-        idx = row.get_selected()
-        self._project.category = self._cats[idx - 1] if idx > 0 else ""
-        save_project(self._project)
-        if self._on_changed:
-            self._on_changed()
-
-    def _on_year_changed(self, row) -> None:
-        txt = row.get_text().strip()
-        try:
-            self._project.release_year = int(txt) if txt else None
-        except ValueError:
-            return
-        save_project(self._project)
-        if self._on_changed:
-            self._on_changed()
-
-    def _on_steam_changed(self, row) -> None:
-        txt = row.get_text().strip()
-        self._project.steam_appid = int(txt) if txt.isdigit() else None
-        save_project(self._project)
-
-    def _pick_image(self, title: str, multi: bool, callback) -> None:
-        chooser = Gtk.FileChooserNative(
-            title=title,
-            transient_for=self.get_root(),
-            action=Gtk.FileChooserAction.OPEN,
-            select_multiple=multi,
-        )
-        img_filter = Gtk.FileFilter()
-        img_filter.set_name("Images (PNG, JPG, ICO, SVG)")
-        img_filter.add_mime_type("image/png")
-        img_filter.add_mime_type("image/jpeg")
-        img_filter.add_mime_type("image/x-icon")
-        img_filter.add_mime_type("image/vnd.microsoft.icon")
-        img_filter.add_mime_type("image/svg+xml")
-        chooser.add_filter(img_filter)
-        chooser.connect("response", callback, chooser)
-        chooser.show()
-        self._chooser = chooser
-
-    def _on_pick_icon(self, _btn) -> None:
-        self._pick_image("Select Icon", False, self._on_icon_chosen)
-
-    def _on_icon_chosen(self, _c, response, chooser) -> None:
-        if response == Gtk.ResponseType.ACCEPT:
-            path = chooser.get_file().get_path()
-            self._project.icon_path = path
-            self._icon_row.set_subtitle(GLib.markup_escape_text(Path(path).name))
-            save_project(self._project)
-
-    def _on_pick_cover(self, _btn) -> None:
-        self._pick_image("Select Cover", False, self._on_cover_chosen)
-
-    def _on_cover_chosen(self, _c, response, chooser) -> None:
-        if response == Gtk.ResponseType.ACCEPT:
-            path = chooser.get_file().get_path()
-            self._project.cover_path = path
-            self._cover_row.set_subtitle(GLib.markup_escape_text(Path(path).name))
-            save_project(self._project)
-
-    def _on_pick_screenshots(self, _btn) -> None:
-        self._pick_image("Select Screenshots", True, self._on_screenshots_chosen)
-
-    def _on_screenshots_chosen(self, _c, response, chooser) -> None:
-        if response == Gtk.ResponseType.ACCEPT:
-            files = chooser.get_files()
-            paths = [files.get_item(i).get_path() for i in range(files.get_n_items())]
-            self._project.screenshot_paths = paths
-            count = len(paths)
-            self._ss_row.set_subtitle(
-                f"{count} file{'s' if count != 1 else ''} selected"
-                if count else "None selected"
-            )
-            save_project(self._project)
 
 
 class _AddLaunchTargetDialog(Adw.Dialog):

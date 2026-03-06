@@ -353,26 +353,49 @@ class PackageBuilderView(Gtk.Box):
         # ── Prefix section ────────────────────────────────────────────────
         prefix_group = Adw.PreferencesGroup(title="Prefix")
 
-        # Runner selector
-        from cellar.backend import runners as _runners
-        runners = _runners.installed_runners()
+        if project.project_type == "base":
+            # Base projects select a runner directly.
+            from cellar.backend import runners as _runners
+            runners = _runners.installed_runners()
 
-        runner_model = Gtk.StringList.new(runners if runners else ["(no runners installed)"])
-        self._runner_row = Adw.ComboRow(title="Runner")
-        self._runner_row.set_subtitle_lines(1)
-        self._runner_row.set_model(runner_model)
-        if project.runner and project.runner in runners:
-            self._runner_row.set_selected(runners.index(project.runner))
-        self._runner_row.connect("notify::selected", self._on_runner_changed)
+            runner_model = Gtk.StringList.new(runners if runners else ["(no runners installed)"])
+            self._runner_row = Adw.ComboRow(title="Runner")
+            self._runner_row.set_subtitle_lines(1)
+            self._runner_row.set_model(runner_model)
+            if project.runner and project.runner in runners:
+                self._runner_row.set_selected(runners.index(project.runner))
+            self._runner_row.connect("notify::selected", self._on_runner_changed)
 
-        dl_btn = Gtk.Button(icon_name="list-add-symbolic")
-        dl_btn.set_valign(Gtk.Align.CENTER)
-        dl_btn.set_tooltip_text("Download runner…")
-        dl_btn.add_css_class("flat")
-        dl_btn.connect("clicked", self._on_download_runner_clicked)
-        self._runner_row.add_suffix(dl_btn)
+            dl_btn = Gtk.Button(icon_name="list-add-symbolic")
+            dl_btn.set_valign(Gtk.Align.CENTER)
+            dl_btn.set_tooltip_text("Download runner…")
+            dl_btn.add_css_class("flat")
+            dl_btn.connect("clicked", self._on_download_runner_clicked)
+            self._runner_row.add_suffix(dl_btn)
 
-        prefix_group.add(self._runner_row)
+            prefix_group.add(self._runner_row)
+        else:
+            # App projects select a base image; the runner is derived.
+            from cellar.backend.database import get_all_installed_bases
+            bases = get_all_installed_bases()
+            base_runners = [b["runner"] for b in bases]
+
+            base_model = Gtk.StringList.new(base_runners if base_runners else ["(no bases installed)"])
+            self._base_row = Adw.ComboRow(title="Base Image")
+            self._base_row.set_subtitle_lines(1)
+            self._base_row.set_model(base_model)
+            if project.runner and project.runner in base_runners:
+                self._base_row.set_selected(base_runners.index(project.runner))
+            self._base_row.connect("notify::selected", self._on_base_changed)
+
+            dl_btn = Gtk.Button(icon_name="list-add-symbolic")
+            dl_btn.set_valign(Gtk.Align.CENTER)
+            dl_btn.set_tooltip_text("Download base image…")
+            dl_btn.add_css_class("flat")
+            dl_btn.connect("clicked", self._on_download_base_clicked)
+            self._base_row.add_suffix(dl_btn)
+
+            prefix_group.add(self._base_row)
 
         # Prefix status row
         prefix_exists = project.prefix_path.is_dir()
@@ -540,6 +563,31 @@ class PackageBuilderView(Gtk.Box):
 
         page.add(pkg_group)
 
+        # ── Runners management (base projects only) ───────────────────────
+        if project.project_type == "base":
+            runners_group = Adw.PreferencesGroup(title="Runners")
+            runners_group.set_description(
+                "GE-Proton runners installed on this system."
+            )
+
+            dl_runner_btn = Gtk.Button(icon_name="list-add-symbolic")
+            dl_runner_btn.set_tooltip_text("Download runner…")
+            dl_runner_btn.add_css_class("flat")
+            dl_runner_btn.connect("clicked", self._on_download_runner_clicked)
+            runners_group.set_header_suffix(dl_runner_btn)
+
+            from cellar.backend import runners as _runners
+            for rname in _runners.installed_runners():
+                runner_row = Adw.ActionRow(title=rname)
+                del_btn = Gtk.Button(icon_name="edit-delete-symbolic")
+                del_btn.set_valign(Gtk.Align.CENTER)
+                del_btn.add_css_class("flat")
+                del_btn.connect("clicked", self._on_delete_runner_clicked, rname)
+                runner_row.add_suffix(del_btn)
+                runners_group.add(runner_row)
+
+            page.add(runners_group)
+
         self._detail_stack.set_visible_child_name("detail")
 
     # ------------------------------------------------------------------
@@ -581,6 +629,68 @@ class PackageBuilderView(Gtk.Box):
             # Auto-select the newly installed runner if no runner was set
             if not project.runner:
                 project.runner = runner_name
+                save_project(project)
+            self._show_project(project)
+
+    def _on_delete_runner_clicked(self, _btn, runner_name: str) -> None:
+        """Confirm and delete an installed runner."""
+        # Warn if any project uses this runner.
+        projects = load_projects()
+        using = [p.name for p in projects if p.runner == runner_name]
+
+        body = f"Delete runner \u201c{runner_name}\u201d?"
+        if using:
+            names = ", ".join(using)
+            body += f"\n\nUsed by: {names}"
+
+        dialog = Adw.AlertDialog(heading="Delete Runner", body=body)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("delete", "Delete")
+        dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+        dialog.connect(
+            "response",
+            lambda d, r: self._do_delete_runner(runner_name) if r == "delete" else None,
+        )
+        dialog.present(self)
+
+    def _do_delete_runner(self, runner_name: str) -> None:
+        from cellar.backend.runners import remove_runner
+        remove_runner(runner_name)
+        if self._project is not None:
+            self._show_project(self._project)
+
+    def _on_base_changed(self, row, _param) -> None:
+        """App project: user selected a different base image."""
+        if self._project is None:
+            return
+        from cellar.backend.database import get_all_installed_bases
+        bases = get_all_installed_bases()
+        base_runners = [b["runner"] for b in bases]
+        idx = row.get_selected()
+        if 0 <= idx < len(base_runners):
+            self._project.runner = base_runners[idx]
+            save_project(self._project)
+            if hasattr(self, "_init_btn"):
+                self._init_btn.set_sensitive(
+                    bool(self._project.runner) and not self._project.initialized
+                )
+
+    def _on_download_base_clicked(self, _btn) -> None:
+        """Open the base picker to download a base image from a repo."""
+        project = self._project
+        dialog = _BasePickerDialog(
+            repos=self._all_repos if hasattr(self, "_all_repos") else self._writable_repos,
+            on_installed=lambda runner: self._on_base_installed(runner, project),
+        )
+        dialog.present(self)
+
+    def _on_base_installed(self, runner: str, project: Project | None) -> None:
+        """Called after a base finishes installing — refresh the detail panel."""
+        if project is not None and self._project is project:
+            if not project.runner:
+                project.runner = runner
                 save_project(project)
             self._show_project(project)
 
@@ -1312,6 +1422,196 @@ class _RunnerPickerDialog(Adw.Dialog):
 
     def _on_runner_installed(self, runner_name: str) -> None:
         self._on_installed(runner_name)
+
+
+class _BasePickerDialog(Adw.Dialog):
+    """Lists base images available on configured repos and lets the user download one.
+
+    Shows locally installed bases with a checkmark.  Selecting an uninstalled
+    base and clicking Install downloads the archive and installs it via
+    ``base_store.install_base``.
+    """
+
+    def __init__(self, repos: list, on_installed: Callable[[str], None]) -> None:
+        super().__init__(title="Download Base Image", content_width=440)
+        self._repos = repos
+        self._on_installed = on_installed
+        self._bases: list[tuple] = []  # (BaseEntry, repo)
+        self._selected_idx: int = -1
+
+        toolbar = Adw.ToolbarView()
+        header = Adw.HeaderBar()
+        header.set_show_end_title_buttons(False)
+        cancel_btn = Gtk.Button(label="Cancel")
+        cancel_btn.connect("clicked", lambda _: self.close())
+        header.pack_start(cancel_btn)
+
+        self._install_btn = Gtk.Button(label="Install")
+        self._install_btn.add_css_class("suggested-action")
+        self._install_btn.set_sensitive(False)
+        self._install_btn.connect("clicked", self._on_install_clicked)
+        header.pack_end(self._install_btn)
+
+        toolbar.add_top_bar(header)
+
+        # Stack: loading spinner → base list
+        self._stack = Gtk.Stack()
+
+        spinner_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        spinner_box.set_valign(Gtk.Align.CENTER)
+        spinner_box.set_vexpand(True)
+        spinner = Gtk.Spinner(spinning=True)
+        spinner.set_size_request(32, 32)
+        spinner_box.append(spinner)
+        loading_lbl = Gtk.Label(label="Fetching bases…")
+        loading_lbl.add_css_class("dim-label")
+        spinner_box.append(loading_lbl)
+        self._stack.add_named(spinner_box, "loading")
+
+        scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
+        scroll.set_min_content_height(300)
+        self._list_box = Gtk.ListBox()
+        self._list_box.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        self._list_box.add_css_class("boxed-list")
+        self._list_box.set_margin_top(12)
+        self._list_box.set_margin_bottom(12)
+        self._list_box.set_margin_start(12)
+        self._list_box.set_margin_end(12)
+        self._list_box.connect("row-selected", self._on_row_selected)
+        scroll.set_child(self._list_box)
+        self._stack.add_named(scroll, "list")
+
+        self._stack.set_visible_child_name("loading")
+        toolbar.set_content(self._stack)
+        self.set_child(toolbar)
+
+        threading.Thread(target=self._fetch_bases, daemon=True).start()
+
+    def _fetch_bases(self) -> None:
+        from cellar.backend.base_store import is_base_installed
+        results: list[tuple] = []
+        seen: set[str] = set()
+        for repo in self._repos:
+            try:
+                for runner, base_entry in repo.fetch_bases().items():
+                    if runner not in seen:
+                        seen.add(runner)
+                        results.append((base_entry, repo))
+            except Exception as exc:
+                log.warning("Could not fetch bases from %s: %s", repo.uri, exc)
+        results.sort(key=lambda t: t[0].runner, reverse=True)
+        GLib.idle_add(self._populate_list, results)
+
+    def _populate_list(self, results: list[tuple]) -> None:
+        from cellar.backend.base_store import is_base_installed
+        self._bases = results
+
+        for base_entry, repo in results:
+            already = is_base_installed(base_entry.runner)
+            row = Adw.ActionRow(title=base_entry.runner)
+            size_mb = base_entry.archive_size / (1024 * 1024) if base_entry.archive_size else 0
+            subtitle = f"{size_mb:.0f} MB" if size_mb else ""
+            repo_name = repo.name or repo.uri
+            if subtitle:
+                subtitle += f"  ·  {repo_name}"
+            else:
+                subtitle = repo_name
+            if already:
+                subtitle += "  ·  Installed"
+            row.set_subtitle(subtitle)
+
+            if already:
+                icon = Gtk.Image.new_from_icon_name("emblem-ok-symbolic")
+                row.add_suffix(icon)
+
+            self._list_box.append(row)
+
+        if not results:
+            err_row = Adw.ActionRow(
+                title="No bases found",
+                subtitle="Publish a base image to a repository first.",
+            )
+            self._list_box.append(err_row)
+
+        self._stack.set_visible_child_name("list")
+
+    def _on_row_selected(self, _lb, row: Gtk.ListBoxRow | None) -> None:
+        if row is None:
+            self._selected_idx = -1
+            self._install_btn.set_sensitive(False)
+            return
+        self._selected_idx = row.get_index()
+        if 0 <= self._selected_idx < len(self._bases):
+            from cellar.backend.base_store import is_base_installed
+            runner = self._bases[self._selected_idx][0].runner
+            self._install_btn.set_sensitive(not is_base_installed(runner))
+        else:
+            self._install_btn.set_sensitive(False)
+
+    def _on_install_clicked(self, _btn) -> None:
+        if not (0 <= self._selected_idx < len(self._bases)):
+            return
+        base_entry, repo = self._bases[self._selected_idx]
+        parent_win = self.get_root()
+        self.close()
+
+        progress = _ProgressDialog(label=f"Downloading {base_entry.runner}…")
+        progress.present(parent_win)
+
+        def _bg():
+            import tempfile
+            try:
+                from cellar.backend.base_store import install_base
+                from cellar.backend.installer import (
+                    _build_source,  # noqa: PLC2701
+                )
+
+                archive_uri = repo.resolve_asset_uri(base_entry.archive)
+                chunks, total = _build_source(
+                    archive_uri,
+                    expected_size=base_entry.archive_size,
+                    token=repo.token,
+                    ssl_verify=repo.ssl_verify,
+                    ca_cert=repo.ca_cert,
+                )
+
+                # Stream to a temp file, then install from that.
+                with tempfile.NamedTemporaryFile(
+                    prefix="cellar-base-", suffix=".tar.zst", delete=False,
+                ) as tmp:
+                    tmp_path = Path(tmp.name)
+                    received = 0
+                    for chunk in chunks:
+                        tmp.write(chunk)
+                        received += len(chunk)
+                        if total:
+                            GLib.idle_add(progress.set_fraction, received / total)
+
+                GLib.idle_add(progress.set_label, "Installing base…")
+                GLib.idle_add(progress.set_fraction, 0.0)
+                install_base(
+                    tmp_path,
+                    base_entry.runner,
+                    repo_source=repo.uri,
+                    progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+                )
+                tmp_path.unlink(missing_ok=True)
+                GLib.idle_add(_done)
+            except Exception as exc:
+                log.error("Base install failed: %s", exc)
+                GLib.idle_add(_error, str(exc))
+
+        def _done() -> None:
+            progress.force_close()
+            self._on_installed(base_entry.runner)
+
+        def _error(msg: str) -> None:
+            progress.force_close()
+            err = Adw.AlertDialog(heading="Install failed", body=msg)
+            err.add_response("ok", "OK")
+            err.present(parent_win)
+
+        threading.Thread(target=_bg, daemon=True).start()
 
 
 class _ImportFromCatalogueDialog(Adw.Dialog):

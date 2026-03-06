@@ -390,6 +390,25 @@ def set_runner_override(app_id: str, runner_name: str | None) -> None:
         )
 
 
+def update_install_paths(old_base: str, new_base: str) -> None:
+    """Rewrite ``install_path`` records whose path is under *old_base*.
+
+    Called after moving the install data directory so that every installed
+    record points to its new absolute location.
+    """
+    old = old_base.rstrip("/")
+    new = new_base.rstrip("/")
+    if not old or not new or old == new:
+        return
+    with _open_db() as conn:
+        conn.execute(
+            "UPDATE installed"
+            " SET install_path = ? || SUBSTR(install_path, ?)"
+            " WHERE install_path LIKE ?",
+            (new, len(old) + 1, old + "/%"),
+        )
+
+
 # ---------------------------------------------------------------------------
 # Public API — repos
 # ---------------------------------------------------------------------------

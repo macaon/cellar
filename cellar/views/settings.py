@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 from urllib.parse import urlparse
@@ -132,18 +133,57 @@ class SettingsDialog(Adw.PreferencesDialog):
         if response == Gtk.ResponseType.ACCEPT:
             f = chooser.get_file()
             if f:
+                old_dir = install_data_dir()
                 save_install_base(f.get_path())
-                self._install_location_row.set_subtitle(str(install_data_dir()))
-                if self._on_repos_changed:
-                    self._on_repos_changed()
+                new_dir = install_data_dir()
+                self._install_location_row.set_subtitle(str(new_dir))
+                self._migrate_and_reload(old_dir, new_dir)
 
     def _on_install_location_reset(self, _btn) -> None:
         from cellar.backend.config import install_data_dir, save_install_base
 
+        old_dir = install_data_dir()
         save_install_base("")
-        self._install_location_row.set_subtitle(str(install_data_dir()))
-        if self._on_repos_changed:
-            self._on_repos_changed()
+        new_dir = install_data_dir()
+        self._install_location_row.set_subtitle(str(new_dir))
+        self._migrate_and_reload(old_dir, new_dir)
+
+    def _migrate_and_reload(self, old_dir: Path, new_dir: Path) -> None:
+        """Move install data from *old_dir* to *new_dir* then reload catalogue."""
+        import threading
+
+        if old_dir == new_dir:
+            if self._on_repos_changed:
+                self._on_repos_changed()
+            return
+
+        has_data = any(
+            (old_dir / sub).is_dir() and any((old_dir / sub).iterdir())
+            for sub in ("prefixes", "native", "bases")
+        )
+        if not has_data:
+            if self._on_repos_changed:
+                self._on_repos_changed()
+            return
+
+        spinner = Gtk.Spinner(spinning=True, margin_top=8)
+        progress_dialog = Adw.AlertDialog(
+            heading="Moving Install Data",
+            body=f"Moving installs to {new_dir}\u2026",
+            extra_child=spinner,
+        )
+        progress_dialog.present(self)
+
+        def _do() -> None:
+            _move_install_data(old_dir, new_dir)
+            GLib.idle_add(_finish)
+
+        def _finish() -> None:
+            progress_dialog.close()
+            if self._on_repos_changed:
+                self._on_repos_changed()
+
+        threading.Thread(target=_do, daemon=True).start()
 
     # ------------------------------------------------------------------
     # umu-launcher
@@ -986,6 +1026,35 @@ class AddEditRepoDialog(Adw.Dialog):
 # ---------------------------------------------------------------------------
 # Module-level helpers
 # ---------------------------------------------------------------------------
+
+def _move_install_data(old_dir: Path, new_dir: Path) -> None:
+    """Move prefixes, native, and bases from *old_dir* to *new_dir*.
+
+    Each item is moved individually so that items already present at the
+    destination are skipped rather than overwritten.  The DB ``install_path``
+    values are updated after all moves complete.
+    """
+    import shutil
+    from cellar.backend import database
+
+    for subdir in ("prefixes", "native", "bases"):
+        src_root = old_dir / subdir
+        if not src_root.is_dir():
+            continue
+        dst_root = new_dir / subdir
+        dst_root.mkdir(parents=True, exist_ok=True)
+        for item in list(src_root.iterdir()):
+            dst_item = dst_root / item.name
+            if dst_item.exists():
+                log.warning("Skipping %s — already exists at destination", item.name)
+                continue
+            try:
+                shutil.move(str(item), dst_item)
+            except Exception:
+                log.exception("Failed to move %s", item)
+
+    database.update_install_paths(str(old_dir), str(new_dir))
+
 
 def _empty_catalogue() -> dict:
     return {

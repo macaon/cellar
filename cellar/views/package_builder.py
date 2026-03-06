@@ -367,21 +367,17 @@ class PackageBuilderView(Gtk.Box):
 
         # ── 1. Metadata section (App projects only — first, to set title/slug) ──
         if project.project_type == "app":
-            from cellar.backend.config import load_igdb_creds as _load_igdb
-            _igdb_ok = _load_igdb() is not None
-
             meta_group = Adw.PreferencesGroup(title="Metadata")
 
             # Title — always visible
             self._meta_name_row = Adw.EntryRow(title="Title")
             self._meta_name_row.set_text(project.name)
-            if _igdb_ok:
-                _igdb_btn = Gtk.Button(icon_name="system-search-symbolic")
-                _igdb_btn.add_css_class("flat")
-                _igdb_btn.set_valign(Gtk.Align.CENTER)
-                _igdb_btn.set_tooltip_text("Look up on IGDB")
-                _igdb_btn.connect("clicked", self._on_meta_igdb_lookup)
-                self._meta_name_row.add_suffix(_igdb_btn)
+            _steam_btn = Gtk.Button(icon_name="system-search-symbolic")
+            _steam_btn.add_css_class("flat")
+            _steam_btn.set_valign(Gtk.Align.CENTER)
+            _steam_btn.set_tooltip_text("Look up on Steam")
+            _steam_btn.connect("clicked", self._on_meta_steam_lookup)
+            self._meta_name_row.add_suffix(_steam_btn)
 
             def _on_name_changed(row):
                 if self._project:
@@ -867,17 +863,17 @@ class PackageBuilderView(Gtk.Box):
     # Signal handlers — metadata
     # ------------------------------------------------------------------
 
-    def _on_meta_igdb_lookup(self, _btn) -> None:
+    def _on_meta_steam_lookup(self, _btn) -> None:
         if self._project is None:
             return
-        from cellar.views.igdb_picker import IGDBPickerDialog
+        from cellar.views.steam_picker import SteamPickerDialog
         query = self._project.name
         if hasattr(self, "_meta_name_row"):
             query = self._meta_name_row.get_text().strip() or query
-        picker = IGDBPickerDialog(query=query, on_picked=self._apply_igdb_to_meta)
+        picker = SteamPickerDialog(query=query, on_picked=self._apply_steam_to_meta)
         picker.present(self.get_root())
 
-    def _apply_igdb_to_meta(self, result: dict) -> None:
+    def _apply_steam_to_meta(self, result: dict) -> None:
         if self._project is None:
             return
         p = self._project
@@ -891,8 +887,8 @@ class PackageBuilderView(Gtk.Box):
             p.release_year = result["year"]
         if result.get("summary") and not p.summary:
             p.summary = result["summary"]
-            if not p.description:
-                p.description = result["summary"]
+        if result.get("description") and not p.description:
+            p.description = result["description"]
         if result.get("steam_appid") and p.steam_appid is None:
             p.steam_appid = result["steam_appid"]
         if result.get("category") and not p.category:
@@ -1505,9 +1501,6 @@ class _AppMetadataDialog(Adw.Dialog):
         self._tmp_screenshots: list[str] = []
         self._chooser = None
 
-        from cellar.backend.config import load_igdb_creds as _load_igdb
-        self._igdb_ok = _load_igdb() is not None
-
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -1549,13 +1542,12 @@ class _AppMetadataDialog(Adw.Dialog):
             self._title_row = Adw.EntryRow(title="Title")
             self._title_row.set_text(p.name if p else "")
             self._title_row.connect("changed", self._on_title_changed)
-            if self._igdb_ok:
-                igdb_btn = Gtk.Button(icon_name="system-search-symbolic")
-                igdb_btn.add_css_class("flat")
-                igdb_btn.set_valign(Gtk.Align.CENTER)
-                igdb_btn.set_tooltip_text("Look up on IGDB")
-                igdb_btn.connect("clicked", self._on_igdb_lookup)
-                self._title_row.add_suffix(igdb_btn)
+            steam_btn = Gtk.Button(icon_name="system-search-symbolic")
+            steam_btn.add_css_class("flat")
+            steam_btn.set_valign(Gtk.Align.CENTER)
+            steam_btn.set_tooltip_text("Look up on Steam")
+            steam_btn.connect("clicked", self._on_steam_lookup)
+            self._title_row.add_suffix(steam_btn)
         id_group.add(self._title_row)
 
         # App ID
@@ -1725,18 +1717,18 @@ class _AppMetadataDialog(Adw.Dialog):
         txt = row.get_text().strip()
         self._save("steam_appid", int(txt) if txt.isdigit() else None)
 
-    def _on_igdb_lookup(self, _btn) -> None:
-        from cellar.views.igdb_picker import IGDBPickerDialog
+    def _on_steam_lookup(self, _btn) -> None:
+        from cellar.views.steam_picker import SteamPickerDialog
         if isinstance(self._title_row, Adw.EntryRow):
             query = self._title_row.get_text().strip()
         elif self._project:
             query = self._project.name
         else:
             query = ""
-        picker = IGDBPickerDialog(query=query, on_picked=self._apply_igdb)
+        picker = SteamPickerDialog(query=query, on_picked=self._apply_steam)
         picker.present(self.get_root())
 
-    def _apply_igdb(self, result: dict) -> None:
+    def _apply_steam(self, result: dict) -> None:
         if result.get("name") and isinstance(self._title_row, Adw.EntryRow):
             self._title_row.set_text(result["name"])
         if result.get("developer") and not self._dev_row.get_text().strip():
@@ -1747,6 +1739,8 @@ class _AppMetadataDialog(Adw.Dialog):
             self._year_row.set_text(str(result["year"]))
         if result.get("summary") and not self._summary_row.get_text().strip():
             self._summary_row.set_text(result["summary"])
+        if result.get("description") and not self._desc_row.get_text().strip():
+            self._desc_row.set_text(result["description"])
         if result.get("steam_appid") and not self._steam_row.get_text().strip():
             self._steam_row.set_text(str(result["steam_appid"]))
         if result.get("category") and result["category"] in self._cats:

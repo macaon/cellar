@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import threading
 from pathlib import Path
 from typing import Callable
 from urllib.parse import urlparse
@@ -18,10 +17,7 @@ from gi.repository import Adw, GLib, Gtk
 
 from cellar.backend.config import (
     certs_dir,
-    clear_igdb_creds,
-    load_igdb_creds,
     load_repos,
-    save_igdb_creds,
     save_repos,
 )
 from cellar.utils.progress import fmt_stats as _fmt_ul_stats
@@ -76,9 +72,6 @@ class SettingsDialog(Adw.PreferencesDialog):
 
         # ── Group: Installed Base Images ──────────────────────────────────
         self._build_bases_group(page)
-
-        # ── Group: IGDB Integration ────────────────────────────────────────
-        self._build_igdb_group(page)
 
         self._rebuild_repo_rows()
 
@@ -183,123 +176,6 @@ class SettingsDialog(Adw.PreferencesDialog):
         from cellar.backend.base_store import remove_base
         remove_base(runner)
         self._rebuild_bases_rows()
-
-    # ------------------------------------------------------------------
-    # IGDB Integration
-    # ------------------------------------------------------------------
-
-    def _build_igdb_group(self, page: Adw.PreferencesPage) -> None:
-        igdb_group = Adw.PreferencesGroup(
-            title="IGDB Integration",
-            description="Look up game metadata when adding packages. "
-            "Requires a free Twitch Developer application.",
-        )
-        page.add(igdb_group)
-
-        # Entry rows — shown when no credentials are saved.
-        self._igdb_id_row = Adw.EntryRow(title="Twitch Client ID")
-        igdb_group.add(self._igdb_id_row)
-
-        self._igdb_secret_row = Adw.PasswordEntryRow(title="Client Secret")
-        igdb_group.add(self._igdb_secret_row)
-
-        # Save row — shown with the entry rows.
-        self._igdb_save_row = Adw.ActionRow()
-        self._igdb_save_btn = Gtk.Button(
-            label="Save", valign=Gtk.Align.CENTER, css_classes=["suggested-action"]
-        )
-        self._igdb_save_btn.connect("clicked", self._on_igdb_save)
-        self._igdb_save_row.add_suffix(self._igdb_save_btn)
-        igdb_group.add(self._igdb_save_row)
-
-        # Configured row — shown when credentials are stored; hides the entry rows.
-        self._igdb_configured_row = Adw.ActionRow(title="IGDB credentials")
-        ok_icon = Gtk.Image.new_from_icon_name("emblem-ok-symbolic")
-        ok_icon.set_pixel_size(16)
-        ok_icon.set_valign(Gtk.Align.CENTER)
-        self._igdb_configured_row.add_prefix(ok_icon)
-
-        igdb_edit_btn = Gtk.Button(
-            icon_name="document-edit-symbolic",
-            valign=Gtk.Align.CENTER,
-            has_frame=False,
-            tooltip_text="Edit credentials",
-        )
-        igdb_edit_btn.connect("clicked", self._on_igdb_edit)
-        self._igdb_configured_row.add_suffix(igdb_edit_btn)
-
-        igdb_del_btn = Gtk.Button(
-            icon_name="user-trash-symbolic",
-            valign=Gtk.Align.CENTER,
-            has_frame=False,
-            tooltip_text="Remove credentials",
-            css_classes=["destructive-action"],
-        )
-        igdb_del_btn.connect("clicked", self._on_igdb_clear)
-        self._igdb_configured_row.add_suffix(igdb_del_btn)
-
-        igdb_group.add(self._igdb_configured_row)
-
-        self._igdb_refresh_status()
-
-    def _igdb_refresh_status(self) -> None:
-        creds = load_igdb_creds()
-        configured = creds is not None
-        self._igdb_id_row.set_visible(not configured)
-        self._igdb_secret_row.set_visible(not configured)
-        self._igdb_save_row.set_visible(not configured)
-        if configured:
-            self._igdb_configured_row.set_subtitle(creds["client_id"])
-        self._igdb_configured_row.set_visible(configured)
-
-    def _on_igdb_save(self, _btn) -> None:
-        client_id = self._igdb_id_row.get_text().strip()
-        secret = self._igdb_secret_row.get_text().strip()
-        if not client_id or not secret:
-            self._alert("Missing Credentials", "Enter both Client ID and Client Secret.")
-            return
-
-        self._igdb_save_btn.set_label("Saving\u2026")
-        self._igdb_save_btn.set_sensitive(False)
-
-        def _run() -> None:
-            try:
-                from cellar.backend.igdb import IGDBClient  # noqa: PLC0415
-
-                client = IGDBClient(client_id, secret)
-                client._ensure_token()  # noqa: SLF001 — intentional verification call
-                GLib.idle_add(self._on_igdb_save_ok, client_id, secret)
-            except Exception as exc:  # noqa: BLE001
-                GLib.idle_add(self._on_igdb_save_fail, str(exc))
-
-        threading.Thread(target=_run, daemon=True).start()
-
-    def _on_igdb_save_ok(self, client_id: str, secret: str) -> None:
-        save_igdb_creds(client_id, secret)
-        self._igdb_secret_row.set_text("")
-        self._igdb_save_btn.set_label("Save")
-        self._igdb_save_btn.set_sensitive(True)
-        self._igdb_refresh_status()
-
-    def _on_igdb_save_fail(self, message: str) -> None:
-        self._igdb_save_btn.set_label("Save")
-        self._igdb_save_btn.set_sensitive(True)
-        self._alert("Verification Failed", message)
-
-    def _on_igdb_edit(self, _btn) -> None:
-        creds = load_igdb_creds()
-        if creds:
-            self._igdb_id_row.set_text(creds["client_id"])
-        self._igdb_id_row.set_visible(True)
-        self._igdb_secret_row.set_visible(True)
-        self._igdb_save_row.set_visible(True)
-        self._igdb_configured_row.set_visible(False)
-
-    def _on_igdb_clear(self, _btn) -> None:
-        clear_igdb_creds()
-        self._igdb_id_row.set_text("")
-        self._igdb_secret_row.set_text("")
-        self._igdb_refresh_status()
 
     # ------------------------------------------------------------------
     # Repo list management

@@ -1,11 +1,11 @@
-"""IGDB game search picker dialog.
+"""Steam game search picker dialog.
 
-Presented from AddAppDialog / EditAppDialog when the admin wants to look up
-game metadata.  The dialog accepts an initial query string, lets the user
-refine it, and calls ``on_picked`` with the selected result dict.
+Presented from the metadata dialog when the user wants to look up game
+metadata from Steam.  Searches by title, shows results, fetches full
+appdetails on selection, and calls ``on_picked`` with the result dict.
 
-Result dict keys: id, name, year, developer, publisher, summary,
-cover_image_id, category.
+Result dict keys: appid, name, year, developer, publisher, summary,
+description, category, steam_appid, header_image, screenshots.
 """
 
 from __future__ import annotations
@@ -24,15 +24,15 @@ log = logging.getLogger(__name__)
 _DEBOUNCE_MS = 400
 
 
-class IGDBPickerDialog(Adw.Dialog):
-    """Modal dialog for searching IGDB and picking a result."""
+class SteamPickerDialog(Adw.Dialog):
+    """Modal dialog for searching Steam and picking a result."""
 
     def __init__(self, *, query: str = "", on_picked, **kwargs) -> None:
-        super().__init__(title="Search IGDB", content_width=420, **kwargs)
+        super().__init__(title="Search Steam", content_width=420, **kwargs)
         self._on_picked = on_picked
         self._debounce_id: int | None = None
         self._search_gen: int = 0
-        self._results: list[dict] = []
+        self._results: list[dict] = []  # list of {appid, name}
 
         self._build_ui()
 
@@ -56,7 +56,6 @@ class IGDBPickerDialog(Adw.Dialog):
 
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
 
-        # Search entry
         self._search_entry = Gtk.SearchEntry()
         self._search_entry.set_placeholder_text("Game title\u2026")
         self._search_entry.set_margin_top(12)
@@ -68,12 +67,11 @@ class IGDBPickerDialog(Adw.Dialog):
 
         outer.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
 
-        # Content stack: spinner / results / empty / error
         self._stack = Gtk.Stack()
         self._stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
         self._stack.set_vexpand(True)
 
-        # — Spinner —
+        # Spinner (search in progress)
         spinner_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         spinner_box.set_valign(Gtk.Align.CENTER)
         spinner = Gtk.Spinner(spinning=True)
@@ -84,7 +82,7 @@ class IGDBPickerDialog(Adw.Dialog):
         spinner_box.append(spinner)
         self._stack.add_named(spinner_box, "spinner")
 
-        # — Results —
+        # Results list
         scroll = Gtk.ScrolledWindow(
             hscrollbar_policy=Gtk.PolicyType.NEVER,
             vscrollbar_policy=Gtk.PolicyType.AUTOMATIC,
@@ -101,7 +99,7 @@ class IGDBPickerDialog(Adw.Dialog):
         scroll.set_child(self._listbox)
         self._stack.add_named(scroll, "results")
 
-        # — Empty —
+        # Empty state
         empty_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         empty_box.set_valign(Gtk.Align.CENTER)
         empty_label = Gtk.Label(label="No results found")
@@ -112,7 +110,7 @@ class IGDBPickerDialog(Adw.Dialog):
         empty_box.append(empty_label)
         self._stack.add_named(empty_box, "empty")
 
-        # — Error —
+        # Error state
         error_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         error_box.set_valign(Gtk.Align.CENTER)
         self._error_label = Gtk.Label()
@@ -126,7 +124,6 @@ class IGDBPickerDialog(Adw.Dialog):
         error_box.append(self._error_label)
         self._stack.add_named(error_box, "error")
 
-        # Start with empty state
         self._stack.set_visible_child_name("empty")
 
         outer.append(self._stack)
@@ -150,7 +147,7 @@ class IGDBPickerDialog(Adw.Dialog):
     def _fire_search(self, query: str) -> bool:
         self._debounce_id = None
         self._trigger_search(query)
-        return False  # don't repeat
+        return False
 
     def _trigger_search(self, query: str) -> None:
         self._search_gen += 1
@@ -159,16 +156,11 @@ class IGDBPickerDialog(Adw.Dialog):
 
         def _run() -> None:
             try:
-                from cellar.backend import config as _cfg
-                from cellar.backend.igdb import IGDBClient, IGDBError
-
-                creds = _cfg.load_igdb_creds()
-                if not creds:
-                    GLib.idle_add(self._show_error, "IGDB not configured")
-                    return
-                client = IGDBClient(creds["client_id"], creds["client_secret"])
-                results = client.search_games(query)
+                from cellar.backend.steam import SteamError, search_games
+                results = search_games(query)
                 GLib.idle_add(self._on_results, gen, results)
+            except SteamError as exc:
+                GLib.idle_add(self._show_error, str(exc))
             except Exception as exc:  # noqa: BLE001
                 GLib.idle_add(self._show_error, str(exc))
 
@@ -176,11 +168,10 @@ class IGDBPickerDialog(Adw.Dialog):
 
     def _on_results(self, gen: int, results: list[dict]) -> None:
         if gen != self._search_gen:
-            return  # stale response
+            return
 
         self._results = results
 
-        # Clear listbox
         row = self._listbox.get_row_at_index(0)
         while row is not None:
             self._listbox.remove(row)
@@ -192,13 +183,7 @@ class IGDBPickerDialog(Adw.Dialog):
 
         for result in results:
             adw_row = Adw.ActionRow(title=GLib.markup_escape_text(result["name"]))
-            parts: list[str] = []
-            if result.get("developer"):
-                parts.append(result["developer"])
-            if result.get("year"):
-                parts.append(str(result["year"]))
-            if parts:
-                adw_row.set_subtitle(GLib.markup_escape_text(", ".join(parts)))
+            adw_row.set_subtitle(f"App ID {result['appid']}")
             adw_row.set_activatable(True)
             self._listbox.append(adw_row)
 
@@ -209,12 +194,29 @@ class IGDBPickerDialog(Adw.Dialog):
         self._stack.set_visible_child_name("error")
 
     # ------------------------------------------------------------------
-    # Selection
+    # Selection — fetch full details on pick
     # ------------------------------------------------------------------
 
     def _on_row_activated(self, _listbox: Gtk.ListBox, row: Gtk.ListBoxRow) -> None:
         idx = row.get_index()
-        if 0 <= idx < len(self._results):
-            result = self._results[idx]
-            self.close()
-            self._on_picked(result)
+        if not (0 <= idx < len(self._results)):
+            return
+        appid = self._results[idx]["appid"]
+        # Show spinner while fetching full details
+        self._stack.set_visible_child_name("spinner")
+        self._search_entry.set_sensitive(False)
+
+        def _fetch() -> None:
+            try:
+                from cellar.backend.steam import fetch_details
+                details = fetch_details(appid)
+                GLib.idle_add(self._on_details_ready, details)
+            except Exception as exc:  # noqa: BLE001
+                GLib.idle_add(self._show_error, str(exc))
+                GLib.idle_add(self._search_entry.set_sensitive, True)
+
+        threading.Thread(target=_fetch, daemon=True).start()
+
+    def _on_details_ready(self, details: dict) -> None:
+        self.close()
+        self._on_picked(details)

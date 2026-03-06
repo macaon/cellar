@@ -158,17 +158,6 @@ def test_optimize_ico_to_png(ico_file, tmp_path):
 # optimize_image — downscaling
 # ---------------------------------------------------------------------------
 
-def test_optimize_large_hero_becomes_jpeg(large_png, tmp_path):
-    dest = tmp_path / "out" / "hero.png"
-    dest.parent.mkdir()
-    optimize_image(large_png, dest, "hero")
-    # Should have been resized and converted to JPEG, then renamed to dest
-    assert dest.exists()
-    img = Image.open(dest)
-    assert img.size[0] <= 1920
-    assert img.size[1] <= 620
-
-
 def test_optimize_small_icon_copied_as_is(tmp_path):
     small = Image.new("RGBA", (32, 32), (255, 0, 0, 255))
     src = tmp_path / "small.png"

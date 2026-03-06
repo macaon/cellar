@@ -28,7 +28,6 @@
       },
       "icon": "apps/example-app/icon.png",
       "cover": "apps/example-app/cover.png",
-      "hero": "apps/example-app/hero.png",
       "screenshots": [
         "apps/example-app/screenshots/01.png",
         "apps/example-app/screenshots/02.png"

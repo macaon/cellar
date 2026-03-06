@@ -24,7 +24,7 @@ The project is called **Cellar**.
 
 ## Repo / catalogue format
 
-`repo/catalogue.json` is the single source of truth. App assets live under `repo/apps/<id>/` (icon, cover, hero, screenshots, archive). Delta base archives under `repo/bases/`. See `docs/CATALOGUE_FORMAT.md` for full schema.
+`repo/catalogue.json` is the single source of truth. App assets live under `repo/apps/<id>/` (icon, cover, screenshots, archive). Delta base archives under `repo/bases/`. See `docs/CATALOGUE_FORMAT.md` for full schema.
 
 ### Supported URI schemes
 
@@ -82,7 +82,7 @@ CREATE TABLE bases (
 Modelled on GNOME Software. libadwaita throughout.
 
 - **Main window:** `AdwViewSwitcher` → Explore / Installed / Updates tabs. Category filter strip of linked `GtkToggleButton` pills. `GtkFlowBox` of 300×96 px `.card` app cards. `GtkSearchBar` + `set_key_capture_widget`.
-- **Detail view:** Hero banner + icon + name + category. Description, components, changelog. `AdwCarousel` screenshots. Install/Update/Remove action button. Edit pencil for writable repos.
+- **Detail view:** Icon + name + category. Description, components, changelog. `AdwCarousel` screenshots. Install/Update/Remove action button. Edit pencil for writable repos.
 - **Progress dialog:** `AdwDialog` + progress bar + cancel. `AdwToast` on completion.
 - **Settings:** `Adw.PreferencesDialog` — Repositories group (add/remove, bearer token), Access Control group (token generator), Delta Base Images group.
 - Tab icons in `data/icons/hicolor/symbolic/apps/` (CC0-1.0), registered via `Gtk.IconTheme.add_search_path()`.

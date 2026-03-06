@@ -712,8 +712,6 @@ class EditAppDialog(Adw.Dialog):
         else:
             cover_rel = f"apps/{app_id}/cover{Path(self._cover_path).suffix}"
 
-        hero_rel = e.hero
-
         if self._logo_path is None:
             logo_rel = e.logo
         elif self._logo_path == "":
@@ -754,7 +752,6 @@ class EditAppDialog(Adw.Dialog):
             release_year=release_year,
             icon=icon_rel,
             cover=cover_rel,
-            hero=hero_rel,
             logo=logo_rel,
             hide_title=self._hide_title_btn.get_active(),
             screenshots=screenshot_rels,

@@ -77,7 +77,7 @@ class AppEntry:
     *Identity* — required; used by the browse grid and as stable keys.
     *Display* — metadata shown in the detail view.
     *Attribution* — developer/publisher info and external links.
-    *Media* — icon, cover art, hero banner, screenshots (repo-relative paths).
+    *Media* — icon, cover art, screenshots (repo-relative paths).
     *Installation* — archive location, hashes, Bottles component config.
     """
 
@@ -107,7 +107,6 @@ class AppEntry:
     # ── Media (repo-relative paths) ───────────────────────────────────────
     icon: str = ""       # square icon — browse grid
     cover: str = ""      # portrait cover — browse grid (games)
-    hero: str = ""       # wide banner — detail view header
     logo: str = ""       # transparent logo (Steam-style) — replaces icon+name in detail view
     hide_title: bool = False   # suppress name label when logo is present
     screenshots: tuple[str, ...] = ()
@@ -166,7 +165,6 @@ class AppEntry:
             store_links=dict(data.get("store_links", {})),
             icon=data.get("icon", ""),
             cover=data.get("cover", ""),
-            hero=data.get("hero", ""),
             logo=data.get("logo", ""),
             hide_title=bool(data.get("hide_title", False)),
             screenshots=tuple(data.get("screenshots", [])),
@@ -211,7 +209,6 @@ class AppEntry:
             d["store_links"] = dict(self.store_links)
         _opt_str(d, "icon", self.icon)
         _opt_str(d, "cover", self.cover)
-        _opt_str(d, "hero", self.hero)
         _opt_str(d, "logo", self.logo)
         if self.hide_title:
             d["hide_title"] = True

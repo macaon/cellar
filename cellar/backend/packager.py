@@ -357,7 +357,7 @@ def import_to_repo(
     """Copy archive + images into *repo_root* and update ``catalogue.json``.
 
     *images* is a dict with optional keys:
-      ``"icon"``, ``"cover"``, ``"hero"`` → str path
+      ``"icon"``, ``"cover"`` → str path
       ``"screenshots"`` → list[str] paths
 
     *progress_cb* receives a float in [0, 1] during the archive copy phase.
@@ -412,8 +412,8 @@ def import_to_repo(
 
         entry = replace(entry, archive_crc32=format(crc & 0xFFFFFFFF, "08x"))
 
-    # ── Single images (icon, cover, hero, logo) ───────────────────────────
-    for key in ("icon", "cover", "hero", "logo"):
+    # ── Single images (icon, cover, logo) ────────────────────────────────
+    for key in ("icon", "cover", "logo"):
         src = images.get(key)
         if src and getattr(entry, key):
             dest = repo_root / getattr(entry, key)
@@ -501,8 +501,8 @@ def update_in_repo(
         if old_archive != archive_dest and old_archive.exists():
             old_archive.unlink(missing_ok=True)
 
-    # ── Single images (icon, cover, hero, logo) ───────────────────────────
-    for key in ("icon", "cover", "hero", "logo"):
+    # ── Single images (icon, cover, logo) ────────────────────────────────
+    for key in ("icon", "cover", "logo"):
         src = images.get(key)
         if src and getattr(new_entry, key):
             dest = repo_root / getattr(new_entry, key)

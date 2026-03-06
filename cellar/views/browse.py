@@ -45,16 +45,15 @@ class _FixedBox(Gtk.Widget):
         super().__init__()
         self._w = width
         self._h = height
+        self._child: Gtk.Widget | None = None
         if clip:
             self.set_overflow(Gtk.Overflow.HIDDEN)
 
     def set_child(self, child: Gtk.Widget | None) -> None:
-        # Unparent through GTK's own child list — avoids a Python-level strong
-        # reference that can interfere with GTK's reference counting and cause
-        # "still has children" warnings at finalization time.
-        old = self.get_first_child()
+        old = self._child
         if old is not None:
             old.unparent()
+        self._child = child
         if child is not None:
             child.set_parent(self)
 
@@ -75,7 +74,8 @@ class _FixedBox(Gtk.Widget):
             self.snapshot_child(child, snapshot)
 
     def do_dispose(self) -> None:
-        child = self.get_first_child()
+        child = self._child
+        self._child = None
         if child is not None:
             child.unparent()
         super().do_dispose()

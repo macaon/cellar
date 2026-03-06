@@ -254,6 +254,13 @@ class PackageBuilderView(Gtk.Box):
         if project.runner and project.runner in runners:
             self._runner_row.set_selected(runners.index(project.runner))
         self._runner_row.connect("notify::selected", self._on_runner_changed)
+
+        dl_btn = Gtk.Button(label="Download…")
+        dl_btn.set_valign(Gtk.Align.CENTER)
+        dl_btn.add_css_class("flat")
+        dl_btn.connect("clicked", self._on_download_runner_clicked)
+        self._runner_row.add_suffix(dl_btn)
+
         prefix_group.add(self._runner_row)
 
         # Prefix status row
@@ -420,6 +427,23 @@ class PackageBuilderView(Gtk.Box):
                 self._init_btn.set_sensitive(
                     bool(self._project.runner) and not self._project.initialized
                 )
+
+    def _on_download_runner_clicked(self, _btn) -> None:
+        """Open the runner picker to download a new GE-Proton release."""
+        project = self._project
+        dialog = _RunnerPickerDialog(
+            on_installed=lambda name: self._on_runner_installed(name, project),
+        )
+        dialog.present(self)
+
+    def _on_runner_installed(self, runner_name: str, project: Project | None) -> None:
+        """Called after a runner finishes installing — refresh the detail panel."""
+        if project is not None and self._project is project:
+            # Auto-select the newly installed runner if no runner was set
+            if not project.runner:
+                project.runner = runner_name
+                save_project(project)
+            self._show_project(project)
 
     def _on_init_prefix_clicked(self, _btn) -> None:
         if self._project is None or not self._project.runner:
@@ -844,16 +868,16 @@ class _CreateProjectDialog(Adw.Dialog):
         self._name_entry.connect("changed", self._on_name_changed)
         group.add(self._name_entry)
 
-        # Runner selector (required for Base; optional for App)
-        from cellar.backend import runners as _runners
-        self._runners = _runners.installed_runners()
-        runner_model = Gtk.StringList.new(
-            (["(none — install later)"] if project_type == "app" else []) + self._runners
-        )
-        self._runner_offset = 1 if project_type == "app" else 0
-        self._runner_row = Adw.ComboRow(title="Runner")
-        self._runner_row.set_model(runner_model)
-        group.add(self._runner_row)
+        # Runner selector — Base projects only (runner = base identity)
+        self._runner_row: Adw.ComboRow | None = None
+        self._runners: list[str] = []
+        if project_type == "base":
+            from cellar.backend import runners as _runners
+            self._runners = _runners.installed_runners()
+            runner_model = Gtk.StringList.new(self._runners or ["(no runners installed)"])
+            self._runner_row = Adw.ComboRow(title="Runner")
+            self._runner_row.set_model(runner_model)
+            group.add(self._runner_row)
 
         page.add(group)
         toolbar.set_content(page)
@@ -866,18 +890,149 @@ class _CreateProjectDialog(Adw.Dialog):
         name = self._name_entry.get_text().strip()
         if not name:
             return
-        idx = self._runner_row.get_selected()
         runner = ""
-        if self._project_type == "app":
-            runner_idx = idx - self._runner_offset
-            if runner_idx >= 0 and runner_idx < len(self._runners):
-                runner = self._runners[runner_idx]
-        else:
-            if idx < len(self._runners):
+        if self._runner_row is not None and self._runners:
+            idx = self._runner_row.get_selected()
+            if 0 <= idx < len(self._runners):
                 runner = self._runners[idx]
         project = create_project(name, self._project_type, runner)
         self.close()
         self._on_created(project)
+
+
+class _RunnerPickerDialog(Adw.Dialog):
+    """Lists available GE-Proton releases and lets the user download one.
+
+    Fetches the release list from the GitHub API in a background thread
+    (showing a spinner), then presents a selectable list.  Selecting a
+    release and clicking Install opens ``InstallRunnerDialog``.
+    """
+
+    def __init__(self, on_installed: Callable[[str], None]) -> None:
+        super().__init__(title="Download Runner", content_width=440)
+        self._on_installed = on_installed
+        self._releases: list[dict] = []
+        self._selected_idx: int = -1
+
+        toolbar = Adw.ToolbarView()
+        header = Adw.HeaderBar()
+        header.set_show_end_title_buttons(False)
+        cancel_btn = Gtk.Button(label="Cancel")
+        cancel_btn.connect("clicked", lambda _: self.close())
+        header.pack_start(cancel_btn)
+
+        self._install_btn = Gtk.Button(label="Install")
+        self._install_btn.add_css_class("suggested-action")
+        self._install_btn.set_sensitive(False)
+        self._install_btn.connect("clicked", self._on_install_clicked)
+        header.pack_end(self._install_btn)
+
+        toolbar.add_top_bar(header)
+
+        # Stack: loading spinner → release list
+        self._stack = Gtk.Stack()
+
+        spinner_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        spinner_box.set_valign(Gtk.Align.CENTER)
+        spinner_box.set_vexpand(True)
+        spinner = Gtk.Spinner(spinning=True)
+        spinner.set_size_request(32, 32)
+        spinner_box.append(spinner)
+        loading_lbl = Gtk.Label(label="Fetching releases…")
+        loading_lbl.add_css_class("dim-label")
+        spinner_box.append(loading_lbl)
+        self._stack.add_named(spinner_box, "loading")
+
+        scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
+        scroll.set_min_content_height(300)
+        self._list_box = Gtk.ListBox()
+        self._list_box.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        self._list_box.add_css_class("boxed-list")
+        self._list_box.set_margin_top(12)
+        self._list_box.set_margin_bottom(12)
+        self._list_box.set_margin_start(12)
+        self._list_box.set_margin_end(12)
+        self._list_box.connect("row-selected", self._on_row_selected)
+        scroll.set_child(self._list_box)
+        self._stack.add_named(scroll, "list")
+
+        self._stack.set_visible_child_name("loading")
+        toolbar.set_content(self._stack)
+        self.set_child(toolbar)
+
+        threading.Thread(target=self._fetch_releases, daemon=True).start()
+
+    def _fetch_releases(self) -> None:
+        from cellar.backend import runners as _runners
+        try:
+            releases = _runners.fetch_releases(limit=20)
+        except Exception:
+            releases = []
+        GLib.idle_add(self._populate_list, releases)
+
+    def _populate_list(self, releases: list[dict]) -> None:
+        self._releases = releases
+
+        from cellar.backend import runners as _runners
+        for rel in releases:
+            already = _runners.is_installed(rel["tag"])
+
+            row = Adw.ActionRow(title=rel["name"])
+            size_mb = rel["size"] / (1024 * 1024) if rel.get("size") else 0
+            subtitle = f"{size_mb:.0f} MB" if size_mb else ""
+            if already:
+                subtitle = ("  ·  " if subtitle else "") + "Installed"
+            row.set_subtitle(subtitle)
+
+            if already:
+                icon = Gtk.Image.new_from_icon_name("emblem-ok-symbolic")
+                row.add_suffix(icon)
+
+            self._list_box.append(row)
+
+        if not releases:
+            err_row = Adw.ActionRow(
+                title="Could not fetch releases",
+                subtitle="Check your network connection.",
+            )
+            self._list_box.append(err_row)
+
+        self._stack.set_visible_child_name("list")
+
+    def _on_row_selected(self, _lb, row: Gtk.ListBoxRow | None) -> None:
+        if row is None:
+            self._selected_idx = -1
+            self._install_btn.set_sensitive(False)
+            return
+        self._selected_idx = row.get_index()
+        # Don't enable Install if the release is already installed
+        if 0 <= self._selected_idx < len(self._releases):
+            from cellar.backend import runners as _runners
+            tag = self._releases[self._selected_idx]["tag"]
+            self._install_btn.set_sensitive(not _runners.is_installed(tag))
+        else:
+            self._install_btn.set_sensitive(False)
+
+    def _on_install_clicked(self, _btn) -> None:
+        if not (0 <= self._selected_idx < len(self._releases)):
+            return
+        rel = self._releases[self._selected_idx]
+        from cellar.backend.umu import runners_dir
+        from cellar.views.install_runner import InstallRunnerDialog
+        target_dir = runners_dir() / rel["tag"]
+        parent_win = self.get_root()
+        dlg = InstallRunnerDialog(
+            runner_name=rel["name"],
+            url=rel["url"],
+            checksum=rel.get("checksum", ""),
+            target_dir=target_dir,
+            on_done=self._on_runner_installed,
+        )
+        self.close()
+        dlg.present(parent_win)
+
+    def _on_runner_installed(self, runner_name: str) -> None:
+        self._on_installed(runner_name)
 
 
 class _AddDepDialog(Adw.Dialog):

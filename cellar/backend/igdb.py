@@ -159,26 +159,36 @@ class IGDBClient:
         if not games:
             return []
 
-        # Step 2: fetch external_games by game ID — reliable when using `where`.
+        # Step 2: fetch Steam App IDs via /external_games (external_game_source=1).
+        # Querying external_games as a sub-field of /games drops the source field;
+        # the dedicated endpoint returns it reliably.
         ids = ",".join(str(g["id"]) for g in games if "id" in g)
         if ids:
             ext_body = (
-                f"where id = ({ids}); "
-                "fields external_games.uid,external_games.category; "
-                f"limit {limit};"
+                f"where game = ({ids}) & external_game_source = 1; "
+                "fields uid,game; "
+                f"limit {limit * 2};"
             )
             ext_resp = session.post(
-                f"{_API_BASE}/games",
+                f"{_API_BASE}/external_games",
                 headers=headers,
                 data=ext_body,
                 timeout=15,
             )
             if ext_resp.status_code == 200:
-                ext_by_id = {g["id"]: g for g in ext_resp.json() if "id" in g}
+                # Build game_id → steam uid map
+                steam_by_game: dict[int, str] = {}
+                for eg in ext_resp.json():
+                    gid = eg.get("game")
+                    uid = eg.get("uid")
+                    if gid is not None and uid:
+                        steam_by_game[gid] = uid
                 for g in games:
                     gid = g.get("id")
-                    if gid in ext_by_id:
-                        g["external_games"] = ext_by_id[gid].get("external_games", [])
+                    if gid in steam_by_game:
+                        g["external_games"] = [
+                            {"external_game_source": 1, "uid": steam_by_game[gid]}
+                        ]
 
         return [_normalise(g) for g in games]
 
@@ -232,10 +242,10 @@ def _normalise(raw: dict) -> dict:
 
     cover_id: str | None = (raw.get("cover") or {}).get("image_id") or None
 
-    # Steam App ID from external_games (category 1 = Steam)
+    # Steam App ID from external_games (external_game_source 1 = Steam)
     steam_appid: int | None = None
     for eg in raw.get("external_games") or []:
-        if eg.get("category") == 1:
+        if eg.get("external_game_source") == 1:
             try:
                 steam_appid = int(eg["uid"])
             except (KeyError, ValueError, TypeError):

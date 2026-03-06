@@ -32,14 +32,10 @@ def is_cellar_sandboxed() -> bool:
     return _FLATPAK_INFO.exists()
 
 
-def _umu_script_works(path: str) -> bool:
-    """Quick sanity-check: run the script with --help and see if it exits cleanly."""
+def _probe_umu(cmd: list[str]) -> bool:
+    """Return True if *cmd* + ['--help'] exits with code 0."""
     try:
-        r = subprocess.run(
-            [path, "--help"],
-            capture_output=True,
-            timeout=5,
-        )
+        r = subprocess.run(cmd + ["--help"], capture_output=True, timeout=5)
         return r.returncode == 0
     except Exception:
         return False
@@ -50,30 +46,24 @@ def detect_umu(override: str | None = None) -> str | None:
 
     Search order:
     1. *override* (from ``config.json`` ``umu_path`` key)
-    2. ``umu-run`` on ``$PATH`` — verified to actually work
-    3. ``python3 -m umu`` — fallback when the script exists but its shebang
-       Python doesn't have the ``umu`` package (common with pipx/venv installs)
+    2. ``sys.executable -m umu`` — the Python running Cellar; most likely to
+       have umu installed when the user installed it via pip/pipx/uv.
+    3. ``umu-run`` on ``$PATH`` — only if the script actually works (its
+       shebang may point to a different Python that lacks the umu package).
     4. ``/app/bin/umu-run`` (Flatpak bundle location)
     """
+    import sys
     if override:
         return override
+    # Prefer the interpreter that's running Cellar right now.
+    if _probe_umu([sys.executable, "-m", "umu"]):
+        return f"{sys.executable} -m umu"
+    # Fall back to the umu-run wrapper script — but only if it actually works.
     found = shutil.which("umu-run")
-    if found and _umu_script_works(found):
+    if found and _probe_umu([found]):
         return found
-    # Script broken or absent — try running via the current Python interpreter.
-    if shutil.which("python3"):
-        try:
-            r = subprocess.run(
-                ["python3", "-m", "umu", "--help"],
-                capture_output=True,
-                timeout=5,
-            )
-            if r.returncode == 0:
-                return "python3 -m umu"
-        except Exception:
-            pass
     bundled = Path("/app/bin/umu-run")
-    if bundled.is_file():
+    if bundled.is_file() and _probe_umu([str(bundled)]):
         return str(bundled)
     return None
 
@@ -127,8 +117,11 @@ def build_env(
 def _umu_cmd() -> list[str]:
     """Return the base umu-run command, prefixed with flatpak-spawn if sandboxed."""
     from cellar.backend.config import load_umu_path
-    umu = detect_umu(load_umu_path()) or "umu-run"
-    # detect_umu may return a multi-word invocation like "python3 -m umu"
+    umu = detect_umu(load_umu_path())
+    if umu is None:
+        log.warning("umu-launcher not found — launch will likely fail")
+        umu = "umu-run"
+    # detect_umu may return a multi-word invocation like "/usr/bin/python3 -m umu"
     parts = umu.split()
     if is_cellar_sandboxed():
         return ["flatpak-spawn", "--host"] + parts

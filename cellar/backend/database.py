@@ -12,7 +12,7 @@ every DB open :func:`_open_db` reads the version and runs any pending
 migrations in order, then stamps the new version.  A fresh install creates
 the current schema directly (no migration required).
 
-Schema v2 (current)
+Schema v3 (current)
 -------------------
 ::
 
@@ -30,6 +30,7 @@ Schema v2 (current)
         runner_override TEXT,
         steam_appid     INTEGER,
         install_path    TEXT,
+        install_size    INTEGER,
         repo_source     TEXT,
         installed_at    TEXT,
         last_updated    TEXT
@@ -53,7 +54,7 @@ from cellar.backend.config import data_dir
 
 log = logging.getLogger(__name__)
 
-_CURRENT_VERSION = 2
+_CURRENT_VERSION = 3
 
 
 # ---------------------------------------------------------------------------
@@ -116,6 +117,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
         _migrate_v0_to_v1(conn)
     if current < 2:
         _migrate_v1_to_v2(conn)
+    if current < 3:
+        _migrate_v2_to_v3(conn)
 
 
 def _create_schema_v1(conn: sqlite3.Connection) -> None:
@@ -135,6 +138,7 @@ def _create_schema_v1(conn: sqlite3.Connection) -> None:
             runner_override TEXT,
             steam_appid     INTEGER,
             install_path    TEXT,
+            install_size    INTEGER,
             repo_source     TEXT,
             installed_at    TEXT,
             last_updated    TEXT
@@ -231,6 +235,23 @@ def _migrate_v1_to_v2(conn: sqlite3.Connection) -> None:
         raise
 
 
+def _migrate_v2_to_v3(conn: sqlite3.Connection) -> None:
+    """Add ``install_size`` column to the ``installed`` table."""
+    log.info("Migrating cellar.db from v2 to v3")
+    try:
+        with conn:
+            conn.execute(
+                "ALTER TABLE installed ADD COLUMN install_size INTEGER"
+            )
+            conn.execute(
+                "INSERT OR REPLACE INTO schema_version (version) VALUES (?)",
+                (3,),
+            )
+    except Exception:
+        log.exception("v2→v3 migration failed; database left unchanged")
+        raise
+
+
 # ---------------------------------------------------------------------------
 # Public API — installed apps
 # ---------------------------------------------------------------------------
@@ -245,6 +266,7 @@ def mark_installed(
     runner: str = "",
     steam_appid: int | None = None,
     archive_crc32: str = "",
+    install_size: int = 0,
 ) -> None:
     """Record (or update) an installed app.
 
@@ -277,6 +299,10 @@ def mark_installed(
         CRC32 checksum of the installed archive.  Used to detect content
         changes on catalogue refresh (update available when it differs from
         the catalogue entry's ``archive_crc32``).
+    install_size:
+        On-disk size of the installed prefix in bytes, measured after
+        extraction.  0 means not yet measured; use :func:`set_install_size`
+        to update lazily.
     """
     now = datetime.now(timezone.utc).isoformat()
     with _open_db() as conn:
@@ -284,8 +310,9 @@ def mark_installed(
             """
             INSERT INTO installed
                 (id, prefix_dir, platform, version, archive_crc32, runner,
-                 steam_appid, install_path, repo_source, installed_at, last_updated)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 steam_appid, install_path, install_size, repo_source,
+                 installed_at, last_updated)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 prefix_dir    = excluded.prefix_dir,
                 platform      = excluded.platform,
@@ -294,12 +321,13 @@ def mark_installed(
                 runner        = excluded.runner,
                 steam_appid   = excluded.steam_appid,
                 install_path  = excluded.install_path,
+                install_size  = excluded.install_size,
                 repo_source   = excluded.repo_source,
                 last_updated  = excluded.last_updated
             """,
             (app_id, prefix_dir, platform, version, archive_crc32 or None,
-             runner or None, steam_appid, install_path or None, repo_source,
-             now, now),
+             runner or None, steam_appid, install_path or None,
+             install_size or None, repo_source, now, now),
         )
 
 
@@ -330,6 +358,15 @@ def get_all_installed() -> list[dict]:
             "SELECT * FROM installed ORDER BY installed_at"
         ).fetchall()
         return [dict(row) for row in rows]
+
+
+def set_install_size(app_id: str, size: int) -> None:
+    """Store the measured on-disk install size for *app_id* (bytes)."""
+    with _open_db() as conn:
+        conn.execute(
+            "UPDATE installed SET install_size = ? WHERE id = ?",
+            (size, app_id),
+        )
 
 
 def get_runner_override(app_id: str) -> str | None:

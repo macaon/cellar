@@ -1089,11 +1089,20 @@ class DetailView(Gtk.Box):
             _add(dl_card)
             self._resolve_base_async(dl_val_lbl)
 
-        if e.install_size_estimate > 0:
+        if self._is_installed:
+            stored_size = (self._installed_record or {}).get("install_size") or 0
+            size_str = _fmt_bytes(stored_size) if stored_size else "…"
+            install_card, install_size_lbl = _simple_card(
+                "drive-harddisk-symbolic", size_str, "Install size",
+            )
+            _add(install_card)
+            if not stored_size:
+                self._compute_install_size_async(install_size_lbl)
+        elif e.install_size_estimate > 0:
             _add(_simple_card(
                 "drive-harddisk-symbolic",
                 _fmt_bytes(e.install_size_estimate),
-                "Installed size",
+                "Disk space",
             )[0])
 
         if e.built_with:
@@ -1170,6 +1179,35 @@ class DetailView(Gtk.Box):
             except Exception:
                 pass
         return None, ""
+
+    def _compute_install_size_async(self, lbl: Gtk.Label) -> None:
+        """Walk the install directory on a background thread, update *lbl*, and cache in DB."""
+        app_id = self._entry.id
+        folder = self._get_install_folder()
+        if not folder:
+            return
+        folder_path = Path(folder)
+
+        def _worker() -> None:
+            try:
+                total = sum(
+                    f.stat().st_size
+                    for f in folder_path.rglob("*")
+                    if f.is_file()
+                )
+            except Exception:
+                log.debug("install size walk failed for %s", app_id, exc_info=True)
+                return
+
+            def _apply() -> bool:
+                lbl.set_label(_fmt_bytes(total))
+                from cellar.backend import database
+                database.set_install_size(app_id, total)
+                return GLib.SOURCE_REMOVE
+
+            GLib.idle_add(_apply)
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     def _resolve_base_async(self, val_lbl: Gtk.Label) -> None:
         """Resolve base image size + installed status once; cache on self for the dialog."""
@@ -2220,7 +2258,7 @@ def _base_status_subtitle(installed: bool) -> str:
 
 
 def _fmt_bytes(n: int) -> str:
-    for unit in ("B", "KB", "MB", "GB", "TB"):
+    for unit in ("B", "kB", "MB", "GB", "TB"):
         if n < 1000:
             return f"{n:.1f} {unit}" if unit != "B" else f"{n} B"
         n /= 1000

@@ -23,6 +23,32 @@ def icons_dir() -> str:
     return str(_SRC_DATA / "icons")
 
 
+def dir_size_bytes(path: Path | str) -> int:
+    """Return the allocated disk usage of *path* in bytes (equivalent to ``du -sb``).
+
+    Uses ``st_blocks`` (512-byte units) rather than ``st_size`` so the result
+    reflects actual disk usage including filesystem block rounding.  Symlinks
+    are skipped so that Wine prefix Z:-drive links to ``/`` don't inflate the
+    result to the size of the whole filesystem.
+    """
+    total = 0
+    try:
+        with os.scandir(path) as it:
+            for entry in it:
+                if entry.is_symlink():
+                    continue
+                if entry.is_dir(follow_symlinks=False):
+                    total += dir_size_bytes(entry.path)
+                else:
+                    try:
+                        total += entry.stat(follow_symlinks=False).st_blocks * 512
+                    except OSError:
+                        pass
+    except OSError:
+        pass
+    return total
+
+
 def short_path(path) -> str:
     """Return *path* with the home directory replaced by ``~``."""
     return str(path).replace(os.path.expanduser("~"), "~", 1)

@@ -300,12 +300,12 @@ class DetailView(Gtk.Box):
         )
         dialog.present(self.get_root())
 
-    def _on_install_success(self, prefix_dir: str, install_path: str = "", runner: str = "") -> None:
+    def _on_install_success(self, prefix_dir: str, install_path: str = "", runner: str = "", install_size: int = 0) -> None:
         self._is_installed = True
-        self._installed_record = {"prefix_dir": prefix_dir, "install_path": install_path}
+        self._installed_record = {"prefix_dir": prefix_dir, "install_path": install_path, "install_size": install_size}
         self._update_install_button()
         if self._on_install_done:
-            self._on_install_done(prefix_dir, install_path, runner)
+            self._on_install_done(prefix_dir, install_path, runner, install_size)
         # Persist runner override when the user pre-selected a different runner.
         built_with_runner = (self._entry.built_with.runner if self._entry.built_with else "") or ""
         if self._runner_override and self._runner_override != built_with_runner:
@@ -395,11 +395,13 @@ class DetailView(Gtk.Box):
         )
         dialog.present(self.get_root())
 
-    def _on_update_success(self) -> None:
+    def _on_update_success(self, install_size: int = 0) -> None:
         self._has_update = False
+        if self._installed_record is not None and install_size:
+            self._installed_record = {**self._installed_record, "install_size": install_size}
         self._update_install_button()
         if self._on_update_done:
-            self._on_update_done()
+            self._on_update_done(install_size)
 
     def _on_remove_confirmed(self) -> None:
         import shutil
@@ -1758,7 +1760,7 @@ class InstallProgressDialog(Adw.Dialog):
         *,
         entry: AppEntry,
         archive_uri: str,
-        on_success: Callable,  # (prefix_dir: str, install_path: str, runner: str) -> None
+        on_success: Callable,  # (prefix_dir: str, install_path: str, runner: str, install_size: int) -> None
         token: str | None = None,
         runner_to_install: str = "",
         runner_info: dict | None = None,
@@ -2039,7 +2041,10 @@ class InstallProgressDialog(Adw.Dialog):
                     cancel_event=self._cancel_event,
                     token=self._token,
                 )
-                GLib.idle_add(self._on_done, prefix_dir, "", effective_runner)
+                from cellar.backend.umu import prefixes_dir as _prefixes_dir
+                from cellar.utils.paths import dir_size_bytes as _dir_size
+                _install_size = _dir_size(_prefixes_dir() / prefix_dir)
+                GLib.idle_add(self._on_done, prefix_dir, "", effective_runner, _install_size)
             except InstallCancelled:
                 GLib.idle_add(self._on_cancelled)
             except Exception as exc:  # noqa: BLE001
@@ -2079,7 +2084,9 @@ class InstallProgressDialog(Adw.Dialog):
                     cancel_event=self._cancel_event,
                     token=self._token,
                 )
-                GLib.idle_add(self._on_done, dir_name, str(install_base))
+                from cellar.utils.paths import dir_size_bytes as _dir_size
+                _install_size = _dir_size(install_base / dir_name)
+                GLib.idle_add(self._on_done, dir_name, str(install_base), "", _install_size)
             except InstallCancelled:
                 GLib.idle_add(self._on_cancelled)
             except Exception as exc:  # noqa: BLE001
@@ -2109,9 +2116,9 @@ class InstallProgressDialog(Adw.Dialog):
         self._progress_bar.pulse()
         return True  # keep calling
 
-    def _on_done(self, prefix_dir: str, install_path: str = "", runner: str = "") -> None:
+    def _on_done(self, prefix_dir: str, install_path: str = "", runner: str = "", install_size: int = 0) -> None:
         self.close()
-        self._on_success(prefix_dir, install_path, runner)
+        self._on_success(prefix_dir, install_path, runner, install_size)
 
     def _on_cancelled(self) -> None:
         self.close()

@@ -321,7 +321,7 @@ def mark_installed(
                 runner        = excluded.runner,
                 steam_appid   = excluded.steam_appid,
                 install_path  = excluded.install_path,
-                install_size  = excluded.install_size,
+                install_size  = COALESCE(excluded.install_size, install_size),
                 repo_source   = excluded.repo_source,
                 last_updated  = excluded.last_updated
             """,

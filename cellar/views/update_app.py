@@ -40,7 +40,7 @@ class UpdateDialog(Adw.Dialog):
         installed_record: dict,
         prefix_path: Path,
         archive_uri: str,
-        on_success: Callable[[], None],
+        on_success: Callable[[int], None],
         base_entry=None,
         base_archive_uri: str = "",
         token: str | None = None,
@@ -261,7 +261,9 @@ class UpdateDialog(Adw.Dialog):
                     cancel_event=self._cancel_event,
                     token=self._token,
                 )
-                GLib.idle_add(self._on_done)
+                from cellar.utils.paths import dir_size_bytes as _dir_size
+                _install_size = _dir_size(self._prefix_path)
+                GLib.idle_add(self._on_done, _install_size)
             except UpdateCancelled:
                 GLib.idle_add(self._on_cancelled)
             except UpdateError as exc:
@@ -271,9 +273,9 @@ class UpdateDialog(Adw.Dialog):
 
         threading.Thread(target=_run, daemon=True).start()
 
-    def _on_done(self) -> None:
+    def _on_done(self, install_size: int = 0) -> None:
         self.close()
-        self._on_success()
+        self._on_success(install_size)
 
     def _on_cancelled(self) -> None:
         self.close()

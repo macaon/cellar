@@ -134,12 +134,16 @@ class SettingsDialog(Adw.PreferencesDialog):
             if f:
                 save_install_base(f.get_path())
                 self._install_location_row.set_subtitle(str(install_data_dir()))
+                if self._on_repos_changed:
+                    self._on_repos_changed()
 
     def _on_install_location_reset(self, _btn) -> None:
         from cellar.backend.config import install_data_dir, save_install_base
 
         save_install_base("")
         self._install_location_row.set_subtitle(str(install_data_dir()))
+        if self._on_repos_changed:
+            self._on_repos_changed()
 
     # ------------------------------------------------------------------
     # umu-launcher

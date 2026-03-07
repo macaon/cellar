@@ -4,13 +4,12 @@ build-backend = "mesonpy"
 
 [project]
 name = "cellar"
-version = "0.43.21"
+version = "0.43.22"
 description = "A GNOME storefront for Windows and Linux applications"
 requires-python = ">=3.11"
 license = { text = "GPL-3.0-or-later" }
 dependencies = [
     "PyYAML",
-    "dulwich",
     "Pillow",
     "requests",
     "zstandard",

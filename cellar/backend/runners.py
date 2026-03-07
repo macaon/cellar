@@ -11,6 +11,7 @@ memory).  ``installed_runners`` lists runners already present on disk.
 from __future__ import annotations
 
 import logging
+import threading
 import time
 
 log = logging.getLogger(__name__)
@@ -21,6 +22,7 @@ _RELEASES_URL = (
 _CACHE_TTL = 3600.0  # one hour; safely within GitHub's 60 req/hr unauthenticated limit
 
 _cache: tuple[float, list[dict]] | None = None
+_cache_lock = threading.Lock()
 
 
 def fetch_releases(limit: int = 20) -> list[dict]:
@@ -38,11 +40,12 @@ def fetch_releases(limit: int = 20) -> list[dict]:
     previous cache (if any) is returned rather than raising.
     """
     global _cache
-    now = time.monotonic()
-    if _cache is not None:
-        age, releases = _cache
-        if now - age < _CACHE_TTL:
-            return releases[:limit]
+    with _cache_lock:
+        now = time.monotonic()
+        if _cache is not None:
+            age, releases = _cache
+            if now - age < _CACHE_TTL:
+                return releases[:limit]
 
     from cellar.utils.http import make_session
 
@@ -82,7 +85,8 @@ def fetch_releases(limit: int = 20) -> list[dict]:
                 })
                 break  # one tarball per release
 
-    _cache = (now, releases)
+    with _cache_lock:
+        _cache = (now, releases)
     return releases[:limit]
 
 

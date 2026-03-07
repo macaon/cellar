@@ -410,20 +410,6 @@ def update_install_paths(old_base: str, new_base: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Public API — repos
-# ---------------------------------------------------------------------------
-
-def get_all_repos() -> list[dict]:
-    """Return all repo records from the ``repos`` table (if it exists)."""
-    try:
-        with _open_db() as conn:
-            rows = conn.execute("SELECT * FROM repos ORDER BY id").fetchall()
-            return [dict(row) for row in rows]
-    except sqlite3.OperationalError:
-        return []
-
-
-# ---------------------------------------------------------------------------
 # Public API — base images
 # ---------------------------------------------------------------------------
 

@@ -73,28 +73,6 @@ def load_and_crop(path: str, w: int, h: int) -> bytes | None:
         return None
 
 
-def load_and_fit_width(path: str, max_width: int) -> bytes | None:
-    """Scale image to fit within *max_width*, preserving aspect ratio and alpha.
-
-    Unlike :func:`load_and_fit`, no square canvas is used — the output image
-    has the natural (possibly non-square) dimensions of the scaled image.
-    Suitable for transparent logo images where height varies by content.
-    Returns PNG bytes suitable for :func:`to_texture`, or ``None`` on error.
-    """
-    try:
-        with Image.open(path) as img:
-            img = img.convert("RGBA")
-            src_w, src_h = img.size
-            if src_w > max_width:
-                new_h = max(1, int(src_h * max_width / src_w))
-                img = img.resize((max_width, new_h), Image.LANCZOS)
-            buf = BytesIO()
-            img.save(buf, format="PNG")
-            return buf.getvalue()
-    except Exception:
-        return None
-
-
 def load_logo(path: str, target_height: int, max_width: int = 300) -> bytes | None:
     """Crop transparent logo to content bounds, then scale to *target_height*.
 

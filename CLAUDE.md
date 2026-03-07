@@ -2,7 +2,7 @@
 
 ## What this project is
 
-A GNOME desktop application that acts as a software storefront for Wine/Bottles-managed Windows applications. Think GNOME Software, but the "packages" are Bottles full backups stored on a network share (SMB, NFS, or HTTP). The user browses a catalogue, clicks Install, and the app handles downloading the backup and importing it into Bottles. Component version management (runner, DXVK, VKD3D) is left to Bottles itself.
+A GNOME desktop application that acts as a software storefront for Windows and Linux applications. Think GNOME Software, but the "packages" are WINEPREFIX archives (or Linux app tarballs) stored on a network share (SMB or HTTP). The user browses a catalogue, clicks Install, and the app handles downloading, extracting, and setting up the prefix via umu-launcher (for Windows apps) or copying to a local directory (for Linux apps).
 
 The project is called **Cellar**.
 
@@ -14,17 +14,18 @@ The project is called **Cellar**.
 - **UI toolkit:** GTK4 + libadwaita (target GNOME 46+)
 - **Packaging:** Flatpak (target `io.github.cellar` or similar)
 - **Local data:** SQLite via `sqlite3` stdlib
-- **Network I/O:** `requests` for HTTP/HTTPS; `ssh` subprocess for SSH; GIO (`gi.repository.Gio`) for SMB/NFS via GVFS
+- **Network I/O:** `requests` for HTTP/HTTPS; `ssh` subprocess for SSH; `smbprotocol` for SMB
 - **Image handling:** Pillow (load, resize, crop, ICO→PNG)
-- **Archive handling:** `tarfile` stdlib
+- **Archive handling:** `tarfile` stdlib + `zstandard` for `.tar.zst`
 - **File sync:** `rsync` subprocess; Python fallback if rsync absent
-- **Bottles integration:** `bottles-cli` subprocess + `PyYAML` for `bottle.yml`
+- **Wine layer:** `umu-launcher` (replaces Bottles); GE-Proton runners via GitHub Releases API
+- **Credentials:** `keyring` for SMB passwords
 
 ---
 
 ## Repo / catalogue format
 
-`repo/catalogue.json` is the single source of truth. App assets live under `repo/apps/<id>/` (icon, cover, screenshots, archive). Delta base archives under `repo/bases/`. See `docs/CATALOGUE_FORMAT.md` for full schema.
+`repo/catalogue.json` is the single source of truth. App assets live under `repo/apps/<id>/` (icon, cover, screenshots, archive). Delta base archives under `repo/bases/`.
 
 ### Supported URI schemes
 
@@ -33,47 +34,65 @@ The project is called **Cellar**.
 | Local path / `file://` | Yes | |
 | `http://` / `https://` | **No** | Read-only; optional bearer token auth |
 | `ssh://[user@]host[:port]/path` | Yes | `BatchMode=yes`; key auth via agent or `ssh_identity=` |
-| `smb://` / `nfs://` | Yes | Via GIO/GVFS |
+| `smb://` | Yes | Via `smbprotocol` (pure Python, no GVFS) |
 
 HTTP(S) image assets are downloaded to a per-session temp cache (`Repo._fetch_to_cache`) — GdkPixbuf can't pass auth headers. Archives return URLs (installer handles auth). Bearer token stored per-repo in `config.json`, sent as `Authorization: Bearer <token>`.
 
 ---
 
-## Bottles integration
+## umu-launcher integration
 
-| Variant | Data path |
+umu-launcher replaces Bottles for all Windows app management. GE-Proton is the only supported runner.
+
+| Directory | Path |
 |---|---|
-| Flatpak | `~/.var/app/com.usebottles.bottles/data/bottles/bottles/` |
-| Native | `~/.local/share/bottles/bottles/` |
+| Prefixes | `~/.local/share/cellar/prefixes/<id>/` |
+| Runners  | `~/.local/share/cellar/runners/` |
+| Projects | `~/.local/share/cellar/projects/` |
 
-**Install:** download + verify CRC32 → extract to temp → copy to Bottles data path → write DB record.
+**Install:** download + verify CRC32 → extract to temp → copy to prefixes dir → write DB record.
 
 **Safe update** (`update_strategy: "safe"`): download + verify → extract → rsync overlay excluding `drive_c/users/`, `user.reg`, `userdef.reg` → update DB.
 
-**Full update** (`update_strategy: "full"`): warn user → remove bottle → reinstall.
+**Full update** (`update_strategy: "full"`): warn user → remove prefix → reinstall.
 
-`bottles-cli` used for: `list bottles`, `--json programs -b <name>`, `run`. Handle absence gracefully (show setup prompt, don't crash).
+**Launch:** `GAMEID=umu-<steam_appid>` (or `0`), `WINEPREFIX=<prefix>`, `PROTONPATH=<runner>`, exec `umu-run <entry_point>`.
+
+**Linux apps:** extracted to `~/.local/share/cellar/native/<id>/`; launched directly via subprocess.
 
 ---
 
 ## Local database schema
 
-`~/.local/share/cellar/cellar.db`
+`~/.local/share/cellar/cellar.db` — schema v3 with versioned migrations.
 
 ```sql
+CREATE TABLE schema_version (version INTEGER PRIMARY KEY);
+
 CREATE TABLE installed (
-    id TEXT PRIMARY KEY, bottle_name TEXT NOT NULL,
-    installed_version TEXT, installed_at TIMESTAMP, last_updated TIMESTAMP,
-    repo_source TEXT, runner_override TEXT
+    id              TEXT PRIMARY KEY,
+    prefix_dir      TEXT NOT NULL,
+    platform        TEXT NOT NULL DEFAULT 'windows',
+    version         TEXT,
+    archive_crc32   TEXT,
+    runner          TEXT,
+    runner_override TEXT,
+    steam_appid     INTEGER,
+    install_path    TEXT,
+    install_size    INTEGER,
+    repo_source     TEXT,
+    installed_at    TEXT,
+    last_updated    TEXT
 );
-CREATE TABLE repos (
-    id INTEGER PRIMARY KEY, name TEXT, uri TEXT NOT NULL,
-    last_refreshed TIMESTAMP, enabled INTEGER DEFAULT 1
-);
+
 CREATE TABLE bases (
-    win_ver TEXT PRIMARY KEY, installed_at TIMESTAMP, repo_source TEXT
+    runner       TEXT PRIMARY KEY,
+    repo_source  TEXT,
+    installed_at TEXT
 );
 ```
+
+Repos are managed via `config.json`, not the database.
 
 ---
 
@@ -98,35 +117,41 @@ cellar/
     window.py           # AdwApplicationWindow
     views/
       browse.py         # BrowseView (Explore/Installed/Updates tabs)
-      detail.py         # App detail + Install/Update/Remove
-      add_app.py        # Add app to catalogue dialog
+      detail.py         # App detail + Install/Update/Remove + RunnerManagerDialog
       edit_app.py       # Edit/delete catalogue entry
       update_app.py     # Safe update dialog (backup + rsync overlay)
       install_runner.py # Runner download + install dialog
+      package_builder.py # Package Builder — create and publish app/base packages
       settings.py       # Preferences dialog
+      steam_picker.py   # Steam game search/picker dialog
+      steam_screenshot_picker.py # Steam screenshot picker dialog
     backend/
-      repo.py           # Catalogue fetch + transport fetchers (_Local, _Http, _Ssh, _Gio)
+      repo.py           # Catalogue fetch + transport fetchers (_Local, _Http, _Ssh, _Smb)
       packager.py       # import_to_repo / update_in_repo / remove_from_repo
       installer.py      # Download→verify→extract→import pipeline
-      updater.py        # Safe rsync overlay + backup_bottle
+      updater.py        # Safe rsync overlay + backup prefix
       base_store.py     # Delta base image store (is_base_installed, install_base, remove_base)
-      bottles.py        # Bottles detection + bottles-cli wrapper
-      components.py     # bottlesdevs/components runner metadata
-      database.py       # SQLite tracking (installed, repos, bases)
+      umu.py            # umu-launcher detection, prefix/runner paths
+      runners.py        # GE-Proton releases via GitHub API
+      project.py        # Package Builder project persistence
+      steam.py          # Steam Store API client
+      database.py       # SQLite tracking (installed, bases)
       config.py         # JSON config (~/.local/share/cellar/config.json)
     models/
       app_entry.py      # AppEntry + BuiltWith + BaseEntry dataclasses
     utils/
-      gio_io.py         # GIO file/network helpers
       http.py           # requests.Session (User-Agent: Mozilla/5.0 compatible; Cellar/1.0)
       images.py         # Pillow helpers
+      smb.py            # SmbPath — pathlib.Path-like SMB abstraction via smbprotocol
+      desktop.py        # .desktop entry creation for installed apps
+      progress.py       # Shared progress-formatting helpers (fmt_size, fmt_stats)
       paths.py          # ui_file / icons_dir resolution (source tree vs installed)
   data/
     icons/hicolor/symbolic/apps/
     ui/window.ui
   docs/
-    CATALOGUE_FORMAT.md # Full catalogue.json + repo layout reference
-    DELTA_PACKAGES.md   # Delta package design, status, constraints
+    PLAN_UMU_MIGRATION.md # umu migration plan and status
+    GTK_ADWAITA_NOTES.md  # CSS gotchas, named colors, icon registration
   tests/
     fixtures/           # Sample catalogue.json for local dev
     test_*.py
@@ -158,12 +183,12 @@ PYTHONPATH=. CELLAR_REPO=tests/fixtures python3 -m cellar.main
 
 ## Key constraints & gotchas
 
-- **Async everything:** Archives are multi-GB. Use `GLib.Thread` or asyncio+GLib. Never block the UI thread.
-- **Flatpak sandbox:** `bottles-cli` may need `flatpak-spawn --host`. Handle both cases.
+- **Async everything:** Archives are multi-GB. Use `threading.Thread` + `GLib.idle_add`. Never block the UI thread.
+- **Flatpak sandbox:** umu-run may need `flatpak-spawn --host`. Handle both cases.
 - **rsync fallback:** Check availability at runtime; fall back to Python dir merge.
-- **Bottle name collisions:** Append suffix rather than silently overwrite.
+- **Prefix name collisions:** Append suffix rather than silently overwrite.
 - **Repo offline:** Show cached catalogue, don't block app launch.
 - **HTTP User-Agent:** Use `User-Agent: Mozilla/5.0 (compatible; Cellar/1.0)` (`http.py`). Default Python UA is blocked by Cloudflare.
 - **nginx image assets:** Use `location ^~` so prefix match beats `~* \.(png|jpg)` regex blocks.
 - **Pillow + HTTP:** Can't load URLs or pass auth headers. Use `Repo._fetch_to_cache` temp-cache pattern.
-- **Hardlinks (delta):** Require same filesystem as Bottles data dir. Fall back to copy otherwise.
+- **Hardlinks (delta):** Require same filesystem as prefixes dir. Fall back to copy otherwise.

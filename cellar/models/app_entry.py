@@ -40,12 +40,15 @@ class BuiltWith:
 class BaseEntry:
     """A base bottle image used as the shared foundation for delta packages.
 
-    Keyed by the runner name (e.g. ``"soda-9.0-1"``) that matches the
-    ``Runner:`` field in a bottle's ``bottle.yml``.  Stored in the top-level
-    ``bases`` dict of ``catalogue.json``.
+    Stored in the top-level ``bases`` dict of ``catalogue.json``.  The dict
+    key is the base's display *name* (e.g. ``"GE-Proton10-32"`` or a custom
+    label like ``"GE-Proton10-32-dotnet"``).  The *runner* field holds the
+    actual GE-Proton version used to create this base and required at runtime.
+    For simple bases the two are typically the same string.
     """
 
-    runner: str         # e.g. "soda-9.0-1", "ge-proton10-32"
+    name: str           # catalogue key / display name, e.g. "GE-Proton10-32-dotnet"
+    runner: str         # GE-Proton version, e.g. "GE-Proton10-32"
     archive: str        # repo-relative path to the base archive
     archive_size: int = 0
     archive_crc32: str = ""
@@ -54,9 +57,10 @@ class BaseEntry:
     runner_archive_crc32: str = ""
 
     @classmethod
-    def from_dict(cls, runner: str, data: dict) -> "BaseEntry":
+    def from_dict(cls, name: str, data: dict) -> "BaseEntry":
         return cls(
-            runner=runner,
+            name=name,
+            runner=data.get("runner", name),
             archive=data.get("archive", ""),
             archive_size=int(data.get("archive_size", 0)),
             archive_crc32=data.get("archive_crc32", ""),
@@ -66,7 +70,7 @@ class BaseEntry:
         )
 
     def to_dict(self) -> dict:
-        d: dict = {"archive": self.archive}
+        d: dict = {"runner": self.runner, "archive": self.archive}
         if self.archive_size:
             d["archive_size"] = self.archive_size
         if self.archive_crc32:

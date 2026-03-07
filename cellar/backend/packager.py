@@ -706,6 +706,7 @@ def _write_catalogue(
 
 def upsert_base(
     repo_root: Path,
+    name: str,
     runner: str,
     archive_path: str,
     archive_crc32: str = "",
@@ -717,9 +718,14 @@ def upsert_base(
 ) -> None:
     """Add or replace a base image entry in ``catalogue.json``.
 
+    *name* is the catalogue key (display name, e.g. ``"GE-Proton10-32"`` or a
+    custom label like ``"GE-Proton10-32-dotnet"``).  *runner* is the GE-Proton
+    version used to create the base (e.g. ``"GE-Proton10-32"``).  For simple
+    bases the two are typically the same string.
+
     *archive_path* must be a repo-relative path (e.g.
-    ``"bases/soda-9.0-1-base.tar.gz"``).  The physical archive must already
-    have been copied to the repo before calling this.
+    ``"bases/GE-Proton10-32-base.tar.zst"``).  The physical archive must
+    already have been copied to the repo before calling this.
 
     When *runner_archive* is provided, the runner binary archive is also
     recorded so that clients can download it from the repo instead of GitHub.
@@ -733,22 +739,22 @@ def upsert_base(
         category_icons = raw.get("category_icons") if isinstance(raw, dict) else None
     else:
         apps, categories, bases, category_icons = [], None, {}, None
-    bases[runner] = {"archive": archive_path}
+    bases[name] = {"runner": runner, "archive": archive_path}
     if archive_size:
-        bases[runner]["archive_size"] = archive_size
+        bases[name]["archive_size"] = archive_size
     if archive_crc32:
-        bases[runner]["archive_crc32"] = archive_crc32
+        bases[name]["archive_crc32"] = archive_crc32
     if runner_archive:
-        bases[runner]["runner_archive"] = runner_archive
+        bases[name]["runner_archive"] = runner_archive
     if runner_archive_size:
-        bases[runner]["runner_archive_size"] = runner_archive_size
+        bases[name]["runner_archive_size"] = runner_archive_size
     if runner_archive_crc32:
-        bases[runner]["runner_archive_crc32"] = runner_archive_crc32
+        bases[name]["runner_archive_crc32"] = runner_archive_crc32
     _write_catalogue(cat_path, apps, categories, bases, category_icons)
 
 
-def remove_base(repo_root: Path, runner: str) -> None:
-    """Remove a base image entry from ``catalogue.json``."""
+def remove_base(repo_root: Path, name: str) -> None:
+    """Remove a base image entry (keyed by *name*) from ``catalogue.json``."""
     cat_path = repo_root / "catalogue.json"
     if not cat_path.exists():
         return
@@ -759,7 +765,7 @@ def remove_base(repo_root: Path, runner: str) -> None:
     categories = raw.get("categories")
     bases = dict(raw.get("bases") or {})
     category_icons = raw.get("category_icons")
-    bases.pop(runner, None)
+    bases.pop(name, None)
     _write_catalogue(cat_path, apps, categories, bases if bases else None, category_icons)
 
 

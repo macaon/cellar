@@ -72,7 +72,7 @@ class CatalogueEntriesDialog(Adw.Dialog):
             except Exception as exc:
                 log.warning("Could not fetch bases from %s: %s", repo.uri, exc)
         apps.sort(key=lambda t: t[0].name.lower())
-        bases.sort(key=lambda t: t[0].runner.lower())
+        bases.sort(key=lambda t: t[0].name.lower())
         GLib.idle_add(self._populate, apps + bases)
 
     def _populate(self, results: list[tuple]) -> None:
@@ -82,8 +82,9 @@ class CatalogueEntriesDialog(Adw.Dialog):
             size_str = f"{size_mb:.0f} MB" if size_mb else ""
             repo_name = repo.name or repo.uri
             if kind == "base":
-                title = item.runner
-                subtitle_parts = [size_str, repo_name]
+                title = item.name
+                runner_str = item.runner if item.runner != item.name else ""
+                subtitle_parts = [runner_str, size_str, repo_name]
             else:
                 title = item.name
                 subtitle_parts = [item.version or "", size_str, repo_name]
@@ -145,7 +146,7 @@ class CatalogueEntriesDialog(Adw.Dialog):
         root = self.get_root()
         self.close()
 
-        progress = ProgressDialog(label=f"Downloading {base_entry.runner}\u2026")
+        progress = ProgressDialog(label=f"Downloading {base_entry.name}\u2026")
         progress.present(root)
 
         def _work():
@@ -184,7 +185,7 @@ class CatalogueEntriesDialog(Adw.Dialog):
 
                 bottle_src = _find_bottle_dir(extract_dir)
 
-                slug = slugify(base_entry.runner)
+                slug = slugify(base_entry.name)
                 existing = {p.slug for p in load_projects()}
                 base_slug, i = slug, 2
                 while slug in existing:
@@ -192,7 +193,7 @@ class CatalogueEntriesDialog(Adw.Dialog):
                     i += 1
 
                 project = Project(
-                    name=base_entry.runner,
+                    name=base_entry.name,
                     slug=slug,
                     project_type="base",
                     runner=base_entry.runner,
@@ -323,7 +324,7 @@ class CatalogueEntriesDialog(Adw.Dialog):
         if not (0 <= idx < len(self._entries)):
             return
         item, repo, kind = self._entries[idx]
-        name = item.runner if kind == "base" else item.name
+        name = item.name
         dialog = Adw.AlertDialog(
             heading="Remove from Repo?",
             body=f"\u201c{name}\u201d will be permanently deleted from the repository.",
@@ -343,7 +344,7 @@ class CatalogueEntriesDialog(Adw.Dialog):
             from cellar.backend import packager
             repo_root = repo.writable_path()
             if kind == "base":
-                packager.remove_base(repo_root, item.runner)
+                packager.remove_base(repo_root, item.name)
             else:
                 packager.remove_from_repo(repo_root, item)
 

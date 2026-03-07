@@ -404,8 +404,9 @@ def test_upsert_base_writes_to_catalogue(tmp_path):
     import json
     cat = tmp_path / "catalogue.json"
     cat.write_text('{"cellar_version":1,"apps":[]}', encoding="utf-8")
-    upsert_base(tmp_path, "soda-9.0-1", "bases/soda-9.0-1-base.tar.gz", "aabb1122", 700000000)
+    upsert_base(tmp_path, "soda-9.0-1", "soda-9.0-1", "bases/soda-9.0-1-base.tar.gz", "aabb1122", 700000000)
     raw = json.loads(cat.read_text())
+    assert raw["bases"]["soda-9.0-1"]["runner"] == "soda-9.0-1"
     assert raw["bases"]["soda-9.0-1"]["archive"] == "bases/soda-9.0-1-base.tar.gz"
     assert raw["bases"]["soda-9.0-1"]["archive_crc32"] == "aabb1122"
     assert raw["bases"]["soda-9.0-1"]["archive_size"] == 700000000
@@ -419,7 +420,7 @@ def test_upsert_base_preserves_existing_apps(tmp_path):
         '{"cellar_version":1,"apps":[{"id":"a","name":"A","version":"1","category":"C"}]}',
         encoding="utf-8",
     )
-    upsert_base(tmp_path, "soda-9.0-1", "bases/soda-9.0-1-base.tar.gz")
+    upsert_base(tmp_path, "soda-9.0-1", "soda-9.0-1", "bases/soda-9.0-1-base.tar.gz")
     raw = json.loads(cat.read_text())
     assert len(raw["apps"]) == 1
     assert raw["apps"][0]["id"] == "a"
@@ -430,8 +431,8 @@ def test_remove_base_removes_entry(tmp_path):
     import json
     cat = tmp_path / "catalogue.json"
     cat.write_text('{"cellar_version":1,"apps":[]}', encoding="utf-8")
-    upsert_base(tmp_path, "soda-9.0-1", "bases/soda-9.0-1-base.tar.gz")
-    upsert_base(tmp_path, "ge-proton10-32", "bases/ge-proton10-32-base.tar.gz")
+    upsert_base(tmp_path, "soda-9.0-1", "soda-9.0-1", "bases/soda-9.0-1-base.tar.gz")
+    upsert_base(tmp_path, "ge-proton10-32", "ge-proton10-32", "bases/ge-proton10-32-base.tar.gz")
     remove_base(tmp_path, "soda-9.0-1")
     raw = json.loads(cat.read_text())
     assert "soda-9.0-1" not in raw["bases"]
@@ -444,7 +445,7 @@ def test_upsert_catalogue_preserves_bases(tmp_path):
     import json
     cat = tmp_path / "catalogue.json"
     cat.write_text('{"cellar_version":1,"apps":[]}', encoding="utf-8")
-    upsert_base(tmp_path, "soda-9.0-1", "bases/soda-9.0-1-base.tar.gz")
+    upsert_base(tmp_path, "soda-9.0-1", "soda-9.0-1", "bases/soda-9.0-1-base.tar.gz")
     entry = AppEntry(id="x", name="X", version="1", category="C")
     _upsert_catalogue(tmp_path, entry)
     raw = json.loads(cat.read_text())

@@ -1533,7 +1533,7 @@ class PackageBuilderView(Gtk.Box):
             GLib.idle_add(progress.set_stats, "")
             GLib.idle_add(progress.start_pulse)
             upsert_base(
-                repo_root, runner, archive_dest_rel, crc32, size,
+                repo_root, runner, runner, archive_dest_rel, crc32, size,
                 runner_archive=runner_archive_rel,
                 runner_archive_crc32=runner_crc32,
                 runner_archive_size=runner_size,

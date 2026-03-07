@@ -454,6 +454,19 @@ class SettingsDialog(Adw.PreferencesDialog):
 # Add / Edit Repository dialog
 # ---------------------------------------------------------------------------
 
+_SCHEME_PREFIXES = ("", "http://", "https://", "smb://", "ssh://")
+
+
+def _split_uri(uri: str) -> tuple[int, str]:
+    """Return (scheme_index, path_portion) for an existing URI string."""
+    for idx, prefix in enumerate(_SCHEME_PREFIXES):
+        if prefix and uri.startswith(prefix):
+            return idx, uri[len(prefix):]
+    # Bare UNC path //server/share → SMB
+    if uri.startswith("//") and "://" not in uri:
+        return 3, uri[2:]
+    return 0, uri  # LOCAL / bare path
+
 
 class AddEditRepoDialog(Adw.Dialog):
     """Single dialog for adding a new repository or editing an existing one.
@@ -517,13 +530,23 @@ class AddEditRepoDialog(Adw.Dialog):
             self._name_row.set_text(self._existing.get("name") or "")
         group.add(self._name_row)
 
-        # URI (required)
-        self._uri_row = Adw.EntryRow(title="URI *")
-        self._uri_row.connect("entry-activated", lambda _: self._on_save_clicked(None))
-        self._uri_row.connect("changed", self._on_uri_changed)
-        if self._existing:
-            self._uri_row.set_text(self._existing.get("uri") or "")
-        group.add(self._uri_row)
+        # Scheme selector (suffix) + path entry
+        _existing_uri = self._existing.get("uri", "") if self._existing else ""
+        _scheme_idx, _path_text = _split_uri(_existing_uri)
+
+        scheme_model = Gtk.StringList()
+        for label in ("LOCAL", "HTTP", "HTTPS", "SMB", "SSH"):
+            scheme_model.append(label)
+        self._scheme_dropdown = Gtk.DropDown(model=scheme_model, valign=Gtk.Align.CENTER)
+        self._scheme_dropdown.add_css_class("flat")
+        self._scheme_dropdown.set_selected(_scheme_idx)
+        self._scheme_dropdown.connect("notify::selected", self._on_scheme_changed)
+
+        self._path_row = Adw.EntryRow(title="Path" if _scheme_idx == 0 else "Host / Path")
+        self._path_row.set_text(_path_text)
+        self._path_row.connect("entry-activated", lambda _: self._on_save_clicked(None))
+        self._path_row.add_suffix(self._scheme_dropdown)
+        group.add(self._path_row)
 
         # SMB credentials group (shown only when URI scheme is smb://)
         self._smb_group = Adw.PreferencesGroup(
@@ -544,13 +567,7 @@ class AddEditRepoDialog(Adw.Dialog):
             self._smb_pass_row.set_text(stored_pw)
         self._smb_group.add(self._smb_pass_row)
 
-        # Show SMB group only for smb:// URIs (or bare UNC paths starting with //).
-        _existing_uri = self._existing.get("uri", "") if self._existing else ""
-        is_smb = (
-            urlparse(_existing_uri).scheme.lower() == "smb"
-            or (_existing_uri.startswith("//") and "://" not in _existing_uri)
-        )
-        self._smb_group.set_visible(is_smb)
+        self._smb_group.set_visible(_scheme_idx == 3)
 
         # HTTP-only group
         http_group = Adw.PreferencesGroup(title="HTTP Authentication")
@@ -585,10 +602,7 @@ class AddEditRepoDialog(Adw.Dialog):
         self._ca_row.set_visible(ssl_active)
         http_group.add(self._ca_row)
 
-        # Show HTTP group only for http/https URIs
-        _existing_scheme = urlparse(_existing_uri).scheme.lower()
-        is_http = _existing_scheme in ("http", "https")
-        http_group.set_visible(is_http)
+        http_group.set_visible(_scheme_idx in (1, 2))
         self._http_group = http_group
 
         toolbar.set_content(scroll)
@@ -598,15 +612,16 @@ class AddEditRepoDialog(Adw.Dialog):
     # Signal handlers
     # ------------------------------------------------------------------
 
-    def _on_uri_changed(self, _entry) -> None:
-        """Show/hide SMB and HTTP credential groups based on current URI scheme."""
-        text = self._uri_row.get_text().strip()
-        scheme = urlparse(text).scheme.lower()
-        # UNC paths (//server/share/…) are SMB even without the smb: prefix.
-        is_smb = scheme == "smb" or (text.startswith("//") and "://" not in text)
-        is_http = scheme in ("http", "https")
-        self._smb_group.set_visible(is_smb)
-        self._http_group.set_visible(is_http)
+    def _on_scheme_changed(self, _widget, _param=None) -> None:
+        """Show/hide credential groups and update path row title based on selected scheme."""
+        idx = self._scheme_dropdown.get_selected()
+        self._smb_group.set_visible(idx == 3)
+        self._http_group.set_visible(idx in (1, 2))
+        self._path_row.set_title("Path" if idx == 0 else "Host / Path")
+
+    def _full_uri(self) -> str:
+        prefix = _SCHEME_PREFIXES[self._scheme_dropdown.get_selected()]
+        return prefix + self._path_row.get_text().strip()
 
     def _on_ssl_toggled(self, row: Adw.SwitchRow, _param) -> None:
         self._ca_row.set_visible(row.get_active())
@@ -638,15 +653,10 @@ class AddEditRepoDialog(Adw.Dialog):
             self._ca_row.set_subtitle(Path(path).name)
 
     def _on_save_clicked(self, _btn) -> None:
-        uri = self._uri_row.get_text().strip()
-        if not uri:
-            self._alert("URI Required", "Please enter a repository URI.")
+        uri = self._full_uri()
+        if not self._path_row.get_text().strip():
+            self._alert("Path Required", "Please enter a repository path or host.")
             return
-
-        # Auto-convert UNC paths (//server/share/path) to smb:// URIs.
-        if uri.startswith("//") and "://" not in uri:
-            uri = "smb:" + uri
-            self._uri_row.set_text(uri)
 
         name = self._name_row.get_text().strip()
         scheme = urlparse(uri).scheme.lower()

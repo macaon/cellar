@@ -12,6 +12,15 @@ uv.lock
 _build/
 builddir/
 
+# Flatpak build artefacts
+build-dir/
+build-flatpak/
+repo/
+.flatpak-builder/
+
+# Local dev scripts
+tests/flatpak-run.sh
+
 # pytest
 .pytest_cache/
 

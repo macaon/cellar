@@ -414,7 +414,7 @@ class AddEditRepoDialog(Adw.Dialog):
         existing: dict | None = None,
     ) -> None:
         mode = "Edit Repository" if existing else "Add Repository"
-        super().__init__(title=mode, content_width=480)
+        super().__init__(title=mode, content_width=480, follows_content_size=True)
         self._on_save = on_save
         self._existing = existing
         self._ca_cert_path: str | None = None

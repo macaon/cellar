@@ -283,6 +283,12 @@ class DetailView(Gtk.Box):
         if not runner_name:
             db_rec = database.get_installed(self._entry.id) or {}
             runner_name = db_rec.get("runner_override") or db_rec.get("runner") or ""
+        # runner_name may be a base image name rather than a GE-Proton runner
+        # directory.  Resolve via the catalogue: if it's a known base, use the
+        # base's underlying runner field.
+        base_entry, _ = self._find_base_entry(runner_name)
+        if base_entry is not None:
+            runner_name = base_entry.runner
         launch_app(
             app_id=self._entry.id,
             entry_point=self._entry.entry_point or "",

@@ -363,9 +363,12 @@ class DetailView(Gtk.Box):
 
     def _on_update_clicked(self, _btn) -> None:
         from cellar.views.update_app import UpdateDialog
-        from cellar.backend.umu import prefixes_dir
+        from cellar.backend.umu import native_dir, prefixes_dir
 
-        prefix_path = prefixes_dir() / self._entry.id
+        if self._entry.platform == "linux":
+            prefix_path = native_dir() / self._entry.id
+        else:
+            prefix_path = prefixes_dir() / self._entry.id
         if not prefix_path.is_dir():
             log.error("Could not locate prefix directory for %s", self._entry.id)
             return

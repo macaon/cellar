@@ -41,7 +41,7 @@ with GE-Proton. Linux native apps are extracted and launched directly.
 ## Tech stack
 
 - **Language:** Python 3.10+
-- **UI toolkit:** GTK4 + libadwaita (GNOME 46+)
+- **UI toolkit:** GTK4 + libadwaita 1.4+ (GNOME 45+)
 - **Windows compatibility:** [umu-launcher](https://github.com/Open-Wine-Components/umu-launcher) + GE-Proton
 - **Runner index:** GitHub Releases API (GloriousEggroll/proton-ge-custom), cached in memory
 - **Local data:** SQLite via `sqlite3` stdlib
@@ -59,14 +59,21 @@ with GE-Proton. Linux native apps are extracted and launched directly.
 ### System requirements
 
 - Python 3.10+
-- GTK 4 and libadwaita 1.x
+- GTK 4.0+ and **libadwaita 1.4+** (ships with GNOME 45 / Ubuntu 24.04 / Fedora 39+)
 
-**Fedora / RHEL:**
+> **Note for Pop_OS / Ubuntu 22.04 users:** the default libadwaita on these
+> distros is 1.2, which is too old.  The app uses `AdwNavigationView`
+> (libadwaita 1.4) as its navigation backbone — replacing it with the
+> deprecated `AdwLeaflet` would be significant work.  The recommended path
+> for older distros is to wait for the Flatpak (which will bundle its own
+> libadwaita), or upgrade to Ubuntu 24.04 / Pop_OS 24.04.
+
+**Fedora / RHEL 9+:**
 ```bash
 sudo dnf install python3-gobject libadwaita
 ```
 
-**Ubuntu / Debian:**
+**Ubuntu 24.04+ / Debian bookworm+:**
 ```bash
 sudo apt install python3-gi gir1.2-adw-1
 ```

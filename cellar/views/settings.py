@@ -545,7 +545,7 @@ class AddEditRepoDialog(Adw.Dialog):
         self._path_row = Adw.EntryRow(title="Path" if _scheme_idx == 0 else "Host / Path")
         self._path_row.set_text(_path_text)
         self._path_row.connect("entry-activated", lambda _: self._on_save_clicked(None))
-        self._path_row.add_suffix(self._scheme_dropdown)
+        self._path_row.add_prefix(self._scheme_dropdown)
         group.add(self._path_row)
 
         # SMB credentials group (shown only when URI scheme is smb://)

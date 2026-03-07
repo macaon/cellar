@@ -349,16 +349,20 @@ def update_app_safe(
                         if rel and not _is_excluded(Path(rel)):
                             (prefix_path / rel).unlink(missing_ok=True)
 
-        # ── Phase 7: Restore stashed user files ──────────────────────────────
+        # ── Phase 7: Rewrite manifest with new package baseline ──────────────
+        # Written before restoring user files so only package files are
+        # recorded.  If user-created files were included, they would appear
+        # as manifest entries on the next update scan and escape stashing,
+        # causing rsync --delete to remove them.
+        write_manifest(prefix_path)
+
+        # ── Phase 8: Restore stashed user files ──────────────────────────────
         # Restore runs outside the update temp dir so the stash is still
         # available even if extraction or overlay threw.
         if files_to_stash:
             if phase_cb:
                 phase_cb("Restoring user data\u2026")
             _restore_stash(stash_dir, prefix_path)
-
-        # ── Phase 8: Rewrite manifest with new package baseline ──────────────
-        write_manifest(prefix_path)
 
     if phase_cb:
         phase_cb("Done")

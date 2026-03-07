@@ -281,13 +281,6 @@ class DetailView(Gtk.Box):
         runner = self._get_base_runner()
         base_entry, base_archive_uri = self._find_base_entry(runner) if runner else (None, "")
 
-        def _open_runner_manager(on_change):
-            """Open RunnerManagerDialog from the Change button inside InstallProgressDialog."""
-            self._open_runner_manager(
-                required_runner=(self._entry.built_with.runner if self._entry.built_with else "") or "",
-                on_confirm=on_change,
-            )
-
         dialog = InstallProgressDialog(
             entry=self._entry,
             archive_uri=archive_uri,
@@ -296,8 +289,6 @@ class DetailView(Gtk.Box):
             runner_to_install=runner_to_install,
             runner_info=runner_info,
             installed_runners=list(self._installed_runners),
-            open_runner_manager=_open_runner_manager,
-            resolve_runner_info=self._resolve_runner_info,
             base_entry=base_entry,
             base_archive_uri=base_archive_uri,
         )
@@ -575,94 +566,6 @@ class DetailView(Gtk.Box):
                 f"Runner \u201c{effective}\u201d is not installed"
             )
 
-    def _on_change_runner_clicked(self, _btn) -> None:
-        self._open_runner_manager()
-
-    def _open_install_runner_dialog(
-        self,
-        runner_name: str | None = None,
-        *,
-        on_done: Callable[[str], None] | None = None,
-    ) -> None:
-        """Open InstallRunnerDialog for *runner_name*.
-
-        When *runner_name* is ``None``, falls back to the entry's built-with
-        runner.  The optional *on_done* callback is invoked (in addition to the
-        internal bookkeeping) once the runner is successfully installed.
-        """
-        from cellar.backend import runners
-        from cellar.backend.umu import runners_dir
-        from cellar.views.install_runner import InstallRunnerDialog
-
-        bw = self._entry.built_with
-        effective_name = runner_name or (bw.runner if bw else "") or ""
-        if not effective_name:
-            return
-
-        info = runners.get_release_info(effective_name)
-        if not info:
-            return
-        url = info.get("url", "")
-        checksum = info.get("checksum", "")
-        target_dir = runners_dir() / effective_name
-
-        def _on_done_internal(rname: str) -> None:
-            if rname not in self._installed_runners:
-                self._installed_runners = sorted(self._installed_runners + [rname])
-            if self._runner_warning_icon:
-                self._runner_warning_icon.set_visible(False)
-            if on_done:
-                on_done(rname)
-
-        InstallRunnerDialog(
-            runner_name=effective_name,
-            url=url,
-            checksum=checksum,
-            target_dir=target_dir,
-            on_done=_on_done_internal,
-        ).present(self.get_root())
-
-    def _open_runner_manager(
-        self,
-        required_runner: str = "",
-        on_confirm: Callable[[str], None] | None = None,
-    ) -> None:
-        """Open :class:`RunnerManagerDialog` for selecting or managing runners."""
-        from cellar.backend import runners
-        from cellar.backend.umu import runners_dir
-
-        bw = self._entry.built_with
-        built_with_runner = (bw.runner if bw else "") or ""
-        current = self._runner_override or built_with_runner
-
-        available_releases = runners.fetch_releases()
-        rdir = runners_dir()
-
-        effective_on_confirm = on_confirm if on_confirm is not None else self._on_runner_selected
-
-        def _on_install(runner_name: str) -> None:
-            self._open_install_runner_dialog(runner_name, on_done=effective_on_confirm)
-
-        RunnerManagerDialog(
-            installed_runners=self._installed_runners,
-            available_releases=available_releases,
-            runners_dir=rdir,
-            current_runner=current,
-            required_runner=required_runner or built_with_runner,
-            on_confirm=effective_on_confirm,
-            on_install_runner=_on_install,
-        ).present(self.get_root())
-
-    def _on_runner_selected(self, runner_name: str) -> None:
-        self._runner_override = runner_name
-        if self._runner_label:
-            self._runner_label.set_label(runner_name)
-        if self._runner_warning_icon and runner_name in self._installed_runners:
-            self._runner_warning_icon.set_visible(False)
-        # Persist the runner override to the database.
-        if self._is_installed:
-            from cellar.backend import database
-            database.set_runner_override(self._entry.id, runner_name)
 
     # ------------------------------------------------------------------
     # Section builders
@@ -1306,23 +1209,11 @@ class DetailView(Gtk.Box):
         runner_listbox.add_css_class("boxed-list")
 
         runner_row = Adw.ActionRow(title=runner_name or "—")
-        _dlg_ref: list[Adw.Dialog] = []
         if self._is_installed and self._entry.lock_runner:
             lock_icon = Gtk.Image.new_from_icon_name("changes-prevent-symbolic")
             lock_icon.add_css_class("dim-label")
             lock_icon.set_valign(Gtk.Align.CENTER)
             runner_row.add_suffix(lock_icon)
-        elif self._is_installed and not self._entry.lock_runner:
-            change_btn = Gtk.Button(label="Change")
-            change_btn.add_css_class("suggested-action")
-            change_btn.add_css_class("flat")
-            change_btn.set_valign(Gtk.Align.CENTER)
-            def _on_change(_b, _ref=_dlg_ref):
-                if _ref:
-                    _ref[0].close()
-                self._on_change_runner_clicked(_b)
-            change_btn.connect("clicked", _on_change)
-            runner_row.add_suffix(change_btn)
         runner_listbox.append(runner_row)
 
         # ── Component rows ───────────────────────────────────────────
@@ -1491,207 +1382,6 @@ class DetailView(Gtk.Box):
 # ---------------------------------------------------------------------------
 # Runner manager dialog
 # ---------------------------------------------------------------------------
-
-
-class RunnerManagerDialog(Adw.Dialog):
-    """Browse, download, delete and (optionally) select a GE-Proton runner.
-
-    Each runner row shows state-based suffix icons:
-
-    * **Installed** — ``folder-open-symbolic`` + ``user-trash-symbolic``.
-    * **Not installed** — ``folder-download-symbolic`` (download).
-
-    When *on_confirm* is supplied the dialog acts as a picker: every installed
-    runner row gets a radio-button prefix and a *Select* header button confirms
-    the choice.
-    """
-
-    def __init__(
-        self,
-        *,
-        installed_runners: list[str],
-        available_releases: list[dict],
-        runners_dir: Path | None,
-        current_runner: str = "",
-        required_runner: str = "",
-        on_confirm: Callable[[str], None] | None = None,
-        on_install_runner: Callable[[str], None] | None = None,
-    ) -> None:
-        super().__init__(title="GE-Proton Runners", content_width=500, content_height=500)
-        self._installed = set(installed_runners)
-        self._available_releases = available_releases
-        self._runners_dir = runners_dir
-        self._current_runner = current_runner
-        self._required_runner = required_runner
-        self._on_confirm = on_confirm
-        self._on_install_runner = on_install_runner
-        self._selected = required_runner or current_runner or ""
-        self._radio_group_anchor: Gtk.CheckButton | None = None
-        self._select_btn: Gtk.Button | None = None
-        self._build_ui()
-
-    def _build_ui(self) -> None:
-        toolbar = Adw.ToolbarView()
-
-        header = Adw.HeaderBar()
-        header.set_show_end_title_buttons(False)
-
-        cancel_btn = Gtk.Button(label="Cancel")
-        cancel_btn.connect("clicked", lambda _: self.close())
-        header.pack_start(cancel_btn)
-
-        if self._on_confirm:
-            self._select_btn = Gtk.Button(label="Select")
-            self._select_btn.add_css_class("suggested-action")
-            self._select_btn.connect("clicked", self._on_select_clicked)
-            self._select_btn.set_sensitive(bool(self._selected))
-            header.pack_end(self._select_btn)
-
-        toolbar.add_top_bar(header)
-
-        scroll = Gtk.ScrolledWindow(
-            hscrollbar_policy=Gtk.PolicyType.NEVER,
-            vscrollbar_policy=Gtk.PolicyType.AUTOMATIC,
-        )
-        scroll.set_vexpand(True)
-
-        page = Adw.PreferencesPage()
-        scroll.set_child(page)
-        toolbar.set_content(scroll)
-        self.set_child(toolbar)
-
-        # Build the flat list: available releases + any installed not in releases.
-        release_names = [r.get("name", "") for r in self._available_releases]
-        extra_installed = sorted(
-            (r for r in self._installed if r not in release_names),
-            reverse=True,
-        )
-        all_runners = release_names + extra_installed
-
-        grp = Adw.PreferencesGroup()
-        page.add(grp)
-
-        if all_runners:
-            for runner in all_runners:
-                grp.add(self._make_runner_row(runner, is_installed=runner in self._installed))
-        else:
-            grp.add(Adw.ActionRow(
-                title="No runners found",
-                subtitle="Check your internet connection and try again.",
-            ))
-
-    def _make_runner_row(self, runner: str, *, is_installed: bool) -> Adw.ActionRow:
-        is_current = runner == self._current_runner
-        is_required = runner == self._required_runner and runner != self._current_runner
-        subtitle_parts: list[str] = []
-        if is_current:
-            subtitle_parts.append("current")
-        if is_required:
-            subtitle_parts.append("required")
-
-        row = Adw.ActionRow(title=runner, subtitle=" · ".join(subtitle_parts))
-
-        # Radio prefix for selection mode.
-        if self._on_confirm:
-            radio = Gtk.CheckButton()
-            radio.set_valign(Gtk.Align.CENTER)
-            if self._radio_group_anchor is None:
-                self._radio_group_anchor = radio
-            else:
-                radio.set_group(self._radio_group_anchor)
-            if runner == self._selected:
-                radio.set_active(True)
-            radio.connect("toggled", self._on_radio_toggled, runner)
-            row.set_activatable_widget(radio)
-            row.add_prefix(radio)
-
-        # Suffix buttons.
-        if is_installed:
-            folder_btn = Gtk.Button(icon_name="folder-open-symbolic")
-            folder_btn.add_css_class("flat")
-            folder_btn.set_valign(Gtk.Align.CENTER)
-            folder_btn.set_tooltip_text("Open runner folder")
-            folder_btn.set_sensitive(self._runners_dir is not None)
-            folder_btn.connect("clicked", self._on_open_folder, runner)
-            row.add_suffix(folder_btn)
-
-            trash_btn = Gtk.Button(icon_name="user-trash-symbolic")
-            trash_btn.add_css_class("flat")
-            trash_btn.set_valign(Gtk.Align.CENTER)
-            trash_btn.set_tooltip_text("Delete runner")
-            trash_btn.set_sensitive(self._runners_dir is not None)
-            trash_btn.connect("clicked", self._on_delete, runner)
-            row.add_suffix(trash_btn)
-        else:
-            dl_btn = Gtk.Button(icon_name="folder-download-symbolic")
-            dl_btn.add_css_class("flat")
-            dl_btn.set_valign(Gtk.Align.CENTER)
-            dl_btn.set_tooltip_text("Download runner")
-            dl_btn.connect("clicked", self._on_download, runner)
-            row.add_suffix(dl_btn)
-
-        return row
-
-    def _on_radio_toggled(self, btn: Gtk.CheckButton, runner: str) -> None:
-        if btn.get_active():
-            self._selected = runner
-            if self._select_btn:
-                self._select_btn.set_sensitive(True)
-
-    def _on_select_clicked(self, _btn) -> None:
-        if not self._selected or not self._on_confirm:
-            self.close()
-            return
-        if self._selected not in self._installed:
-            self.close()
-            if self._on_install_runner:
-                self._on_install_runner(self._selected)
-            return
-        self._on_confirm(self._selected)
-        self.close()
-
-    def _on_open_folder(self, _btn, runner: str) -> None:
-        if self._runners_dir is None:
-            return
-        path = self._runners_dir / runner
-        if path.is_dir():
-            Gio.AppInfo.launch_default_for_uri(path.as_uri(), None)
-
-    def _on_delete(self, _btn, runner: str) -> None:
-        dialog = Adw.AlertDialog(
-            heading=f"Delete {runner}?",
-            body="This runner will be permanently deleted from disk.",
-        )
-        dialog.add_response("cancel", "Cancel")
-        dialog.add_response("delete", "Delete")
-        dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
-        dialog.set_default_response("cancel")
-        dialog.set_close_response("cancel")
-        dialog.connect("response", self._on_delete_confirmed, runner)
-        dialog.present(self)
-
-    def _on_delete_confirmed(self, _dialog, response: str, runner: str) -> None:
-        if response != "delete" or self._runners_dir is None:
-            return
-        import shutil
-        path = self._runners_dir / runner
-
-        def _work():
-            shutil.rmtree(path)
-
-        def _on_err(msg: str) -> None:
-            log.error("Failed to delete runner %s: %s", runner, msg)
-            self.close()
-
-        run_in_background(_work, on_done=lambda _: self.close(), on_error=_on_err)
-
-    def _on_download(self, _btn, runner: str) -> None:
-        self.close()
-        if self._on_install_runner:
-            self._on_install_runner(runner)
-
-
-# ---------------------------------------------------------------------------
 # Install progress dialog
 # ---------------------------------------------------------------------------
 
@@ -1719,8 +1409,6 @@ class InstallProgressDialog(Adw.Dialog):
         runner_to_install: str = "",
         runner_info: dict | None = None,
         installed_runners: list[str] | None = None,
-        open_runner_manager: Callable | None = None,
-        resolve_runner_info: Callable | None = None,
         base_entry=None,            # BaseEntry | None — for delta installs
         base_archive_uri: str = "", # resolved URI for the base archive
     ) -> None:
@@ -1733,20 +1421,14 @@ class InstallProgressDialog(Adw.Dialog):
         self._runner_to_install = runner_to_install
         self._runner_info = runner_info
         self._installed_runners = installed_runners or []
-        self._open_runner_manager = open_runner_manager
-        self._resolve_runner_info = resolve_runner_info
-        self._runner_row: Adw.ActionRow | None = None
         self._base_entry = base_entry
         self._base_archive_uri = base_archive_uri
-        # Determine whether we need to show the confirm page at all.
-        self._needs_confirm = bool(runner_to_install)
 
         self._build_ui()
         self.connect("closed", lambda _d: self._cancel_event.set())
 
-        # Auto-proceed: skip confirm page when nothing to confirm.
-        if not self._needs_confirm:
-            GLib.idle_add(self._on_proceed_clicked, None)
+        # Always auto-proceed straight to the progress page.
+        GLib.idle_add(self._on_proceed_clicked, None)
 
     # ── UI construction ───────────────────────────────────────────────────
 
@@ -1755,81 +1437,11 @@ class InstallProgressDialog(Adw.Dialog):
 
         self._header = Adw.HeaderBar()
         self._header.set_show_end_title_buttons(False)
-
-        self._cancel_header_btn = Gtk.Button(label="Cancel")
-        self._cancel_header_btn.connect("clicked", lambda _: self.close())
-        self._header.pack_start(self._cancel_header_btn)
-
-        self._install_header_btn = Gtk.Button(label="Install")
-        self._install_header_btn.add_css_class("suggested-action")
-        self._install_header_btn.connect("clicked", self._on_proceed_clicked)
-        self._header.pack_end(self._install_header_btn)
+        self._header.set_visible(False)
 
         toolbar_view.add_top_bar(self._header)
-
-        self._stack = Gtk.Stack()
-        self._stack.add_named(self._build_confirm_page(), "confirm")
-        self._stack.add_named(self._build_progress_page(), "progress")
-        self._stack.set_visible_child_name("confirm")
-
-        toolbar_view.set_content(self._stack)
+        toolbar_view.set_content(self._build_progress_page())
         self.set_child(toolbar_view)
-
-    def _build_confirm_page(self) -> Gtk.Widget:
-        scroll = Gtk.ScrolledWindow(
-            hscrollbar_policy=Gtk.PolicyType.NEVER,
-            vscrollbar_policy=Gtk.PolicyType.AUTOMATIC,
-        )
-        scroll.set_propagate_natural_height(True)
-
-        page = Adw.PreferencesPage()
-        scroll.set_child(page)
-
-
-        # ── Runner group (shown when a runner needs downloading) ──────────
-        if self._runner_to_install:
-            runner_group = Adw.PreferencesGroup(title="Runner")
-            row = Adw.ActionRow(
-                title=self._runner_to_install,
-                subtitle="Will be downloaded",
-            )
-            row.add_prefix(Gtk.Image.new_from_icon_name("media-playback-start-symbolic"))
-
-            change_btn = Gtk.Button(label="Change")
-            change_btn.add_css_class("suggested-action")
-            change_btn.set_valign(Gtk.Align.CENTER)
-            change_btn.connect("clicked", self._on_runner_change_clicked)
-            row.add_suffix(change_btn)
-
-            runner_group.add(row)
-            page.add(runner_group)
-            self._runner_row = row
-
-        return scroll
-
-    def _on_runner_change_clicked(self, _btn) -> None:
-        """Open RunnerManagerDialog from the Change button."""
-        if not self._open_runner_manager:
-            return
-
-        def _on_change(runner_name: str) -> None:
-            if runner_name in self._installed_runners:
-                # Already installed — no download needed.
-                self._runner_to_install = ""
-                self._runner_info = None
-                if self._runner_row:
-                    self._runner_row.set_title(runner_name)
-                    self._runner_row.set_subtitle("Installed")
-            else:
-                # Different uninstalled runner — resolve new download info.
-                self._runner_to_install = runner_name
-                if self._resolve_runner_info:
-                    self._runner_info = self._resolve_runner_info(runner_name)
-                if self._runner_row:
-                    self._runner_row.set_title(runner_name)
-                    self._runner_row.set_subtitle("Will be downloaded")
-
-        self._open_runner_manager(_on_change)
 
     def _build_progress_page(self) -> Gtk.Widget:
         box, self._phase_label, self._progress_bar, self._cancel_body_btn = (
@@ -1840,9 +1452,6 @@ class InstallProgressDialog(Adw.Dialog):
     # ── Signal handlers ───────────────────────────────────────────────────
 
     def _on_proceed_clicked(self, _btn) -> None:
-        self._stack.set_visible_child_name("progress")
-        self._cancel_header_btn.set_visible(False)
-        self._install_header_btn.set_visible(False)
         self._start_install()
 
     def _on_cancel_progress_clicked(self, _btn) -> None:

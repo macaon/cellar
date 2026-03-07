@@ -197,6 +197,59 @@ def compress_prefix_zst(
     return dest_path.stat().st_size, crc32_hex
 
 
+def compress_runner_zst(
+    runner_dir: Path,
+    dest_path: Path,
+    *,
+    cancel_event=None,
+    progress_cb: Callable[[float], None] | None = None,
+    file_cb: Callable[[str], None] | None = None,
+    bytes_cb: Callable[[int], None] | None = None,
+) -> tuple[int, str]:
+    """Archive a runner directory as a ``.tar.zst``.
+
+    The top-level directory in the archive matches ``runner_dir.name``
+    (e.g. ``GE-Proton10-32/``).  No symlink stripping is performed.
+
+    Returns ``(size_bytes, crc32_hex)``.
+    """
+    import zstandard as zstd  # noqa: PLC0415
+
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
+
+    total_files = sum(1 for _ in runner_dir.rglob("*") if _.is_file())
+    done = [0]
+
+    def _filter(ti: tarfile.TarInfo) -> tarfile.TarInfo | None:
+        if cancel_event and cancel_event.is_set():
+            raise CancelledError("Cancelled")
+        if ti.isfile():
+            done[0] += 1
+            if file_cb:
+                file_cb(ti.name.split("/")[-1])
+            if progress_cb and total_files:
+                progress_cb(done[0] / total_files)
+        return ti
+
+    cctx = zstd.ZstdCompressor(level=3)
+    try:
+        with dest_path.open("wb") as out_f:
+            crc_writer = _CRCWriter(out_f, bytes_cb=bytes_cb)
+            with cctx.stream_writer(crc_writer, closefd=False) as compressor:
+                with tarfile.open(fileobj=compressor, mode="w|") as tf:
+                    tf.add(str(runner_dir), arcname=runner_dir.name,
+                           recursive=True, filter=_filter)
+            crc32_hex = format(crc_writer.crc & 0xFFFFFFFF, "08x")
+    except CancelledError:
+        dest_path.unlink(missing_ok=True)
+        raise
+    except (tarfile.TarError, OSError) as exc:
+        dest_path.unlink(missing_ok=True)
+        raise RuntimeError(f"Failed to compress runner: {exc}") from exc
+
+    return dest_path.stat().st_size, crc32_hex
+
+
 def compress_prefix_delta_zst(
     prefix_path: Path,
     base_dir: Path,
@@ -657,12 +710,19 @@ def upsert_base(
     archive_path: str,
     archive_crc32: str = "",
     archive_size: int = 0,
+    *,
+    runner_archive: str = "",
+    runner_archive_crc32: str = "",
+    runner_archive_size: int = 0,
 ) -> None:
     """Add or replace a base image entry in ``catalogue.json``.
 
     *archive_path* must be a repo-relative path (e.g.
     ``"bases/soda-9.0-1-base.tar.gz"``).  The physical archive must already
     have been copied to the repo before calling this.
+
+    When *runner_archive* is provided, the runner binary archive is also
+    recorded so that clients can download it from the repo instead of GitHub.
     """
     cat_path = repo_root / "catalogue.json"
     if cat_path.exists():
@@ -678,6 +738,12 @@ def upsert_base(
         bases[runner]["archive_size"] = archive_size
     if archive_crc32:
         bases[runner]["archive_crc32"] = archive_crc32
+    if runner_archive:
+        bases[runner]["runner_archive"] = runner_archive
+    if runner_archive_size:
+        bases[runner]["runner_archive_size"] = runner_archive_size
+    if runner_archive_crc32:
+        bases[runner]["runner_archive_crc32"] = runner_archive_crc32
     _write_catalogue(cat_path, apps, categories, bases, category_icons)
 
 

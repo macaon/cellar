@@ -1491,11 +1491,34 @@ class PackageBuilderView(Gtk.Box):
             GLib.idle_add(progress.set_stats, text)
 
         def _work():
-            from cellar.backend.packager import compress_prefix_zst, upsert_base
+            from cellar.backend.packager import (
+                compress_prefix_zst, compress_runner_zst, upsert_base,
+            )
             from cellar.backend.base_store import install_base_from_dir
+            from cellar.backend.umu import runners_dir
 
             runner = project.runner
             repo_root = repo.writable_path()
+
+            # ── Compress and upload the runner ────────────────────────────
+            runner_src = runners_dir() / runner
+            runner_archive_rel = f"bases/{runner}-runner.tar.zst"
+            runner_archive_dest = repo_root / runner_archive_rel
+            runner_archive_dest.parent.mkdir(parents=True, exist_ok=True)
+
+            GLib.idle_add(progress.set_label, "Compressing runner…")
+            GLib.idle_add(progress.set_fraction, 0.0)
+            runner_size, runner_crc32 = compress_runner_zst(
+                runner_src,
+                runner_archive_dest,
+                progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+                file_cb=_file_cb,
+                bytes_cb=_bytes_cb,
+            )
+
+            # ── Compress and upload the base image ────────────────────────
+            GLib.idle_add(progress.set_label, "Compressing base image…")
+            GLib.idle_add(progress.set_fraction, 0.0)
             archive_dest_rel = f"bases/{runner}-base.tar.zst"
             archive_dest = repo_root / archive_dest_rel
             archive_dest.parent.mkdir(parents=True, exist_ok=True)
@@ -1511,7 +1534,12 @@ class PackageBuilderView(Gtk.Box):
             GLib.idle_add(progress.set_label, "Finalizing…")
             GLib.idle_add(progress.set_stats, "")
             GLib.idle_add(progress.start_pulse)
-            upsert_base(repo_root, runner, archive_dest_rel, crc32, size)
+            upsert_base(
+                repo_root, runner, archive_dest_rel, crc32, size,
+                runner_archive=runner_archive_rel,
+                runner_archive_crc32=runner_crc32,
+                runner_archive_size=runner_size,
+            )
 
             GLib.idle_add(progress.set_label, "Installing base locally…")
             GLib.idle_add(progress.set_fraction, 0.0)

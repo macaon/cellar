@@ -49,6 +49,9 @@ class BaseEntry:
     archive: str        # repo-relative path to the base archive
     archive_size: int = 0
     archive_crc32: str = ""
+    runner_archive: str = ""        # repo-relative path to the runner archive
+    runner_archive_size: int = 0
+    runner_archive_crc32: str = ""
 
     @classmethod
     def from_dict(cls, runner: str, data: dict) -> "BaseEntry":
@@ -57,6 +60,9 @@ class BaseEntry:
             archive=data.get("archive", ""),
             archive_size=int(data.get("archive_size", 0)),
             archive_crc32=data.get("archive_crc32", ""),
+            runner_archive=data.get("runner_archive", ""),
+            runner_archive_size=int(data.get("runner_archive_size", 0)),
+            runner_archive_crc32=data.get("runner_archive_crc32", ""),
         )
 
     def to_dict(self) -> dict:
@@ -65,6 +71,12 @@ class BaseEntry:
             d["archive_size"] = self.archive_size
         if self.archive_crc32:
             d["archive_crc32"] = self.archive_crc32
+        if self.runner_archive:
+            d["runner_archive"] = self.runner_archive
+        if self.runner_archive_size:
+            d["runner_archive_size"] = self.runner_archive_size
+        if self.runner_archive_crc32:
+            d["runner_archive_crc32"] = self.runner_archive_crc32
         return d
 
 

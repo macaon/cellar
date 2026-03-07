@@ -430,6 +430,18 @@ class PackageBuilderView(Gtk.Box):
             _browse_btn.connect("clicked", self._on_browse_prefix_clicked)
             _browse_row.add_suffix(_browse_btn)
             files_group.add(_browse_row)
+
+            _winecfg_row = Adw.ActionRow(
+                title="Wine Configuration",
+                subtitle="Open winecfg (DLL overrides, Windows version, …)",
+            )
+            _winecfg_row.set_sensitive(project.initialized)
+            _winecfg_btn = Gtk.Button(label="Open")
+            _winecfg_btn.set_valign(Gtk.Align.CENTER)
+            _winecfg_btn.connect("clicked", self._on_winecfg_clicked)
+            _winecfg_row.add_suffix(_winecfg_btn)
+            files_group.add(_winecfg_row)
+
             page.add(files_group)
 
             # Launch Targets (Windows app)
@@ -523,6 +535,18 @@ class PackageBuilderView(Gtk.Box):
             _browse_btn.connect("clicked", self._on_browse_prefix_clicked)
             _browse_row.add_suffix(_browse_btn)
             base_files_group.add(_browse_row)
+
+            _winecfg_row = Adw.ActionRow(
+                title="Wine Configuration",
+                subtitle="Open winecfg (DLL overrides, Windows version, …)",
+            )
+            _winecfg_row.set_sensitive(project.initialized)
+            _winecfg_btn = Gtk.Button(label="Open")
+            _winecfg_btn.set_valign(Gtk.Align.CENTER)
+            _winecfg_btn.connect("clicked", self._on_winecfg_clicked)
+            _winecfg_row.add_suffix(_winecfg_btn)
+            base_files_group.add(_winecfg_row)
+
             page.add(base_files_group)
 
         pkg_group = Adw.PreferencesGroup(title="Publish")
@@ -1034,6 +1058,19 @@ class PackageBuilderView(Gtk.Box):
             self._show_toast("Directory not set yet.")
             return
         subprocess.Popen(["xdg-open", str(target)], start_new_session=True)
+
+    def _on_winecfg_clicked(self, _btn) -> None:
+        if self._project is None or not self._project.runner:
+            self._show_toast("Select a runner first.")
+            return
+        from cellar.backend.umu import launch_app
+        launch_app(
+            app_id=f"project-{self._project.slug}",
+            entry_point="winecfg",
+            runner_name=self._project.runner,
+            steam_appid=self._project.steam_appid,
+            prefix_dir=self._project.prefix_path,
+        )
 
     def _on_add_entry_point_clicked(self, _btn) -> None:
         if self._project is None:

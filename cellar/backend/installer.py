@@ -747,7 +747,7 @@ def _ensure_base_installed(
 
     _check_cancel(cancel_event)
     if phase_cb:
-        phase_cb(f"Downloading base image ({runner})\u2026")
+        phase_cb(f"Downloading & extracting base image ({runner})\u2026")
     if download_cb:
         download_cb(0.0)
 

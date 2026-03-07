@@ -199,9 +199,9 @@ def compress_prefix_delta_zst(
     The archive is ``prefix/``-rooted, compatible with :func:`compress_prefix_zst`
     and the installer's :func:`~cellar.backend.installer._overlay_delta`.
 
-    Progress is split across two phases:
-    - Scan (0 → 0.5): hash-compare every file in the prefix against the base.
-    - Pack  (0.5 → 1.0): stream changed/new files into the archive.
+    Progress reports 0 → 1.0 independently for each phase (scan then pack).
+    The caller receives a ``phase_cb`` notification at each transition and
+    should reset the progress bar accordingly.
 
     *stats_cb* is called as ``stats_cb(done_files, total_files, speed_bps)``
     during the pack phase.
@@ -253,7 +253,7 @@ def compress_prefix_delta_zst(
             try:
                 if _hash_file(src) == _hash_file(base_file):
                     if progress_cb and total_scan:
-                        progress_cb(i / total_scan * 0.5)
+                        progress_cb(i / total_scan)
                     continue  # identical — exclude from delta
             except CancelledError:
                 raise
@@ -261,7 +261,7 @@ def compress_prefix_delta_zst(
                 pass  # unreadable → include defensively
         delta_files.append((src, rel))
         if progress_cb and total_scan:
-            progress_cb(i / total_scan * 0.5)
+            progress_cb(i / total_scan)
 
     # Files in base absent from prefix → delete manifest.
     delete_paths = sorted(
@@ -293,7 +293,7 @@ def compress_prefix_delta_zst(
                         done[0] += 1
                         done_bytes[0] += src.stat().st_size
                         if progress_cb and total_pack:
-                            progress_cb(0.5 + done[0] / total_pack * 0.5)
+                            progress_cb(done[0] / total_pack)
                         if stats_cb:
                             elapsed = time.monotonic() - start
                             speed = done_bytes[0] / elapsed if elapsed > 0.1 else 0.0

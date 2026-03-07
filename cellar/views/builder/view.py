@@ -1173,6 +1173,11 @@ class PackageBuilderView(Gtk.Box):
 
         cancel_event = threading.Event()
 
+        def _reset_phase(label: str) -> None:
+            GLib.idle_add(progress.set_label, label)
+            GLib.idle_add(progress.set_stats, "")
+            GLib.idle_add(progress.set_fraction, 0.0)
+
         def _work():
             from cellar.backend.packager import (
                 compress_prefix_zst, compress_prefix_delta_zst, import_to_repo,
@@ -1187,7 +1192,7 @@ class PackageBuilderView(Gtk.Box):
                     _src_path,
                     archive_dest,
                     cancel_event=cancel_event,
-                    progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f * 0.9),
+                    progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
                     stats_cb=lambda done, total, speed: GLib.idle_add(
                         progress.set_stats, fmt_compress_stats(done, total, speed)
                     ),
@@ -1197,14 +1202,14 @@ class PackageBuilderView(Gtk.Box):
                 from cellar.backend.base_store import is_base_installed, base_path
                 _use_delta = is_base_installed(project.runner)
                 if _use_delta:
-                    GLib.idle_add(progress.set_label, "Scanning files…")
+                    _reset_phase("Scanning files…")
                     size, crc32 = compress_prefix_delta_zst(
                         _src_path,
                         base_path(project.runner),
                         archive_dest,
                         cancel_event=cancel_event,
-                        phase_cb=lambda s: GLib.idle_add(progress.set_label, s),
-                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f * 0.9),
+                        phase_cb=_reset_phase,
+                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
                         stats_cb=lambda done, total, speed: GLib.idle_add(
                             progress.set_stats, fmt_compress_stats(done, total, speed)
                         ),
@@ -1215,14 +1220,14 @@ class PackageBuilderView(Gtk.Box):
                         project.prefix_path,
                         archive_dest,
                         cancel_event=cancel_event,
-                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f * 0.9),
+                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
                         stats_cb=lambda done, total, speed: GLib.idle_add(
                             progress.set_stats, fmt_compress_stats(done, total, speed)
                         ),
                     )
                     base_runner = ""
 
-            GLib.idle_add(progress.set_label, "Uploading images…")
+            GLib.idle_add(progress.set_label, "Finalizing…")
             GLib.idle_add(progress.set_stats, "")
             GLib.idle_add(progress.start_pulse)
             final_entry = _dc_replace(
@@ -1301,6 +1306,11 @@ class PackageBuilderView(Gtk.Box):
 
         cancel_event = threading.Event()
 
+        def _reset_phase(label: str) -> None:
+            GLib.idle_add(progress.set_label, label)
+            GLib.idle_add(progress.set_stats, "")
+            GLib.idle_add(progress.set_fraction, 0.0)
+
         def _work():
             from cellar.backend.packager import (
                 compress_prefix_zst, compress_prefix_delta_zst, update_in_repo,
@@ -1315,7 +1325,7 @@ class PackageBuilderView(Gtk.Box):
                     _src_path,
                     archive_dest,
                     cancel_event=cancel_event,
-                    progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f * 0.9),
+                    progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
                     stats_cb=lambda done, total, speed: GLib.idle_add(
                         progress.set_stats, fmt_compress_stats(done, total, speed)
                     ),
@@ -1325,14 +1335,14 @@ class PackageBuilderView(Gtk.Box):
                 from cellar.backend.base_store import is_base_installed, base_path
                 _use_delta = is_base_installed(project.runner)
                 if _use_delta:
-                    GLib.idle_add(progress.set_label, "Scanning files…")
+                    _reset_phase("Scanning files…")
                     size, crc32 = compress_prefix_delta_zst(
                         project.prefix_path,
                         base_path(project.runner),
                         archive_dest,
                         cancel_event=cancel_event,
-                        phase_cb=lambda s: GLib.idle_add(progress.set_label, s),
-                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f * 0.9),
+                        phase_cb=_reset_phase,
+                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
                         stats_cb=lambda done, total, speed: GLib.idle_add(
                             progress.set_stats, fmt_compress_stats(done, total, speed)
                         ),
@@ -1343,14 +1353,14 @@ class PackageBuilderView(Gtk.Box):
                         project.prefix_path,
                         archive_dest,
                         cancel_event=cancel_event,
-                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f * 0.9),
+                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
                         stats_cb=lambda done, total, speed: GLib.idle_add(
                             progress.set_stats, fmt_compress_stats(done, total, speed)
                         ),
                     )
                     base_runner = old_entry.base_runner  # preserve existing delta setting
 
-            GLib.idle_add(progress.set_label, "Writing catalogue…")
+            GLib.idle_add(progress.set_label, "Finalizing…")
             GLib.idle_add(progress.set_stats, "")
             GLib.idle_add(progress.start_pulse)
             new_entry = _dc_replace(
@@ -1417,6 +1427,9 @@ class PackageBuilderView(Gtk.Box):
                 progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
             )
 
+            GLib.idle_add(progress.set_label, "Finalizing…")
+            GLib.idle_add(progress.set_stats, "")
+            GLib.idle_add(progress.start_pulse)
             upsert_base(repo_root, runner, archive_dest_rel, crc32, size)
 
             GLib.idle_add(progress.set_label, "Installing base locally…")

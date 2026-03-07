@@ -25,6 +25,7 @@ from gi.repository import Adw, GLib, Gtk
 
 from cellar.utils.async_work import run_in_background
 from cellar.utils.progress import fmt_stats as _fmt_stats
+from cellar.views.widgets import make_progress_page
 
 _STRATEGIES = ["safe", "full"]
 _STRATEGY_LABELS = ["Safe (preserve user data)", "Full (complete replacement)"]
@@ -332,29 +333,9 @@ class EditAppDialog(Adw.Dialog):
         return row, clear_btn
 
     def _build_progress(self) -> Gtk.Widget:
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        box.set_valign(Gtk.Align.CENTER)
-        box.set_margin_top(12)
-        box.set_margin_bottom(12)
-        box.set_margin_start(24)
-        box.set_margin_end(24)
-
-        self._progress_label = Gtk.Label(label="Saving changes\u2026", xalign=0)
-        self._progress_label.add_css_class("dim-label")
-
-        self._progress_bar = Gtk.ProgressBar()
-        self._progress_bar.set_show_text(True)
-        self._progress_bar.set_fraction(0.0)
-        self._progress_bar.set_size_request(0, -1)
-
-        self._cancel_progress_btn = Gtk.Button(label="Cancel")
-        self._cancel_progress_btn.set_halign(Gtk.Align.CENTER)
-        self._cancel_progress_btn.set_margin_top(6)
-        self._cancel_progress_btn.connect("clicked", self._on_cancel_progress_clicked)
-
-        box.append(self._progress_label)
-        box.append(self._progress_bar)
-        box.append(self._cancel_progress_btn)
+        box, self._progress_label, self._progress_bar, self._cancel_progress_btn = (
+            make_progress_page("Saving changes\u2026", self._on_cancel_progress_clicked)
+        )
         return box
 
     def _build_spinner(self) -> Gtk.Widget:

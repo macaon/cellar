@@ -13,6 +13,7 @@ through ``optimize_image`` before adding them to the project.
 from __future__ import annotations
 
 import logging
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -52,6 +53,7 @@ class SteamScreenshotPickerDialog(Adw.Dialog):
 
         self._build_ui()
         self._load_thumbnails()
+        self.connect("closed", self._cleanup)
 
     # ------------------------------------------------------------------
     # UI
@@ -136,6 +138,11 @@ class SteamScreenshotPickerDialog(Adw.Dialog):
 
         toolbar.set_content(outer)
         self.set_child(toolbar)
+
+    def _cleanup(self, _dialog=None) -> None:
+        if self._tmp_dir and self._tmp_dir.exists():
+            shutil.rmtree(self._tmp_dir, ignore_errors=True)
+            self._tmp_dir = None
 
     # ------------------------------------------------------------------
     # Thumbnail loading

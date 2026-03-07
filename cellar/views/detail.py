@@ -18,6 +18,7 @@ from gi.repository import Adw, Gdk, GLib, Gio, Gtk, Pango
 
 from cellar.models.app_entry import AppEntry
 from cellar.utils.images import load_and_crop, load_and_fit, load_logo, to_texture
+from cellar.views.widgets import make_progress_page
 from cellar.utils.paths import short_path as _short_path
 from cellar.utils.async_work import run_in_background
 from cellar.utils.progress import fmt_stats as _fmt_dl_stats, trunc_middle as _trunc_filename
@@ -1821,31 +1822,9 @@ class InstallProgressDialog(Adw.Dialog):
         self._open_runner_manager(_on_change)
 
     def _build_progress_page(self) -> Gtk.Widget:
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        box.set_valign(Gtk.Align.CENTER)
-        box.set_margin_top(12)
-        box.set_margin_bottom(12)
-        box.set_margin_start(24)
-        box.set_margin_end(24)
-
-        self._phase_label = Gtk.Label(label="Downloading", xalign=0)
-        self._phase_label.add_css_class("dim-label")
-        box.append(self._phase_label)
-
-        self._progress_bar = Gtk.ProgressBar()
-        self._progress_bar.set_show_text(True)
-        self._progress_bar.set_fraction(0.0)
-        # Prevent the bar from requesting extra width to fit text — the dialog
-        # width is fixed by content_width; the bar fills that space.
-        self._progress_bar.set_size_request(0, -1)
-        box.append(self._progress_bar)
-
-        self._cancel_body_btn = Gtk.Button(label="Cancel")
-        self._cancel_body_btn.set_halign(Gtk.Align.CENTER)
-        self._cancel_body_btn.set_margin_top(6)
-        self._cancel_body_btn.connect("clicked", self._on_cancel_progress_clicked)
-        box.append(self._cancel_body_btn)
-
+        box, self._phase_label, self._progress_bar, self._cancel_body_btn = (
+            make_progress_page("Downloading", self._on_cancel_progress_clicked)
+        )
         return box
 
     # ── Signal handlers ───────────────────────────────────────────────────

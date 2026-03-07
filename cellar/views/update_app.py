@@ -14,6 +14,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk
 
 from cellar.models.app_entry import AppEntry
+from cellar.views.widgets import make_progress_page
 from cellar.utils.paths import short_path as _short_path
 from cellar.utils.progress import fmt_stats
 
@@ -139,28 +140,9 @@ class UpdateDialog(Adw.Dialog):
         return scroll
 
     def _build_progress_page(self) -> Gtk.Widget:
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
-        box.set_valign(Gtk.Align.CENTER)
-        box.set_margin_top(48)
-        box.set_margin_bottom(48)
-        box.set_margin_start(24)
-        box.set_margin_end(24)
-
-        self._phase_label = Gtk.Label(label="Preparing\u2026", xalign=0)
-        self._phase_label.add_css_class("dim-label")
-        box.append(self._phase_label)
-
-        self._progress_bar = Gtk.ProgressBar()
-        self._progress_bar.set_show_text(True)
-        self._progress_bar.set_fraction(0.0)
-        self._progress_bar.set_size_request(0, -1)
-        box.append(self._progress_bar)
-
-        self._cancel_body_btn = Gtk.Button(label="Cancel")
-        self._cancel_body_btn.set_halign(Gtk.Align.CENTER)
-        self._cancel_body_btn.connect("clicked", self._on_cancel_progress_clicked)
-        box.append(self._cancel_body_btn)
-
+        box, self._phase_label, self._progress_bar, self._cancel_body_btn = (
+            make_progress_page("Preparing\u2026", self._on_cancel_progress_clicked)
+        )
         self._pulse_id: int | None = None
         return box
 

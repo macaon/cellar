@@ -5,7 +5,6 @@ from __future__ import annotations
 import html
 import logging
 import shutil
-from cellar.utils.async_work import run_in_background
 from pathlib import Path
 from typing import Callable
 
@@ -18,6 +17,7 @@ from gi.repository import Adw, GLib, Gtk
 from cellar.backend.project import Project, load_projects, save_project
 from cellar.utils.async_work import run_in_background
 from cellar.views.builder.progress import ProgressDialog
+from cellar.views.widgets import make_loading_stack
 
 log = logging.getLogger(__name__)
 
@@ -53,35 +53,8 @@ class ImportFromCatalogueDialog(Adw.Dialog):
 
         toolbar.add_top_bar(header)
 
-        self._stack = Gtk.Stack()
-
-        # Loading state
-        spinner_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        spinner_box.set_valign(Gtk.Align.CENTER)
-        spinner_box.set_vexpand(True)
-        spinner = Gtk.Spinner(spinning=True)
-        spinner.set_size_request(32, 32)
-        spinner_box.append(spinner)
-        lbl = Gtk.Label(label="Fetching catalogue\u2026")
-        lbl.add_css_class("dim-label")
-        spinner_box.append(lbl)
-        self._stack.add_named(spinner_box, "loading")
-
-        # List state
-        scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
-        scroll.set_min_content_height(360)
-        self._list_box = Gtk.ListBox()
-        self._list_box.set_selection_mode(Gtk.SelectionMode.SINGLE)
-        self._list_box.add_css_class("boxed-list")
-        self._list_box.set_margin_top(12)
-        self._list_box.set_margin_bottom(12)
-        self._list_box.set_margin_start(12)
-        self._list_box.set_margin_end(12)
+        self._stack, self._list_box = make_loading_stack("Fetching catalogue\u2026")
         self._list_box.connect("row-selected", self._on_row_selected)
-        scroll.set_child(self._list_box)
-        self._stack.add_named(scroll, "list")
-
-        self._stack.set_visible_child_name("loading")
         toolbar.set_content(self._stack)
         self.set_child(toolbar)
 

@@ -621,7 +621,7 @@ class PackageBuilderView(Gtk.Box):
             # Base: publish base
             publish_row = Adw.ActionRow(
                 title="Publish Base",
-                subtitle="Archive prefix and upload to repository",
+                subtitle="Archive prefix and runner, and upload to repository",
             )
             publish_row.set_sensitive(project.initialized)
             pub_btn = Gtk.Button(label="Publish\u2026")
@@ -1503,7 +1503,7 @@ class PackageBuilderView(Gtk.Box):
 
             # ── Compress and upload the runner ────────────────────────────
             runner_src = runners_dir() / runner
-            runner_archive_rel = f"bases/{runner}-runner.tar.zst"
+            runner_archive_rel = f"runners/{runner}.tar.zst"
             runner_archive_dest = repo_root / runner_archive_rel
             runner_archive_dest.parent.mkdir(parents=True, exist_ok=True)
 

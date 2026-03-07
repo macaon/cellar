@@ -131,6 +131,7 @@ class DetailView(Gtk.Box):
             (installed_record or {}).get("runner_override") if is_installed else None
         )
         self._runner_label: Gtk.Label | None = None
+        self._base_warning_icon: Gtk.Image | None = None
         # Base image resolution — populated once by _resolve_base_async.
         # Observers registered before resolution completes are called on idle.
         self._base_sz: int = 0
@@ -964,11 +965,18 @@ class DetailView(Gtk.Box):
         card.append(icon)
 
         runner_name = self._runner_override or (bw.runner if bw else "") or ""
+        runner_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        runner_row.set_halign(Gtk.Align.CENTER)
+        card.append(runner_row)
 
         self._runner_label = Gtk.Label(label=runner_name)
         self._runner_label.add_css_class("heading")
-        self._runner_label.set_halign(Gtk.Align.CENTER)
-        card.append(self._runner_label)
+        runner_row.append(self._runner_label)
+
+        self._base_warning_icon = Gtk.Image.new_from_icon_name("dialog-warning-symbolic")
+        self._base_warning_icon.add_css_class("warning")
+        self._base_warning_icon.set_visible(False)
+        runner_row.append(self._base_warning_icon)
 
         bottom_lbl = Gtk.Label(label="Wine")
         bottom_lbl.add_css_class("dim-label")
@@ -1015,6 +1023,11 @@ class DetailView(Gtk.Box):
             self._base_sz = base_sz
             if not installed and base_sz:
                 val_lbl.set_label(_fmt_bytes(app_size + base_sz))
+            if not installed and self._base_warning_icon:
+                self._base_warning_icon.set_visible(True)
+                self._base_warning_icon.set_tooltip_text(
+                    f"Base image \u201c{base_runner}\u201d is not installed"
+                )
             for cb in self._base_resolve_cbs:
                 cb(installed, base_sz)
             self._base_resolve_cbs.clear()

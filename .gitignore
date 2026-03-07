@@ -6,6 +6,7 @@ dist/
 build/
 .venv/
 venv/
+uv.lock
 
 # Meson build directory
 _build/

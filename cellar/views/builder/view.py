@@ -1504,7 +1504,7 @@ class PackageBuilderView(Gtk.Box):
             runner_archive_dest = repo_root / runner_archive_rel
             runner_archive_dest.parent.mkdir(parents=True, exist_ok=True)
 
-            GLib.idle_add(progress.set_label, "Compressing runner…")
+            GLib.idle_add(progress.set_label, "Compressing and uploading runner…")
             GLib.idle_add(progress.set_fraction, 0.0)
             runner_size, runner_crc32 = compress_runner_zst(
                 runner_src,
@@ -1515,7 +1515,7 @@ class PackageBuilderView(Gtk.Box):
             )
 
             # ── Compress and upload the base image ────────────────────────
-            GLib.idle_add(progress.set_label, "Compressing base image…")
+            GLib.idle_add(progress.set_label, "Compressing and uploading base image…")
             GLib.idle_add(progress.set_fraction, 0.0)
             archive_dest_rel = f"bases/{runner}-base.tar.zst"
             archive_dest = repo_root / archive_dest_rel

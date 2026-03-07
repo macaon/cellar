@@ -60,20 +60,31 @@ def _is_wine_system(rel_lower: str) -> bool:
     )
 
 
+def _scan_root(prefix_path: Path) -> Path:
+    """Return the directory to walk for manifest purposes.
+
+    Windows/Wine prefixes: ``drive_c/`` (contains the game files; Wine system
+    dirs are also here but filtered by ``_is_wine_system`` during scan).
+    Linux native installs: the install dir itself (no ``drive_c/`` wrapper).
+    """
+    drive_c = prefix_path / "drive_c"
+    return drive_c if drive_c.is_dir() else prefix_path
+
+
 def write_manifest(prefix_path: Path) -> None:
-    """Write ``.cellar-manifest.json`` recording every file under ``drive_c/``.
+    """Write ``.cellar-manifest.json`` recording every installed package file.
+
+    For Windows/Wine apps, walks ``drive_c/``.  For Linux native apps, walks
+    the install directory directly.
 
     Called immediately after a fresh install, before the app is ever launched.
     Re-calling this overwrites any existing manifest (used after updates to
     reset the baseline).
     """
-    drive_c = prefix_path / "drive_c"
-    if not drive_c.is_dir():
-        log.warning("write_manifest: no drive_c/ in %s — skipping", prefix_path)
-        return
+    root = _scan_root(prefix_path)
 
     files: dict[str, list[int]] = {}
-    for fp in drive_c.rglob("*"):
+    for fp in root.rglob("*"):
         if not fp.is_file():
             continue
         try:
@@ -113,10 +124,9 @@ def scan_user_files(prefix_path: Path) -> tuple[list[Path], list[Path]]:
     * **modified_package_files**: files present in the manifest whose on-disk
       size or mtime has changed since install.  These were modified by the user
       or the app and must be restored on top of the updated package.
-    * **user_created_files**: files under ``drive_c/`` that are *not* in the
+    * **user_created_files**: files under the scan root that are *not* in the
       manifest and are *not* under a Wine/Proton system path.  These were
-      created by the running application (saves, configs in the game dir) and
-      must be preserved.
+      created by the running application (saves, configs) and must be preserved.
 
     If no manifest exists ``([], [])`` is returned and the caller falls back
     to the legacy exclusion-only update strategy.
@@ -125,14 +135,14 @@ def scan_user_files(prefix_path: Path) -> tuple[list[Path], list[Path]]:
     if not manifest:
         return [], []
 
-    drive_c = prefix_path / "drive_c"
-    if not drive_c.is_dir():
+    root = _scan_root(prefix_path)
+    if not root.is_dir():
         return [], []
 
     modified: list[Path] = []
     user_created: list[Path] = []
 
-    for fp in drive_c.rglob("*"):
+    for fp in root.rglob("*"):
         if not fp.is_file():
             continue
         rel = fp.relative_to(prefix_path).as_posix()

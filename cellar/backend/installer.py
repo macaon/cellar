@@ -559,6 +559,9 @@ def install_linux_app(
             if ep.is_file():
                 ep.chmod(ep.stat().st_mode | 0o111)
 
+        from cellar.backend.manifest import write_manifest  # noqa: PLC0415
+        write_manifest(install_dest)
+
     if install_cb:
         install_cb(1.0)
     return entry.id, install_dest

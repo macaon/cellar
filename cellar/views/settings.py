@@ -515,7 +515,7 @@ class AddEditRepoDialog(Adw.Dialog):
 
         scroll = Gtk.ScrolledWindow(
             hscrollbar_policy=Gtk.PolicyType.NEVER,
-            vscrollbar_policy=Gtk.PolicyType.AUTOMATIC,
+            vscrollbar_policy=Gtk.PolicyType.NEVER,
         )
         scroll.set_propagate_natural_height(True)
 

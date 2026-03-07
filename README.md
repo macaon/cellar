@@ -40,7 +40,7 @@ with GE-Proton. Linux native apps are extracted and launched directly.
 
 ## Tech stack
 
-- **Language:** Python 3.11+
+- **Language:** Python 3.10+
 - **UI toolkit:** GTK4 + libadwaita (GNOME 46+)
 - **Windows compatibility:** [umu-launcher](https://github.com/Open-Wine-Components/umu-launcher) + GE-Proton
 - **Runner index:** GitHub Releases API (GloriousEggroll/proton-ge-custom), cached in memory
@@ -58,7 +58,7 @@ with GE-Proton. Linux native apps are extracted and launched directly.
 
 ### System requirements
 
-- Python 3.11+
+- Python 3.10+
 - GTK 4 and libadwaita 1.x
 
 **Fedora / RHEL:**
@@ -94,7 +94,7 @@ in the GNOME application launcher. Make sure `~/.local/bin` is on your `PATH`
 
 ### Requirements
 
-- Python 3.11+
+- Python 3.10+
 - GTK 4 and libadwaita 1.x (`python3-gobject` / `pygobject`)
 - `pip install requests Pillow zstandard smbprotocol keyring pytest`
 - [umu-launcher](https://github.com/Open-Wine-Components/umu-launcher) for launching/building Windows apps

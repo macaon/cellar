@@ -657,6 +657,12 @@ class PackageBuilderView(Gtk.Box):
         """Populate the Runner group with radio rows for installed runners."""
         from cellar.backend import runners as _runners
 
+        # Runners referenced by at least one published base cannot be deleted.
+        runners_in_use: set[str] = set()
+        for repo in self._all_repos:
+            for base in repo._bases.values():
+                runners_in_use.add(base.runner)
+
         first_check: Gtk.CheckButton | None = None
         for rname in _runners.installed_runners():
             row = Adw.ActionRow(title=rname)
@@ -674,7 +680,11 @@ class PackageBuilderView(Gtk.Box):
             del_btn = Gtk.Button(icon_name="user-trash-symbolic")
             del_btn.set_valign(Gtk.Align.CENTER)
             del_btn.add_css_class("flat")
-            del_btn.set_tooltip_text("Delete runner")
+            in_use = rname in runners_in_use
+            del_btn.set_sensitive(not in_use)
+            del_btn.set_tooltip_text(
+                "Runner is used by a published base image" if in_use else "Delete runner"
+            )
             del_btn.connect("clicked", self._on_delete_runner_clicked, rname)
             row.add_suffix(del_btn)
 
@@ -783,6 +793,13 @@ class PackageBuilderView(Gtk.Box):
                     base_runners.append(name)
         base_runners.sort()
 
+        # Base images referenced by at least one published app cannot be deleted.
+        bases_in_use: set[str] = set()
+        for repo in self._all_repos:
+            for entry in repo.fetch_catalogue():
+                if entry.base_runner:
+                    bases_in_use.add(entry.base_runner)
+
         # If no runner set yet, default to the latest installed base (last by installed_at)
         effective_runner = project.runner or (base_runners[-1] if base_runners else "")
         if effective_runner and not project.runner:
@@ -808,7 +825,11 @@ class PackageBuilderView(Gtk.Box):
             del_btn = Gtk.Button(icon_name="user-trash-symbolic")
             del_btn.set_valign(Gtk.Align.CENTER)
             del_btn.add_css_class("flat")
-            del_btn.set_tooltip_text("Delete base image")
+            in_use = runner in bases_in_use
+            del_btn.set_sensitive(not in_use)
+            del_btn.set_tooltip_text(
+                "Base image is used by a published app" if in_use else "Delete base image"
+            )
             del_btn.connect("clicked", self._on_delete_base_clicked, runner)
             row.add_suffix(del_btn)
 

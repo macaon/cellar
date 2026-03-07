@@ -132,6 +132,7 @@ class AppEntry:
     # (e.g. "Program Files/App/app.exe").  For Linux: relative to the
     # installed app directory (e.g. "bin/mygame" or "MyGame.x86_64").
     entry_point: str = ""
+    launch_args: str = ""
     compatibility_notes: str = ""
     changelog: str = ""
     lock_runner: bool = False
@@ -178,6 +179,7 @@ class AppEntry:
             steam_appid=data.get("steam_appid"),
             platform=data.get("platform", "windows"),
             entry_point=data.get("entry_point", ""),
+            launch_args=data.get("launch_args", ""),
             compatibility_notes=data.get("compatibility_notes", ""),
             changelog=data.get("changelog", ""),
             lock_runner=bool(data.get("lock_runner", False)),
@@ -227,6 +229,7 @@ class AppEntry:
             d["steam_appid"] = self.steam_appid
         d["platform"] = self.platform
         _opt_str(d, "entry_point", self.entry_point)
+        _opt_str(d, "launch_args", self.launch_args)
         _opt_str(d, "compatibility_notes", self.compatibility_notes)
         _opt_str(d, "changelog", self.changelog)
         if self.lock_runner:

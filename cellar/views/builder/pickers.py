@@ -64,6 +64,10 @@ class AddLaunchTargetDialog(Adw.Dialog):
         self._exe_row.set_activatable_widget(browse_btn)
         group.add(self._exe_row)
 
+        self._args_row = Adw.EntryRow(title="Arguments (optional)")
+        self._args_row.set_tooltip_text('E.g. "-windowedmode -nosplash"')
+        group.add(self._args_row)
+
         page.add(group)
         toolbar.set_content(page)
         self.set_child(toolbar)
@@ -127,7 +131,11 @@ class AddLaunchTargetDialog(Adw.Dialog):
         if not name or not self._chosen_path:
             return
         self.close()
-        self._on_added({"name": name, "path": self._chosen_path})
+        ep: dict = {"name": name, "path": self._chosen_path}
+        args = self._args_row.get_text().strip()
+        if args:
+            ep["args"] = args
+        self._on_added(ep)
 
 
 class RunnerPickerDialog(Adw.Dialog):

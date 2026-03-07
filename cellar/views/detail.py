@@ -331,6 +331,7 @@ class DetailView(Gtk.Box):
             entry_point=self._entry.entry_point or "",
             runner_name=runner_name,
             steam_appid=self._entry.steam_appid,
+            launch_args=self._entry.launch_args,
         )
 
     def _launch_linux_app(self) -> None:
@@ -340,7 +341,11 @@ class DetailView(Gtk.Box):
             return
         from cellar.backend.umu import native_dir
         exe = native_dir() / self._entry.id / self._entry.entry_point
-        _sp.Popen([str(exe)], start_new_session=True)
+        import shlex as _shlex
+        cmd = [str(exe)]
+        if self._entry.launch_args:
+            cmd += _shlex.split(self._entry.launch_args)
+        _sp.Popen(cmd, start_new_session=True)
 
     def _on_remove_clicked(self) -> None:
         prefix_path = None

@@ -75,6 +75,11 @@ class Project:
         return self.entry_points[0]["path"] if self.entry_points else ""
 
     @property
+    def entry_args(self) -> str:
+        """Launch arguments for the primary entry point."""
+        return self.entry_points[0].get("args", "") if self.entry_points else ""
+
+    @property
     def project_dir(self) -> Path:
         from cellar.backend.umu import projects_dir
         return projects_dir() / self.slug

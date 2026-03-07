@@ -447,9 +447,12 @@ class PackageBuilderView(Gtk.Box):
             # Launch Targets (Windows app)
             targets_group = Adw.PreferencesGroup(title="Launch Targets")
             for _ep in project.entry_points:
+                _ep_subtitle = _ep.get("path", "")
+                if _ep.get("args"):
+                    _ep_subtitle += "  " + _ep["args"]
                 _ep_row = Adw.ActionRow(
                     title=_ep.get("name", ""),
-                    subtitle=_ep.get("path", ""),
+                    subtitle=_ep_subtitle,
                 )
                 _ep_row.set_subtitle_selectable(True)
                 _rm_btn = Gtk.Button(icon_name="edit-delete-symbolic")
@@ -497,9 +500,12 @@ class PackageBuilderView(Gtk.Box):
             # Launch Targets (Linux)
             targets_group = Adw.PreferencesGroup(title="Launch Targets")
             for _ep in project.entry_points:
+                _ep_subtitle = _ep.get("path", "")
+                if _ep.get("args"):
+                    _ep_subtitle += "  " + _ep["args"]
                 _ep_row = Adw.ActionRow(
                     title=_ep.get("name", ""),
-                    subtitle=_ep.get("path", ""),
+                    subtitle=_ep_subtitle,
                 )
                 _ep_row.set_subtitle_selectable(True)
                 _rm_btn = Gtk.Button(icon_name="edit-delete-symbolic")
@@ -1126,7 +1132,11 @@ class PackageBuilderView(Gtk.Box):
             if not exe.exists():
                 self._show_toast(f"Executable not found: {exe}")
                 return
-            subprocess.Popen([str(exe)], start_new_session=True)
+            import shlex
+            cmd = [str(exe)]
+            if project.entry_args:
+                cmd += shlex.split(project.entry_args)
+            subprocess.Popen(cmd, start_new_session=True)
             return
         if not project.runner:
             self._show_toast("Select a runner before test launching.")
@@ -1138,6 +1148,7 @@ class PackageBuilderView(Gtk.Box):
             runner_name=project.runner,
             steam_appid=project.steam_appid,
             prefix_dir=project.prefix_path,
+            launch_args=project.entry_args,
         )
 
     def _on_publish_app_clicked(self, _btn) -> None:
@@ -1191,6 +1202,7 @@ class PackageBuilderView(Gtk.Box):
             ),
             archive=f"apps/{_slug}/{_slug}.tar.zst",
             entry_point=project.entry_point,
+            launch_args=project.entry_args,
             update_strategy="safe",
             platform="linux" if project.project_type == "linux" else "windows",
             built_with=None if project.project_type == "linux" else BuiltWith(runner=project.runner),

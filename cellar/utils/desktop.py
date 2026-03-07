@@ -116,11 +116,14 @@ def create_desktop_entry(
 
     # Exec — branch on platform
     platform = getattr(entry, "platform", "windows")
+    launch_args = getattr(entry, "launch_args", "")
     if platform == "linux":
         if entry.entry_point:
             from cellar.backend.umu import native_dir
             exe = native_dir() / entry.id / entry.entry_point
             exec_line = f'"{exe}"'
+            if launch_args:
+                exec_line += f" {launch_args}"
         else:
             exec_line = "true"  # placeholder; entry point unknown
         comment = (entry.summary or f"Launch {entry.name}.").replace("\n", " ")
@@ -157,7 +160,8 @@ def create_desktop_entry(
         # Escape backslashes so GLib's shell parser (\\→\) preserves Windows paths.
         exe_escaped = exe_path.replace("\\", "\\\\")
         exe_arg = f' "{exe_escaped}"' if exe_escaped else ""
-        exec_line = f"{env_prefix} {umu_bin}{exe_arg}"
+        args_str = f" {launch_args}" if launch_args else ""
+        exec_line = f"{env_prefix} {umu_bin}{exe_arg}{args_str}"
         comment = (entry.summary or f"Launch {entry.name} via umu-launcher.").replace("\n", " ")
 
     # Categories

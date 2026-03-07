@@ -149,6 +149,7 @@ def launch_app(
     steam_appid: int | None,
     *,
     prefix_dir: Path | None = None,
+    launch_args: str = "",
 ) -> None:
     """Launch *entry_point* inside the *app_id* prefix.  Fire-and-forget.
 
@@ -160,10 +161,13 @@ def launch_app(
     non-standard location such as a Package Builder project prefix.
     """
     import os
+    import shlex
     umu_env = build_env(app_id, runner_name, steam_appid, prefix_dir=prefix_dir)
     env = {**os.environ, **umu_env}
     # Pass exe as positional arg — the primary documented umu-run form.
     cmd = _umu_cmd() + [entry_point]
+    if launch_args:
+        cmd += shlex.split(launch_args)
     log.info(
         "Launching app %s: %s\n  WINEPREFIX=%s\n  PROTONPATH=%s\n  GAMEID=%s\n  EXE=%s",
         app_id, " ".join(cmd[:-1]),

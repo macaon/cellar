@@ -63,22 +63,52 @@ class UpdateCancelled(Exception):
 
 # Tuple patterns matched against the *lowercased* parts of each file's path
 # relative to the bottle root.  ``None`` matches any single component.
+#
+# User-data paths — never overwritten or deleted during an overlay update.
 _EXCLUDE_PREFIXES: list[tuple] = [
     ("drive_c", "users", None, "appdata", "roaming"),
     ("drive_c", "users", None, "appdata", "local"),
     ("drive_c", "users", None, "appdata", "locallow"),
     ("drive_c", "users", None, "documents"),
+    # Wine/Proton system paths — created on first launch, never in packages.
+    # Excluded from --delete so Wine doesn't need to recreate them after update.
+    ("drive_c", "windows"),
+    ("drive_c", "program files", "common files"),
+    ("drive_c", "program files", "internet explorer"),
+    ("drive_c", "program files", "windows media player"),
+    ("drive_c", "program files", "windows nt"),
+    ("drive_c", "program files (x86)", "common files"),
+    ("drive_c", "program files (x86)", "internet explorer"),
+    ("drive_c", "program files (x86)", "windows media player"),
+    ("drive_c", "program files (x86)", "windows nt"),
+    ("drive_c", "openxr"),
+    ("drive_c", "vrclient"),
+    ("drive_c", "programdata"),
 ]
 _EXCLUDE_NAMES: frozenset[str] = frozenset({"user.reg", "userdef.reg"})
 
 # rsync --exclude patterns (equivalent to the Python rules above).
 _RSYNC_EXCLUDES: list[str] = [
+    # User data
     "drive_c/users/*/AppData/Roaming/",
     "drive_c/users/*/AppData/Local/",
     "drive_c/users/*/AppData/LocalLow/",
     "drive_c/users/*/Documents/",
     "user.reg",
     "userdef.reg",
+    # Wine/Proton system paths
+    "drive_c/windows/",
+    "drive_c/Program Files/Common Files/",
+    "drive_c/Program Files/Internet Explorer/",
+    "drive_c/Program Files/Windows Media Player/",
+    "drive_c/Program Files/Windows NT/",
+    "drive_c/Program Files (x86)/Common Files/",
+    "drive_c/Program Files (x86)/Internet Explorer/",
+    "drive_c/Program Files (x86)/Windows Media Player/",
+    "drive_c/Program Files (x86)/Windows NT/",
+    "drive_c/openxr/",
+    "drive_c/vrclient/",
+    "drive_c/ProgramData/",
 ]
 
 
@@ -223,6 +253,11 @@ def update_app_safe(
 
     _check_cancel(cancel_event)
 
+    # ── Phase 0: Scan manifest and stash user files ────────────────────────
+    from cellar.backend.manifest import scan_user_files, write_manifest  # noqa: PLC0415
+    modified_files, user_files = scan_user_files(prefix_path)
+    has_manifest = bool(modified_files is not None)  # scan returned (possibly empty) lists
+
     # ── Phase 1: Backup ────────────────────────────────────────────────────
     if has_backup:
         backup_bottle(
@@ -236,6 +271,14 @@ def update_app_safe(
 
     with tempfile.TemporaryDirectory(prefix="cellar-update-") as tmp_str:
         tmp = Path(tmp_str)
+
+        # Stash user files into the temp dir before overlay touches them.
+        stash_dir = tmp / "stash"
+        files_to_stash = modified_files + user_files
+        if files_to_stash:
+            if phase_cb:
+                phase_cb("Preserving user data\u2026")
+            _stash_files(files_to_stash, prefix_path, stash_dir)
 
         # ── Phases 2-4: Stream, verify CRC32, extract (single pass) ──────────
         if phase_cb:
@@ -303,6 +346,15 @@ def update_app_safe(
                     rel = line.strip()
                     if rel and not _is_excluded(Path(rel)):
                         (prefix_path / rel).unlink(missing_ok=True)
+
+        # ── Phase 7: Restore stashed user files ────────────────────────────
+        if stash_dir.exists():
+            if phase_cb:
+                phase_cb("Restoring user data\u2026")
+            _restore_stash(stash_dir, prefix_path)
+
+        # ── Phase 8: Rewrite manifest with new package baseline ────────────
+        write_manifest(prefix_path)
 
     if phase_cb:
         phase_cb("Done")
@@ -442,6 +494,36 @@ def _is_excluded(rel: Path) -> bool:
         if all(e is None or e == parts[i] for i, e in enumerate(pattern)):
             return True
     return False
+
+
+# ---------------------------------------------------------------------------
+# Stash / restore helpers
+# ---------------------------------------------------------------------------
+
+def _stash_files(files: list[Path], prefix_path: Path, stash_dir: Path) -> None:
+    """Copy *files* into *stash_dir*, preserving their paths relative to *prefix_path*."""
+    for src in files:
+        try:
+            rel = src.relative_to(prefix_path)
+            dst = stash_dir / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+        except OSError as exc:
+            log.warning("Could not stash %s: %s", src, exc)
+
+
+def _restore_stash(stash_dir: Path, prefix_path: Path) -> None:
+    """Copy all files from *stash_dir* back into *prefix_path*, overwriting."""
+    for src in stash_dir.rglob("*"):
+        if not src.is_file():
+            continue
+        try:
+            rel = src.relative_to(stash_dir)
+            dst = prefix_path / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+        except OSError as exc:
+            log.warning("Could not restore stashed file %s: %s", src, exc)
 
 
 # ---------------------------------------------------------------------------

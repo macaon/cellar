@@ -448,6 +448,9 @@ def install_app(
         if phase_cb:
             phase_cb("Done")
 
+        from cellar.backend.manifest import write_manifest  # noqa: PLC0415
+        write_manifest(bottle_dest)
+
     if install_cb:
         install_cb(1.0)
     return entry.id

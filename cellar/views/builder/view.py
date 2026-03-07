@@ -1220,9 +1220,22 @@ class PackageBuilderView(Gtk.Box):
         progress = ProgressDialog(label="Compressing…")
         progress.present(self)
 
+        from cellar.utils.progress import fmt_size, trunc_middle as _trunc
+        _current_file: list[str] = [""]
+
+        def _file_cb(name: str) -> None:
+            _current_file[0] = name
+            GLib.idle_add(progress.set_stats, _trunc(name, 40))
+
+        def _bytes_cb(n: int) -> None:
+            name = _current_file[0]
+            text = (_trunc(name, 28) + " \u2022 " if name else "") + fmt_size(n) + " written"
+            GLib.idle_add(progress.set_stats, text)
+
         cancel_event = threading.Event()
 
         def _reset_phase(label: str) -> None:
+            _current_file[0] = ""
             GLib.idle_add(progress.set_label, label)
             GLib.idle_add(progress.set_stats, "")
             GLib.idle_add(progress.set_fraction, 0.0)
@@ -1231,7 +1244,6 @@ class PackageBuilderView(Gtk.Box):
             from cellar.backend.packager import (
                 compress_prefix_zst, compress_prefix_delta_zst, import_to_repo,
             )
-            from cellar.utils.progress import fmt_compress_stats
             repo_root = repo.writable_path()
             archive_dest = repo_root / entry.archive
             archive_dest.parent.mkdir(parents=True, exist_ok=True)
@@ -1242,9 +1254,8 @@ class PackageBuilderView(Gtk.Box):
                     archive_dest,
                     cancel_event=cancel_event,
                     progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                    stats_cb=lambda done, total, speed: GLib.idle_add(
-                        progress.set_stats, fmt_compress_stats(done, total, speed)
-                    ),
+                    file_cb=_file_cb,
+                    bytes_cb=_bytes_cb,
                 )
                 base_runner = ""
             else:
@@ -1259,9 +1270,8 @@ class PackageBuilderView(Gtk.Box):
                         cancel_event=cancel_event,
                         phase_cb=_reset_phase,
                         progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                        stats_cb=lambda done, total, speed: GLib.idle_add(
-                            progress.set_stats, fmt_compress_stats(done, total, speed)
-                        ),
+                        file_cb=_file_cb,
+                        bytes_cb=_bytes_cb,
                     )
                     base_runner = project.runner
                 else:
@@ -1270,9 +1280,8 @@ class PackageBuilderView(Gtk.Box):
                         archive_dest,
                         cancel_event=cancel_event,
                         progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                        stats_cb=lambda done, total, speed: GLib.idle_add(
-                            progress.set_stats, fmt_compress_stats(done, total, speed)
-                        ),
+                        file_cb=_file_cb,
+                        bytes_cb=_bytes_cb,
                     )
                     base_runner = ""
 
@@ -1353,9 +1362,22 @@ class PackageBuilderView(Gtk.Box):
         progress = ProgressDialog(label="Compressing…")
         progress.present(self)
 
+        from cellar.utils.progress import fmt_size, trunc_middle as _trunc
+        _current_file: list[str] = [""]
+
+        def _file_cb(name: str) -> None:
+            _current_file[0] = name
+            GLib.idle_add(progress.set_stats, _trunc(name, 40))
+
+        def _bytes_cb(n: int) -> None:
+            name = _current_file[0]
+            text = (_trunc(name, 28) + " \u2022 " if name else "") + fmt_size(n) + " written"
+            GLib.idle_add(progress.set_stats, text)
+
         cancel_event = threading.Event()
 
         def _reset_phase(label: str) -> None:
+            _current_file[0] = ""
             GLib.idle_add(progress.set_label, label)
             GLib.idle_add(progress.set_stats, "")
             GLib.idle_add(progress.set_fraction, 0.0)
@@ -1364,7 +1386,6 @@ class PackageBuilderView(Gtk.Box):
             from cellar.backend.packager import (
                 compress_prefix_zst, compress_prefix_delta_zst, update_in_repo,
             )
-            from cellar.utils.progress import fmt_compress_stats
             repo_root = repo.writable_path()
             archive_dest = repo_root / old_entry.archive
             archive_dest.parent.mkdir(parents=True, exist_ok=True)
@@ -1375,9 +1396,8 @@ class PackageBuilderView(Gtk.Box):
                     archive_dest,
                     cancel_event=cancel_event,
                     progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                    stats_cb=lambda done, total, speed: GLib.idle_add(
-                        progress.set_stats, fmt_compress_stats(done, total, speed)
-                    ),
+                    file_cb=_file_cb,
+                    bytes_cb=_bytes_cb,
                 )
                 base_runner = ""
             else:
@@ -1392,9 +1412,8 @@ class PackageBuilderView(Gtk.Box):
                         cancel_event=cancel_event,
                         phase_cb=_reset_phase,
                         progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                        stats_cb=lambda done, total, speed: GLib.idle_add(
-                            progress.set_stats, fmt_compress_stats(done, total, speed)
-                        ),
+                        file_cb=_file_cb,
+                        bytes_cb=_bytes_cb,
                     )
                     base_runner = project.runner
                 else:
@@ -1403,9 +1422,8 @@ class PackageBuilderView(Gtk.Box):
                         archive_dest,
                         cancel_event=cancel_event,
                         progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                        stats_cb=lambda done, total, speed: GLib.idle_add(
-                            progress.set_stats, fmt_compress_stats(done, total, speed)
-                        ),
+                        file_cb=_file_cb,
+                        bytes_cb=_bytes_cb,
                     )
                     base_runner = old_entry.base_runner  # preserve existing delta setting
 
@@ -1460,6 +1478,18 @@ class PackageBuilderView(Gtk.Box):
         progress = ProgressDialog(label="Compressing and uploading…")
         progress.present(self)
 
+        from cellar.utils.progress import fmt_size, trunc_middle as _trunc
+        _current_file: list[str] = [""]
+
+        def _file_cb(name: str) -> None:
+            _current_file[0] = name
+            GLib.idle_add(progress.set_stats, _trunc(name, 40))
+
+        def _bytes_cb(n: int) -> None:
+            name = _current_file[0]
+            text = (_trunc(name, 28) + " \u2022 " if name else "") + fmt_size(n) + " written"
+            GLib.idle_add(progress.set_stats, text)
+
         def _work():
             from cellar.backend.packager import compress_prefix_zst, upsert_base
             from cellar.backend.base_store import install_base_from_dir
@@ -1474,6 +1504,8 @@ class PackageBuilderView(Gtk.Box):
                 project.prefix_path,
                 archive_dest,
                 progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+                file_cb=_file_cb,
+                bytes_cb=_bytes_cb,
             )
 
             GLib.idle_add(progress.set_label, "Finalizing…")

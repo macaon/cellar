@@ -93,17 +93,32 @@ CATEGORY_ICON_OPTIONS: list[str] = [
 # ---------------------------------------------------------------------------
 
 class _CRCWriter:
-    """Wraps a writable file object and accumulates CRC32 of all written bytes."""
+    """Wraps a writable file object and accumulates CRC32 of all written bytes.
 
-    __slots__ = ("_fp", "crc")
+    If *bytes_cb* is provided it is called with the running total of bytes
+    written, throttled to at most once every 0.5 s, so callers can show
+    growing output-file size without hammering the UI thread.
+    """
 
-    def __init__(self, fp):
+    __slots__ = ("_fp", "crc", "_bytes_cb", "_total_written", "_last_cb")
+
+    def __init__(self, fp, bytes_cb=None):
         self._fp = fp
         self.crc = 0
+        self._bytes_cb = bytes_cb
+        self._total_written = 0
+        self._last_cb = 0.0
 
     def write(self, data: bytes) -> int:
         self.crc = zlib.crc32(data, self.crc)
-        return self._fp.write(data)
+        n = self._fp.write(data)
+        if self._bytes_cb:
+            self._total_written += len(data)
+            now = time.monotonic()
+            if now - self._last_cb >= 0.5:
+                self._last_cb = now
+                self._bytes_cb(self._total_written)
+        return n
 
 
 def compress_prefix_zst(
@@ -113,6 +128,8 @@ def compress_prefix_zst(
     cancel_event=None,
     progress_cb: Callable[[float], None] | None = None,
     stats_cb: Callable[[int, int, float], None] | None = None,
+    file_cb: Callable[[str], None] | None = None,
+    bytes_cb: Callable[[int], None] | None = None,
 ) -> tuple[int, str]:
     """Archive *prefix_path* as a Cellar-native ``prefix/``-rooted ``.tar.zst``.
 
@@ -152,6 +169,8 @@ def compress_prefix_zst(
         if ti.isfile():
             done[0] += 1
             done_bytes[0] += ti.size
+            if file_cb:
+                file_cb(ti.name.split("/")[-1])
             if progress_cb and total_files:
                 progress_cb(done[0] / total_files)
             if stats_cb:
@@ -163,7 +182,7 @@ def compress_prefix_zst(
     cctx = zstd.ZstdCompressor(level=3)
     try:
         with dest_path.open("wb") as out_f:
-            crc_writer = _CRCWriter(out_f)
+            crc_writer = _CRCWriter(out_f, bytes_cb=bytes_cb)
             with cctx.stream_writer(crc_writer, closefd=False) as compressor:
                 with tarfile.open(fileobj=compressor, mode="w|") as tf:
                     tf.add(str(prefix_path), arcname="prefix", recursive=True, filter=_filter)
@@ -187,6 +206,8 @@ def compress_prefix_delta_zst(
     phase_cb: Callable[[str], None] | None = None,
     progress_cb: Callable[[float], None] | None = None,
     stats_cb: Callable[[int, int, float], None] | None = None,
+    file_cb: Callable[[str], None] | None = None,
+    bytes_cb: Callable[[int], None] | None = None,
 ) -> tuple[int, str]:
     """Create a delta ``.tar.zst`` from *prefix_path* relative to *base_dir*.
 
@@ -248,6 +269,8 @@ def compress_prefix_delta_zst(
 
     for i, (src, rel) in enumerate(all_src, 1):
         _chk()
+        if file_cb:
+            file_cb(src.name)
         base_file = base_dir / rel
         if base_file.is_file():
             try:
@@ -284,11 +307,13 @@ def compress_prefix_delta_zst(
     cctx = zstd.ZstdCompressor(level=3)
     try:
         with dest_path.open("wb") as out_f:
-            crc_writer = _CRCWriter(out_f)
+            crc_writer = _CRCWriter(out_f, bytes_cb=bytes_cb)
             with cctx.stream_writer(crc_writer, closefd=False) as compressor:
                 with tarfile.open(fileobj=compressor, mode="w|") as tf:
                     for src, rel in sorted(delta_files, key=lambda t: t[1]):
                         _chk()
+                        if file_cb:
+                            file_cb(src.name)
                         tf.add(str(src), arcname=f"prefix/{rel}", recursive=False)
                         done[0] += 1
                         done_bytes[0] += src.stat().st_size

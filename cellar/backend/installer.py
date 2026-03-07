@@ -250,15 +250,34 @@ def _stream_and_extract(
     progress_cb: Callable[[float], None] | None,
     stats_cb: Callable[[int, int, float], None] | None,
     name_cb: Callable[[str], None] | None,
+    *,
+    strip_top_dir: bool = False,
 ) -> None:
     """Stream *chunks* through CRC32 → decompressor → tarfile in a single pass.
 
     *expected_crc32* can be ``""`` to skip the checksum comparison.
+    When *strip_top_dir* is ``True`` the single top-level directory present in
+    the archive is stripped so members land directly inside *dest* (e.g.
+    ``prefix/drive_c/…`` becomes ``drive_c/…``).
     Raises ``InstallError`` on extraction failure or checksum mismatch.
     Raises ``InstallCancelled`` if *cancel_event* is set mid-stream.
     """
     use_filter = sys.version_info >= (3, 12)
     pipe = _PipedSource(chunks, total_bytes, progress_cb, stats_cb, cancel_event)
+
+    def _extract_member(tf: tarfile.TarFile, member: tarfile.TarInfo) -> None:
+        if strip_top_dir:
+            parts = Path(member.name).parts
+            if len(parts) <= 1:
+                return  # skip the top-level directory entry itself
+            member.name = str(Path(*parts[1:]))
+        if name_cb:
+            name_cb(Path(member.name).name or member.name)
+        if use_filter:
+            tf.extract(member, dest, filter="tar")
+        else:
+            tf.extract(member, dest)  # noqa: S202
+
     try:
         if is_zst:
             try:
@@ -273,23 +292,13 @@ def _stream_and_extract(
                     for member in tf:
                         if cancel_event and cancel_event.is_set():
                             raise InstallCancelled("Cancelled during extraction")
-                        if name_cb:
-                            name_cb(Path(member.name).name or member.name)
-                        if use_filter:
-                            tf.extract(member, dest, filter="tar")
-                        else:
-                            tf.extract(member, dest)  # noqa: S202
+                        _extract_member(tf, member)
         else:
             with tarfile.open(fileobj=pipe, mode="r:gz") as tf:
                 for member in tf:
                     if cancel_event and cancel_event.is_set():
                         raise InstallCancelled("Cancelled during extraction")
-                    if name_cb:
-                        name_cb(Path(member.name).name or member.name)
-                    if use_filter:
-                        tf.extract(member, dest, filter="tar")
-                    else:
-                        tf.extract(member, dest)  # noqa: S202
+                    _extract_member(tf, member)
     except InstallCancelled:
         raise
     except tarfile.TarError as exc:
@@ -354,67 +363,63 @@ def install_app(
     """
     _check_cancel(cancel_event)
 
-    with tempfile.TemporaryDirectory(prefix="cellar-install-") as tmp_str:
-        tmp = Path(tmp_str)
+    from cellar.backend.umu import prefixes_dir  # noqa: PLC0415
+    from cellar.backend.config import install_data_dir  # noqa: PLC0415
+    bottle_dest = prefixes_dir() / entry.id
 
-        # ── Step 0 (delta only): Ensure base image is installed ────────
-        if entry.base_runner:
-            _ensure_base_installed(
-                entry.base_runner,
-                base_entry=base_entry,
-                base_archive_uri=base_archive_uri,
-                tmp=tmp,
-                phase_cb=phase_cb,
-                download_cb=download_cb,
-                download_stats_cb=download_stats_cb,
-                install_cb=install_cb,
-                cancel_event=cancel_event,
-                token=token,
-                ssl_verify=ssl_verify,
-                ca_cert=ca_cert,
-            )
-
-        # ── Steps 1-3: Stream, verify CRC32, extract (single pass) ───────
-        if phase_cb:
-            phase_cb("Downloading & extracting\u2026")
-        if download_cb:
-            download_cb(0.0)
-        if install_cb:
-            install_cb(0.0)
-        _check_cancel(cancel_event)
-        extract_dir = tmp / "extracted"
-        extract_dir.mkdir()
-        chunks, total = _build_source(
-            archive_uri,
-            expected_size=entry.archive_size,
+    # ── Step 0 (delta only): Ensure base image is installed ────────────
+    if entry.base_runner:
+        _ensure_base_installed(
+            entry.base_runner,
+            base_entry=base_entry,
+            base_archive_uri=base_archive_uri,
+            phase_cb=phase_cb,
+            download_cb=download_cb,
+            download_stats_cb=download_stats_cb,
+            install_cb=install_cb,
+            cancel_event=cancel_event,
             token=token,
             ssl_verify=ssl_verify,
             ca_cert=ca_cert,
         )
-        _stream_and_extract(
-            chunks, total,
-            is_zst=archive_uri.endswith(".tar.zst"),
-            dest=extract_dir,
-            expected_crc32=entry.archive_crc32,
-            cancel_event=cancel_event,
-            progress_cb=download_cb,
-            stats_cb=download_stats_cb,
-            name_cb=extract_name_cb,
-        )
 
-        # ── Step 4: Identify prefix source directory ───────────────────
-        bottle_src = _find_bottle_dir(extract_dir)
+    # ── Steps 1-3: Stream, verify CRC32, extract (single pass) ─────────
+    if phase_cb:
+        phase_cb("Downloading & extracting\u2026")
+    if download_cb:
+        download_cb(0.0)
+    if install_cb:
+        install_cb(0.0)
+    _check_cancel(cancel_event)
 
-        # ── Step 5: Install destination ────────────────────────────────
-        # Each app gets its own prefix directory keyed by app ID.
-        # No collision handling needed — app IDs are unique in the catalogue.
-        from cellar.backend.umu import prefixes_dir  # noqa: PLC0415
-        bottle_dest = prefixes_dir() / entry.id
+    chunks, total = _build_source(
+        archive_uri,
+        expected_size=entry.archive_size,
+        token=token,
+        ssl_verify=ssl_verify,
+        ca_cert=ca_cert,
+    )
 
-        # ── Step 6: Populate prefix directory ─────────────────────────
-        _check_cancel(cancel_event)
-        if entry.base_runner:
-            # Delta path: seed from base with hardlinks, then overlay delta.
+    if entry.base_runner:
+        # Delta path: extract to a temp dir on the same filesystem, then
+        # seed from base + overlay.  The delta is small so temp space is fine.
+        with tempfile.TemporaryDirectory(
+            prefix="cellar-delta-", dir=install_data_dir()
+        ) as tmp_str:
+            delta_dir = Path(tmp_str) / "delta"
+            delta_dir.mkdir()
+            _stream_and_extract(
+                chunks, total,
+                is_zst=archive_uri.endswith(".tar.zst"),
+                dest=delta_dir,
+                expected_crc32=entry.archive_crc32,
+                cancel_event=cancel_event,
+                progress_cb=download_cb,
+                stats_cb=download_stats_cb,
+                name_cb=extract_name_cb,
+            )
+            delta_src = _find_bottle_dir(delta_dir)
+
             from cellar.backend.base_store import base_path  # noqa: PLC0415
             if phase_cb:
                 phase_cb("Applying delta\u2026")
@@ -422,34 +427,38 @@ def install_app(
                 bottle_dest.mkdir(parents=True, exist_ok=True)
                 _seed_from_base(base_path(entry.base_runner), bottle_dest,
                                 cancel_event=cancel_event)
-                _overlay_delta(bottle_src, bottle_dest,
-                               cancel_event=cancel_event)
+                _overlay_delta(delta_src, bottle_dest, cancel_event=cancel_event)
             except Exception:
                 shutil.rmtree(bottle_dest, ignore_errors=True)
                 raise
-        else:
-            # Full archive path: cancellable file-by-file copy.
-            if phase_cb:
-                phase_cb("Installing\u2026")
-            try:
-                for src in bottle_src.rglob("*"):
-                    _check_cancel(cancel_event)
-                    rel = src.relative_to(bottle_src)
-                    dst = bottle_dest / rel
-                    if src.is_dir():
-                        dst.mkdir(parents=True, exist_ok=True)
-                    elif src.is_file():
-                        dst.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(src, dst)
-            except Exception:
-                shutil.rmtree(bottle_dest, ignore_errors=True)
-                raise
-
+    else:
+        # Full archive path: stream directly into the final prefix directory.
+        # strip_top_dir removes the single top-level "prefix/" component so
+        # drive_c/, dosdevices/, etc. land directly under bottle_dest.
         if phase_cb:
-            phase_cb("Done")
+            phase_cb("Installing\u2026")
+        bottle_dest.mkdir(parents=True, exist_ok=True)
+        try:
+            _stream_and_extract(
+                chunks, total,
+                is_zst=archive_uri.endswith(".tar.zst"),
+                dest=bottle_dest,
+                expected_crc32=entry.archive_crc32,
+                cancel_event=cancel_event,
+                progress_cb=download_cb,
+                stats_cb=download_stats_cb,
+                name_cb=extract_name_cb,
+                strip_top_dir=True,
+            )
+        except Exception:
+            shutil.rmtree(bottle_dest, ignore_errors=True)
+            raise
 
-        from cellar.backend.manifest import write_manifest  # noqa: PLC0415
-        write_manifest(bottle_dest)
+    if phase_cb:
+        phase_cb("Done")
+
+    from cellar.backend.manifest import write_manifest  # noqa: PLC0415
+    write_manifest(bottle_dest)
 
     if install_cb:
         install_cb(1.0)
@@ -486,81 +495,52 @@ def install_linux_app(
     from cellar.backend.umu import native_dir  # noqa: PLC0415
     _check_cancel(cancel_event)
 
-    with tempfile.TemporaryDirectory(prefix="cellar-linux-install-") as tmp_str:
-        tmp = Path(tmp_str)
+    install_dest = native_dir() / entry.id
 
-        # ── Steps 1-3: Stream, verify CRC32, extract (single pass) ───────
-        if phase_cb:
-            phase_cb("Downloading & extracting\u2026")
-        if download_cb:
-            download_cb(0.0)
-        if install_cb:
-            install_cb(0.0)
-        _check_cancel(cancel_event)
-        extract_dir = tmp / "extracted"
-        extract_dir.mkdir()
-        chunks, total = _build_source(
-            archive_uri,
-            expected_size=entry.archive_size,
-            token=token,
-            ssl_verify=ssl_verify,
-            ca_cert=ca_cert,
-        )
+    # ── Steps 1-3: Stream, verify CRC32, extract directly ──────────────
+    if phase_cb:
+        phase_cb("Downloading & extracting\u2026")
+    if download_cb:
+        download_cb(0.0)
+    if install_cb:
+        install_cb(0.0)
+    _check_cancel(cancel_event)
+
+    chunks, total = _build_source(
+        archive_uri,
+        expected_size=entry.archive_size,
+        token=token,
+        ssl_verify=ssl_verify,
+        ca_cert=ca_cert,
+    )
+
+    # Stream directly into the final install directory, stripping the single
+    # top-level directory from the archive.
+    install_dest.mkdir(parents=True, exist_ok=True)
+    try:
         _stream_and_extract(
             chunks, total,
             is_zst=archive_uri.endswith(".tar.zst"),
-            dest=extract_dir,
+            dest=install_dest,
             expected_crc32=entry.archive_crc32,
             cancel_event=cancel_event,
             progress_cb=download_cb,
             stats_cb=download_stats_cb,
             name_cb=extract_name_cb,
+            strip_top_dir=True,
         )
+    except Exception:
+        shutil.rmtree(install_dest, ignore_errors=True)
+        raise
 
-        # ── Step 4: Find app source directory ─────────────────────────
-        dirs = [d for d in extract_dir.iterdir() if d.is_dir()]
-        if len(dirs) == 1:
-            app_src = dirs[0]
-            dir_name = dirs[0].name
-        elif dirs:
-            # Multiple top-level dirs — use the entry id as the install name
-            app_src = extract_dir
-            dir_name = entry.id
-        else:
-            # No subdirectory — flat archive (files at root)
-            app_src = extract_dir
-            dir_name = entry.id
+    # ── Step 4: Ensure entry_point is executable ───────────────────────
+    if entry.entry_point:
+        ep = install_dest / entry.entry_point
+        if ep.is_file():
+            ep.chmod(ep.stat().st_mode | 0o111)
 
-        # ── Step 5: Fixed install destination ─────────────────────────
-        install_dest = native_dir() / entry.id
-
-        # ── Step 6: Copy to install path ──────────────────────────────
-        _check_cancel(cancel_event)
-        if phase_cb:
-            phase_cb("Installing\u2026")
-        install_dest.mkdir(parents=True, exist_ok=True)
-        try:
-            for src in app_src.rglob("*"):
-                _check_cancel(cancel_event)
-                rel = src.relative_to(app_src)
-                dst = install_dest / rel
-                if src.is_dir():
-                    dst.mkdir(parents=True, exist_ok=True)
-                elif src.is_file():
-                    dst.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(src, dst)
-        except Exception:
-            shutil.rmtree(install_dest, ignore_errors=True)
-            raise
-
-        # ── Step 7: Ensure entry_point is executable ───────────────────
-        if entry.entry_point:
-            ep = install_dest / entry.entry_point
-            if ep.is_file():
-                ep.chmod(ep.stat().st_mode | 0o111)
-
-        from cellar.backend.manifest import write_manifest  # noqa: PLC0415
-        write_manifest(install_dest)
+    from cellar.backend.manifest import write_manifest  # noqa: PLC0415
+    write_manifest(install_dest)
 
     if install_cb:
         install_cb(1.0)
@@ -740,7 +720,6 @@ def _ensure_base_installed(
     *,
     base_entry,
     base_archive_uri: str,
-    tmp: Path,
     phase_cb: Callable[[str], None] | None,
     download_cb: Callable[[float], None] | None,
     download_stats_cb: Callable[[int, int, float], None] | None,
@@ -752,12 +731,11 @@ def _ensure_base_installed(
 ) -> None:
     """Download, verify, and install the base image for *runner* if not already present.
 
-    Uses the same streaming pipeline as the main installer — chunks flow directly
-    through CRC32 verification and tarfile extraction without any GVFS/FUSE detour.
+    Streams directly into ``bases_dir()/runner/`` — no staging in /tmp.
+    CRC32 verification is performed inline during streaming.
     """
-    from cellar.backend.base_store import (  # noqa: PLC0415
-        BaseStoreError, install_base_from_dir, is_base_installed,
-    )
+    from cellar.backend.base_store import base_path, is_base_installed  # noqa: PLC0415
+    from cellar.backend import database  # noqa: PLC0415
 
     if is_base_installed(runner):
         return
@@ -776,46 +754,35 @@ def _ensure_base_installed(
     expected_size = base_entry.archive_size if base_entry else 0
     expected_crc32 = (base_entry.archive_crc32 if base_entry else "") or ""
 
-    extract_dir = tmp / "base-extracted"
-    extract_dir.mkdir()
-    chunks, total = _build_source(
-        base_archive_uri,
-        expected_size=expected_size,
-        token=token,
-        ssl_verify=ssl_verify,
-        ca_cert=ca_cert,
-    )
-    # CRC32 is checked inline by _stream_and_extract via _PipedSource.
-    _stream_and_extract(
-        chunks, total,
-        is_zst=base_archive_uri.endswith(".tar.zst"),
-        dest=extract_dir,
-        expected_crc32=expected_crc32,
-        cancel_event=cancel_event,
-        progress_cb=download_cb,
-        stats_cb=download_stats_cb,
-        name_cb=None,
-    )
+    dest = base_path(runner)
+    dest.mkdir(parents=True, exist_ok=True)
+    try:
+        chunks, total = _build_source(
+            base_archive_uri,
+            expected_size=expected_size,
+            token=token,
+            ssl_verify=ssl_verify,
+            ca_cert=ca_cert,
+        )
+        _stream_and_extract(
+            chunks, total,
+            is_zst=base_archive_uri.endswith(".tar.zst"),
+            dest=dest,
+            expected_crc32=expected_crc32,
+            cancel_event=cancel_event,
+            progress_cb=download_cb,
+            stats_cb=download_stats_cb,
+            name_cb=None,
+            strip_top_dir=True,
+        )
+    except Exception:
+        shutil.rmtree(dest, ignore_errors=True)
+        raise
+
+    database.mark_base_installed(runner, base_archive_uri)
+
     if download_cb:
         download_cb(1.0)
-
-    _check_cancel(cancel_event)
-    if phase_cb:
-        phase_cb(f"Installing base image ({runner})\u2026")
-    if install_cb:
-        install_cb(0.0)
-
-    try:
-        bottle_src = _find_bottle_dir(extract_dir)
-        install_base_from_dir(
-            bottle_src, runner,
-            progress_cb=install_cb,
-            repo_source=base_archive_uri,
-            cancel_event=cancel_event,
-        )
-    except BaseStoreError as exc:
-        raise InstallError(str(exc)) from exc
-
     if install_cb:
         install_cb(1.0)
 

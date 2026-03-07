@@ -256,7 +256,6 @@ def update_app_safe(
     # ── Phase 0: Scan manifest and stash user files ────────────────────────
     from cellar.backend.manifest import scan_user_files, write_manifest  # noqa: PLC0415
     modified_files, user_files = scan_user_files(prefix_path)
-    has_manifest = bool(modified_files is not None)  # scan returned (possibly empty) lists
 
     # ── Phase 1: Backup ────────────────────────────────────────────────────
     if has_backup:

@@ -22,7 +22,7 @@ class CellarApplication(Adw.Application):
     def __init__(self):
         super().__init__(
             application_id="io.github.cellar",
-            flags=Gio.ApplicationFlags.DEFAULT_FLAGS,
+            flags=Gio.ApplicationFlags.FLAGS_NONE,
         )
 
     def do_activate(self):

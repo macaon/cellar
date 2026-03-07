@@ -197,7 +197,8 @@ class RunnerPickerDialog(Adw.Dialog):
             row.set_subtitle(subtitle)
 
             if already:
-                icon = Gtk.Image.new_from_icon_name("emblem-ok-symbolic")
+                icon = Gtk.Image.new_from_icon_name("check-round-outline2-symbolic")
+                icon.add_css_class("success")
                 row.add_suffix(icon)
 
             self._list_box.append(row)
@@ -317,7 +318,8 @@ class BasePickerDialog(Adw.Dialog):
             row.set_subtitle(subtitle)
 
             if already:
-                icon = Gtk.Image.new_from_icon_name("emblem-ok-symbolic")
+                icon = Gtk.Image.new_from_icon_name("check-round-outline2-symbolic")
+                icon.add_css_class("success")
                 row.add_suffix(icon)
 
             self._list_box.append(row)

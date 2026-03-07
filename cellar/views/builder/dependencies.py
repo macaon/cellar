@@ -192,7 +192,7 @@ class DependencyPickerDialog(Adw.Dialog):
         # installed: check icon + remove button
         installed_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         installed_box.set_valign(Gtk.Align.CENTER)
-        check = Gtk.Image.new_from_icon_name("emblem-ok-symbolic")
+        check = Gtk.Image.new_from_icon_name("check-round-outline2-symbolic")
         check.add_css_class("success")
         remove_btn = Gtk.Button(icon_name="edit-delete-symbolic")
         remove_btn.set_valign(Gtk.Align.CENTER)

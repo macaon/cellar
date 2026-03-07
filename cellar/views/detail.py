@@ -19,6 +19,7 @@ from gi.repository import Adw, Gdk, GLib, Gio, Gtk, Pango
 from cellar.models.app_entry import AppEntry
 from cellar.utils.images import load_and_crop, load_and_fit, load_logo, to_texture
 from cellar.utils.paths import short_path as _short_path
+from cellar.utils.async_work import run_in_background
 from cellar.utils.progress import fmt_stats as _fmt_dl_stats, trunc_middle as _trunc_filename
 
 log = logging.getLogger(__name__)
@@ -543,12 +544,11 @@ class DetailView(Gtk.Box):
         if not bw or not bw.runner:
             return
 
-        def _run() -> None:
+        def _work():
             from cellar.backend import runners
-            runner_list = runners.installed_runners()
-            GLib.idle_add(self._on_runners_loaded, runner_list)
+            return runners.installed_runners()
 
-        threading.Thread(target=_run, daemon=True).start()
+        run_in_background(_work, on_done=self._on_runners_loaded)
 
     def _on_runners_loaded(self, runners: list[str]) -> None:
         self._installed_runners = runners
@@ -892,22 +892,21 @@ class DetailView(Gtk.Box):
         # Slow path: some images need fetching — resolve async and fill in later.
         wrapper.set_visible(False)
 
-        def _worker() -> None:
+        def _work():
             resolved = []
             for s in screenshots:
                 path = self._resolve(s)
                 if os.path.isfile(path):
                     resolved.append(path)
-            GLib.idle_add(_on_resolved, resolved)
+            return resolved
 
-        def _on_resolved(paths: list[str]) -> bool:
+        def _on_resolved(paths: list[str]) -> None:
             self._screenshot_paths = paths
             if paths:
                 self._populate_screenshots(wrapper, paths)
                 wrapper.set_visible(True)
-            return GLib.SOURCE_REMOVE
 
-        threading.Thread(target=_worker, daemon=True).start()
+        run_in_background(_work, on_done=_on_resolved)
         return wrapper
 
     def _populate_screenshots(self, wrapper: Gtk.Box, paths: list[str]) -> None:
@@ -1162,25 +1161,24 @@ class DetailView(Gtk.Box):
             return
         app_size = self._entry.archive_size
 
-        def _worker() -> None:
+        def _work():
             from cellar.backend.base_store import is_base_installed
             installed = is_base_installed(base_runner)
             base_entry, _ = self._find_base_entry(base_runner)
             base_sz = base_entry.archive_size if base_entry else 0
+            return installed, base_sz
 
-            def _apply() -> bool:
-                self._base_installed = installed
-                self._base_sz = base_sz
-                if not installed and base_sz:
-                    val_lbl.set_label(_fmt_bytes(app_size + base_sz))
-                for cb in self._base_resolve_cbs:
-                    cb(installed, base_sz)
-                self._base_resolve_cbs.clear()
-                return GLib.SOURCE_REMOVE
+        def _apply(result) -> None:
+            installed, base_sz = result
+            self._base_installed = installed
+            self._base_sz = base_sz
+            if not installed and base_sz:
+                val_lbl.set_label(_fmt_bytes(app_size + base_sz))
+            for cb in self._base_resolve_cbs:
+                cb(installed, base_sz)
+            self._base_resolve_cbs.clear()
 
-            GLib.idle_add(_apply)
-
-        threading.Thread(target=_worker, daemon=True).start()
+        run_in_background(_work, on_done=_apply)
 
     def _show_download_dialog(self) -> None:
         """Show a download size breakdown: header pill + per-component rows."""
@@ -1391,23 +1389,25 @@ class DetailView(Gtk.Box):
         icon_path = rel_path
         fallback_path = cover_fallback
 
-        def _worker() -> None:
+        def _work():
             if icon_path:
                 path = self._resolve(icon_path)
                 if os.path.isfile(path):
                     png_bytes = load_and_fit(path, size)
                     if png_bytes is not None:
-                        GLib.idle_add(_on_loaded, png_bytes, False)
-                        return
+                        return png_bytes, False
             if fallback_path:
                 cover = self._resolve(fallback_path)
                 if os.path.isfile(cover):
                     png_bytes = load_and_crop(cover, size, size)
                     if png_bytes is not None:
-                        GLib.idle_add(_on_loaded, png_bytes, True)
-                        return
+                        return png_bytes, True
+            return None
 
-        def _on_loaded(png_bytes: bytes, is_cover: bool) -> bool:
+        def _on_loaded(result) -> None:
+            if result is None:
+                return
+            png_bytes, is_cover = result
             texture = to_texture(png_bytes)
             if is_cover:
                 real: Gtk.Widget = Gtk.Picture.new_for_paintable(texture)
@@ -1419,9 +1419,8 @@ class DetailView(Gtk.Box):
                 real.set_pixel_size(size)
             stack.add_named(real, "real")
             stack.set_visible_child_name("real")
-            return GLib.SOURCE_REMOVE
 
-        threading.Thread(target=_worker, daemon=True).start()
+        run_in_background(_work, on_done=_on_loaded)
         return stack
 
     def _make_logo_widget(self, rel_path: str, target_height: int) -> Gtk.Widget:
@@ -1461,20 +1460,20 @@ class DetailView(Gtk.Box):
 
         logo_path = rel_path
 
-        def _worker() -> None:
+        def _work():
             path = self._resolve(logo_path)
             if os.path.isfile(path):
-                png_bytes = load_logo(path, target_height)
-                if png_bytes is not None:
-                    GLib.idle_add(_on_loaded, png_bytes)
+                return load_logo(path, target_height)
+            return None
 
-        def _on_loaded(png_bytes: bytes) -> bool:
+        def _on_loaded(png_bytes) -> None:
+            if png_bytes is None:
+                return
             pic = _build_picture(png_bytes)
             stack.add_named(pic, "real")
             stack.set_visible_child_name("real")
-            return GLib.SOURCE_REMOVE
 
-        threading.Thread(target=_worker, daemon=True).start()
+        run_in_background(_work, on_done=_on_loaded)
         return stack
 
 
@@ -1666,14 +1665,14 @@ class RunnerManagerDialog(Adw.Dialog):
         import shutil
         path = self._runners_dir / runner
 
-        def _do_delete() -> None:
-            try:
-                shutil.rmtree(path)
-            except Exception as exc:  # noqa: BLE001
-                log.error("Failed to delete runner %s: %s", runner, exc)
-            GLib.idle_add(self.close)
+        def _work():
+            shutil.rmtree(path)
 
-        threading.Thread(target=_do_delete, daemon=True).start()
+        def _on_err(msg: str) -> None:
+            log.error("Failed to delete runner %s: %s", runner, msg)
+            self.close()
+
+        run_in_background(_work, on_done=lambda _: self.close(), on_error=_on_err)
 
     def _on_download(self, _btn, runner: str) -> None:
         self.close()

@@ -150,7 +150,7 @@ class SettingsDialog(Adw.PreferencesDialog):
 
     def _migrate_and_reload(self, old_dir: Path, new_dir: Path) -> None:
         """Move install data from *old_dir* to *new_dir* then reload catalogue."""
-        import threading
+        from cellar.utils.async_work import run_in_background
 
         if old_dir == new_dir:
             if self._on_repos_changed:
@@ -174,16 +174,15 @@ class SettingsDialog(Adw.PreferencesDialog):
         )
         progress_dialog.present(self)
 
-        def _do() -> None:
-            _move_install_data(old_dir, new_dir)
-            GLib.idle_add(_finish)
-
-        def _finish() -> None:
+        def _finish(_result: object) -> None:
             progress_dialog.close()
             if self._on_repos_changed:
                 self._on_repos_changed()
 
-        threading.Thread(target=_do, daemon=True).start()
+        run_in_background(
+            work=lambda: _move_install_data(old_dir, new_dir),
+            on_done=_finish,
+        )
 
     # ------------------------------------------------------------------
     # umu-launcher

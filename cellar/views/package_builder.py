@@ -24,6 +24,8 @@ from dataclasses import replace as _dc_replace
 from pathlib import Path
 from typing import Callable
 
+from cellar.utils.async_work import run_in_background
+
 import gi
 
 gi.require_version("Gtk", "4.0")
@@ -905,22 +907,17 @@ class PackageBuilderView(Gtk.Box):
         progress = _ProgressDialog(label="Initializing prefix…")
         progress.present(self)
 
-        def _bg():
-            try:
-                from cellar.backend.umu import init_prefix
-                result = init_prefix(
-                    project.prefix_path,
-                    project.runner,
-                    steam_appid=project.steam_appid,
-                )
-                # umu-run "" initializes the prefix then tries to execute an
-                # empty string, which Wine rejects with exit code 1.  Use the
-                # presence of drive_c as the real success indicator.
-                ok = result.returncode == 0 or (project.prefix_path / "drive_c").is_dir()
-            except Exception as exc:
-                log.error("init_prefix failed: %s", exc)
-                ok = False
-            GLib.idle_add(_finish, ok)
+        def _work():
+            from cellar.backend.umu import init_prefix
+            result = init_prefix(
+                project.prefix_path,
+                project.runner,
+                steam_appid=project.steam_appid,
+            )
+            # umu-run "" initializes the prefix then tries to execute an
+            # empty string, which Wine rejects with exit code 1.  Use the
+            # presence of drive_c as the real success indicator.
+            return result.returncode == 0 or (project.prefix_path / "drive_c").is_dir()
 
         def _finish(ok: bool) -> None:
             progress.force_close()
@@ -928,7 +925,11 @@ class PackageBuilderView(Gtk.Box):
             if not ok:
                 self._show_toast("Prefix initialization failed. Check logs.")
 
-        threading.Thread(target=_bg, daemon=True).start()
+        def _on_err(msg: str) -> None:
+            log.error("init_prefix failed: %s", msg)
+            _finish(False)
+
+        run_in_background(_work, on_done=_finish, on_error=_on_err)
 
     def _on_init_done(self, project: Project, ok: bool) -> None:
         if ok:
@@ -1248,20 +1249,46 @@ class PackageBuilderView(Gtk.Box):
 
         cancel_event = threading.Event()
 
-        def _bg():
-            try:
-                from cellar.backend.packager import (
-                    compress_prefix_zst, compress_prefix_delta_zst, import_to_repo,
-                )
-                from cellar.utils.progress import fmt_compress_stats
-                repo_root = repo.writable_path()
-                archive_dest = repo_root / entry.archive
-                archive_dest.parent.mkdir(parents=True, exist_ok=True)
+        def _work():
+            from cellar.backend.packager import (
+                compress_prefix_zst, compress_prefix_delta_zst, import_to_repo,
+            )
+            from cellar.utils.progress import fmt_compress_stats
+            repo_root = repo.writable_path()
+            archive_dest = repo_root / entry.archive
+            archive_dest.parent.mkdir(parents=True, exist_ok=True)
 
-                if project.project_type == "linux":
-                    # Native Linux apps have no base image — always full compress.
-                    size, crc32 = compress_prefix_zst(
+            if project.project_type == "linux":
+                size, crc32 = compress_prefix_zst(
+                    _src_path,
+                    archive_dest,
+                    cancel_event=cancel_event,
+                    progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f * 0.9),
+                    stats_cb=lambda done, total, speed: GLib.idle_add(
+                        progress.set_stats, fmt_compress_stats(done, total, speed)
+                    ),
+                )
+                base_runner = ""
+            else:
+                from cellar.backend.base_store import is_base_installed, base_path
+                _use_delta = is_base_installed(project.runner)
+                if _use_delta:
+                    GLib.idle_add(progress.set_label, "Scanning files…")
+                    size, crc32 = compress_prefix_delta_zst(
                         _src_path,
+                        base_path(project.runner),
+                        archive_dest,
+                        cancel_event=cancel_event,
+                        phase_cb=lambda s: GLib.idle_add(progress.set_label, s),
+                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f * 0.9),
+                        stats_cb=lambda done, total, speed: GLib.idle_add(
+                            progress.set_stats, fmt_compress_stats(done, total, speed)
+                        ),
+                    )
+                    base_runner = project.runner
+                else:
+                    size, crc32 = compress_prefix_zst(
+                        project.prefix_path,
                         archive_dest,
                         cancel_event=cancel_event,
                         progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f * 0.9),
@@ -1270,58 +1297,26 @@ class PackageBuilderView(Gtk.Box):
                         ),
                     )
                     base_runner = ""
-                else:
-                    from cellar.backend.base_store import is_base_installed, base_path
-                    _use_delta = is_base_installed(project.runner)
-                    if _use_delta:
-                        GLib.idle_add(progress.set_label, "Scanning files…")
-                        size, crc32 = compress_prefix_delta_zst(
-                            _src_path,
-                            base_path(project.runner),
-                            archive_dest,
-                            cancel_event=cancel_event,
-                            phase_cb=lambda s: GLib.idle_add(progress.set_label, s),
-                            progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f * 0.9),
-                            stats_cb=lambda done, total, speed: GLib.idle_add(
-                                progress.set_stats, fmt_compress_stats(done, total, speed)
-                            ),
-                        )
-                        base_runner = project.runner
-                    else:
-                        size, crc32 = compress_prefix_zst(
-                            project.prefix_path,
-                            archive_dest,
-                            cancel_event=cancel_event,
-                            progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f * 0.9),
-                            stats_cb=lambda done, total, speed: GLib.idle_add(
-                                progress.set_stats, fmt_compress_stats(done, total, speed)
-                            ),
-                        )
-                        base_runner = ""
 
-                # Images + catalogue — switch to pulse so the bar doesn't sit at 90% frozen.
-                GLib.idle_add(progress.set_label, "Uploading images…")
-                GLib.idle_add(progress.set_stats, "")
-                GLib.idle_add(progress.start_pulse)
-                final_entry = _dc_replace(
-                    entry,
-                    archive_crc32=crc32,
-                    archive_size=size,
-                    base_runner=base_runner,
-                )
-                import_to_repo(
-                    repo_root,
-                    final_entry,
-                    "",
-                    images,
-                    archive_in_place=True,
-                    phase_cb=lambda s: GLib.idle_add(progress.set_label, s),
-                )
-                GLib.idle_add(_done)
-            except Exception as exc:
-                GLib.idle_add(_error, str(exc))
+            GLib.idle_add(progress.set_label, "Uploading images…")
+            GLib.idle_add(progress.set_stats, "")
+            GLib.idle_add(progress.start_pulse)
+            final_entry = _dc_replace(
+                entry,
+                archive_crc32=crc32,
+                archive_size=size,
+                base_runner=base_runner,
+            )
+            import_to_repo(
+                repo_root,
+                final_entry,
+                "",
+                images,
+                archive_in_place=True,
+                phase_cb=lambda s: GLib.idle_add(progress.set_label, s),
+            )
 
-        def _done() -> None:
+        def _done(_result) -> None:
             progress.force_close()
             delete_project(project.slug)
             self._project = None
@@ -1337,7 +1332,7 @@ class PackageBuilderView(Gtk.Box):
             err.add_response("ok", "OK")
             err.present(self)
 
-        threading.Thread(target=_bg, daemon=True).start()
+        run_in_background(_work, on_done=_done, on_error=_error)
 
     def _on_publish_update_clicked(self, _btn) -> None:
         """Re-publish: update an existing catalogue entry in-place."""
@@ -1382,19 +1377,46 @@ class PackageBuilderView(Gtk.Box):
 
         cancel_event = threading.Event()
 
-        def _bg():
-            try:
-                from cellar.backend.packager import (
-                    compress_prefix_zst, compress_prefix_delta_zst, update_in_repo,
-                )
-                from cellar.utils.progress import fmt_compress_stats
-                repo_root = repo.writable_path()
-                archive_dest = repo_root / old_entry.archive
-                archive_dest.parent.mkdir(parents=True, exist_ok=True)
+        def _work():
+            from cellar.backend.packager import (
+                compress_prefix_zst, compress_prefix_delta_zst, update_in_repo,
+            )
+            from cellar.utils.progress import fmt_compress_stats
+            repo_root = repo.writable_path()
+            archive_dest = repo_root / old_entry.archive
+            archive_dest.parent.mkdir(parents=True, exist_ok=True)
 
-                if project.project_type == "linux":
+            if project.project_type == "linux":
+                size, crc32 = compress_prefix_zst(
+                    _src_path,
+                    archive_dest,
+                    cancel_event=cancel_event,
+                    progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f * 0.9),
+                    stats_cb=lambda done, total, speed: GLib.idle_add(
+                        progress.set_stats, fmt_compress_stats(done, total, speed)
+                    ),
+                )
+                base_runner = ""
+            else:
+                from cellar.backend.base_store import is_base_installed, base_path
+                _use_delta = is_base_installed(project.runner)
+                if _use_delta:
+                    GLib.idle_add(progress.set_label, "Scanning files…")
+                    size, crc32 = compress_prefix_delta_zst(
+                        project.prefix_path,
+                        base_path(project.runner),
+                        archive_dest,
+                        cancel_event=cancel_event,
+                        phase_cb=lambda s: GLib.idle_add(progress.set_label, s),
+                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f * 0.9),
+                        stats_cb=lambda done, total, speed: GLib.idle_add(
+                            progress.set_stats, fmt_compress_stats(done, total, speed)
+                        ),
+                    )
+                    base_runner = project.runner
+                else:
                     size, crc32 = compress_prefix_zst(
-                        _src_path,
+                        project.prefix_path,
                         archive_dest,
                         cancel_event=cancel_event,
                         progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f * 0.9),
@@ -1402,59 +1424,27 @@ class PackageBuilderView(Gtk.Box):
                             progress.set_stats, fmt_compress_stats(done, total, speed)
                         ),
                     )
-                    base_runner = ""
-                else:
-                    from cellar.backend.base_store import is_base_installed, base_path
-                    _use_delta = is_base_installed(project.runner)
-                    if _use_delta:
-                        GLib.idle_add(progress.set_label, "Scanning files…")
-                        size, crc32 = compress_prefix_delta_zst(
-                            project.prefix_path,
-                            base_path(project.runner),
-                            archive_dest,
-                            cancel_event=cancel_event,
-                            phase_cb=lambda s: GLib.idle_add(progress.set_label, s),
-                            progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f * 0.9),
-                            stats_cb=lambda done, total, speed: GLib.idle_add(
-                                progress.set_stats, fmt_compress_stats(done, total, speed)
-                            ),
-                        )
-                        base_runner = project.runner
-                    else:
-                        size, crc32 = compress_prefix_zst(
-                            project.prefix_path,
-                            archive_dest,
-                            cancel_event=cancel_event,
-                            progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f * 0.9),
-                            stats_cb=lambda done, total, speed: GLib.idle_add(
-                                progress.set_stats, fmt_compress_stats(done, total, speed)
-                            ),
-                        )
-                        base_runner = old_entry.base_runner  # preserve existing delta setting
+                    base_runner = old_entry.base_runner  # preserve existing delta setting
 
-                # Update entry CRC + base_runner, then write catalogue.
-                GLib.idle_add(progress.set_label, "Writing catalogue…")
-                GLib.idle_add(progress.set_stats, "")
-                GLib.idle_add(progress.start_pulse)
-                new_entry = _dc_replace(
-                    old_entry,
-                    archive_crc32=crc32,
-                    archive_size=size,
-                    base_runner=base_runner,
-                )
-                update_in_repo(
-                    repo_root,
-                    old_entry,
-                    new_entry,
-                    images={},
-                    new_archive_src=None,
-                    phase_cb=lambda s: GLib.idle_add(progress.set_label, s),
-                )
-                GLib.idle_add(_done)
-            except Exception as exc:
-                GLib.idle_add(_error, str(exc))
+            GLib.idle_add(progress.set_label, "Writing catalogue…")
+            GLib.idle_add(progress.set_stats, "")
+            GLib.idle_add(progress.start_pulse)
+            new_entry = _dc_replace(
+                old_entry,
+                archive_crc32=crc32,
+                archive_size=size,
+                base_runner=base_runner,
+            )
+            update_in_repo(
+                repo_root,
+                old_entry,
+                new_entry,
+                images={},
+                new_archive_src=None,
+                phase_cb=lambda s: GLib.idle_add(progress.set_label, s),
+            )
 
-        def _done() -> None:
+        def _done(_result) -> None:
             progress.force_close()
             delete_project(project.slug)
             self._project = None
@@ -1470,7 +1460,7 @@ class PackageBuilderView(Gtk.Box):
             err.add_response("ok", "OK")
             err.present(self)
 
-        threading.Thread(target=_bg, daemon=True).start()
+        run_in_background(_work, on_done=_done, on_error=_error)
 
     def _on_publish_base_clicked(self, _btn) -> None:
         if self._project is None:
@@ -1487,44 +1477,34 @@ class PackageBuilderView(Gtk.Box):
         progress = _ProgressDialog(label="Compressing and uploading…")
         progress.present(self)
 
-        def _bg():
-            try:
-                from cellar.backend.packager import compress_prefix_zst, upsert_base
-                from cellar.backend.base_store import install_base_from_dir
+        def _work():
+            from cellar.backend.packager import compress_prefix_zst, upsert_base
+            from cellar.backend.base_store import install_base_from_dir
 
-                runner = project.runner
-                repo_root = repo.writable_path()
-                archive_dest_rel = f"bases/{runner}-base.tar.zst"
-                archive_dest = repo_root / archive_dest_rel
-                archive_dest.parent.mkdir(parents=True, exist_ok=True)
+            runner = project.runner
+            repo_root = repo.writable_path()
+            archive_dest_rel = f"bases/{runner}-base.tar.zst"
+            archive_dest = repo_root / archive_dest_rel
+            archive_dest.parent.mkdir(parents=True, exist_ok=True)
 
-                # Compress prefix and stream directly to the repo destination —
-                # one pass, no intermediate local copy, no shutil.copy2 metadata ops.
-                size, crc32 = compress_prefix_zst(
-                    project.prefix_path,
-                    archive_dest,
-                    progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                )
+            size, crc32 = compress_prefix_zst(
+                project.prefix_path,
+                archive_dest,
+                progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+            )
 
-                # Update catalogue.json
-                upsert_base(repo_root, runner, archive_dest_rel, crc32, size)
+            upsert_base(repo_root, runner, archive_dest_rel, crc32, size)
 
-                # Install base locally from the project prefix — no need to
-                # read back the archive we just uploaded.
-                GLib.idle_add(progress.set_label, "Installing base locally…")
-                GLib.idle_add(progress.set_fraction, 0.0)
-                install_base_from_dir(
-                    project.prefix_path,
-                    runner,
-                    repo_source=repo.uri,
-                    progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                )
+            GLib.idle_add(progress.set_label, "Installing base locally…")
+            GLib.idle_add(progress.set_fraction, 0.0)
+            install_base_from_dir(
+                project.prefix_path,
+                runner,
+                repo_source=repo.uri,
+                progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+            )
 
-                GLib.idle_add(_done)
-            except Exception as exc:
-                GLib.idle_add(_error, str(exc))
-
-        def _done() -> None:
+        def _done(_result) -> None:
             progress.force_close()
             delete_project(project.slug)
             self._project = None
@@ -1540,7 +1520,7 @@ class PackageBuilderView(Gtk.Box):
             err.add_response("ok", "OK")
             err.present(self)
 
-        threading.Thread(target=_bg, daemon=True).start()
+        run_in_background(_work, on_done=_done, on_error=_error)
 
     # ------------------------------------------------------------------
     # Helpers
@@ -1563,28 +1543,27 @@ class PackageBuilderView(Gtk.Box):
         progress = _ProgressDialog(label=label)
         progress.present(self)
 
-        def _bg():
-            try:
-                from cellar.backend.umu import run_in_prefix
-                result = run_in_prefix(
-                    project.prefix_path,
-                    project.runner,
-                    exe,
-                    timeout=600,
-                )
-                ok = result.returncode == 0
-            except Exception as exc:
-                log.error("run_in_prefix failed: %s", exc)
-                ok = False
-            GLib.idle_add(_finish, ok)
+        def _work():
+            from cellar.backend.umu import run_in_prefix
+            result = run_in_prefix(
+                project.prefix_path,
+                project.runner,
+                exe,
+                timeout=600,
+            )
+            return result.returncode == 0
 
         def _finish(ok: bool) -> None:
             progress.force_close()
             on_done(ok)
             if not ok:
-                self._show_toast(f"Command exited with non-zero status. Check logs.")
+                self._show_toast("Command exited with non-zero status. Check logs.")
 
-        threading.Thread(target=_bg, daemon=True).start()
+        def _on_err(msg: str) -> None:
+            log.error("run_in_prefix failed: %s", msg)
+            _finish(False)
+
+        run_in_background(_work, on_done=_finish, on_error=_on_err)
 
     def _show_toast(self, message: str) -> None:
         win = self.get_root()
@@ -2506,60 +2485,55 @@ class _BasePickerDialog(Adw.Dialog):
         progress = _ProgressDialog(label=f"Downloading {base_entry.runner}…")
         progress.present(parent_win)
 
-        def _bg():
+        def _work():
             import tempfile
-            try:
-                from cellar.backend.base_store import install_base
-                from cellar.backend.installer import (
-                    _build_source,  # noqa: PLC2701
-                )
+            from cellar.backend.base_store import install_base
+            from cellar.backend.installer import (
+                _build_source,  # noqa: PLC2701
+            )
 
-                archive_uri = repo.resolve_asset_uri(base_entry.archive)
-                chunks, total = _build_source(
-                    archive_uri,
-                    expected_size=base_entry.archive_size,
-                    token=repo.token,
-                    ssl_verify=repo.ssl_verify,
-                    ca_cert=repo.ca_cert,
-                )
+            archive_uri = repo.resolve_asset_uri(base_entry.archive)
+            chunks, total = _build_source(
+                archive_uri,
+                expected_size=base_entry.archive_size,
+                token=repo.token,
+                ssl_verify=repo.ssl_verify,
+                ca_cert=repo.ca_cert,
+            )
 
-                # Stream to a temp file, then install from that.
-                with tempfile.NamedTemporaryFile(
-                    prefix="cellar-base-", suffix=".tar.zst", delete=False,
-                ) as tmp:
-                    tmp_path = Path(tmp.name)
-                    received = 0
-                    for chunk in chunks:
-                        tmp.write(chunk)
-                        received += len(chunk)
-                        if total:
-                            GLib.idle_add(progress.set_fraction, received / total)
+            with tempfile.NamedTemporaryFile(
+                prefix="cellar-base-", suffix=".tar.zst", delete=False,
+            ) as tmp:
+                tmp_path = Path(tmp.name)
+                received = 0
+                for chunk in chunks:
+                    tmp.write(chunk)
+                    received += len(chunk)
+                    if total:
+                        GLib.idle_add(progress.set_fraction, received / total)
 
-                GLib.idle_add(progress.set_label, "Installing base…")
-                GLib.idle_add(progress.set_fraction, 0.0)
-                install_base(
-                    tmp_path,
-                    base_entry.runner,
-                    repo_source=repo.uri,
-                    progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                )
-                tmp_path.unlink(missing_ok=True)
-                GLib.idle_add(_done)
-            except Exception as exc:
-                log.error("Base install failed: %s", exc)
-                GLib.idle_add(_error, str(exc))
+            GLib.idle_add(progress.set_label, "Installing base…")
+            GLib.idle_add(progress.set_fraction, 0.0)
+            install_base(
+                tmp_path,
+                base_entry.runner,
+                repo_source=repo.uri,
+                progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+            )
+            tmp_path.unlink(missing_ok=True)
 
-        def _done() -> None:
+        def _done(_result) -> None:
             progress.force_close()
             self._on_installed(base_entry.runner)
 
         def _error(msg: str) -> None:
             progress.force_close()
+            log.error("Base install failed: %s", msg)
             err = Adw.AlertDialog(heading="Install failed", body=msg)
             err.add_response("ok", "OK")
             err.present(parent_win)
 
-        threading.Thread(target=_bg, daemon=True).start()
+        run_in_background(_work, on_done=_done, on_error=_error)
 
 
 class _ImportFromCatalogueDialog(Adw.Dialog):
@@ -2704,65 +2678,60 @@ class _ImportFromCatalogueDialog(Adw.Dialog):
         progress = _ProgressDialog(label=f"Downloading {base_entry.runner}…")
         progress.present(root)
 
-        def _bg():
+        def _work():
             import tempfile
             import time
-            try:
-                from cellar.backend.base_store import install_base
-                from cellar.backend.installer import _build_source  # noqa: PLC2701
-                from cellar.utils.progress import fmt_stats
+            from cellar.backend.base_store import install_base
+            from cellar.backend.installer import _build_source  # noqa: PLC2701
+            from cellar.utils.progress import fmt_stats
 
-                archive_uri = repo.resolve_asset_uri(base_entry.archive)
-                chunks, total = _build_source(
-                    archive_uri,
-                    expected_size=base_entry.archive_size,
-                    token=repo.token,
-                    ssl_verify=repo.ssl_verify,
-                    ca_cert=repo.ca_cert,
-                )
+            archive_uri = repo.resolve_asset_uri(base_entry.archive)
+            chunks, total = _build_source(
+                archive_uri,
+                expected_size=base_entry.archive_size,
+                token=repo.token,
+                ssl_verify=repo.ssl_verify,
+                ca_cert=repo.ca_cert,
+            )
 
-                with tempfile.NamedTemporaryFile(
-                    prefix="cellar-base-", suffix=".tar.zst", delete=False,
-                ) as tmp:
-                    tmp_path = Path(tmp.name)
-                    received = 0
-                    t0 = time.monotonic()
-                    for chunk in chunks:
-                        tmp.write(chunk)
-                        received += len(chunk)
-                        elapsed = time.monotonic() - t0
-                        speed = received / elapsed if elapsed > 0 else 0.0
-                        if total:
-                            GLib.idle_add(progress.set_fraction, received / total)
-                        GLib.idle_add(progress.set_stats, fmt_stats(received, total or 0, speed))
+            with tempfile.NamedTemporaryFile(
+                prefix="cellar-base-", suffix=".tar.zst", delete=False,
+            ) as tmp:
+                tmp_path = Path(tmp.name)
+                received = 0
+                t0 = time.monotonic()
+                for chunk in chunks:
+                    tmp.write(chunk)
+                    received += len(chunk)
+                    elapsed = time.monotonic() - t0
+                    speed = received / elapsed if elapsed > 0 else 0.0
+                    if total:
+                        GLib.idle_add(progress.set_fraction, received / total)
+                    GLib.idle_add(progress.set_stats, fmt_stats(received, total or 0, speed))
 
-                GLib.idle_add(progress.set_stats, "")
-                GLib.idle_add(progress.set_label, "Installing base…")
-                GLib.idle_add(progress.set_fraction, 0.0)
-                install_base(
-                    tmp_path,
-                    base_entry.runner,
-                    repo_source=repo.uri,
-                    progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                )
-                tmp_path.unlink(missing_ok=True)
-                GLib.idle_add(_done)
+            GLib.idle_add(progress.set_stats, "")
+            GLib.idle_add(progress.set_label, "Installing base…")
+            GLib.idle_add(progress.set_fraction, 0.0)
+            install_base(
+                tmp_path,
+                base_entry.runner,
+                repo_source=repo.uri,
+                progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+            )
+            tmp_path.unlink(missing_ok=True)
 
-            except Exception as exc:
-                log.error("Base download failed: %s", exc)
-                GLib.idle_add(_error, str(exc))
-
-        def _done() -> None:
+        def _done(_result) -> None:
             progress.force_close()
             self._on_imported(None)
 
         def _error(msg: str) -> None:
             progress.force_close()
+            log.error("Base download failed: %s", msg)
             err = Adw.AlertDialog(heading="Download failed", body=msg)
             err.add_response("ok", "OK")
             err.present(root)
 
-        threading.Thread(target=_bg, daemon=True).start()
+        run_in_background(_work, on_done=_done, on_error=_error)
 
     def _start_import(self, entry, repo) -> None:
         root = self.get_root()
@@ -2771,84 +2740,74 @@ class _ImportFromCatalogueDialog(Adw.Dialog):
         progress = _ProgressDialog(label="Downloading…")
         progress.present(root)
 
-        def _bg():
+        def _work():
             import shutil
             import tempfile
-            try:
-                from cellar.backend.installer import (
-                    _build_source,        # noqa: PLC2701
-                    _find_bottle_dir,     # noqa: PLC2701
-                    _stream_and_extract,  # noqa: PLC2701
+            from cellar.backend.installer import (
+                _build_source,        # noqa: PLC2701
+                _find_bottle_dir,     # noqa: PLC2701
+                _stream_and_extract,  # noqa: PLC2701
+            )
+            archive_uri = repo.resolve_asset_uri(entry.archive)
+            chunks, total = _build_source(
+                archive_uri,
+                expected_size=entry.archive_size,
+                token=repo.token,
+                ssl_verify=repo.ssl_verify,
+                ca_cert=repo.ca_cert,
+            )
+
+            with tempfile.TemporaryDirectory(prefix="cellar-import-") as tmp_str:
+                tmp = Path(tmp_str)
+                extract_dir = tmp / "extracted"
+                extract_dir.mkdir()
+
+                _stream_and_extract(
+                    chunks, total,
+                    is_zst=archive_uri.endswith(".tar.zst"),
+                    dest=extract_dir,
+                    expected_crc32=entry.archive_crc32,
+                    cancel_event=None,
+                    progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+                    stats_cb=None,
+                    name_cb=None,
                 )
-                archive_uri = repo.resolve_asset_uri(entry.archive)
-                chunks, total = _build_source(
-                    archive_uri,
-                    expected_size=entry.archive_size,
-                    token=repo.token,
-                    ssl_verify=repo.ssl_verify,
-                    ca_cert=repo.ca_cert,
+
+                bottle_src = _find_bottle_dir(extract_dir)
+
+                from cellar.backend.packager import slugify
+                slug = slugify(entry.id)
+                existing = {p.slug for p in load_projects()}
+                base_slug, i = slug, 2
+                while slug in existing:
+                    slug = f"{base_slug}-{i}"
+                    i += 1
+
+                _ep = entry.entry_point or ""
+                project = Project(
+                    name=entry.name,
+                    slug=slug,
+                    project_type="app",
+                    runner=entry.built_with.runner if entry.built_with else "",
+                    entry_points=[{"name": "Main", "path": _ep}] if _ep else [],
+                    steam_appid=entry.steam_appid,
+                    initialized=True,
+                    origin_app_id=entry.id,
                 )
 
-                with tempfile.TemporaryDirectory(prefix="cellar-import-") as tmp_str:
-                    tmp = Path(tmp_str)
-                    extract_dir = tmp / "extracted"
-                    extract_dir.mkdir()
+                GLib.idle_add(progress.set_label, "Copying prefix…")
+                project.prefix_path.mkdir(parents=True, exist_ok=True)
+                for src in bottle_src.rglob("*"):
+                    rel = src.relative_to(bottle_src)
+                    dst = project.prefix_path / rel
+                    if src.is_dir():
+                        dst.mkdir(parents=True, exist_ok=True)
+                    elif src.is_file():
+                        dst.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(src, dst)
 
-                    _stream_and_extract(
-                        chunks, total,
-                        is_zst=archive_uri.endswith(".tar.zst"),
-                        dest=extract_dir,
-                        expected_crc32=entry.archive_crc32,
-                        cancel_event=None,
-                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                        stats_cb=None,
-                        name_cb=None,
-                    )
-
-                    bottle_src = _find_bottle_dir(extract_dir)
-
-                    from cellar.backend.packager import slugify
-                    from cellar.backend.project import (
-                        Project,
-                        load_projects,
-                        save_project,
-                    )
-                    slug = slugify(entry.id)
-                    existing = {p.slug for p in load_projects()}
-                    base_slug, i = slug, 2
-                    while slug in existing:
-                        slug = f"{base_slug}-{i}"
-                        i += 1
-
-                    _ep = entry.entry_point or ""
-                    project = Project(
-                        name=entry.name,
-                        slug=slug,
-                        project_type="app",
-                        runner=entry.built_with.runner if entry.built_with else "",
-                        entry_points=[{"name": "Main", "path": _ep}] if _ep else [],
-                        steam_appid=entry.steam_appid,
-                        initialized=True,
-                        origin_app_id=entry.id,
-                    )
-
-                    GLib.idle_add(progress.set_label, "Copying prefix…")
-                    project.prefix_path.mkdir(parents=True, exist_ok=True)
-                    for src in bottle_src.rglob("*"):
-                        rel = src.relative_to(bottle_src)
-                        dst = project.prefix_path / rel
-                        if src.is_dir():
-                            dst.mkdir(parents=True, exist_ok=True)
-                        elif src.is_file():
-                            dst.parent.mkdir(parents=True, exist_ok=True)
-                            shutil.copy2(src, dst)
-
-                    save_project(project)
-                    GLib.idle_add(_done, project)
-
-            except Exception as exc:
-                log.error("Import failed: %s", exc)
-                GLib.idle_add(_error, str(exc))
+                save_project(project)
+                return project
 
         def _done(project) -> None:
             progress.force_close()
@@ -2856,11 +2815,12 @@ class _ImportFromCatalogueDialog(Adw.Dialog):
 
         def _error(msg: str) -> None:
             progress.force_close()
+            log.error("Import failed: %s", msg)
             err = Adw.AlertDialog(heading="Import failed", body=msg)
             err.add_response("ok", "OK")
             err.present(root)
 
-        threading.Thread(target=_bg, daemon=True).start()
+        run_in_background(_work, on_done=_done, on_error=_error)
 
 
 class _DependencyPickerDialog(Adw.Dialog):
@@ -3001,20 +2961,15 @@ class _DependencyPickerDialog(Adw.Dialog):
         dlg = _WinetricksProgressDialog(verbs)
         dlg.present(self)
 
-        def _bg():
+        def _work():
             from cellar.backend.umu import run_winetricks
-            try:
-                result = run_winetricks(
-                    self._project.prefix_path,
-                    self._project.runner,
-                    verbs,
-                    line_cb=lambda line: GLib.idle_add(dlg.push_line, line),
-                )
-                ok = result.returncode == 0
-            except Exception as exc:
-                log.error("run_winetricks failed: %s", exc)
-                ok = False
-            GLib.idle_add(_finish, ok)
+            result = run_winetricks(
+                self._project.prefix_path,
+                self._project.runner,
+                verbs,
+                line_cb=lambda line: GLib.idle_add(dlg.push_line, line),
+            )
+            return result.returncode == 0
 
         def _finish(ok: bool) -> None:
             dlg.force_close()
@@ -3029,7 +2984,11 @@ class _DependencyPickerDialog(Adw.Dialog):
                 stack.set_visible_child_name("idle")
                 log.warning("winetricks install failed for: %s", verbs)
 
-        threading.Thread(target=_bg, daemon=True).start()
+        def _on_err(msg: str) -> None:
+            log.error("run_winetricks failed: %s", msg)
+            _finish(False)
+
+        run_in_background(_work, on_done=_finish, on_error=_on_err)
 
     # ── Remove handler ──────────────────────────────────────────────────────
 

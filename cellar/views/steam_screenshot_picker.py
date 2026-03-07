@@ -14,14 +14,13 @@ from __future__ import annotations
 
 import logging
 import tempfile
-import threading
 from pathlib import Path
 
 import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, GLib, Gtk
+from gi.repository import Adw, Gtk
 
 log = logging.getLogger(__name__)
 
@@ -143,22 +142,26 @@ class SteamScreenshotPickerDialog(Adw.Dialog):
     # ------------------------------------------------------------------
 
     def _load_thumbnails(self) -> None:
+        from cellar.utils.async_work import run_in_background
+
         self._tmp_dir = Path(tempfile.mkdtemp(prefix="cellar-ss-"))
         for i, item in enumerate(self._data):
             url = item["thumbnail"]
             dest = self._tmp_dir / f"thumb_{i}.jpg"
 
-            def _fetch(url=url, dest=dest, idx=i) -> None:
-                try:
-                    from cellar.utils.http import make_session
-                    resp = make_session().get(url, timeout=15)
-                    if resp.ok:
-                        dest.write_bytes(resp.content)
-                        GLib.idle_add(self._on_thumbnail_ready, idx, str(dest))
-                except Exception as exc:  # noqa: BLE001
-                    log.debug("Thumbnail fetch failed: %s", exc)
+            def _work(url=url, dest=dest) -> str | None:
+                from cellar.utils.http import make_session
+                resp = make_session().get(url, timeout=15)
+                if resp.ok:
+                    dest.write_bytes(resp.content)
+                    return str(dest)
+                return None
 
-            threading.Thread(target=_fetch, daemon=True).start()
+            def _done(path: str | None, idx=i) -> None:
+                if path is not None:
+                    self._on_thumbnail_ready(idx, path)
+
+            run_in_background(work=_work, on_done=_done)
 
     def _on_thumbnail_ready(self, idx: int, path: str) -> None:
         if 0 <= idx < len(self._pictures):

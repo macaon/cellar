@@ -11,13 +11,14 @@ description, category, steam_appid, header_image, screenshots.
 from __future__ import annotations
 
 import logging
-import threading
 
 import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk
+
+from cellar.utils.async_work import run_in_background
 
 log = logging.getLogger(__name__)
 
@@ -154,17 +155,15 @@ class SteamPickerDialog(Adw.Dialog):
         gen = self._search_gen
         self._stack.set_visible_child_name("spinner")
 
-        def _run() -> None:
-            try:
-                from cellar.backend.steam import SteamError, search_games
-                results = search_games(query)
-                GLib.idle_add(self._on_results, gen, results)
-            except SteamError as exc:
-                GLib.idle_add(self._show_error, str(exc))
-            except Exception as exc:  # noqa: BLE001
-                GLib.idle_add(self._show_error, str(exc))
+        def _work() -> list[dict]:
+            from cellar.backend.steam import search_games
+            return search_games(query)
 
-        threading.Thread(target=_run, daemon=True).start()
+        run_in_background(
+            work=_work,
+            on_done=lambda results: self._on_results(gen, results),
+            on_error=self._show_error,
+        )
 
     def _on_results(self, gen: int, results: list[dict]) -> None:
         if gen != self._search_gen:
@@ -206,16 +205,19 @@ class SteamPickerDialog(Adw.Dialog):
         self._stack.set_visible_child_name("spinner")
         self._search_entry.set_sensitive(False)
 
-        def _fetch() -> None:
-            try:
-                from cellar.backend.steam import fetch_details
-                details = fetch_details(appid)
-                GLib.idle_add(self._on_details_ready, details)
-            except Exception as exc:  # noqa: BLE001
-                GLib.idle_add(self._show_error, str(exc))
-                GLib.idle_add(self._search_entry.set_sensitive, True)
+        def _work() -> dict:
+            from cellar.backend.steam import fetch_details
+            return fetch_details(appid)
 
-        threading.Thread(target=_fetch, daemon=True).start()
+        def _on_fetch_error(msg: str) -> None:
+            self._show_error(msg)
+            self._search_entry.set_sensitive(True)
+
+        run_in_background(
+            work=_work,
+            on_done=self._on_details_ready,
+            on_error=_on_fetch_error,
+        )
 
     def _on_details_ready(self, details: dict) -> None:
         self.close()

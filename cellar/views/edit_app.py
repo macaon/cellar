@@ -23,6 +23,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk
 
+from cellar.utils.async_work import run_in_background
 from cellar.utils.progress import fmt_stats as _fmt_stats
 
 _STRATEGIES = ["safe", "full"]
@@ -584,9 +585,9 @@ class EditAppDialog(Adw.Dialog):
                 except Exception as exc:  # noqa: BLE001
                     import logging
                     logging.getLogger(__name__).warning("Screenshot download failed: %s", exc)
-            GLib.idle_add(self._on_screenshots_downloaded, downloaded + list(local_paths))
+            return downloaded + list(local_paths)
 
-        threading.Thread(target=_download, daemon=True).start()
+        run_in_background(_download, on_done=self._on_screenshots_downloaded)
 
     def _on_screenshots_downloaded(self, paths: list[str]) -> None:
         self._screenshot_paths.extend(paths)

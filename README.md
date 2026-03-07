@@ -54,6 +54,42 @@ with GE-Proton. Linux native apps are extracted and launched directly.
 
 ---
 
+## Installation
+
+### System requirements
+
+- Python 3.11+
+- GTK 4 and libadwaita 1.x
+
+**Fedora / RHEL:**
+```bash
+sudo dnf install python3-gobject libadwaita
+```
+
+**Ubuntu / Debian:**
+```bash
+sudo apt install python3-gi gir1.2-adw-1
+```
+
+### Install
+
+```bash
+git clone https://github.com/macaon/cellar
+cd cellar
+pip install --user .
+```
+
+This installs the `cellar` command to `~/.local/bin/` and registers the app
+in the GNOME application launcher. Make sure `~/.local/bin` is on your `PATH`
+(add `export PATH="$HOME/.local/bin:$PATH"` to `~/.bashrc` if not).
+
+### Launch
+
+- **Terminal:** `cellar`
+- **App drawer:** search for *Cellar* in GNOME Activities
+
+---
+
 ## Running in development
 
 ### Requirements

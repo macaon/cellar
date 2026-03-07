@@ -469,6 +469,25 @@ class CatalogueEntriesDialog(Adw.Dialog):
             return
         item, repo, kind = self._entries[idx]
         name = item.name
+
+        # Block deletion of a runner that has dependent base images.
+        if kind == "runner":
+            dependents = [
+                e.name for e, r, k in self._entries
+                if k == "base" and e.runner == name
+            ]
+            if dependents:
+                names = ", ".join(f"\u201c{n}\u201d" for n in dependents)
+                alert = Adw.AlertDialog(
+                    heading="Runner In Use",
+                    body=f"Cannot remove \u201c{name}\u201d because it is "
+                         f"used by: {names}.\n\n"
+                         "Remove the dependent base images first.",
+                )
+                alert.add_response("ok", "OK")
+                alert.present(self)
+                return
+
         dialog = Adw.AlertDialog(
             heading="Remove from Repo?",
             body=f"\u201c{name}\u201d will be permanently deleted from the repository.",

@@ -533,21 +533,30 @@ class AddEditRepoDialog(Adw.Dialog):
         # Scheme selector (suffix) + path entry
         _existing_uri = self._existing.get("uri", "") if self._existing else ""
         _scheme_idx, _path_text = _split_uri(_existing_uri)
+        _initial_text = _SCHEME_PREFIXES[_scheme_idx] + _path_text
 
         scheme_model = Gtk.StringList()
         for label in ("LOCAL", "HTTP", "HTTPS", "SMB", "SSH"):
             scheme_model.append(label)
         self._scheme_dropdown = Gtk.DropDown(model=scheme_model, valign=Gtk.Align.CENTER)
-        self._scheme_dropdown.add_css_class("scheme-selector")
+        self._scheme_dropdown.add_css_class("flat")
         self._scheme_dropdown.set_selected(_scheme_idx)
         self._scheme_dropdown.connect("notify::selected", self._on_scheme_changed)
 
+        sep = Gtk.Separator(
+            orientation=Gtk.Orientation.VERTICAL, margin_top=8, margin_bottom=8
+        )
         self._path_row = Adw.EntryRow(title="Path" if _scheme_idx == 0 else "Host / Path")
-        self._path_row.set_text(_path_text)
+        self._path_row.set_text(_initial_text)
         self._path_row.connect("entry-activated", lambda _: self._on_save_clicked(None))
         self._path_row.connect("changed", self._on_path_changed)
+        self._path_row.add_prefix(sep)
         self._path_row.add_prefix(self._scheme_dropdown)
-        self._stripping_scheme = False
+        self._updating = False
+        _inner = self._path_row.get_delegate()
+        if _inner:
+            _inner.connect("delete-text", self._on_delete_text)
+            _inner.connect("notify::cursor-position", self._on_cursor_moved)
         group.add(self._path_row)
 
         # SMB credentials group (shown only when URI scheme is smb://)
@@ -615,41 +624,57 @@ class AddEditRepoDialog(Adw.Dialog):
     # ------------------------------------------------------------------
 
     def _on_scheme_changed(self, _widget, _param=None) -> None:
-        """Show/hide credential groups and update path row title based on selected scheme."""
+        """Update the text field scheme prefix and toggle credential groups."""
+        if self._updating:
+            return
         idx = self._scheme_dropdown.get_selected()
+        new_prefix = _SCHEME_PREFIXES[idx]
         self._smb_group.set_visible(idx == 3)
         self._http_group.set_visible(idx in (1, 2))
         self._path_row.set_title("Path" if idx == 0 else "Host / Path")
+        # Replace the scheme portion of the current text.
+        text = self._path_row.get_text()
+        path = text
+        for prefix in _SCHEME_PREFIXES:
+            if prefix and path.startswith(prefix):
+                path = path[len(prefix):]
+                break
+        self._updating = True
+        new_text = new_prefix + path
+        self._path_row.set_text(new_text)
+        self._path_row.set_position(len(new_text))
+        self._updating = False
 
     def _on_path_changed(self, _entry) -> None:
-        """Strip any scheme prefix the user typed or pasted into the path field."""
-        if self._stripping_scheme:
+        """Strip any extra scheme prefix the user typed or pasted after the current one."""
+        if self._updating:
             return
         text = self._path_row.get_text()
-        new_idx = None
-        while True:
-            stripped = False
-            for idx, prefix in enumerate(_SCHEME_PREFIXES):
-                if prefix and text.startswith(prefix):
-                    text = text[len(prefix):]
-                    new_idx = idx
-                    stripped = True
-                    break
-            if not stripped:
-                # Bare UNC //server/share → SMB
-                if text.startswith("//") and "://" not in text:
-                    text = text[2:]
-                    new_idx = 3
-                break
-        if new_idx is not None:
-            self._stripping_scheme = True
-            self._path_row.set_text(text)
-            self._stripping_scheme = False
-            self._scheme_dropdown.set_selected(new_idx)
+        current_prefix = _SCHEME_PREFIXES[self._scheme_dropdown.get_selected()]
+        after = text[len(current_prefix):] if text.startswith(current_prefix) else text
+        for prefix in _SCHEME_PREFIXES:
+            if prefix and after.startswith(prefix):
+                self._updating = True
+                new_text = current_prefix + after[len(prefix):]
+                self._path_row.set_text(new_text)
+                self._path_row.set_position(len(new_text))
+                self._updating = False
+                return
+
+    def _on_delete_text(self, text_widget, start_pos: int, end_pos: int) -> None:
+        """Block deletions that would erase part of the locked scheme prefix."""
+        prefix_len = len(_SCHEME_PREFIXES[self._scheme_dropdown.get_selected()])
+        if prefix_len > 0 and start_pos < prefix_len:
+            text_widget.stop_emission_by_name("delete-text")
+
+    def _on_cursor_moved(self, text_widget, _param) -> None:
+        """Keep cursor at or after the locked scheme prefix."""
+        prefix_len = len(_SCHEME_PREFIXES[self._scheme_dropdown.get_selected()])
+        if prefix_len > 0 and text_widget.get_position() < prefix_len:
+            GLib.idle_add(text_widget.set_position, prefix_len)
 
     def _full_uri(self) -> str:
-        prefix = _SCHEME_PREFIXES[self._scheme_dropdown.get_selected()]
-        return prefix + self._path_row.get_text().strip()
+        return self._path_row.get_text().strip()
 
     def _on_ssl_toggled(self, row: Adw.SwitchRow, _param) -> None:
         self._ca_row.set_visible(row.get_active())
@@ -682,7 +707,8 @@ class AddEditRepoDialog(Adw.Dialog):
 
     def _on_save_clicked(self, _btn) -> None:
         uri = self._full_uri()
-        if not self._path_row.get_text().strip():
+        prefix = _SCHEME_PREFIXES[self._scheme_dropdown.get_selected()]
+        if not uri[len(prefix):].strip():
             self._alert("Path Required", "Please enter a repository path or host.")
             return
 

@@ -128,8 +128,13 @@ def build_env(
     }
 
 
-def _umu_cmd() -> list[str]:
-    """Return the base umu-run command, prefixed with flatpak-spawn if sandboxed."""
+def _umu_cmd(base_env: dict[str, str] | None = None) -> list[str]:
+    """Return the base umu-run command, prefixed with flatpak-spawn if sandboxed.
+
+    When sandboxed, *base_env* vars are injected as ``--env=KEY=VALUE`` flags
+    so they reach the host-side umu-run process (flatpak-spawn does not
+    forward the caller's environment to the host automatically).
+    """
     from cellar.backend.config import load_umu_path
     umu = detect_umu(load_umu_path())
     if umu is None:
@@ -138,7 +143,8 @@ def _umu_cmd() -> list[str]:
     # detect_umu may return a multi-word invocation like "/usr/bin/python3 -m umu"
     parts = umu.split()
     if is_cellar_sandboxed():
-        return ["flatpak-spawn", "--host"] + parts
+        env_flags = [f"--env={k}={v}" for k, v in (base_env or {}).items()]
+        return ["flatpak-spawn", "--host"] + env_flags + parts
     return parts
 
 
@@ -165,7 +171,7 @@ def launch_app(
     umu_env = build_env(app_id, runner_name, steam_appid, prefix_dir=prefix_dir)
     env = {**os.environ, **umu_env}
     # Pass exe as positional arg — the primary documented umu-run form.
-    cmd = _umu_cmd() + [entry_point]
+    cmd = _umu_cmd(umu_env) + [entry_point]
     if launch_args:
         cmd += shlex.split(launch_args)
     log.info(
@@ -199,7 +205,7 @@ def init_prefix(
     prefix_path.mkdir(parents=True, exist_ok=True)
     env = {**os.environ, **base_env}
     # Empty-string positional arg → umu initialises the prefix, runs nothing.
-    cmd = _umu_cmd() + [""]
+    cmd = _umu_cmd(base_env) + [""]
     log.info(
         "init_prefix: %s\n  WINEPREFIX=%s\n  PROTONPATH=%s\n  GAMEID=%s",
         " ".join(cmd), base_env["WINEPREFIX"], base_env["PROTONPATH"], gameid,
@@ -241,7 +247,7 @@ def run_winetricks(
         "GAMEID": str(gameid) if gameid else "0",
     }
     env = {**os.environ, **base_env}
-    cmd = _umu_cmd() + ["winetricks"] + verbs
+    cmd = _umu_cmd(base_env) + ["winetricks"] + verbs
     log.info(
         "run_winetricks: %s\n  WINEPREFIX=%s\n  PROTONPATH=%s\n  GAMEID=%s\n  verbs=%s",
         " ".join(cmd[:len(_umu_cmd())]),
@@ -314,7 +320,7 @@ def run_in_prefix(
         base_env.update(extra_env)
     env = {**os.environ, **base_env}
     # Pass exe as positional arg — the primary documented umu-run form.
-    cmd = _umu_cmd() + [exe_path]
+    cmd = _umu_cmd(base_env) + [exe_path]
     log.info(
         "run_in_prefix: %s\n  WINEPREFIX=%s\n  PROTONPATH=%s\n  GAMEID=%s\n  EXE=%s",
         " ".join(cmd[:-1]),

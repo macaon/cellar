@@ -91,8 +91,8 @@ class CatalogueEntriesDialog(Adw.Dialog):
         # Bases depended on by apps:
         depended_bases: set[tuple[str, str]] = set()
         for item, repo, kind in results:
-            if kind == "app" and item.base_runner:
-                depended_bases.add((repo.uri, item.base_runner))
+            if kind == "app" and item.base_image:
+                depended_bases.add((repo.uri, item.base_image))
         # Runners depended on by bases:
         depended_runners: set[tuple[str, str]] = set()
         for item, repo, kind in results:
@@ -105,7 +105,7 @@ class CatalogueEntriesDialog(Adw.Dialog):
             repo_name = repo.name or repo.uri
             if kind == "app":
                 title = item.name
-                base_str = f"Base: {item.base_runner}" if item.base_runner else ""
+                base_str = f"Base: {item.base_image}" if item.base_image else ""
                 subtitle_parts = [item.version or "", base_str, size_str, repo_name]
             elif kind == "base":
                 title = item.name

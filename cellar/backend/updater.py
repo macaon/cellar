@@ -198,7 +198,7 @@ def update_app_safe(
 ) -> None:
     """Overlay-update *prefix_path* with the contents of *archive_uri*.
 
-    For delta packages (``entry.base_runner`` is set) the rsync overlay
+    For delta packages (``entry.base_image`` is set) the rsync overlay
     strategy works without base reconstruction: the delta archive contains
     only changed/new files and the overlay applies them directly on top of
     the existing bottle.  Files absent from the delta are left untouched
@@ -237,7 +237,7 @@ def update_app_safe(
     UpdateCancelled
         When *cancel_event* is set during the operation.
     """
-    if entry.base_runner:
+    if entry.base_image:
         log.debug(
             "Delta update for %r: overlaying delta directly (no base reconstruction needed)",
             entry.id,
@@ -328,7 +328,7 @@ def update_app_safe(
                 phase_cb("Updating\u2026")
             if progress_cb:
                 progress_cb(ov_lo)
-            is_delta = bool(entry.base_runner)
+            is_delta = bool(entry.base_image)
             _overlay(
                 bottle_src,
                 prefix_path,

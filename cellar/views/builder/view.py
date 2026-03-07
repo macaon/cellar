@@ -785,23 +785,23 @@ class PackageBuilderView(Gtk.Box):
         from cellar.backend.base_store import is_base_installed
 
         seen: set[str] = set()
-        base_runners: list[str] = []
+        base_images: list[str] = []
         for repo in self._all_repos:
             for name in repo._bases:
                 if name not in seen and is_base_installed(name):
                     seen.add(name)
-                    base_runners.append(name)
-        base_runners.sort()
+                    base_images.append(name)
+        base_images.sort()
 
         # Base images referenced by at least one published app cannot be deleted.
         bases_in_use: set[str] = set()
         for repo in self._all_repos:
             for entry in repo.fetch_catalogue():
-                if entry.base_runner:
-                    bases_in_use.add(entry.base_runner)
+                if entry.base_image:
+                    bases_in_use.add(entry.base_image)
 
         # If no runner set yet, default to the latest installed base (last by installed_at)
-        effective_runner = project.runner or (base_runners[-1] if base_runners else "")
+        effective_runner = project.runner or (base_images[-1] if base_images else "")
         if effective_runner and not project.runner:
             project.runner = effective_runner
             save_project(project)
@@ -809,7 +809,7 @@ class PackageBuilderView(Gtk.Box):
                 self._sel_active_row.set_subtitle(effective_runner)
 
         first_check: Gtk.CheckButton | None = None
-        for runner in base_runners:
+        for runner in base_images:
             row = Adw.ActionRow(title=runner)
             check = Gtk.CheckButton()
             check.set_valign(Gtk.Align.CENTER)
@@ -1314,7 +1314,7 @@ class PackageBuilderView(Gtk.Box):
                     file_cb=_file_cb,
                     bytes_cb=_bytes_cb,
                 )
-                base_runner = ""
+                base_image = ""
             else:
                 from cellar.backend.base_store import is_base_installed, base_path
                 _use_delta = is_base_installed(project.runner)
@@ -1330,7 +1330,7 @@ class PackageBuilderView(Gtk.Box):
                         file_cb=_file_cb,
                         bytes_cb=_bytes_cb,
                     )
-                    base_runner = project.runner
+                    base_image = project.runner
                 else:
                     size, crc32 = compress_prefix_zst(
                         project.prefix_path,
@@ -1340,7 +1340,7 @@ class PackageBuilderView(Gtk.Box):
                         file_cb=_file_cb,
                         bytes_cb=_bytes_cb,
                     )
-                    base_runner = ""
+                    base_image = ""
 
             GLib.idle_add(progress.set_label, "Finalizing…")
             GLib.idle_add(progress.set_stats, "")
@@ -1349,7 +1349,7 @@ class PackageBuilderView(Gtk.Box):
                 entry,
                 archive_crc32=crc32,
                 archive_size=size,
-                base_runner=base_runner,
+                base_image=base_image,
             )
             import_to_repo(
                 repo_root,
@@ -1456,7 +1456,7 @@ class PackageBuilderView(Gtk.Box):
                     file_cb=_file_cb,
                     bytes_cb=_bytes_cb,
                 )
-                base_runner = ""
+                base_image = ""
             else:
                 from cellar.backend.base_store import is_base_installed, base_path
                 _use_delta = is_base_installed(project.runner)
@@ -1472,7 +1472,7 @@ class PackageBuilderView(Gtk.Box):
                         file_cb=_file_cb,
                         bytes_cb=_bytes_cb,
                     )
-                    base_runner = project.runner
+                    base_image = project.runner
                 else:
                     size, crc32 = compress_prefix_zst(
                         project.prefix_path,
@@ -1482,7 +1482,7 @@ class PackageBuilderView(Gtk.Box):
                         file_cb=_file_cb,
                         bytes_cb=_bytes_cb,
                     )
-                    base_runner = old_entry.base_runner  # preserve existing delta setting
+                    base_image = old_entry.base_image  # preserve existing delta setting
 
             GLib.idle_add(progress.set_label, "Finalizing…")
             GLib.idle_add(progress.set_stats, "")
@@ -1491,7 +1491,7 @@ class PackageBuilderView(Gtk.Box):
                 old_entry,
                 archive_crc32=crc32,
                 archive_size=size,
-                base_runner=base_runner,
+                base_image=base_image,
             )
             update_in_repo(
                 repo_root,

@@ -155,7 +155,7 @@ class AppEntry:
     update_strategy: Literal["safe", "full"] = "safe"
     # Delta packaging — when set, this archive is a delta against the named
     # base image; the installer must seed the prefix from that base first.
-    base_runner: str = ""
+    base_image: str = ""
     # Steam App ID — used to set GAMEID=umu-<id> for umu-launcher / protonfixes.
     # None means GAMEID=0 (no protonfixes applied).
     steam_appid: int | None = None
@@ -210,7 +210,7 @@ class AppEntry:
             install_size_estimate=int(data.get("install_size_estimate", 0)),
             built_with=BuiltWith.from_dict(built_with_raw) if built_with_raw else None,
             update_strategy=strategy,
-            base_runner=data.get("base_runner", "") or data.get("base_win_ver", ""),
+            base_image=data.get("base_image", ""),
             steam_appid=data.get("steam_appid"),
             platform=data.get("platform", "windows"),
             entry_point=data.get("entry_point", ""),
@@ -259,7 +259,7 @@ class AppEntry:
         if self.built_with is not None:
             d["built_with"] = self.built_with.to_dict()
         d["update_strategy"] = self.update_strategy
-        _opt_str(d, "base_runner", self.base_runner)
+        _opt_str(d, "base_image", self.base_image)
         if self.steam_appid is not None:
             d["steam_appid"] = self.steam_appid
         d["platform"] = self.platform

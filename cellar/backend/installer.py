@@ -322,7 +322,7 @@ def install_app(
     entry,                          # AppEntry — avoid circular import at module level
     archive_uri: str,               # resolved by Repo.resolve_asset_uri(entry.archive)
     *,
-    base_entry=None,                # BaseEntry if entry.base_runner is set
+    base_entry=None,                # BaseEntry if entry.base_image is set
     base_archive_uri: str = "",     # resolved URI for the base archive
     download_cb: Callable[[float], None] | None = None,
     download_stats_cb: Callable[[int, int, float], None] | None = None,
@@ -368,9 +368,9 @@ def install_app(
     bottle_dest = prefixes_dir() / entry.id
 
     # ── Step 0 (delta only): Ensure base image is installed ────────────
-    if entry.base_runner:
+    if entry.base_image:
         _ensure_base_installed(
-            entry.base_runner,
+            entry.base_image,
             base_entry=base_entry,
             base_archive_uri=base_archive_uri,
             phase_cb=phase_cb,
@@ -400,7 +400,7 @@ def install_app(
         ca_cert=ca_cert,
     )
 
-    if entry.base_runner:
+    if entry.base_image:
         # Delta path: extract to a temp dir on the same filesystem, then
         # seed from base + overlay.  The delta is small so temp space is fine.
         with tempfile.TemporaryDirectory(
@@ -425,7 +425,7 @@ def install_app(
                 phase_cb("Applying delta\u2026")
             try:
                 bottle_dest.mkdir(parents=True, exist_ok=True)
-                _seed_from_base(base_path(entry.base_runner), bottle_dest,
+                _seed_from_base(base_path(entry.base_image), bottle_dest,
                                 cancel_event=cancel_event)
                 _overlay_delta(delta_src, bottle_dest, cancel_event=cancel_event)
             except Exception:

@@ -247,7 +247,7 @@ class DetailView(Gtk.Box):
         archive_uri = self._resolve(self._entry.archive) if self._entry.archive else ""
 
         # Resolve base archive for delta installs.
-        runner = self._get_base_runner()
+        runner = self._get_base_image()
         base_entry, base_archive_uri = self._find_base_entry(runner) if runner else (None, "")
 
         dialog = InstallProgressDialog(
@@ -346,7 +346,7 @@ class DetailView(Gtk.Box):
         archive_uri = self._resolve(self._entry.archive) if self._entry.archive else ""
 
         # Resolve base archive for delta updates.
-        runner = self._get_base_runner()
+        runner = self._get_base_image()
         base_entry, base_archive_uri = self._find_base_entry(runner) if runner else (None, "")
 
         dialog = UpdateDialog(
@@ -992,10 +992,10 @@ class DetailView(Gtk.Box):
 
         return card
 
-    def _get_base_runner(self) -> str:
+    def _get_base_image(self) -> str:
         """Return the effective base runner key for this entry."""
         e = self._entry
-        return e.base_runner or (e.built_with.runner if e.built_with else "")
+        return e.base_image or (e.built_with.runner if e.built_with else "")
 
     def _find_base_entry(self, runner: str) -> tuple[object | None, str]:
         """Return (BaseEntry, archive_uri) for *runner*, or (None, "") if not found."""
@@ -1011,15 +1011,15 @@ class DetailView(Gtk.Box):
 
     def _resolve_base_async(self, val_lbl: Gtk.Label) -> None:
         """Resolve base image size + installed status once; cache on self for the dialog."""
-        base_runner = self._get_base_runner()
-        if not base_runner:
+        base_image = self._get_base_image()
+        if not base_image:
             return
         app_size = self._entry.archive_size
 
         def _work():
             from cellar.backend.base_store import is_base_installed
-            installed = is_base_installed(base_runner)
-            base_entry, _ = self._find_base_entry(base_runner)
+            installed = is_base_installed(base_image)
+            base_entry, _ = self._find_base_entry(base_image)
             base_sz = base_entry.archive_size if base_entry else 0
             return installed, base_sz
 
@@ -1032,7 +1032,7 @@ class DetailView(Gtk.Box):
             if not installed and self._base_warning_icon:
                 self._base_warning_icon.set_visible(True)
                 self._base_warning_icon.set_tooltip_text(
-                    f"Base image \u201c{base_runner}\u201d is not installed"
+                    f"Base image \u201c{base_image}\u201d is not installed"
                 )
             for cb in self._base_resolve_cbs:
                 cb(installed, base_sz)
@@ -1043,7 +1043,7 @@ class DetailView(Gtk.Box):
     def _show_download_dialog(self) -> None:
         """Show a download size breakdown: header pill + per-component rows."""
         e = self._entry
-        base_runner = self._get_base_runner()
+        base_image = self._get_base_image()
 
         def _pill(text: str, *, large: bool = False) -> Gtk.Label:
             lbl = Gtk.Label(label=text)
@@ -1062,10 +1062,10 @@ class DetailView(Gtk.Box):
 
         # ── Header: total size pill ──────────────────────────────────
         # Compute initial value: if base is already resolved and missing, add its size.
-        if base_runner and self._base_installed is not None:
+        if base_image and self._base_installed is not None:
             _total_sz = e.archive_size + (0 if self._base_installed else self._base_sz)
             _initial_total = _fmt_bytes(_total_sz) if _total_sz else _fmt_bytes(e.archive_size)
-        elif base_runner:
+        elif base_image:
             _initial_total = "…"
         else:
             _initial_total = _fmt_bytes(e.archive_size) if e.archive_size else "Unknown"
@@ -1088,7 +1088,7 @@ class DetailView(Gtk.Box):
 
         base_pill: Gtk.Label | None = None
         base_action_row: Adw.ActionRow | None = None
-        if base_runner:
+        if base_image:
             base_pill = _pill("…")
             base_action_row = _row(base_pill, "Base Image", "…")
             listbox.append(base_action_row)
@@ -1111,7 +1111,7 @@ class DetailView(Gtk.Box):
         dlg.present(self)
 
         # ── Populate base row from cached resolution ─────────────────
-        if base_runner and base_pill is not None and base_action_row is not None:
+        if base_image and base_pill is not None and base_action_row is not None:
             if self._base_installed is not None:
                 # Already resolved — total_pill was pre-computed above; just fill the row.
                 sz = self._base_sz

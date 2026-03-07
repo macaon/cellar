@@ -127,9 +127,7 @@ class DetailView(Gtk.Box):
             and bool(_cat_crc and _stored_crc and _cat_crc != _stored_crc)
         )
         self._screenshot_paths: list[str] = []
-        self._runner_override: str | None = (
-            (installed_record or {}).get("runner_override") if is_installed else None
-        )
+        self._resolved_runner: str = (installed_record or {}).get("runner") or ""
         self._runner_label: Gtk.Label | None = None
         self._base_warning_icon: Gtk.Image | None = None
         # Base image resolution — populated once by _resolve_base_async.
@@ -263,13 +261,19 @@ class DetailView(Gtk.Box):
     def _on_install_success(self, prefix_dir: str, install_path: str = "", runner: str = "", install_size: int = 0) -> None:
         self._is_installed = True
         self._installed_record = {"prefix_dir": prefix_dir, "install_path": install_path, "install_size": install_size}
+        self._installed_record = {
+            **(self._installed_record or {}),
+            "prefix_dir": prefix_dir,
+            "install_path": install_path,
+            "install_size": install_size,
+            "runner": runner,
+        }
+        self._resolved_runner = runner
+        if self._runner_label:
+            self._runner_label.set_label(runner)
         self._update_install_button()
         if self._on_install_done:
             self._on_install_done(prefix_dir, install_path, runner, install_size)
-        # Persist runner override when the user pre-selected a different runner.
-        if self._runner_override:
-            from cellar.backend import database
-            database.set_runner_override(self._entry.id, self._runner_override)
 
     def _on_open_clicked(self) -> None:
         if self._entry.platform == "linux":
@@ -278,16 +282,10 @@ class DetailView(Gtk.Box):
         from cellar.backend.umu import launch_app
         from cellar.backend import database
         rec = self._installed_record or {}
-        runner_name = rec.get("runner_override") or rec.get("runner") or ""
+        runner_name = rec.get("runner") or ""
         if not runner_name:
             db_rec = database.get_installed(self._entry.id) or {}
-            runner_name = db_rec.get("runner_override") or db_rec.get("runner") or ""
-        # runner_name may be a base image name rather than a GE-Proton runner
-        # directory.  Resolve via the catalogue: if it's a known base, use the
-        # base's underlying runner field.
-        base_entry, _ = self._find_base_entry(runner_name)
-        if base_entry is not None:
-            runner_name = base_entry.runner
+            runner_name = db_rec.get("runner") or ""
         launch_app(
             app_id=self._entry.id,
             entry_point=self._entry.entry_point or "",
@@ -935,6 +933,8 @@ class DetailView(Gtk.Box):
             _add(_simple_card("penguin-alt-symbolic", "Native", "Linux")[0])
         elif e.base_image:
             _add(self._make_wine_card())
+            if not self._resolved_runner:
+                self._resolve_base_async()
 
         if e.version:
             _add(_simple_card("software-update-available-symbolic", e.version, "Version")[0])
@@ -965,7 +965,7 @@ class DetailView(Gtk.Box):
         icon.set_halign(Gtk.Align.CENTER)
         card.append(icon)
 
-        runner_name = self._runner_override or ""
+        runner_name = self._resolved_runner or ("…" if self._entry.base_image else "")
         runner_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         runner_row.set_halign(Gtk.Align.CENTER)
         card.append(runner_row)
@@ -1003,7 +1003,7 @@ class DetailView(Gtk.Box):
                 pass
         return None, ""
 
-    def _resolve_base_async(self, val_lbl: Gtk.Label) -> None:
+    def _resolve_base_async(self, val_lbl: Gtk.Label | None = None) -> None:
         """Resolve base image size + installed status once; cache on self for the dialog."""
         base_image = self._get_base_image()
         if not base_image:
@@ -1015,13 +1015,18 @@ class DetailView(Gtk.Box):
             installed = is_base_installed(base_image)
             base_entry, _ = self._find_base_entry(base_image)
             base_sz = base_entry.archive_size if base_entry else 0
-            return installed, base_sz
+            runner = base_entry.runner if base_entry else ""
+            return installed, base_sz, runner
 
         def _apply(result) -> None:
-            installed, base_sz = result
+            installed, base_sz, runner = result
             self._base_installed = installed
             self._base_sz = base_sz
-            if not installed and base_sz:
+            if not self._resolved_runner and runner:
+                self._resolved_runner = runner
+                if self._runner_label:
+                    self._runner_label.set_label(runner)
+            if val_lbl is not None and not installed and base_sz:
                 val_lbl.set_label(_fmt_bytes(app_size + base_sz))
             if not installed and self._base_warning_icon:
                 self._base_warning_icon.set_visible(True)
@@ -1125,7 +1130,7 @@ class DetailView(Gtk.Box):
 
     def _show_wine_dialog(self) -> None:
         """Show Wine runner details."""
-        runner_name = self._runner_override or ""
+        runner_name = self._resolved_runner
 
         def _value_row(title: str, value: str) -> Adw.ActionRow:
             r = Adw.ActionRow(title=title)

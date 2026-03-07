@@ -216,3 +216,55 @@ def clear_smb_password(uri: str) -> None:
     if uri in passwords:
         del passwords[uri]
         _save(cfg)
+
+
+# ---------------------------------------------------------------------------
+# SSH credential helpers
+# ---------------------------------------------------------------------------
+
+_KEYRING_SERVICE_SSH = "cellar-repo-ssh"
+
+
+def save_ssh_password(uri: str, password: str) -> None:
+    """Store SSH *password* for *uri* in the system keyring."""
+    try:
+        import keyring  # type: ignore[import]
+        keyring.set_password(_KEYRING_SERVICE_SSH, uri, password)
+        return
+    except Exception as exc:
+        log.warning(
+            "Keyring unavailable (%s); storing SSH password in config.json", exc
+        )
+    cfg = _load()
+    cfg.setdefault("ssh_passwords", {})[uri] = password
+    _save(cfg)
+    try:
+        _config_path().chmod(0o600)
+    except OSError:
+        pass
+
+
+def load_ssh_password(uri: str) -> str | None:
+    """Return the stored SSH password for *uri*, or ``None`` if not found."""
+    try:
+        import keyring  # type: ignore[import]
+        pw = keyring.get_password(_KEYRING_SERVICE_SSH, uri)
+        if pw is not None:
+            return pw
+    except Exception:
+        pass
+    return _load().get("ssh_passwords", {}).get(uri)
+
+
+def clear_ssh_password(uri: str) -> None:
+    """Remove the stored SSH password for *uri* from keyring and config."""
+    try:
+        import keyring  # type: ignore[import]
+        keyring.delete_password(_KEYRING_SERVICE_SSH, uri)
+    except Exception:
+        pass
+    cfg = _load()
+    passwords = cfg.get("ssh_passwords", {})
+    if uri in passwords:
+        del passwords[uri]
+        _save(cfg)

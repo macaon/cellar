@@ -449,7 +449,7 @@ class AddEditRepoDialog(Adw.Dialog):
         )
         scroll.set_propagate_natural_height(True)
 
-        page = Adw.PreferencesPage()
+        page = Adw.PreferencesPage(width_request=480)
         scroll.set_child(page)
 
         group = Adw.PreferencesGroup()

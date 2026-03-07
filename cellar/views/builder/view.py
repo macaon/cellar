@@ -38,7 +38,7 @@ from cellar.backend.project import (
     package_project,
     save_project,
 )
-from cellar.views.builder.catalogue_import import ImportFromCatalogueDialog
+from cellar.views.builder.catalogue_import import CatalogueEntriesDialog
 from cellar.views.builder.dependencies import DependencyPickerDialog
 from cellar.views.builder.metadata import AppMetadataDialog
 from cellar.views.builder.pickers import (
@@ -234,17 +234,14 @@ class PackageBuilderView(Gtk.Box):
         if not self._all_repos:
             self._show_toast("No repositories configured.")
             return
-        dialog = ImportFromCatalogueDialog(
+        dialog = CatalogueEntriesDialog(
             repos=self._all_repos,
             on_imported=self._on_project_imported,
+            on_catalogue_changed=self._on_catalogue_changed,
         )
         dialog.present(self)
 
-    def _on_project_imported(self, project: Project | None) -> None:
-        if project is None:
-            # A base image was downloaded — no new project, just show a toast.
-            self._show_toast("Base image installed.")
-            return
+    def _on_project_imported(self, project: Project) -> None:
         self._reload_projects()
         for i, row in enumerate(self._project_rows):
             if row.project.slug == project.slug:

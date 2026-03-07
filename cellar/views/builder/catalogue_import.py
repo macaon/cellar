@@ -1,4 +1,4 @@
-"""Import from Catalogue dialog — download an existing catalogue entry as a project."""
+"""Catalogue Entries dialog — browse, import for editing, and delete catalogue content."""
 
 from __future__ import annotations
 
@@ -22,39 +22,32 @@ from cellar.views.widgets import make_loading_stack
 log = logging.getLogger(__name__)
 
 
-class ImportFromCatalogueDialog(Adw.Dialog):
-    """List catalogue entries from all repos and import one as a new project.
+class CatalogueEntriesDialog(Adw.Dialog):
+    """List catalogue entries from all repos with per-row import and delete actions.
 
-    Downloads the archive, extracts it to the project prefix directory, and
-    pre-fills all metadata from the catalogue entry.  The resulting project
-    has ``origin_app_id`` set so re-publishing updates the existing entry.
+    The download button imports the archive as a builder Project for editing.
+    The trash button permanently removes the entry from the repo (writable
+    repos only).  Both actions work for app entries and base images.
     """
 
-    def __init__(self, repos: list, on_imported: Callable) -> None:
-        super().__init__(title="Import from Catalogue", content_width=520)
+    def __init__(
+        self,
+        repos: list,
+        on_imported: Callable,
+        on_catalogue_changed: Callable | None = None,
+    ) -> None:
+        super().__init__(title="Catalogue Entries", content_width=560)
         self._repos = repos
         self._on_imported = on_imported
-        self._entries: list[tuple] = []   # (item, repo, kind) — kind = "app" | "base"
-        self._selected_idx: int = -1
+        self._on_catalogue_changed = on_catalogue_changed
+        self._entries: list[tuple] = []  # (item, repo, kind) — kind = "app" | "base"
 
         toolbar = Adw.ToolbarView()
         header = Adw.HeaderBar()
-        header.set_show_end_title_buttons(False)
-
-        cancel_btn = Gtk.Button(label="Cancel")
-        cancel_btn.connect("clicked", lambda _: self.close())
-        header.pack_start(cancel_btn)
-
-        self._import_btn = Gtk.Button(label="Import")
-        self._import_btn.add_css_class("suggested-action")
-        self._import_btn.set_sensitive(False)
-        self._import_btn.connect("clicked", self._on_import_clicked)
-        header.pack_end(self._import_btn)
-
         toolbar.add_top_bar(header)
 
         self._stack, self._list_box = make_loading_stack("Fetching catalogue\u2026")
-        self._list_box.connect("row-selected", self._on_row_selected)
+        self._list_box.set_selection_mode(Gtk.SelectionMode.NONE)
         toolbar.set_content(self._stack)
         self.set_child(toolbar)
 
@@ -84,7 +77,7 @@ class ImportFromCatalogueDialog(Adw.Dialog):
 
     def _populate(self, results: list[tuple]) -> None:
         self._entries = results
-        for item, repo, kind in results:
+        for idx, (item, repo, kind) in enumerate(results):
             size_mb = (item.archive_size or 0) / 1_000_000
             size_str = f"{size_mb:.0f} MB" if size_mb else ""
             repo_name = repo.name or repo.uri
@@ -96,11 +89,34 @@ class ImportFromCatalogueDialog(Adw.Dialog):
                 subtitle_parts = [item.version or "", size_str, repo_name]
             subtitle = "  \u00b7  ".join(p for p in subtitle_parts if p)
             row = Adw.ActionRow(title=html.escape(title), subtitle=html.escape(subtitle))
+
             if kind == "base":
                 chip = Gtk.Label(label="Base Image")
                 chip.add_css_class("tag")
                 chip.set_valign(Gtk.Align.CENTER)
                 row.add_suffix(chip)
+
+            dl_btn = Gtk.Button(
+                icon_name="folder-download-symbolic",
+                valign=Gtk.Align.CENTER,
+                has_frame=False,
+                tooltip_text="Import for editing",
+            )
+            dl_btn.connect("clicked", self._on_download_clicked, idx)
+            row.add_suffix(dl_btn)
+
+            del_btn = Gtk.Button(
+                icon_name="user-trash-symbolic",
+                valign=Gtk.Align.CENTER,
+                has_frame=False,
+                tooltip_text="Remove from repo" if repo.is_writable else "Read-only repo",
+                sensitive=repo.is_writable,
+            )
+            if repo.is_writable:
+                del_btn.add_css_class("destructive-action")
+            del_btn.connect("clicked", self._on_delete_clicked, idx)
+            row.add_suffix(del_btn)
+
             self._list_box.append(row)
 
         if not results:
@@ -112,23 +128,18 @@ class ImportFromCatalogueDialog(Adw.Dialog):
 
         self._stack.set_visible_child_name("list")
 
-    def _on_row_selected(self, _lb, row: Gtk.ListBoxRow | None) -> None:
-        if row is None:
-            self._selected_idx = -1
-            self._import_btn.set_sensitive(False)
-            return
-        self._selected_idx = row.get_index()
-        self._import_btn.set_sensitive(0 <= self._selected_idx < len(self._entries))
+    # ------------------------------------------------------------------
+    # Download / import for editing
+    # ------------------------------------------------------------------
 
-    def _on_import_clicked(self, _btn) -> None:
-        if not (0 <= self._selected_idx < len(self._entries)):
+    def _on_download_clicked(self, _btn, idx: int) -> None:
+        if not (0 <= idx < len(self._entries)):
             return
-        item, repo, kind = self._entries[self._selected_idx]
-
+        item, repo, kind = self._entries[idx]
         if kind == "base":
             self._start_import_base(item, repo)
         else:
-            self._start_import(item, repo)
+            self._start_import_app(item, repo)
 
     def _start_import_base(self, base_entry, repo) -> None:
         root = self.get_root()
@@ -139,10 +150,12 @@ class ImportFromCatalogueDialog(Adw.Dialog):
 
         def _work():
             import tempfile
-            import time
-            from cellar.backend.base_store import install_base
-            from cellar.backend.installer import _build_source  # noqa: PLC2701
-            from cellar.utils.progress import fmt_stats
+            from cellar.backend.installer import (  # noqa: PLC2701
+                _build_source,
+                _find_bottle_dir,
+                _stream_and_extract,
+            )
+            from cellar.backend.packager import slugify
 
             archive_uri = repo.resolve_asset_uri(base_entry.archive)
             chunks, total = _build_source(
@@ -153,46 +166,68 @@ class ImportFromCatalogueDialog(Adw.Dialog):
                 ca_cert=repo.ca_cert,
             )
 
-            with tempfile.NamedTemporaryFile(
-                prefix="cellar-base-", suffix=".tar.zst", delete=False,
-            ) as tmp:
-                tmp_path = Path(tmp.name)
-                received = 0
-                t0 = time.monotonic()
-                for chunk in chunks:
-                    tmp.write(chunk)
-                    received += len(chunk)
-                    elapsed = time.monotonic() - t0
-                    speed = received / elapsed if elapsed > 0 else 0.0
-                    if total:
-                        GLib.idle_add(progress.set_fraction, received / total)
-                    GLib.idle_add(progress.set_stats, fmt_stats(received, total or 0, speed))
+            with tempfile.TemporaryDirectory(prefix="cellar-base-import-") as tmp_str:
+                tmp = Path(tmp_str)
+                extract_dir = tmp / "extracted"
+                extract_dir.mkdir()
 
-            GLib.idle_add(progress.set_stats, "")
-            GLib.idle_add(progress.set_label, "Installing base\u2026")
-            GLib.idle_add(progress.set_fraction, 0.0)
-            install_base(
-                tmp_path,
-                base_entry.runner,
-                repo_source=repo.uri,
-                progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-            )
-            tmp_path.unlink(missing_ok=True)
+                _stream_and_extract(
+                    chunks, total,
+                    is_zst=archive_uri.endswith(".tar.zst"),
+                    dest=extract_dir,
+                    expected_crc32=base_entry.archive_crc32,
+                    cancel_event=None,
+                    progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+                    stats_cb=None,
+                    name_cb=None,
+                )
 
-        def _done(_result) -> None:
+                bottle_src = _find_bottle_dir(extract_dir)
+
+                slug = slugify(base_entry.runner)
+                existing = {p.slug for p in load_projects()}
+                base_slug, i = slug, 2
+                while slug in existing:
+                    slug = f"{base_slug}-{i}"
+                    i += 1
+
+                project = Project(
+                    name=base_entry.runner,
+                    slug=slug,
+                    project_type="base",
+                    runner=base_entry.runner,
+                    initialized=True,
+                )
+
+                GLib.idle_add(progress.set_label, "Copying prefix\u2026")
+                GLib.idle_add(progress.set_fraction, 0.0)
+                project.prefix_path.mkdir(parents=True, exist_ok=True)
+                for src in bottle_src.rglob("*"):
+                    rel = src.relative_to(bottle_src)
+                    dst = project.prefix_path / rel
+                    if src.is_dir():
+                        dst.mkdir(parents=True, exist_ok=True)
+                    elif src.is_file():
+                        dst.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(src, dst)
+
+                save_project(project)
+                return project
+
+        def _done(project) -> None:
             progress.force_close()
-            self._on_imported(None)
+            self._on_imported(project)
 
         def _error(msg: str) -> None:
             progress.force_close()
-            log.error("Base download failed: %s", msg)
-            err = Adw.AlertDialog(heading="Download failed", body=msg)
+            log.error("Base import failed: %s", msg)
+            err = Adw.AlertDialog(heading="Import failed", body=msg)
             err.add_response("ok", "OK")
             err.present(root)
 
         run_in_background(_work, on_done=_done, on_error=_error)
 
-    def _start_import(self, entry, repo) -> None:
+    def _start_import_app(self, entry, repo) -> None:
         root = self.get_root()
         self.close()
 
@@ -277,5 +312,53 @@ class ImportFromCatalogueDialog(Adw.Dialog):
             err = Adw.AlertDialog(heading="Import failed", body=msg)
             err.add_response("ok", "OK")
             err.present(root)
+
+        run_in_background(_work, on_done=_done, on_error=_error)
+
+    # ------------------------------------------------------------------
+    # Delete from repo
+    # ------------------------------------------------------------------
+
+    def _on_delete_clicked(self, _btn, idx: int) -> None:
+        if not (0 <= idx < len(self._entries)):
+            return
+        item, repo, kind = self._entries[idx]
+        name = item.runner if kind == "base" else item.name
+        dialog = Adw.AlertDialog(
+            heading="Remove from Repo?",
+            body=f"\u201c{name}\u201d will be permanently deleted from the repository.",
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("remove", "Remove")
+        dialog.set_response_appearance("remove", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.connect("response", self._on_delete_confirmed, idx)
+        dialog.present(self)
+
+    def _on_delete_confirmed(self, _dialog, response: str, idx: int) -> None:
+        if response != "remove":
+            return
+        item, repo, kind = self._entries[idx]
+
+        def _work():
+            from cellar.backend import packager
+            repo_root = repo.writable_path()
+            if kind == "base":
+                packager.remove_base(repo_root, item.runner)
+            else:
+                packager.remove_from_repo(repo_root, item)
+
+        def _done(_result) -> None:
+            self._entries.pop(idx)
+            row = self._list_box.get_row_at_index(idx)
+            if row:
+                self._list_box.remove(row)
+            if self._on_catalogue_changed:
+                self._on_catalogue_changed()
+
+        def _error(msg: str) -> None:
+            log.error("Delete failed: %s", msg)
+            err = Adw.AlertDialog(heading="Delete failed", body=msg)
+            err.add_response("ok", "OK")
+            err.present(self)
 
         run_in_background(_work, on_done=_done, on_error=_error)

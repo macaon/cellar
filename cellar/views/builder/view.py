@@ -412,11 +412,6 @@ class PackageBuilderView(Gtk.Box):
             dep_group = Adw.PreferencesGroup(title="Dependencies")
             for verb in project.deps_installed:
                 row = Adw.ActionRow(title=verb)
-                rm_btn = Gtk.Button(icon_name="edit-delete-symbolic")
-                rm_btn.set_valign(Gtk.Align.CENTER)
-                rm_btn.add_css_class("flat")
-                rm_btn.connect("clicked", self._on_remove_dep_clicked, verb)
-                row.add_suffix(rm_btn)
                 dep_group.add(row)
 
             add_dep_row = Adw.ActionRow(title="Add Dependencies\u2026")
@@ -993,14 +988,6 @@ class PackageBuilderView(Gtk.Box):
             on_dep_changed=lambda: self._show_project(self._project),
         )
         dialog.present(self)
-
-    def _on_remove_dep_clicked(self, _btn, verb: str) -> None:
-        if self._project is None:
-            return
-        if verb in self._project.deps_installed:
-            self._project.deps_installed.remove(verb)
-            save_project(self._project)
-            self._show_project(self._project)
 
     # ------------------------------------------------------------------
     # Signal handlers — files

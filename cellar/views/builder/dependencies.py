@@ -189,19 +189,11 @@ class DependencyPickerDialog(Adw.Dialog):
         spinner.set_size_request(16, 16)
         stack.add_named(spinner, "installing")
 
-        # installed: check icon + remove button
-        installed_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        installed_box.set_valign(Gtk.Align.CENTER)
+        # installed: check icon only (winetricks has no reliable uninstall)
         check = Gtk.Image.new_from_icon_name("check-round-outline2-symbolic")
+        check.set_valign(Gtk.Align.CENTER)
         check.add_css_class("success")
-        remove_btn = Gtk.Button(icon_name="edit-delete-symbolic")
-        remove_btn.set_valign(Gtk.Align.CENTER)
-        remove_btn.set_tooltip_text(f"Remove {verb} from tracking")
-        remove_btn.add_css_class("flat")
-        remove_btn.connect("clicked", self._on_remove_clicked, verb, stack)
-        installed_box.append(check)
-        installed_box.append(remove_btn)
-        stack.add_named(installed_box, "installed")
+        stack.add_named(check, "installed")
 
         state = "installed" if verb in self._project.deps_installed else "idle"
         stack.set_visible_child_name(state)
@@ -268,11 +260,3 @@ class DependencyPickerDialog(Adw.Dialog):
 
         run_in_background(_work, on_done=_finish, on_error=_on_err)
 
-    # ── Remove handler ──────────────────────────────────────────────────────
-
-    def _on_remove_clicked(self, _btn, verb: str, stack: Gtk.Stack) -> None:
-        if verb in self._project.deps_installed:
-            self._project.deps_installed.remove(verb)
-        save_project(self._project)
-        stack.set_visible_child_name("idle")
-        self._on_dep_changed()

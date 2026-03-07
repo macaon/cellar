@@ -127,7 +127,7 @@ class DetailView(Gtk.Box):
             and bool(_cat_crc and _stored_crc and _cat_crc != _stored_crc)
         )
         self._screenshot_paths: list[str] = []
-        self._resolved_runner: str = (installed_record or {}).get("runner") or ""
+        self._resolved_runner: str = ""
         self._runner_label: Gtk.Label | None = None
         self._base_warning_icon: Gtk.Image | None = None
         # Base image resolution — populated once by _resolve_base_async.
@@ -933,8 +933,7 @@ class DetailView(Gtk.Box):
             _add(_simple_card("penguin-alt-symbolic", "Native", "Linux")[0])
         elif e.base_image:
             _add(self._make_wine_card())
-            if not self._resolved_runner:
-                self._resolve_base_async()
+            self._resolve_base_async()
 
         if e.version:
             _add(_simple_card("software-update-available-symbolic", e.version, "Version")[0])
@@ -1022,7 +1021,7 @@ class DetailView(Gtk.Box):
             installed, base_sz, runner = result
             self._base_installed = installed
             self._base_sz = base_sz
-            if not self._resolved_runner and runner:
+            if runner:
                 self._resolved_runner = runner
                 if self._runner_label:
                     self._runner_label.set_label(runner)

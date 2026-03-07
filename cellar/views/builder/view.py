@@ -371,6 +371,25 @@ class PackageBuilderView(Gtk.Box):
             else:
                 self._populate_base_expander(project)
 
+        # ── 2b. Base Name (base projects only) ───────────────────────────
+        if project.project_type == "base":
+            name_group = Adw.PreferencesGroup(title="Base Name")
+            self._base_name_row = Adw.EntryRow(title="Name")
+            self._base_name_row.set_text(project.name)
+
+            def _on_base_name_changed(row):
+                if self._project:
+                    self._project.name = row.get_text()
+                    save_project(self._project)
+                    for r in self._project_rows:
+                        if r.project.slug == self._project.slug:
+                            r._label.set_text(self._project.name)
+                            break
+
+            self._base_name_row.connect("changed", _on_base_name_changed)
+            name_group.add(self._base_name_row)
+            page.add(name_group)
+
         # ── 3. Prefix (Windows / Base only) ───────────────────────────────
         if project.project_type != "linux":
             prefix_group = Adw.PreferencesGroup(title="Prefix")
@@ -667,8 +686,14 @@ class PackageBuilderView(Gtk.Box):
         """Select a runner for the current base project."""
         if not check.get_active() or self._project is None:
             return
+        # Pre-fill the base name with the runner name if it's empty or
+        # still matches the previous runner (i.e. the user hasn't customised it).
+        old_runner = self._project.runner
         self._project.runner = runner_name
-        self._project.name = runner_name
+        if not self._project.name or self._project.name == old_runner or self._project.name == "(no runner)":
+            self._project.name = runner_name
+            if hasattr(self, "_base_name_row"):
+                self._base_name_row.set_text(runner_name)
         for r in self._project_rows:
             if r.project is self._project:
                 r.refresh_label()
@@ -694,7 +719,8 @@ class PackageBuilderView(Gtk.Box):
         if project is not None and self._project is project:
             if not project.runner:
                 project.runner = runner_name
-                project.name = runner_name
+                if not project.name or project.name == "(no runner)":
+                    project.name = runner_name
                 for r in self._project_rows:
                     if r.project is project:
                         r.refresh_label()
@@ -1488,9 +1514,12 @@ class PackageBuilderView(Gtk.Box):
             text = (_trunc(name, 28) + " \u2022 " if name else "") + fmt_size(n) + " written"
             GLib.idle_add(progress.set_stats, text)
 
+        base_name = project.name
+
         def _work():
             from cellar.backend.packager import (
-                compress_prefix_zst, compress_runner_zst, upsert_base,
+                compress_prefix_zst, compress_runner_zst,
+                upsert_runner, upsert_base,
             )
             from cellar.backend.base_store import install_base_from_dir
             from cellar.backend.umu import runners_dir
@@ -1517,7 +1546,7 @@ class PackageBuilderView(Gtk.Box):
             # ── Compress and upload the base image ────────────────────────
             GLib.idle_add(progress.set_label, "Compressing and uploading base image…")
             GLib.idle_add(progress.set_fraction, 0.0)
-            archive_dest_rel = f"bases/{runner}-base.tar.zst"
+            archive_dest_rel = f"bases/{base_name}-base.tar.zst"
             archive_dest = repo_root / archive_dest_rel
             archive_dest.parent.mkdir(parents=True, exist_ok=True)
 
@@ -1532,18 +1561,18 @@ class PackageBuilderView(Gtk.Box):
             GLib.idle_add(progress.set_label, "Finalizing…")
             GLib.idle_add(progress.set_stats, "")
             GLib.idle_add(progress.start_pulse)
+            upsert_runner(
+                repo_root, runner, runner_archive_rel, runner_crc32, runner_size,
+            )
             upsert_base(
-                repo_root, runner, runner, archive_dest_rel, crc32, size,
-                runner_archive=runner_archive_rel,
-                runner_archive_crc32=runner_crc32,
-                runner_archive_size=runner_size,
+                repo_root, base_name, runner, archive_dest_rel, crc32, size,
             )
 
             GLib.idle_add(progress.set_label, "Installing base locally…")
             GLib.idle_add(progress.set_fraction, 0.0)
             install_base_from_dir(
                 project.prefix_path,
-                runner,
+                base_name,
                 repo_source=repo.uri,
                 progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
             )
@@ -1554,7 +1583,7 @@ class PackageBuilderView(Gtk.Box):
             self._project = None
             self._reload_projects()
             self._detail_stack.set_visible_child_name("empty")
-            self._show_toast(f"Base '{project.runner}' published.")
+            self._show_toast(f"Base '{base_name}' published.")
             if self._on_catalogue_changed:
                 self._on_catalogue_changed()
 

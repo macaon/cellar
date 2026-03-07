@@ -38,7 +38,7 @@ from urllib.parse import urlparse
 
 import requests
 
-from cellar.models.app_entry import AppEntry, BaseEntry
+from cellar.models.app_entry import AppEntry, BaseEntry, RunnerEntry
 from cellar.utils.http import DEFAULT_TIMEOUT, make_session
 
 log = logging.getLogger(__name__)
@@ -336,6 +336,7 @@ class Repo:
         self._ca_cert = ca_cert
         self._smb_username = smb_username
         self._cache_dir: Path | None = None
+        self._runners: dict[str, RunnerEntry] = {}
         self._bases: dict[str, BaseEntry] = {}
         self._fetcher: _Fetcher = _make_fetcher(
             uri,
@@ -393,9 +394,13 @@ class Repo:
         elif isinstance(raw, dict):
             items = raw.get("apps", [])
             self._init_asset_cache(raw.get("generated_at"))
+            self._runners = {
+                name: RunnerEntry.from_dict(name, data)
+                for name, data in raw.get("runners", {}).items()
+            }
             self._bases = {
-                runner: BaseEntry.from_dict(runner, data)
-                for runner, data in raw.get("bases", {}).items()
+                name: BaseEntry.from_dict(name, data)
+                for name, data in raw.get("bases", {}).items()
             }
             category_icons_raw = raw.get("category_icons") or {}
         else:
@@ -416,12 +421,23 @@ class Repo:
         log.info("Loaded %d entries from %s", len(entries), self.uri)
         return entries
 
+    def fetch_runners(self) -> dict[str, RunnerEntry]:
+        """Return the runner map for this repo.
+
+        Always re-reads catalogue.json so callers see runners that were
+        uploaded after the catalogue was first fetched.
+        Keys are runner version strings (e.g. ``"GE-Proton10-32"``).
+        """
+        self.fetch_catalogue()
+        return dict(self._runners)
+
     def fetch_bases(self) -> dict[str, BaseEntry]:
         """Return the base-image map for this repo.
 
         Always re-reads catalogue.json so callers see bases that were
         uploaded after the catalogue was first fetched.
-        Keys are runner name strings (e.g. ``"soda-9.0-1"``).
+        Keys are base name strings (e.g. ``"GE-Proton10-32"`` or
+        ``"GE-Proton10-32-dotnet"``).
         """
         self.fetch_catalogue()
         return dict(self._bases)

@@ -37,24 +37,52 @@ class BuiltWith:
 
 
 @dataclass(frozen=True, slots=True)
+class RunnerEntry:
+    """A GE-Proton runner archived in the repository.
+
+    Stored in the top-level ``runners`` dict of ``catalogue.json``.
+    The dict key is the runner version string (e.g. ``"GE-Proton10-32"``).
+    """
+
+    name: str           # catalogue key, e.g. "GE-Proton10-32"
+    archive: str        # repo-relative path, e.g. "runners/GE-Proton10-32.tar.zst"
+    archive_size: int = 0
+    archive_crc32: str = ""
+
+    @classmethod
+    def from_dict(cls, name: str, data: dict) -> "RunnerEntry":
+        return cls(
+            name=name,
+            archive=data.get("archive", ""),
+            archive_size=int(data.get("archive_size", 0)),
+            archive_crc32=data.get("archive_crc32", ""),
+        )
+
+    def to_dict(self) -> dict:
+        d: dict = {"archive": self.archive}
+        if self.archive_size:
+            d["archive_size"] = self.archive_size
+        if self.archive_crc32:
+            d["archive_crc32"] = self.archive_crc32
+        return d
+
+
+@dataclass(frozen=True, slots=True)
 class BaseEntry:
     """A base bottle image used as the shared foundation for delta packages.
 
     Stored in the top-level ``bases`` dict of ``catalogue.json``.  The dict
     key is the base's display *name* (e.g. ``"GE-Proton10-32"`` or a custom
-    label like ``"GE-Proton10-32-dotnet"``).  The *runner* field holds the
-    actual GE-Proton version used to create this base and required at runtime.
-    For simple bases the two are typically the same string.
+    label like ``"GE-Proton10-32-dotnet"``).  The *runner* field references
+    a key in the ``runners`` section — the GE-Proton version baked into this
+    base image and required at runtime.
     """
 
     name: str           # catalogue key / display name, e.g. "GE-Proton10-32-dotnet"
-    runner: str         # GE-Proton version, e.g. "GE-Proton10-32"
+    runner: str         # references runners dict key, e.g. "GE-Proton10-32"
     archive: str        # repo-relative path to the base archive
     archive_size: int = 0
     archive_crc32: str = ""
-    runner_archive: str = ""        # repo-relative path to the runner archive
-    runner_archive_size: int = 0
-    runner_archive_crc32: str = ""
 
     @classmethod
     def from_dict(cls, name: str, data: dict) -> "BaseEntry":
@@ -64,9 +92,6 @@ class BaseEntry:
             archive=data.get("archive", ""),
             archive_size=int(data.get("archive_size", 0)),
             archive_crc32=data.get("archive_crc32", ""),
-            runner_archive=data.get("runner_archive", ""),
-            runner_archive_size=int(data.get("runner_archive_size", 0)),
-            runner_archive_crc32=data.get("runner_archive_crc32", ""),
         )
 
     def to_dict(self) -> dict:
@@ -75,12 +100,6 @@ class BaseEntry:
             d["archive_size"] = self.archive_size
         if self.archive_crc32:
             d["archive_crc32"] = self.archive_crc32
-        if self.runner_archive:
-            d["runner_archive"] = self.runner_archive
-        if self.runner_archive_size:
-            d["runner_archive_size"] = self.runner_archive_size
-        if self.runner_archive_crc32:
-            d["runner_archive_crc32"] = self.runner_archive_crc32
         return d
 
 

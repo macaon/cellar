@@ -646,6 +646,7 @@ def _upsert_catalogue(repo_root: Path, entry) -> None:
     """Replace or append *entry* in ``catalogue.json``."""
     cat_path = repo_root / "catalogue.json"
     categories: list[str] | None = None
+    runners: dict | None = None
     bases: dict | None = None
     category_icons: dict[str, str] | None = None
     if cat_path.exists():
@@ -653,6 +654,7 @@ def _upsert_catalogue(repo_root: Path, entry) -> None:
         apps = raw.get("apps", raw) if isinstance(raw, dict) else raw
         if isinstance(raw, dict):
             categories = raw.get("categories")
+            runners = raw.get("runners")
             bases = raw.get("bases")
             category_icons = raw.get("category_icons")
     else:
@@ -666,7 +668,7 @@ def _upsert_catalogue(repo_root: Path, entry) -> None:
             categories = []
         if category not in categories:
             categories.append(category)
-    _write_catalogue(cat_path, apps, categories, bases, category_icons)
+    _write_catalogue(cat_path, apps, categories, runners, bases, category_icons)
 
 
 def _remove_from_catalogue(repo_root: Path, app_id: str) -> None:
@@ -677,16 +679,18 @@ def _remove_from_catalogue(repo_root: Path, app_id: str) -> None:
     raw = json.loads(cat_path.read_text())
     apps = raw.get("apps", raw) if isinstance(raw, dict) else raw
     categories = raw.get("categories") if isinstance(raw, dict) else None
+    runners = raw.get("runners") if isinstance(raw, dict) else None
     bases = raw.get("bases") if isinstance(raw, dict) else None
     category_icons = raw.get("category_icons") if isinstance(raw, dict) else None
     apps = [a for a in apps if a.get("id") != app_id]
-    _write_catalogue(cat_path, apps, categories, bases, category_icons)
+    _write_catalogue(cat_path, apps, categories, runners, bases, category_icons)
 
 
 def _write_catalogue(
     cat_path: Path,
     apps: list,
     categories: list[str] | None = None,
+    runners: dict | None = None,
     bases: dict | None = None,
     category_icons: dict[str, str] | None = None,
 ) -> None:
@@ -697,11 +701,44 @@ def _write_catalogue(
     }
     if categories is not None:
         data["categories"] = categories
+    if runners is not None:
+        data["runners"] = runners
     if bases is not None:
         data["bases"] = bases
     if category_icons is not None:
         data["category_icons"] = category_icons
     cat_path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+
+
+def upsert_runner(
+    repo_root: Path,
+    name: str,
+    archive_path: str,
+    archive_crc32: str = "",
+    archive_size: int = 0,
+) -> None:
+    """Add or replace a runner entry in the ``runners`` section of ``catalogue.json``.
+
+    *name* is the runner version string (e.g. ``"GE-Proton10-32"``).
+    *archive_path* is the repo-relative path to the compressed runner
+    (e.g. ``"runners/GE-Proton10-32.tar.zst"``).
+    """
+    cat_path = repo_root / "catalogue.json"
+    if cat_path.exists():
+        raw = json.loads(cat_path.read_text())
+        apps = raw.get("apps", []) if isinstance(raw, dict) else []
+        categories = raw.get("categories") if isinstance(raw, dict) else None
+        runners: dict = dict(raw.get("runners") or {})
+        bases = raw.get("bases") if isinstance(raw, dict) else None
+        category_icons = raw.get("category_icons") if isinstance(raw, dict) else None
+    else:
+        apps, categories, runners, bases, category_icons = [], None, {}, None, None
+    runners[name] = {"archive": archive_path}
+    if archive_size:
+        runners[name]["archive_size"] = archive_size
+    if archive_crc32:
+        runners[name]["archive_crc32"] = archive_crc32
+    _write_catalogue(cat_path, apps, categories, runners, bases, category_icons)
 
 
 def upsert_base(
@@ -711,46 +748,34 @@ def upsert_base(
     archive_path: str,
     archive_crc32: str = "",
     archive_size: int = 0,
-    *,
-    runner_archive: str = "",
-    runner_archive_crc32: str = "",
-    runner_archive_size: int = 0,
 ) -> None:
     """Add or replace a base image entry in ``catalogue.json``.
 
     *name* is the catalogue key (display name, e.g. ``"GE-Proton10-32"`` or a
     custom label like ``"GE-Proton10-32-dotnet"``).  *runner* is the GE-Proton
-    version used to create the base (e.g. ``"GE-Proton10-32"``).  For simple
-    bases the two are typically the same string.
+    version used to create the base (e.g. ``"GE-Proton10-32"``), which must
+    exist as a key in the ``runners`` section.
 
     *archive_path* must be a repo-relative path (e.g.
     ``"bases/GE-Proton10-32-base.tar.zst"``).  The physical archive must
     already have been copied to the repo before calling this.
-
-    When *runner_archive* is provided, the runner binary archive is also
-    recorded so that clients can download it from the repo instead of GitHub.
     """
     cat_path = repo_root / "catalogue.json"
     if cat_path.exists():
         raw = json.loads(cat_path.read_text())
         apps = raw.get("apps", []) if isinstance(raw, dict) else []
         categories = raw.get("categories") if isinstance(raw, dict) else None
+        runners = raw.get("runners") if isinstance(raw, dict) else None
         bases: dict = dict(raw.get("bases") or {})
         category_icons = raw.get("category_icons") if isinstance(raw, dict) else None
     else:
-        apps, categories, bases, category_icons = [], None, {}, None
+        apps, categories, runners, bases, category_icons = [], None, None, {}, None
     bases[name] = {"runner": runner, "archive": archive_path}
     if archive_size:
         bases[name]["archive_size"] = archive_size
     if archive_crc32:
         bases[name]["archive_crc32"] = archive_crc32
-    if runner_archive:
-        bases[name]["runner_archive"] = runner_archive
-    if runner_archive_size:
-        bases[name]["runner_archive_size"] = runner_archive_size
-    if runner_archive_crc32:
-        bases[name]["runner_archive_crc32"] = runner_archive_crc32
-    _write_catalogue(cat_path, apps, categories, bases, category_icons)
+    _write_catalogue(cat_path, apps, categories, runners, bases, category_icons)
 
 
 def remove_base(repo_root: Path, name: str) -> None:
@@ -763,10 +788,41 @@ def remove_base(repo_root: Path, name: str) -> None:
         return
     apps = raw.get("apps", [])
     categories = raw.get("categories")
+    runners = raw.get("runners")
     bases = dict(raw.get("bases") or {})
     category_icons = raw.get("category_icons")
     bases.pop(name, None)
-    _write_catalogue(cat_path, apps, categories, bases if bases else None, category_icons)
+    _write_catalogue(cat_path, apps, categories, runners, bases if bases else None, category_icons)
+
+
+def remove_runner(repo_root: Path, runner_name: str) -> None:
+    """Remove a runner entry and its archive from ``catalogue.json``.
+
+    Deletes the physical archive (if it exists) and removes the runner
+    from the ``runners`` section.  Base entries referencing this runner
+    are **not** removed — they become unresolvable until a matching
+    runner is re-published.
+    """
+    cat_path = repo_root / "catalogue.json"
+    if not cat_path.exists():
+        return
+    raw = json.loads(cat_path.read_text())
+    if not isinstance(raw, dict):
+        return
+    apps = raw.get("apps", [])
+    categories = raw.get("categories")
+    runners = dict(raw.get("runners") or {})
+    bases = raw.get("bases")
+    category_icons = raw.get("category_icons")
+
+    entry = runners.pop(runner_name, None)
+    if entry and entry.get("archive"):
+        try:
+            (repo_root / entry["archive"]).unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    _write_catalogue(cat_path, apps, categories, runners if runners else None, bases, category_icons)
 
 
 def create_delta_archive(

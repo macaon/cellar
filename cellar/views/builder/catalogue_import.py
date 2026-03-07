@@ -55,8 +55,6 @@ class CatalogueEntriesDialog(Adw.Dialog):
         run_in_background(self._fetch_entries)
 
     def _fetch_entries(self) -> None:
-        from types import SimpleNamespace
-
         apps: list[tuple] = []
         bases: list[tuple] = []
         runners: list[tuple] = []
@@ -70,19 +68,14 @@ class CatalogueEntriesDialog(Adw.Dialog):
             except Exception as exc:
                 log.warning("Could not fetch catalogue from %s: %s", repo.uri, exc)
             try:
+                for name, runner_entry in repo.fetch_runners().items():
+                    if name not in seen_runners:
+                        seen_runners.add(name)
+                        runners.append((runner_entry, repo, "runner"))
                 for name, base_entry in repo.fetch_bases().items():
                     if name not in seen_bases:
                         seen_bases.add(name)
                         bases.append((base_entry, repo, "base"))
-                    if base_entry.runner_archive and base_entry.runner not in seen_runners:
-                        seen_runners.add(base_entry.runner)
-                        runner_item = SimpleNamespace(
-                            name=base_entry.runner,
-                            archive=base_entry.runner_archive,
-                            archive_size=base_entry.runner_archive_size,
-                            archive_crc32=base_entry.runner_archive_crc32,
-                        )
-                        runners.append((runner_item, repo, "runner"))
             except Exception as exc:
                 log.warning("Could not fetch bases from %s: %s", repo.uri, exc)
         apps.sort(key=lambda t: t[0].name.lower())
@@ -497,7 +490,7 @@ class CatalogueEntriesDialog(Adw.Dialog):
             if kind == "base":
                 packager.remove_base(repo_root, item.name)
             elif kind == "runner":
-                packager.remove_runner_archive(repo_root, item.name)
+                packager.remove_runner(repo_root, item.name)
             else:
                 packager.remove_from_repo(repo_root, item)
 

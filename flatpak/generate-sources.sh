@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
-# Regenerate flatpak/python-sources.json from requirements.txt.
+# Regenerate the Python dependency entries in python-sources.json.
+#
+# flatpak-builder requires included files to be single module objects, not
+# arrays, so the contents of python-sources.json are inlined directly into
+# io.github.cellar.json.  Use this script to regenerate python-sources.json
+# when dependencies change, then manually merge the array entries into the
+# manifest's "modules" section (replacing everything between the first
+# python3-* module and the "cellar" module).
 #
 # Requires flatpak-pip-generator from:
 #   https://github.com/flatpak/flatpak-builder-tools/tree/master/pip
@@ -8,8 +15,6 @@
 #   pip install --user aiohttp aiofiles
 #   curl -O https://raw.githubusercontent.com/flatpak/flatpak-builder-tools/master/pip/flatpak-pip-generator
 #   chmod +x flatpak-pip-generator
-#
-# Then run this script from the repo root or the flatpak/ directory.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -29,3 +34,4 @@ cd "$SCRIPT_DIR"
     --requirements-file requirements.txt
 
 echo "Done — flatpak/python-sources.json updated."
+echo "Copy the array entries into the modules section of io.github.cellar.json."

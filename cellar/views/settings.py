@@ -89,7 +89,7 @@ class SettingsDialog(Adw.PreferencesDialog):
             description=(
                 "Where Cellar stores prefixes, native apps, and base images. "
                 "A \u2018Cellar\u2019 subfolder is created at the chosen location. "
-                "Changing this does not move existing installs."
+                "Existing installs are moved to the new location automatically."
             ),
         )
         page.add(group)

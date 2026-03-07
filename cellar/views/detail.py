@@ -256,7 +256,6 @@ class DetailView(Gtk.Box):
         runner_to_install = ""
         if required_runner and self._runners_loaded and effective not in self._installed_runners:
             runner_to_install = effective
-        # Always show confirm page for Windows apps (runner selection)
         self._proceed_to_install(runner_to_install=runner_to_install)
 
     def _resolve_runner_info(self, runner_name: str) -> dict | None:
@@ -1483,48 +1482,31 @@ class InstallProgressDialog(Adw.Dialog):
 
         def _run() -> None:
             try:
-                # ── Runner download phase (if needed) ─────────────────────
+                # ── Runner download (if needed) ───────────────────────────
                 if self._runner_to_install and self._runner_info:
                     from cellar.views.install_runner import _Cancelled, _download_and_extract_runner
 
-                    _set_phase("Downloading runner\u2026")
-
-                    def _runner_progress(fraction: float) -> None:
-                        GLib.idle_add(self._progress_bar.set_fraction, fraction)
-
-                    def _runner_stats(downloaded: int, total: int, speed: float) -> None:
-                        GLib.idle_add(self._progress_bar.set_text, _fmt_dl_stats(downloaded, total, speed))
-
-                    def _runner_phase(text: str) -> None:
-                        GLib.idle_add(self._on_phase_change, text)
-
-                    _last_runner_name_t: list[float] = [0.0]
-
-                    def _runner_name(filename: str) -> None:
-                        now = time.monotonic()
-                        if now - _last_runner_name_t[0] >= 0.08:
-                            _last_runner_name_t[0] = now
-                            GLib.idle_add(self._progress_bar.set_text, _trunc_filename(filename))
+                    _set_phase("Downloading\u2026")
 
                     try:
                         _download_and_extract_runner(
                             url=self._runner_info["url"],
                             checksum=self._runner_info["checksum"],
                             target_dir=self._runner_info["target_dir"],
-                            progress_cb=_runner_progress,
-                            stats_cb=_runner_stats,
-                            phase_cb=_runner_phase,
-                            name_cb=_runner_name,
+                            progress_cb=_dl_progress,
+                            stats_cb=_dl_stats,
+                            phase_cb=_set_phase,
+                            name_cb=None,
                             cancel_event=self._cancel_event,
                         )
                     except _Cancelled:
                         from cellar.backend.installer import InstallCancelled as _IC
-                        raise _IC("Runner download cancelled")
+                        raise _IC("Cancelled")
 
                     if self._cancel_event.is_set():
-                        raise InstallCancelled("Runner download cancelled")
+                        raise InstallCancelled("Cancelled")
 
-                # ── App install phase (includes base download if needed) ───
+                # ── App install (includes base download if needed) ────────
                 _set_phase("Downloading & extracting\u2026")
                 effective_runner = self._runner_to_install or (
                     self._installed_runners[0] if self._installed_runners else ""

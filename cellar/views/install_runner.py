@@ -122,7 +122,7 @@ class InstallRunnerDialog(Adw.Dialog):
 
     def _build_progress_page(self) -> Gtk.Widget:
         box, self._phase_label, self._progress_bar, self._cancel_body_btn = (
-            make_progress_page("Downloading runner\u2026", self._on_cancel_progress_clicked)
+            make_progress_page("Downloading\u2026", self._on_cancel_progress_clicked)
         )
         return box
 
@@ -281,7 +281,7 @@ def _download_and_extract_runner(
             raise _Cancelled
 
         # ── Extract ───────────────────────────────────────────────────────
-        phase_cb("Extracting runner\u2026")
+        phase_cb("Extracting\u2026")
         progress_cb(0.0)
         use_filter = sys.version_info >= (3, 12)
         with tempfile.TemporaryDirectory() as extract_dir:

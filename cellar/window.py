@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
-import threading
+from cellar.utils.async_work import run_in_background
 from pathlib import Path
 
 import gi
@@ -161,7 +161,7 @@ class CellarWindow(Adw.ApplicationWindow):
 
         # Pre-warm the GE-Proton release list in the background.
         from cellar.backend import runners
-        threading.Thread(target=runners.fetch_releases, daemon=True).start()
+        run_in_background(runners.fetch_releases)
 
     # ── Catalogue loading ─────────────────────────────────────────────────
 
@@ -459,7 +459,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="io.github.cellar",
-            version="0.43.26",
+            version="0.43.27",
             comments="A GNOME storefront for Windows and Linux apps.",
             license_type=Gtk.License.GPL_3_0,
         )

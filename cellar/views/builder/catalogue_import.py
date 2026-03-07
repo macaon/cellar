@@ -5,7 +5,7 @@ from __future__ import annotations
 import html
 import logging
 import shutil
-import threading
+from cellar.utils.async_work import run_in_background
 from pathlib import Path
 from typing import Callable
 
@@ -85,7 +85,7 @@ class ImportFromCatalogueDialog(Adw.Dialog):
         toolbar.set_content(self._stack)
         self.set_child(toolbar)
 
-        threading.Thread(target=self._fetch_entries, daemon=True).start()
+        run_in_background(self._fetch_entries)
 
     def _fetch_entries(self) -> None:
         apps: list[tuple] = []

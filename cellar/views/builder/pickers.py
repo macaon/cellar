@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
-import threading
+from cellar.utils.async_work import run_in_background
 from pathlib import Path
 from typing import Callable
 
@@ -190,7 +190,7 @@ class RunnerPickerDialog(Adw.Dialog):
         toolbar.set_content(self._stack)
         self.set_child(toolbar)
 
-        threading.Thread(target=self._fetch_releases, daemon=True).start()
+        run_in_background(self._fetch_releases)
 
     def _fetch_releases(self) -> None:
         from cellar.backend import runners as _runners
@@ -326,7 +326,7 @@ class BasePickerDialog(Adw.Dialog):
         toolbar.set_content(self._stack)
         self.set_child(toolbar)
 
-        threading.Thread(target=self._fetch_bases, daemon=True).start()
+        run_in_background(self._fetch_bases)
 
     def _fetch_bases(self) -> None:
         results: list[tuple] = []

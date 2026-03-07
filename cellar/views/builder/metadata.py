@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-import threading
+from cellar.utils.async_work import run_in_background
 from pathlib import Path
 from typing import Callable
 
@@ -389,7 +389,7 @@ class AppMetadataDialog(Adw.Dialog):
                     log.warning("Screenshot download failed: %s", exc)
             GLib.idle_add(self._on_screenshots_downloaded, downloaded + list(local_paths))
 
-        threading.Thread(target=_download, daemon=True).start()
+        run_in_background(_download)
 
     def _on_screenshots_downloaded(self, paths: list[str]) -> None:
         self._apply_screenshot_paths(paths)

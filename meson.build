@@ -1,5 +1,5 @@
 project('cellar',
-  version: '0.44.6',
+  version: '0.45.0',
   meson_version: '>= 1.0.0',
   license: 'GPL-3.0-or-later',
 )
@@ -8,6 +8,12 @@ python = import('python').find_installation('python3', required: true)
 gnome = import('gnome')
 
 app_id = 'io.github.cellar'
+
+install_data(
+  'bin/cellar',
+  install_dir: get_option('bindir'),
+  install_mode: 'rwxr-xr-x',
+)
 
 subdir('cellar')
 subdir('data')

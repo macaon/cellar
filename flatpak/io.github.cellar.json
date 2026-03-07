@@ -1,0 +1,36 @@
+{
+  "app-id": "io.github.cellar",
+  "runtime": "org.gnome.Platform",
+  "runtime-version": "46",
+  "sdk": "org.gnome.Sdk",
+  "command": "cellar",
+  "finish-args": [
+    "--share=network",
+    "--share=ipc",
+    "--socket=wayland",
+    "--socket=fallback-x11",
+    "--socket=ssh-auth",
+    "--filesystem=home",
+    "--device=dri",
+    "--talk-name=org.freedesktop.Flatpak",
+    "--talk-name=org.freedesktop.secrets"
+  ],
+  "build-options": {
+    "env": {
+      "PIP_DISABLE_PIP_VERSION_CHECK": "1"
+    }
+  },
+  "modules": [
+    "python-sources.json",
+    {
+      "name": "cellar",
+      "buildsystem": "meson",
+      "sources": [
+        {
+          "type": "dir",
+          "path": ".."
+        }
+      ]
+    }
+  ]
+}

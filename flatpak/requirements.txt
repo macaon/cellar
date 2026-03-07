@@ -1,0 +1,8 @@
+# Python dependencies for Cellar Flatpak.
+# Run generate-sources.sh to regenerate python-sources.json from this file.
+PyYAML>=6.0
+Pillow>=10.0
+requests>=2.31
+zstandard>=0.21
+smbprotocol>=1.13
+keyring>=24.0

@@ -47,15 +47,22 @@ def detect_umu(override: str | None = None) -> str | None:
 
     Search order:
     1. *override* (from ``config.json`` ``umu_path`` key)
-    2. ``sys.executable -m umu`` — the Python running Cellar; most likely to
+    2. When sandboxed (Flatpak): return ``"umu-run"`` immediately — probing
+       host binaries from inside the sandbox is not possible, and
+       ``_umu_cmd()`` will prepend ``flatpak-spawn --host`` automatically.
+    3. ``sys.executable -m umu`` — the Python running Cellar; most likely to
        have umu installed when the user installed it via pip/pipx/uv.
-    3. ``umu-run`` on ``$PATH`` — only if the script actually works (its
+    4. ``umu-run`` on ``$PATH`` — only if the script actually works (its
        shebang may point to a different Python that lacks the umu package).
-    4. ``/app/bin/umu-run`` (Flatpak bundle location)
     """
     import sys
     if override:
         return override
+    if is_cellar_sandboxed():
+        # Inside the Flatpak sandbox we cannot probe host binaries.
+        # _umu_cmd() will prepend ["flatpak-spawn", "--host"] so "umu-run"
+        # resolves against the host's PATH at execution time.
+        return "umu-run"
     # Prefer the interpreter that's running Cellar right now.
     if _probe_umu([sys.executable, "-m", "umu"]):
         return f"{sys.executable} -m umu"
@@ -63,9 +70,6 @@ def detect_umu(override: str | None = None) -> str | None:
     found = shutil.which("umu-run")
     if found and _probe_umu([found]):
         return found
-    bundled = Path("/app/bin/umu-run")
-    if bundled.is_file() and _probe_umu([str(bundled)]):
-        return str(bundled)
     return None
 
 

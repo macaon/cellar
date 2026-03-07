@@ -1,0 +1,6 @@
+#!/usr/bin/env python3
+"""Entry point wrapper for meson/Flatpak installs."""
+import sys
+from cellar.main import main
+
+sys.exit(main())

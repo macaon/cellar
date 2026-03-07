@@ -353,11 +353,20 @@ class PackageBuilderView(Gtk.Box):
             self._sel_active_row = Adw.ActionRow(title=sel_group_title)
             self._sel_active_row.set_subtitle(sel_active_label)
 
-            self._sel_expander = Adw.ExpanderRow(title="Change\u2026")
-            self._sel_expander.set_expanded(expand_sel)
+            if project.project_type == "base":
+                # Flat layout: runner list + Download button, no expander
+                self._sel_expander = sel_group
+                dl_btn = Gtk.Button(label="Download", valign=Gtk.Align.CENTER)
+                dl_btn.add_css_class("suggested-action")
+                dl_btn.connect("clicked", self._on_download_runner_clicked)
+                self._sel_active_row.add_suffix(dl_btn)
+                sel_group.add(self._sel_active_row)
+            else:
+                self._sel_expander = Adw.ExpanderRow(title="Change\u2026")
+                self._sel_expander.set_expanded(expand_sel)
+                sel_group.add(self._sel_active_row)
+                sel_group.add(self._sel_expander)
 
-            sel_group.add(self._sel_active_row)
-            sel_group.add(self._sel_expander)
             page.add(sel_group)
 
             if project.project_type == "base":
@@ -631,7 +640,7 @@ class PackageBuilderView(Gtk.Box):
     # ------------------------------------------------------------------
 
     def _populate_runner_expander(self, project: Project) -> None:
-        """Populate the Runner expander with radio rows for installed runners."""
+        """Populate the Runner group with radio rows for installed runners."""
         from cellar.backend import runners as _runners
 
         first_check: Gtk.CheckButton | None = None
@@ -655,15 +664,7 @@ class PackageBuilderView(Gtk.Box):
             del_btn.connect("clicked", self._on_delete_runner_clicked, rname)
             row.add_suffix(del_btn)
 
-            self._sel_expander.add_row(row)
-
-        add_row = Adw.ActionRow(title="Download Runner")
-        add_btn = Gtk.Button(label="Add\u2026", valign=Gtk.Align.CENTER)
-        add_btn.add_css_class("suggested-action")
-        add_btn.connect("clicked", self._on_download_runner_clicked)
-        add_row.add_suffix(add_btn)
-        add_row.set_activatable_widget(add_btn)
-        self._sel_expander.add_row(add_row)
+            self._sel_expander.add(row)
 
     def _on_runner_radio_toggled(self, check: Gtk.CheckButton, runner_name: str) -> None:
         """Select a runner for the current base project."""

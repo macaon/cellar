@@ -268,91 +268,96 @@ def update_app_safe(
         )
         _check_cancel(cancel_event)
 
-    with tempfile.TemporaryDirectory(prefix="cellar-update-") as tmp_str:
-        tmp = Path(tmp_str)
+    # Stash lives in its own temp dir, outside the update work dir, so it
+    # survives any exception thrown during download/extract/overlay.
+    files_to_stash = modified_files + user_files
+    with tempfile.TemporaryDirectory(prefix="cellar-stash-") as stash_tmp_str:
+        stash_dir = Path(stash_tmp_str)
 
-        # Stash user files into the temp dir before overlay touches them.
-        stash_dir = tmp / "stash"
-        files_to_stash = modified_files + user_files
         if files_to_stash:
             if phase_cb:
                 phase_cb("Preserving user data\u2026")
             _stash_files(files_to_stash, prefix_path, stash_dir)
 
-        # ── Phases 2-4: Stream, verify CRC32, extract (single pass) ──────────
-        if phase_cb:
-            phase_cb("Downloading & extracting\u2026")
-        if progress_cb:
-            progress_cb(dl_lo)
-        try:
-            from cellar.backend.installer import (  # noqa: PLC0415
-                InstallCancelled,
-                InstallError,
-                _build_source,
-                _find_bottle_dir,
-                _stream_and_extract,
-            )
-        except ImportError as exc:
-            raise UpdateError(f"Internal error: {exc}") from exc
+        with tempfile.TemporaryDirectory(prefix="cellar-update-") as tmp_str:
+            tmp = Path(tmp_str)
 
-        extract_dir = tmp / "extracted"
-        extract_dir.mkdir()
-        try:
-            chunks, total = _build_source(
-                archive_uri,
-                expected_size=entry.archive_size,
-                token=token,
-            )
-            _stream_and_extract(
-                chunks, total,
-                is_zst=archive_uri.endswith(".tar.zst"),
-                dest=extract_dir,
-                expected_crc32=entry.archive_crc32,
+            # ── Phases 2-4: Stream, verify CRC32, extract (single pass) ──────
+            if phase_cb:
+                phase_cb("Downloading & extracting\u2026")
+            if progress_cb:
+                progress_cb(dl_lo)
+            try:
+                from cellar.backend.installer import (  # noqa: PLC0415
+                    InstallCancelled,
+                    InstallError,
+                    _build_source,
+                    _find_bottle_dir,
+                    _stream_and_extract,
+                )
+            except ImportError as exc:
+                raise UpdateError(f"Internal error: {exc}") from exc
+
+            extract_dir = tmp / "extracted"
+            extract_dir.mkdir()
+            try:
+                chunks, total = _build_source(
+                    archive_uri,
+                    expected_size=entry.archive_size,
+                    token=token,
+                )
+                _stream_and_extract(
+                    chunks, total,
+                    is_zst=archive_uri.endswith(".tar.zst"),
+                    dest=extract_dir,
+                    expected_crc32=entry.archive_crc32,
+                    cancel_event=cancel_event,
+                    progress_cb=_sub(dl_lo, ext_hi),
+                    stats_cb=stats_cb,
+                    name_cb=None,
+                )
+                bottle_src = _find_bottle_dir(extract_dir)
+            except InstallCancelled:
+                raise UpdateCancelled
+            except InstallError as exc:
+                raise UpdateError(str(exc)) from exc
+
+            # ── Phase 5: Overlay ─────────────────────────────────────────────
+            _check_cancel(cancel_event)
+            if phase_cb:
+                phase_cb("Updating\u2026")
+            if progress_cb:
+                progress_cb(ov_lo)
+            is_delta = bool(entry.base_runner)
+            _overlay(
+                bottle_src,
+                prefix_path,
+                is_delta=is_delta,
+                progress_cb=_sub(ov_lo, 1.0),
                 cancel_event=cancel_event,
-                progress_cb=_sub(dl_lo, ext_hi),
-                stats_cb=stats_cb,
-                name_cb=None,
             )
-            bottle_src = _find_bottle_dir(extract_dir)
-        except InstallCancelled:
-            raise UpdateCancelled
-        except InstallError as exc:
-            raise UpdateError(str(exc)) from exc
 
-        # ── Phase 5: Overlay ───────────────────────────────────────────────
-        _check_cancel(cancel_event)
-        if phase_cb:
-            phase_cb("Updating\u2026")
-        if progress_cb:
-            progress_cb(ov_lo)
-        is_delta = bool(entry.base_runner)
-        _overlay(
-            bottle_src,
-            prefix_path,
-            is_delta=is_delta,
-            progress_cb=_sub(ov_lo, 1.0),
-            cancel_event=cancel_event,
-        )
+            # ── Phase 6: Apply delete manifest (delta archives) ──────────────
+            # For full archives --delete in rsync already handles removals.
+            # For delta archives the .cellar_delete manifest lists files that
+            # were present in the previous version but removed in this one.
+            if is_delta:
+                delete_manifest = bottle_src / ".cellar_delete"
+                if delete_manifest.exists():
+                    for line in delete_manifest.read_text().splitlines():
+                        rel = line.strip()
+                        if rel and not _is_excluded(Path(rel)):
+                            (prefix_path / rel).unlink(missing_ok=True)
 
-        # ── Phase 6: Apply delete manifest (delta archives) ────────────────
-        # For full archives --delete in rsync already handles removals.
-        # For delta archives the .cellar_delete manifest lists files that were
-        # present in the previous version but removed in this one.
-        if is_delta:
-            delete_manifest = bottle_src / ".cellar_delete"
-            if delete_manifest.exists():
-                for line in delete_manifest.read_text().splitlines():
-                    rel = line.strip()
-                    if rel and not _is_excluded(Path(rel)):
-                        (prefix_path / rel).unlink(missing_ok=True)
-
-        # ── Phase 7: Restore stashed user files ────────────────────────────
-        if stash_dir.exists():
+        # ── Phase 7: Restore stashed user files ──────────────────────────────
+        # Restore runs outside the update temp dir so the stash is still
+        # available even if extraction or overlay threw.
+        if files_to_stash:
             if phase_cb:
                 phase_cb("Restoring user data\u2026")
             _restore_stash(stash_dir, prefix_path)
 
-        # ── Phase 8: Rewrite manifest with new package baseline ────────────
+        # ── Phase 8: Rewrite manifest with new package baseline ──────────────
         write_manifest(prefix_path)
 
     if phase_cb:

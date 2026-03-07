@@ -136,7 +136,7 @@ def create_desktop_entry(
         steam_appid = getattr(entry, "steam_appid", None)
         gameid = f"umu-{steam_appid}" if steam_appid else "0"
 
-        # Use the runner stored in the DB if available; fall back to built_with.
+        # Use the runner stored in the DB (runner_override takes priority).
         runner_name = ""
         try:
             from cellar.backend import database as _db  # noqa: PLC0415
@@ -144,8 +144,6 @@ def create_desktop_entry(
             runner_name = rec.get("runner_override") or rec.get("runner") or ""
         except Exception:  # noqa: BLE001
             pass
-        if not runner_name and getattr(entry, "built_with", None):
-            runner_name = entry.built_with.runner or ""
 
         prefix = str(prefixes_dir() / entry.id)
         proton = str(runners_dir() / runner_name) if runner_name else ""

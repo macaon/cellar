@@ -11,30 +11,6 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 
-@dataclass(frozen=True, slots=True)
-class BuiltWith:
-    """Bottle component versions the archive was built against."""
-
-    runner: str
-    dxvk: str = ""
-    vkd3d: str = ""
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "BuiltWith":
-        return cls(
-            runner=data.get("runner", ""),
-            dxvk=data.get("dxvk", ""),
-            vkd3d=data.get("vkd3d", ""),
-        )
-
-    def to_dict(self) -> dict:
-        d: dict = {"runner": self.runner}
-        if self.dxvk:
-            d["dxvk"] = self.dxvk
-        if self.vkd3d:
-            d["vkd3d"] = self.vkd3d
-        return d
-
 
 @dataclass(frozen=True, slots=True)
 class RunnerEntry:
@@ -151,7 +127,6 @@ class AppEntry:
     archive_size: int = 0
     archive_crc32: str = ""
     install_size_estimate: int = 0
-    built_with: BuiltWith | None = None
     update_strategy: Literal["safe", "full"] = "safe"
     # Delta packaging — when set, this archive is a delta against the named
     # base image; the installer must seed the prefix from that base first.
@@ -160,7 +135,7 @@ class AppEntry:
     # None means GAMEID=0 (no protonfixes applied).
     steam_appid: int | None = None
     # Platform: "windows" (umu/Wine) or "linux" (native Linux app).
-    # For Linux apps, built_with is None and entry_point is the executable
+    # For Linux apps, entry_point is the executable
     # path relative to the installed app directory (e.g. "bin/mygame").
     platform: str = "windows"
     # Path to the main executable.  For Windows: relative to drive_c
@@ -181,8 +156,6 @@ class AppEntry:
         strategy = data.get("update_strategy", "safe")
         if strategy not in ("safe", "full"):
             raise ValueError(f"Unknown update_strategy: {strategy!r}")
-
-        built_with_raw = data.get("built_with")
 
         return cls(
             id=data["id"],
@@ -208,7 +181,6 @@ class AppEntry:
             archive_size=int(data.get("archive_size", 0)),
             archive_crc32=data.get("archive_crc32", data.get("archive_sha256", "")),
             install_size_estimate=int(data.get("install_size_estimate", 0)),
-            built_with=BuiltWith.from_dict(built_with_raw) if built_with_raw else None,
             update_strategy=strategy,
             base_image=data.get("base_image", ""),
             steam_appid=data.get("steam_appid"),
@@ -256,8 +228,6 @@ class AppEntry:
         _opt_str(d, "archive_crc32", self.archive_crc32)
         if self.install_size_estimate:
             d["install_size_estimate"] = self.install_size_estimate
-        if self.built_with is not None:
-            d["built_with"] = self.built_with.to_dict()
         d["update_strategy"] = self.update_strategy
         _opt_str(d, "base_image", self.base_image)
         if self.steam_appid is not None:

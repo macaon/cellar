@@ -219,10 +219,6 @@ class EditAppDialog(Adw.Dialog):
         # ── Wine Components ───────────────────────────────────────────────
         self._wine_group = Adw.PreferencesGroup(title="Wine Components")
 
-        self._runner_row = Adw.ActionRow(title="Runner")
-        self._runner_row.set_subtitle_selectable(True)
-        self._wine_group.add(self._runner_row)
-
         self._steam_appid_entry = Adw.EntryRow(title="Steam App ID (optional)")
         self._steam_appid_entry.set_tooltip_text(
             "Used to set GAMEID for protonfixes. Leave empty to use GAMEID=0."
@@ -388,9 +384,6 @@ class EditAppDialog(Adw.Dialog):
                 "Executable path within the app directory, e.g. \u201cbin/mygame\u201d"
             )
         else:
-            bw = e.built_with
-            if bw:
-                self._runner_row.set_subtitle(bw.runner or "")
             if e.steam_appid is not None:
                 self._steam_appid_entry.set_text(str(e.steam_appid))
 
@@ -672,7 +665,6 @@ class EditAppDialog(Adw.Dialog):
         publisher = self._publisher_entry.get_text().strip()
         year_text = self._year_entry.get_text().strip()
         release_year = int(year_text) if year_text.isdigit() else None
-        runner = self._runner_row.get_subtitle() or ""
         steam_appid_text = self._steam_appid_entry.get_text().strip()
         steam_appid = int(steam_appid_text) if steam_appid_text.isdigit() else None
         strategy = _STRATEGIES[self._strategy_row.get_selected()]
@@ -710,17 +702,7 @@ class EditAppDialog(Adw.Dialog):
         else:
             screenshot_rels = e.screenshots
 
-        from cellar.models.app_entry import AppEntry, BuiltWith
-
-        if e.platform == "linux":
-            built_with = None
-        else:
-            old_bw = e.built_with
-            built_with = BuiltWith(
-                runner=runner,
-                dxvk=old_bw.dxvk if old_bw else "",
-                vkd3d=old_bw.vkd3d if old_bw else "",
-            ) if runner else None
+        from cellar.models.app_entry import AppEntry
 
         new_entry = AppEntry(
             id=app_id,
@@ -741,7 +723,6 @@ class EditAppDialog(Adw.Dialog):
             archive_size=e.archive_size,
             archive_crc32=e.archive_crc32,
             install_size_estimate=e.install_size_estimate,
-            built_with=built_with,
             update_strategy=strategy,
             entry_point=entry_point,
             compatibility_notes=e.compatibility_notes,

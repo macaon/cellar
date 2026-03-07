@@ -1232,7 +1232,7 @@ class PackageBuilderView(Gtk.Box):
         _src_path = Path(project.source_dir) if project.project_type == "linux" else project.prefix_path
 
         # Build AppEntry from project metadata.
-        from cellar.models.app_entry import AppEntry, BuiltWith
+        from cellar.models.app_entry import AppEntry
         _slug = project.slug
         _icon_ext = Path(project.icon_path).suffix if project.icon_path else ".png"
         _cover_ext = Path(project.cover_path).suffix if project.cover_path else ".jpg"
@@ -1262,7 +1262,6 @@ class PackageBuilderView(Gtk.Box):
             launch_args=project.entry_args,
             update_strategy="safe",
             platform="linux" if project.project_type == "linux" else "windows",
-            built_with=None if project.project_type == "linux" else BuiltWith(runner=project.runner),
         )
         images: dict = {}
         if project.icon_path:

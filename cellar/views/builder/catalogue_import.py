@@ -441,7 +441,7 @@ class CatalogueEntriesDialog(Adw.Dialog):
                     name=entry.name,
                     slug=slug,
                     project_type="app",
-                    runner=entry.built_with.runner if entry.built_with else "",
+                    runner=entry.base_image,
                     entry_points=[{"name": "Main", "path": _ep}] if _ep else [],
                     steam_appid=entry.steam_appid,
                     initialized=True,

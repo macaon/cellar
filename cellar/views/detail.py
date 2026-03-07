@@ -267,8 +267,7 @@ class DetailView(Gtk.Box):
         if self._on_install_done:
             self._on_install_done(prefix_dir, install_path, runner, install_size)
         # Persist runner override when the user pre-selected a different runner.
-        built_with_runner = (self._entry.built_with.runner if self._entry.built_with else "") or ""
-        if self._runner_override and self._runner_override != built_with_runner:
+        if self._runner_override:
             from cellar.backend import database
             database.set_runner_override(self._entry.id, self._runner_override)
 
@@ -934,11 +933,8 @@ class DetailView(Gtk.Box):
 
         if e.platform == "linux":
             _add(_simple_card("penguin-alt-symbolic", "Native", "Linux")[0])
-        elif e.built_with:
-            wine_card = self._make_wine_card()
-            if e.built_with.dxvk or e.built_with.vkd3d:
-                _make_interactive(wine_card, self._show_wine_dialog)
-            _add(wine_card)
+        elif e.base_image:
+            _add(self._make_wine_card())
 
         if e.version:
             _add(_simple_card("software-update-available-symbolic", e.version, "Version")[0])
@@ -959,8 +955,7 @@ class DetailView(Gtk.Box):
         return outer
 
     def _make_wine_card(self) -> Gtk.Box:
-        """Return a card showing Wine runner and a change button."""
-        bw = self._entry.built_with
+        """Return a card showing the Wine base image."""
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         card.add_css_class("info-cell")
         card.set_hexpand(True)
@@ -970,7 +965,7 @@ class DetailView(Gtk.Box):
         icon.set_halign(Gtk.Align.CENTER)
         card.append(icon)
 
-        runner_name = self._runner_override or (bw.runner if bw else "") or ""
+        runner_name = self._runner_override or ""
         runner_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         runner_row.set_halign(Gtk.Align.CENTER)
         card.append(runner_row)
@@ -993,9 +988,8 @@ class DetailView(Gtk.Box):
         return card
 
     def _get_base_image(self) -> str:
-        """Return the effective base runner key for this entry."""
-        e = self._entry
-        return e.base_image or (e.built_with.runner if e.built_with else "")
+        """Return the base image key for this entry."""
+        return self._entry.base_image
 
     def _find_base_entry(self, runner: str) -> tuple[object | None, str]:
         """Return (BaseEntry, archive_uri) for *runner*, or (None, "") if not found."""
@@ -1130,12 +1124,8 @@ class DetailView(Gtk.Box):
                 self._base_resolve_cbs.append(_on_resolved)
 
     def _show_wine_dialog(self) -> None:
-        """Show Wine component details: runner, DXVK, VKD3D."""
-        bw = self._entry.built_with
-        if not bw:
-            return
-
-        runner_name = self._runner_override or bw.runner or ""
+        """Show Wine runner details."""
+        runner_name = self._runner_override or ""
 
         def _value_row(title: str, value: str) -> Adw.ActionRow:
             r = Adw.ActionRow(title=title)
@@ -1162,20 +1152,6 @@ class DetailView(Gtk.Box):
             runner_row.add_suffix(lock_icon)
         runner_listbox.append(runner_row)
 
-        # ── Component rows ───────────────────────────────────────────
-        components_lbl = Gtk.Label(label="Components")
-        components_lbl.add_css_class("heading")
-        components_lbl.set_halign(Gtk.Align.START)
-
-        listbox = Gtk.ListBox()
-        listbox.set_selection_mode(Gtk.SelectionMode.NONE)
-        listbox.add_css_class("boxed-list")
-
-        if bw.dxvk:
-            listbox.append(_value_row("DXVK", bw.dxvk))
-        if bw.vkd3d:
-            listbox.append(_value_row("VKD3D", bw.vkd3d))
-
         # ── Layout ───────────────────────────────────────────────────
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
         content.set_margin_top(18)
@@ -1184,9 +1160,6 @@ class DetailView(Gtk.Box):
         content.set_margin_end(18)
         content.append(runner_lbl)
         content.append(runner_listbox)
-        if bw.dxvk or bw.vkd3d:
-            content.append(components_lbl)
-            content.append(listbox)
 
         toolbar = Adw.ToolbarView()
         toolbar.add_top_bar(Adw.HeaderBar())
@@ -1421,10 +1394,8 @@ class InstallProgressDialog(Adw.Dialog):
                 )
                 from cellar.backend.umu import prefixes_dir as _prefixes_dir
                 from cellar.utils.paths import dir_size_bytes as _dir_size
-                bw = self._entry.built_with
-                runner = (bw.runner if bw else "") or ""
                 _install_size = _dir_size(_prefixes_dir() / prefix_dir)
-                GLib.idle_add(self._on_done, prefix_dir, str(_prefixes_dir()), runner, _install_size)
+                GLib.idle_add(self._on_done, prefix_dir, str(_prefixes_dir()), "", _install_size)
             except InstallCancelled:
                 GLib.idle_add(self._on_cancelled)
             except Exception as exc:  # noqa: BLE001

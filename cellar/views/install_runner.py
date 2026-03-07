@@ -47,7 +47,7 @@ log = logging.getLogger(__name__)
 
 
 class InstallRunnerDialog(Adw.Dialog):
-    """Two-phase dialog: confirmation → download/extract progress."""
+    """Progress-only dialog: starts downloading immediately on present."""
 
     def __init__(
         self,
@@ -69,6 +69,8 @@ class InstallRunnerDialog(Adw.Dialog):
         self._build_ui()
         self.connect("closed", lambda _d: self._cancel_event.set())
 
+        GLib.idle_add(self._start_download)
+
     # ── UI construction ───────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
@@ -76,62 +78,15 @@ class InstallRunnerDialog(Adw.Dialog):
 
         self._header = Adw.HeaderBar()
         self._header.set_show_end_title_buttons(False)
-
-        cancel_btn = Gtk.Button(label="Cancel")
-        cancel_btn.connect("clicked", lambda _: self.close())
-        self._header.pack_start(cancel_btn)
-
-        self._install_btn = Gtk.Button(label="Install")
-        self._install_btn.add_css_class("suggested-action")
-        self._install_btn.connect("clicked", self._on_proceed_clicked)
-        self._header.pack_end(self._install_btn)
+        self._header.set_visible(False)
 
         toolbar_view.add_top_bar(self._header)
 
-        self._stack = Gtk.Stack()
-        self._stack.add_named(self._build_confirm_page(), "confirm")
-        self._stack.add_named(self._build_progress_page(), "progress")
-        self._stack.set_visible_child_name("confirm")
-
-        toolbar_view.set_content(self._stack)
-        self.set_child(toolbar_view)
-
-    def _build_confirm_page(self) -> Gtk.Widget:
-        scroll = Gtk.ScrolledWindow(
-            hscrollbar_policy=Gtk.PolicyType.NEVER,
-            vscrollbar_policy=Gtk.PolicyType.AUTOMATIC,
-        )
-        scroll.set_propagate_natural_height(True)
-
-        page = Adw.PreferencesPage()
-        scroll.set_child(page)
-
-        group = Adw.PreferencesGroup(title="Runner")
-        row = Adw.ActionRow(
-            title=self._runner_name,
-            subtitle=(
-                "This runner will be downloaded and installed for Cellar. "
-                "The download size may be several hundred megabytes."
-            ),
-        )
-        row.add_prefix(Gtk.Image.new_from_icon_name("media-playback-start-symbolic"))
-        group.add(row)
-        page.add(group)
-
-        return scroll
-
-    def _build_progress_page(self) -> Gtk.Widget:
         box, self._phase_label, self._progress_bar, self._cancel_body_btn = (
             make_progress_page("Downloading\u2026", self._on_cancel_progress_clicked)
         )
-        return box
-
-    # ── Signal handlers ───────────────────────────────────────────────────
-
-    def _on_proceed_clicked(self, _btn) -> None:
-        self._stack.set_visible_child_name("progress")
-        self._header.set_visible(False)
-        self._start_download()
+        toolbar_view.set_content(box)
+        self.set_child(toolbar_view)
 
     def _on_cancel_progress_clicked(self, _btn) -> None:
         self._cancel_event.set()

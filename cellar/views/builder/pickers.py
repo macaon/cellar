@@ -51,18 +51,19 @@ class AddLaunchTargetDialog(Adw.Dialog):
         page = Adw.PreferencesPage()
         group = Adw.PreferencesGroup()
 
-        self._name_row = Adw.EntryRow(title="Name")
-        self._name_row.set_tooltip_text('E.g. "Main Game", "Config Tool"')
-        self._name_row.connect("changed", self._validate)
-        group.add(self._name_row)
-
         self._exe_row = Adw.ActionRow(title="Executable")
         self._exe_row.set_subtitle("Not selected")
         browse_btn = Gtk.Button(label="Browse\u2026", valign=Gtk.Align.CENTER)
+        browse_btn.add_css_class("suggested-action")
         browse_btn.connect("clicked", self._on_browse_clicked)
         self._exe_row.add_suffix(browse_btn)
         self._exe_row.set_activatable_widget(browse_btn)
         group.add(self._exe_row)
+
+        self._name_row = Adw.EntryRow(title="Name")
+        self._name_row.set_tooltip_text('E.g. "Main Game", "Config Tool"')
+        self._name_row.connect("changed", self._validate)
+        group.add(self._name_row)
 
         self._args_row = Adw.EntryRow(title="Arguments (optional)")
         self._args_row.set_tooltip_text('E.g. "-windowedmode -nosplash"')

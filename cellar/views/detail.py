@@ -1023,10 +1023,10 @@ class DetailView(Gtk.Box):
             self._base_sz = base_sz
             if not installed and base_sz:
                 val_lbl.set_label(_fmt_bytes(app_size + base_sz))
-            if not installed and not base_sz and self._base_warning_icon:
+            if not installed and self._base_warning_icon:
                 self._base_warning_icon.set_visible(True)
                 self._base_warning_icon.set_tooltip_text(
-                    f"Base image \u201c{base_runner}\u201d not found in any repo"
+                    f"Base image \u201c{base_runner}\u201d is not installed"
                 )
             for cb in self._base_resolve_cbs:
                 cb(installed, base_sz)

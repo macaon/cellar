@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <!-- Dark arcade background -->
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#15102a"/>
+      <stop offset="1" stop-color="#08061a"/>
+    </linearGradient>
+    <!-- Warm amber glow behind the C -->
+    <radialGradient id="ambient" cx="50%" cy="50%" r="44%">
+      <stop offset="0" stop-color="#ff6600" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#ff6600" stop-opacity="0"/>
+    </radialGradient>
+    <!-- CRT scanline stripe -->
+    <pattern id="scan" x="0" y="0" width="128" height="3"
+             patternUnits="userSpaceOnUse">
+      <rect x="0" y="0" width="128" height="1" fill="#000" opacity="0.09"/>
+    </pattern>
+    <!-- Pixel glow: blurred copy layered under the sharp pixels -->
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background plate -->
+  <rect width="128" height="128" rx="22" fill="url(#bg)"/>
+
+  <!-- Ambient screen glow -->
+  <rect width="128" height="128" rx="22" fill="url(#ambient)"/>
+
+  <!-- CRT scanlines -->
+  <rect width="128" height="128" rx="22" fill="url(#scan)"/>
+
+  <!--
+    Pixel C — 7 cols × 7 rows, pixel 12×12, gap 2, step 14
+    Centered: start_x=23, start_y=16  (C spans x 23–105, y 16–112 → centre 64,64)
+
+    Shape (. = empty, X = filled):
+      . X X X X X
+      X X . . . .
+      X X . . . .
+      X X . . . .
+      X X . . . .
+      X X . . . .
+      . X X X X X
+  -->
+  <g filter="url(#glow)" fill="#ff8c00">
+    <!-- row 0 -->
+    <rect x="37"  y="16"  width="12" height="12" rx="1.5"/>
+    <rect x="51"  y="16"  width="12" height="12" rx="1.5"/>
+    <rect x="65"  y="16"  width="12" height="12" rx="1.5"/>
+    <rect x="79"  y="16"  width="12" height="12" rx="1.5"/>
+    <rect x="93"  y="16"  width="12" height="12" rx="1.5"/>
+    <!-- row 1 -->
+    <rect x="23"  y="30"  width="12" height="12" rx="1.5"/>
+    <rect x="37"  y="30"  width="12" height="12" rx="1.5"/>
+    <!-- row 2 -->
+    <rect x="23"  y="44"  width="12" height="12" rx="1.5"/>
+    <rect x="37"  y="44"  width="12" height="12" rx="1.5"/>
+    <!-- row 3 -->
+    <rect x="23"  y="58"  width="12" height="12" rx="1.5"/>
+    <rect x="37"  y="58"  width="12" height="12" rx="1.5"/>
+    <!-- row 4 -->
+    <rect x="23"  y="72"  width="12" height="12" rx="1.5"/>
+    <rect x="37"  y="72"  width="12" height="12" rx="1.5"/>
+    <!-- row 5 -->
+    <rect x="23"  y="86"  width="12" height="12" rx="1.5"/>
+    <rect x="37"  y="86"  width="12" height="12" rx="1.5"/>
+    <!-- row 6 -->
+    <rect x="37"  y="100" width="12" height="12" rx="1.5"/>
+    <rect x="51"  y="100" width="12" height="12" rx="1.5"/>
+    <rect x="65"  y="100" width="12" height="12" rx="1.5"/>
+    <rect x="79"  y="100" width="12" height="12" rx="1.5"/>
+    <rect x="93"  y="100" width="12" height="12" rx="1.5"/>
+  </g>
+
+  <!-- Retro UI corner markers (L-bracket in each corner) -->
+  <g fill="#ff8c00" opacity="0.4">
+    <rect x="10" y="10" width="5" height="5" rx="0.5"/>
+    <rect x="17" y="10" width="5" height="5" rx="0.5"/>
+    <rect x="10" y="17" width="5" height="5" rx="0.5"/>
+
+    <rect x="113" y="10" width="5" height="5" rx="0.5"/>
+    <rect x="106" y="10" width="5" height="5" rx="0.5"/>
+    <rect x="113" y="17" width="5" height="5" rx="0.5"/>
+
+    <rect x="10"  y="113" width="5" height="5" rx="0.5"/>
+    <rect x="10"  y="106" width="5" height="5" rx="0.5"/>
+    <rect x="17"  y="113" width="5" height="5" rx="0.5"/>
+
+    <rect x="113" y="113" width="5" height="5" rx="0.5"/>
+    <rect x="106" y="113" width="5" height="5" rx="0.5"/>
+    <rect x="113" y="106" width="5" height="5" rx="0.5"/>
+  </g>
+</svg>

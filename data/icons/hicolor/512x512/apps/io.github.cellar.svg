@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#15102a"/>
+      <stop offset="1" stop-color="#08061a"/>
+    </linearGradient>
+    <radialGradient id="ambient" cx="50%" cy="50%" r="44%">
+      <stop offset="0" stop-color="#ff6600" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#ff6600" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="scan" x="0" y="0" width="512" height="12"
+             patternUnits="userSpaceOnUse">
+      <rect x="0" y="0" width="512" height="4" fill="#000" opacity="0.09"/>
+    </pattern>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="10" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect width="512" height="512" rx="88" fill="url(#bg)"/>
+  <rect width="512" height="512" rx="88" fill="url(#ambient)"/>
+  <rect width="512" height="512" rx="88" fill="url(#scan)"/>
+
+  <!--
+    Pixel C — all 128px values × 4
+    pixel 48×48, gap 8, step 56, start_x=92 start_y=64
+    C spans x 92–420, y 64–448  →  centre 256,256
+  -->
+  <g filter="url(#glow)" fill="#ff8c00">
+    <!-- row 0 (y=64): cols 1–5 -->
+    <rect x="148" y="64"  width="48" height="48" rx="6"/>
+    <rect x="204" y="64"  width="48" height="48" rx="6"/>
+    <rect x="260" y="64"  width="48" height="48" rx="6"/>
+    <rect x="316" y="64"  width="48" height="48" rx="6"/>
+    <rect x="372" y="64"  width="48" height="48" rx="6"/>
+    <!-- row 1 (y=120): cols 0–1 -->
+    <rect x="92"  y="120" width="48" height="48" rx="6"/>
+    <rect x="148" y="120" width="48" height="48" rx="6"/>
+    <!-- row 2 (y=176): cols 0–1 -->
+    <rect x="92"  y="176" width="48" height="48" rx="6"/>
+    <rect x="148" y="176" width="48" height="48" rx="6"/>
+    <!-- row 3 (y=232): cols 0–1 -->
+    <rect x="92"  y="232" width="48" height="48" rx="6"/>
+    <rect x="148" y="232" width="48" height="48" rx="6"/>
+    <!-- row 4 (y=288): cols 0–1 -->
+    <rect x="92"  y="288" width="48" height="48" rx="6"/>
+    <rect x="148" y="288" width="48" height="48" rx="6"/>
+    <!-- row 5 (y=344): cols 0–1 -->
+    <rect x="92"  y="344" width="48" height="48" rx="6"/>
+    <rect x="148" y="344" width="48" height="48" rx="6"/>
+    <!-- row 6 (y=400): cols 1–5 -->
+    <rect x="148" y="400" width="48" height="48" rx="6"/>
+    <rect x="204" y="400" width="48" height="48" rx="6"/>
+    <rect x="260" y="400" width="48" height="48" rx="6"/>
+    <rect x="316" y="400" width="48" height="48" rx="6"/>
+    <rect x="372" y="400" width="48" height="48" rx="6"/>
+  </g>
+
+  <!-- Corner L-bracket markers (all 128px values × 4, size 20×20, rx=2) -->
+  <g fill="#ff8c00" opacity="0.4">
+    <rect x="40"  y="40"  width="20" height="20" rx="2"/>
+    <rect x="68"  y="40"  width="20" height="20" rx="2"/>
+    <rect x="40"  y="68"  width="20" height="20" rx="2"/>
+
+    <rect x="452" y="40"  width="20" height="20" rx="2"/>
+    <rect x="424" y="40"  width="20" height="20" rx="2"/>
+    <rect x="452" y="68"  width="20" height="20" rx="2"/>
+
+    <rect x="40"  y="452" width="20" height="20" rx="2"/>
+    <rect x="40"  y="424" width="20" height="20" rx="2"/>
+    <rect x="68"  y="452" width="20" height="20" rx="2"/>
+
+    <rect x="452" y="452" width="20" height="20" rx="2"/>
+    <rect x="424" y="452" width="20" height="20" rx="2"/>
+    <rect x="452" y="424" width="20" height="20" rx="2"/>
+  </g>
+</svg>

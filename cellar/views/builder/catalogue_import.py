@@ -55,9 +55,13 @@ class CatalogueEntriesDialog(Adw.Dialog):
         run_in_background(self._fetch_entries)
 
     def _fetch_entries(self) -> None:
+        from types import SimpleNamespace
+
         apps: list[tuple] = []
         bases: list[tuple] = []
+        runners: list[tuple] = []
         seen_bases: set[str] = set()
+        seen_runners: set[str] = set()
         for repo in self._repos:
             try:
                 for entry in repo.fetch_catalogue():
@@ -66,15 +70,25 @@ class CatalogueEntriesDialog(Adw.Dialog):
             except Exception as exc:
                 log.warning("Could not fetch catalogue from %s: %s", repo.uri, exc)
             try:
-                for runner, base_entry in repo.fetch_bases().items():
-                    if runner not in seen_bases:
-                        seen_bases.add(runner)
+                for name, base_entry in repo.fetch_bases().items():
+                    if name not in seen_bases:
+                        seen_bases.add(name)
                         bases.append((base_entry, repo, "base"))
+                    if base_entry.runner_archive and base_entry.runner not in seen_runners:
+                        seen_runners.add(base_entry.runner)
+                        runner_item = SimpleNamespace(
+                            name=base_entry.runner,
+                            archive=base_entry.runner_archive,
+                            archive_size=base_entry.runner_archive_size,
+                            archive_crc32=base_entry.runner_archive_crc32,
+                        )
+                        runners.append((runner_item, repo, "runner"))
             except Exception as exc:
                 log.warning("Could not fetch bases from %s: %s", repo.uri, exc)
         apps.sort(key=lambda t: t[0].name.lower())
         bases.sort(key=lambda t: t[0].name.lower())
-        GLib.idle_add(self._populate, apps + bases)
+        runners.sort(key=lambda t: t[0].name.lower())
+        GLib.idle_add(self._populate, apps + bases + runners)
 
     def _populate(self, results: list[tuple]) -> None:
         self._entries = results
@@ -90,13 +104,17 @@ class CatalogueEntriesDialog(Adw.Dialog):
             size_mb = (item.archive_size or 0) / 1_000_000
             size_str = f"{size_mb:.0f} MB" if size_mb else ""
             repo_name = repo.name or repo.uri
-            if kind == "base":
+            if kind == "app":
                 title = item.name
-                runner_str = item.runner if item.runner != item.name else ""
+                base_str = f"Base: {item.base_runner}" if item.base_runner else ""
+                subtitle_parts = [item.version or "", base_str, size_str, repo_name]
+            elif kind == "base":
+                title = item.name
+                runner_str = f"Runner: {item.runner}" if item.runner != item.name else ""
                 subtitle_parts = [runner_str, size_str, repo_name]
-            else:
+            else:  # runner
                 title = item.name
-                subtitle_parts = [item.version or "", size_str, repo_name]
+                subtitle_parts = [size_str, repo_name]
             subtitle = "  \u00b7  ".join(p for p in subtitle_parts if p)
             row = Adw.ActionRow(title=html.escape(title), subtitle=html.escape(subtitle))
 
@@ -105,13 +123,26 @@ class CatalogueEntriesDialog(Adw.Dialog):
                 chip.add_css_class("tag")
                 chip.set_valign(Gtk.Align.CENTER)
                 row.add_suffix(chip)
+            elif kind == "runner":
+                chip = Gtk.Label(label="Runner")
+                chip.add_css_class("tag")
+                chip.set_valign(Gtk.Align.CENTER)
+                row.add_suffix(chip)
 
-            dl_btn = Gtk.Button(
-                icon_name="folder-download-symbolic",
-                valign=Gtk.Align.CENTER,
-                has_frame=False,
-                tooltip_text="Import for editing",
-            )
+            if kind == "runner":
+                dl_btn = Gtk.Button(
+                    icon_name="folder-download-symbolic",
+                    valign=Gtk.Align.CENTER,
+                    has_frame=False,
+                    tooltip_text="Install runner locally",
+                )
+            else:
+                dl_btn = Gtk.Button(
+                    icon_name="folder-download-symbolic",
+                    valign=Gtk.Align.CENTER,
+                    has_frame=False,
+                    tooltip_text="Import for editing",
+                )
             dl_btn.connect("clicked", self._on_download_clicked, idx)
             row.add_suffix(dl_btn)
 
@@ -169,6 +200,8 @@ class CatalogueEntriesDialog(Adw.Dialog):
             row.set_header(self._make_section_label("Apps"))
         elif (prev_kind is None and kind == "base") or (prev_kind == "app" and kind == "base"):
             row.set_header(self._make_section_label("Base Images"))
+        elif prev_kind != "runner" and kind == "runner":
+            row.set_header(self._make_section_label("Runners"))
         else:
             row.set_header(None)
 
@@ -193,6 +226,8 @@ class CatalogueEntriesDialog(Adw.Dialog):
         item, repo, kind = self._entries[idx]
         if kind == "base":
             self._start_import_base(item, repo)
+        elif kind == "runner":
+            self._start_import_runner(item, repo)
         else:
             self._start_import_app(item, repo)
 
@@ -276,6 +311,68 @@ class CatalogueEntriesDialog(Adw.Dialog):
         def _error(msg: str) -> None:
             progress.force_close()
             log.error("Base import failed: %s", msg)
+            err = Adw.AlertDialog(heading="Import failed", body=msg)
+            err.add_response("ok", "OK")
+            err.present(root)
+
+        run_in_background(_work, on_done=_done, on_error=_error)
+
+    def _start_import_runner(self, runner_item, repo) -> None:
+        root = self.get_root()
+        self.close()
+
+        progress = ProgressDialog(label=f"Downloading {runner_item.name}\u2026")
+        progress.present(root)
+
+        def _work():
+            import tempfile
+            from cellar.backend.installer import (  # noqa: PLC2701
+                _build_source,
+                _stream_and_extract,
+            )
+            from cellar.backend.umu import runners_dir
+
+            archive_uri = repo.resolve_asset_uri(runner_item.archive)
+            chunks, total = _build_source(
+                archive_uri,
+                expected_size=runner_item.archive_size,
+                token=repo.token,
+                ssl_verify=repo.ssl_verify,
+                ca_cert=repo.ca_cert,
+            )
+
+            dest = runners_dir() / runner_item.name
+            if dest.exists():
+                shutil.rmtree(dest)
+
+            with tempfile.TemporaryDirectory(prefix="cellar-runner-import-") as tmp_str:
+                tmp = Path(tmp_str)
+                extract_dir = tmp / "extracted"
+                extract_dir.mkdir()
+
+                _stream_and_extract(
+                    chunks, total,
+                    is_zst=archive_uri.endswith(".tar.zst"),
+                    dest=extract_dir,
+                    expected_crc32=runner_item.archive_crc32,
+                    cancel_event=None,
+                    progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+                    stats_cb=None,
+                    name_cb=None,
+                )
+
+                extracted = [p for p in extract_dir.iterdir() if p.is_dir()]
+                if not extracted:
+                    raise RuntimeError("Runner archive contained no directory")
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copytree(extracted[0], dest)
+
+        def _done(_result) -> None:
+            progress.force_close()
+
+        def _error(msg: str) -> None:
+            progress.force_close()
+            log.error("Runner import failed: %s", msg)
             err = Adw.AlertDialog(heading="Import failed", body=msg)
             err.add_response("ok", "OK")
             err.present(root)
@@ -399,6 +496,8 @@ class CatalogueEntriesDialog(Adw.Dialog):
             repo_root = repo.writable_path()
             if kind == "base":
                 packager.remove_base(repo_root, item.name)
+            elif kind == "runner":
+                packager.remove_runner_archive(repo_root, item.name)
             else:
                 packager.remove_from_repo(repo_root, item)
 

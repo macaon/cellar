@@ -16,6 +16,7 @@ builddir/
 build-dir/
 build-flatpak/
 repo/
+cellar.flatpak
 .flatpak-builder/
 
 # Local dev scripts

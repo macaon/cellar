@@ -85,7 +85,7 @@ def write_manifest(prefix_path: Path) -> None:
 
     files: dict[str, list[int]] = {}
     for fp in root.rglob("*"):
-        if not fp.is_file():
+        if not fp.is_file() or fp.name == MANIFEST_FILENAME:
             continue
         try:
             st = fp.stat()
@@ -143,7 +143,7 @@ def scan_user_files(prefix_path: Path) -> tuple[list[Path], list[Path]]:
     user_created: list[Path] = []
 
     for fp in root.rglob("*"):
-        if not fp.is_file():
+        if not fp.is_file() or fp.name == MANIFEST_FILENAME:
             continue
         rel = fp.relative_to(prefix_path).as_posix()
         if rel in manifest:

@@ -304,8 +304,8 @@ class BasePickerDialog(Adw.Dialog):
         self._bases = results
 
         for base_entry, repo in results:
-            already = is_base_installed(base_entry.runner)
-            row = Adw.ActionRow(title=base_entry.runner)
+            already = is_base_installed(base_entry.name)
+            row = Adw.ActionRow(title=base_entry.name)
             size_mb = base_entry.archive_size / 1_000_000 if base_entry.archive_size else 0
             subtitle = f"{size_mb:.0f} MB" if size_mb else ""
             repo_name = repo.name or repo.uri
@@ -341,8 +341,8 @@ class BasePickerDialog(Adw.Dialog):
         self._selected_idx = row.get_index()
         if 0 <= self._selected_idx < len(self._bases):
             from cellar.backend.base_store import is_base_installed
-            runner = self._bases[self._selected_idx][0].runner
-            self._install_btn.set_sensitive(not is_base_installed(runner))
+            name = self._bases[self._selected_idx][0].name
+            self._install_btn.set_sensitive(not is_base_installed(name))
         else:
             self._install_btn.set_sensitive(False)
 
@@ -353,7 +353,7 @@ class BasePickerDialog(Adw.Dialog):
         parent_win = self.get_root()
         self.close()
 
-        progress = ProgressDialog(label=f"Downloading {base_entry.runner}\u2026")
+        progress = ProgressDialog(label=f"Downloading {base_entry.name}\u2026")
         progress.present(parent_win)
 
         def _work():
@@ -387,7 +387,7 @@ class BasePickerDialog(Adw.Dialog):
             GLib.idle_add(progress.set_fraction, 0.0)
             install_base(
                 tmp_path,
-                base_entry.runner,
+                base_entry.name,
                 repo_source=repo.uri,
                 progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
             )
@@ -395,7 +395,7 @@ class BasePickerDialog(Adw.Dialog):
 
         def _done(_result) -> None:
             progress.force_close()
-            self._on_installed(base_entry.runner)
+            self._on_installed(base_entry.name)
 
         def _error(msg: str) -> None:
             progress.force_close()

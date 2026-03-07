@@ -764,11 +764,21 @@ class PackageBuilderView(Gtk.Box):
     # ------------------------------------------------------------------
 
     def _populate_base_expander(self, project: Project) -> None:
-        """Populate the Base Image expander with radio rows for installed bases."""
-        from cellar.backend.database import get_all_installed_bases
+        """Populate the Base Image expander with radio rows for installed bases.
 
-        bases = get_all_installed_bases()
-        base_runners = [b["runner"] for b in bases]
+        Sources available bases from the repos' catalogues (not the DB) and
+        shows only those that are also present on disk.
+        """
+        from cellar.backend.base_store import is_base_installed
+
+        seen: set[str] = set()
+        base_runners: list[str] = []
+        for repo in self._all_repos:
+            for name in repo._bases:
+                if name not in seen and is_base_installed(name):
+                    seen.add(name)
+                    base_runners.append(name)
+        base_runners.sort()
 
         # If no runner set yet, default to the latest installed base (last by installed_at)
         effective_runner = project.runner or (base_runners[-1] if base_runners else "")

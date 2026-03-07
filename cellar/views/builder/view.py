@@ -430,6 +430,7 @@ class PackageBuilderView(Gtk.Box):
             _browse_btn.connect("clicked", self._on_browse_prefix_clicked)
             _browse_row.add_suffix(_browse_btn)
             files_group.add(_browse_row)
+            page.add(files_group)
 
             # Launch Targets (Windows app)
             targets_group = Adw.PreferencesGroup(title="Launch Targets")

@@ -536,7 +536,7 @@ class AddEditRepoDialog(Adw.Dialog):
         _initial_text = _SCHEME_PREFIXES[_scheme_idx] + _path_text
 
         scheme_model = Gtk.StringList()
-        for label in ("LOCAL", "HTTP", "HTTPS", "SMB", "SSH"):
+        for label in ("Local", "HTTP", "HTTPS", "SMB", "SSH"):
             scheme_model.append(label)
         self._scheme_dropdown = Gtk.DropDown(model=scheme_model, valign=Gtk.Align.CENTER)
         self._scheme_dropdown.add_css_class("flat")
@@ -663,6 +663,8 @@ class AddEditRepoDialog(Adw.Dialog):
 
     def _on_delete_text(self, text_widget, start_pos: int, end_pos: int) -> None:
         """Block deletions that would erase part of the locked scheme prefix."""
+        if self._updating:
+            return
         prefix_len = len(_SCHEME_PREFIXES[self._scheme_dropdown.get_selected()])
         if prefix_len > 0 and start_pos < prefix_len:
             text_widget.stop_emission_by_name("delete-text")

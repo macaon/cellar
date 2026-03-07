@@ -201,6 +201,10 @@ class AppCard(Gtk.FlowBoxChild):
         fixed.set_child(overlay)
         self.set_child(fixed)
 
+    def do_dispose(self) -> None:
+        self.set_child(None)
+        super().do_dispose()
+
     def matches(self, active_category: str, search: str) -> bool:
         """Return True if this card should be visible given the current filter."""
         if active_category and self.entry.category != active_category:

@@ -138,7 +138,7 @@ cellar/
       database.py       # SQLite tracking (installed, bases)
       config.py         # JSON config (~/.local/share/cellar/config.json)
     models/
-      app_entry.py      # AppEntry + BuiltWith + BaseEntry dataclasses
+      app_entry.py      # AppEntry + RunnerEntry + BaseEntry dataclasses
     utils/
       http.py           # requests.Session (User-Agent: Mozilla/5.0 compatible; Cellar/1.0)
       images.py         # Pillow helpers

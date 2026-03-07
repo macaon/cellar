@@ -938,8 +938,8 @@ class PackageBuilderView(Gtk.Box):
             p.release_year = result["year"]
         if result.get("summary") and not p.summary:
             p.summary = result["summary"]
-        if result.get("description") and not p.description:
-            p.description = result["description"]
+        if result.get("summary") and not p.description:
+            p.description = result["summary"]
         if result.get("steam_appid") and p.steam_appid is None:
             p.steam_appid = result["steam_appid"]
         if result.get("website") and not p.website:

@@ -143,6 +143,12 @@ def _umu_cmd(base_env: dict[str, str] | None = None) -> list[str]:
     # detect_umu may return a multi-word invocation like "/usr/bin/python3 -m umu"
     parts = umu.split()
     if is_cellar_sandboxed():
+        # If umu-run is bundled inside the Flatpak, run it directly — env vars
+        # reach it normally via subprocess env= and no flatpak-spawn is needed.
+        if Path("/app/bin/umu-run").exists():
+            return parts
+        # Fallback: umu not bundled; call host umu via flatpak-spawn, injecting
+        # env vars as --env= flags since flatpak-spawn doesn't forward the env.
         env_flags = [f"--env={k}={v}" for k, v in (base_env or {}).items()]
         return ["flatpak-spawn", "--host"] + env_flags + parts
     return parts

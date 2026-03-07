@@ -37,7 +37,7 @@ class CellarApplication(Adw.Application):
             Gtk.IconTheme.get_for_display(display).add_search_path(icons_dir())
 
             css = Gtk.CssProvider()
-            css.load_from_string(
+            _css_data = (
                 "viewswitcher indicator {"
                 "  background-color: @accent_bg_color;"
                 "  color: @accent_fg_color;"
@@ -101,6 +101,12 @@ class CellarApplication(Adw.Application):
                 "  filter: drop-shadow(0 2px 8px rgba(0,0,0,0.3));"
                 "}"
             )
+            # load_from_string was added in GTK 4.12; use load_from_data for
+            # compatibility with older distros (e.g. Pop_OS / Ubuntu 22.04).
+            if hasattr(css, "load_from_string"):
+                css.load_from_string(_css_data)
+            else:
+                css.load_from_data(_css_data.encode())
             Gtk.StyleContext.add_provider_for_display(
                 display, css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
             )

@@ -779,7 +779,10 @@ def upsert_base(
 
 
 def remove_base(repo_root: Path, name: str) -> None:
-    """Remove a base image entry (keyed by *name*) from ``catalogue.json``."""
+    """Remove a base image entry (keyed by *name*) from ``catalogue.json``.
+
+    Also deletes the physical archive from the repo if it exists.
+    """
     cat_path = repo_root / "catalogue.json"
     if not cat_path.exists():
         return
@@ -791,7 +794,14 @@ def remove_base(repo_root: Path, name: str) -> None:
     runners = raw.get("runners")
     bases = dict(raw.get("bases") or {})
     category_icons = raw.get("category_icons")
-    bases.pop(name, None)
+
+    entry = bases.pop(name, None)
+    if entry and entry.get("archive"):
+        try:
+            (repo_root / entry["archive"]).unlink(missing_ok=True)
+        except OSError:
+            pass
+
     _write_catalogue(cat_path, apps, categories, runners, bases if bases else None, category_icons)
 
 

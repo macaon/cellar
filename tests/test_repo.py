@@ -431,12 +431,17 @@ def test_remove_base_removes_entry(tmp_path):
     import json
     cat = tmp_path / "catalogue.json"
     cat.write_text('{"cellar_version":1,"apps":[]}', encoding="utf-8")
+    bases_dir = tmp_path / "bases"
+    bases_dir.mkdir()
+    archive = bases_dir / "soda-9.0-1-base.tar.gz"
+    archive.write_bytes(b"dummy")
     upsert_base(tmp_path, "soda-9.0-1", "soda-9.0-1", "bases/soda-9.0-1-base.tar.gz")
     upsert_base(tmp_path, "ge-proton10-32", "ge-proton10-32", "bases/ge-proton10-32-base.tar.gz")
     remove_base(tmp_path, "soda-9.0-1")
     raw = json.loads(cat.read_text())
     assert "soda-9.0-1" not in raw["bases"]
     assert "ge-proton10-32" in raw["bases"]
+    assert not archive.exists()
 
 
 def test_upsert_catalogue_preserves_bases(tmp_path):

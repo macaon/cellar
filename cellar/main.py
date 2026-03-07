@@ -100,6 +100,18 @@ class CellarApplication(Adw.Application):
                 ".logo-pic {"
                 "  filter: drop-shadow(0 2px 8px rgba(0,0,0,0.3));"
                 "}"
+                "dropdown.scheme-selector > button {"
+                "  background: @accent_bg_color;"
+                "  color: @accent_fg_color;"
+                "  border-radius: 6px;"
+                "  border: none;"
+                "  box-shadow: none;"
+                "  padding: 0 6px;"
+                "  min-height: 28px;"
+                "}"
+                "dropdown.scheme-selector > button:hover {"
+                "  background: shade(@accent_bg_color, 1.1);"
+                "}"
             )
             # load_from_string was added in GTK 4.12; use load_from_data for
             # compatibility with older distros (e.g. Pop_OS / Ubuntu 22.04).

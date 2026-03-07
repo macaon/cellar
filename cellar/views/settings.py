@@ -538,14 +538,16 @@ class AddEditRepoDialog(Adw.Dialog):
         for label in ("LOCAL", "HTTP", "HTTPS", "SMB", "SSH"):
             scheme_model.append(label)
         self._scheme_dropdown = Gtk.DropDown(model=scheme_model, valign=Gtk.Align.CENTER)
-        self._scheme_dropdown.add_css_class("flat")
+        self._scheme_dropdown.add_css_class("scheme-selector")
         self._scheme_dropdown.set_selected(_scheme_idx)
         self._scheme_dropdown.connect("notify::selected", self._on_scheme_changed)
 
         self._path_row = Adw.EntryRow(title="Path" if _scheme_idx == 0 else "Host / Path")
         self._path_row.set_text(_path_text)
         self._path_row.connect("entry-activated", lambda _: self._on_save_clicked(None))
+        self._path_row.connect("changed", self._on_path_changed)
         self._path_row.add_prefix(self._scheme_dropdown)
+        self._stripping_scheme = False
         group.add(self._path_row)
 
         # SMB credentials group (shown only when URI scheme is smb://)
@@ -618,6 +620,32 @@ class AddEditRepoDialog(Adw.Dialog):
         self._smb_group.set_visible(idx == 3)
         self._http_group.set_visible(idx in (1, 2))
         self._path_row.set_title("Path" if idx == 0 else "Host / Path")
+
+    def _on_path_changed(self, _entry) -> None:
+        """Strip any scheme prefix the user typed or pasted into the path field."""
+        if self._stripping_scheme:
+            return
+        text = self._path_row.get_text()
+        new_idx = None
+        while True:
+            stripped = False
+            for idx, prefix in enumerate(_SCHEME_PREFIXES):
+                if prefix and text.startswith(prefix):
+                    text = text[len(prefix):]
+                    new_idx = idx
+                    stripped = True
+                    break
+            if not stripped:
+                # Bare UNC //server/share → SMB
+                if text.startswith("//") and "://" not in text:
+                    text = text[2:]
+                    new_idx = 3
+                break
+        if new_idx is not None:
+            self._stripping_scheme = True
+            self._path_row.set_text(text)
+            self._stripping_scheme = False
+            self._scheme_dropdown.set_selected(new_idx)
 
     def _full_uri(self) -> str:
         prefix = _SCHEME_PREFIXES[self._scheme_dropdown.get_selected()]

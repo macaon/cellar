@@ -87,11 +87,17 @@ class CatalogueEntriesDialog(Adw.Dialog):
         self._entries = results
 
         # Build set of (repo_uri, runner) pairs that have at least one dependent app.
-        # Used to disable the delete button on base images that apps rely on.
-        depended: set[tuple[str, str]] = set()
+        # Used to disable the delete button on entries that have dependents.
+        # Bases depended on by apps:
+        depended_bases: set[tuple[str, str]] = set()
         for item, repo, kind in results:
             if kind == "app" and item.base_runner:
-                depended.add((repo.uri, item.base_runner))
+                depended_bases.add((repo.uri, item.base_runner))
+        # Runners depended on by bases:
+        depended_runners: set[tuple[str, str]] = set()
+        for item, repo, kind in results:
+            if kind == "base":
+                depended_runners.add((repo.uri, item.runner))
 
         for idx, (item, repo, kind) in enumerate(results):
             size_mb = (item.archive_size or 0) / 1_000_000
@@ -140,10 +146,19 @@ class CatalogueEntriesDialog(Adw.Dialog):
             row.add_suffix(dl_btn)
 
             if kind == "base":
-                is_depended = (repo.uri, item.runner) in depended
+                is_depended = (repo.uri, item.name) in depended_bases
                 can_delete = repo.is_writable and not is_depended
                 if is_depended:
                     del_tooltip = "Apps in this repo depend on this base"
+                elif not repo.is_writable:
+                    del_tooltip = "Read-only repo"
+                else:
+                    del_tooltip = "Remove from repo"
+            elif kind == "runner":
+                is_depended = (repo.uri, item.name) in depended_runners
+                can_delete = repo.is_writable and not is_depended
+                if is_depended:
+                    del_tooltip = "Base images in this repo depend on this runner"
                 elif not repo.is_writable:
                     del_tooltip = "Read-only repo"
                 else:
@@ -469,24 +484,6 @@ class CatalogueEntriesDialog(Adw.Dialog):
             return
         item, repo, kind = self._entries[idx]
         name = item.name
-
-        # Block deletion of a runner that has dependent base images.
-        if kind == "runner":
-            dependents = [
-                e.name for e, r, k in self._entries
-                if k == "base" and e.runner == name
-            ]
-            if dependents:
-                names = ", ".join(f"\u201c{n}\u201d" for n in dependents)
-                alert = Adw.AlertDialog(
-                    heading="Runner In Use",
-                    body=f"Cannot remove \u201c{name}\u201d because it is "
-                         f"used by: {names}.\n\n"
-                         "Remove the dependent base images first.",
-                )
-                alert.add_response("ok", "OK")
-                alert.present(self)
-                return
 
         dialog = Adw.AlertDialog(
             heading="Remove from Repo?",

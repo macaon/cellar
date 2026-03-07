@@ -119,8 +119,8 @@ class PackageBuilderView(Gtk.Box):
         new_base_btn.add_css_class("flat")
         new_base_btn.connect("clicked", self._on_new_base_clicked)
 
-        import_btn = Gtk.Button(icon_name="document-save-symbolic")
-        import_btn.set_tooltip_text("Import from catalogue…")
+        import_btn = Gtk.Button(icon_name="open-book-symbolic")
+        import_btn.set_tooltip_text("Catalogue entries…")
         import_btn.add_css_class("flat")
         import_btn.connect("clicked", self._on_import_clicked)
 

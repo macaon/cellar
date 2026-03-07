@@ -48,6 +48,7 @@ class CatalogueEntriesDialog(Adw.Dialog):
 
         self._stack, self._list_box = make_loading_stack("Fetching catalogue\u2026")
         self._list_box.set_selection_mode(Gtk.SelectionMode.NONE)
+        self._list_box.set_header_func(self._section_header_func)
         toolbar.set_content(self._stack)
         self.set_child(toolbar)
 
@@ -77,6 +78,14 @@ class CatalogueEntriesDialog(Adw.Dialog):
 
     def _populate(self, results: list[tuple]) -> None:
         self._entries = results
+
+        # Build set of (repo_uri, runner) pairs that have at least one dependent app.
+        # Used to disable the delete button on base images that apps rely on.
+        depended: set[tuple[str, str]] = set()
+        for item, repo, kind in results:
+            if kind == "app" and item.base_runner:
+                depended.add((repo.uri, item.base_runner))
+
         for idx, (item, repo, kind) in enumerate(results):
             size_mb = (item.archive_size or 0) / 1_000_000
             size_str = f"{size_mb:.0f} MB" if size_mb else ""
@@ -106,14 +115,27 @@ class CatalogueEntriesDialog(Adw.Dialog):
             dl_btn.connect("clicked", self._on_download_clicked, idx)
             row.add_suffix(dl_btn)
 
+            if kind == "base":
+                is_depended = (repo.uri, item.runner) in depended
+                can_delete = repo.is_writable and not is_depended
+                if is_depended:
+                    del_tooltip = "Apps in this repo depend on this base"
+                elif not repo.is_writable:
+                    del_tooltip = "Read-only repo"
+                else:
+                    del_tooltip = "Remove from repo"
+            else:
+                can_delete = repo.is_writable
+                del_tooltip = "Remove from repo" if repo.is_writable else "Read-only repo"
+
             del_btn = Gtk.Button(
                 icon_name="user-trash-symbolic",
                 valign=Gtk.Align.CENTER,
                 has_frame=False,
-                tooltip_text="Remove from repo" if repo.is_writable else "Read-only repo",
-                sensitive=repo.is_writable,
+                tooltip_text=del_tooltip,
+                sensitive=can_delete,
             )
-            if repo.is_writable:
+            if can_delete:
                 del_btn.add_css_class("destructive-action")
             del_btn.connect("clicked", self._on_delete_clicked, idx)
             row.add_suffix(del_btn)
@@ -128,6 +150,38 @@ class CatalogueEntriesDialog(Adw.Dialog):
             self._list_box.append(empty_row)
 
         self._stack.set_visible_child_name("list")
+
+    def _section_header_func(
+        self, row: Gtk.ListBoxRow, before: Gtk.ListBoxRow | None
+    ) -> None:
+        idx = row.get_index()
+        if not (0 <= idx < len(self._entries)):
+            row.set_header(None)
+            return
+        _, _, kind = self._entries[idx]
+        prev_kind: str | None = None
+        if before is not None:
+            prev_idx = before.get_index()
+            if 0 <= prev_idx < len(self._entries):
+                _, _, prev_kind = self._entries[prev_idx]
+
+        if prev_kind is None and kind == "app":
+            row.set_header(self._make_section_label("Apps"))
+        elif (prev_kind is None and kind == "base") or (prev_kind == "app" and kind == "base"):
+            row.set_header(self._make_section_label("Base Images"))
+        else:
+            row.set_header(None)
+
+    @staticmethod
+    def _make_section_label(text: str) -> Gtk.Label:
+        label = Gtk.Label(label=text, xalign=0)
+        label.add_css_class("heading")
+        label.add_css_class("dim-label")
+        label.set_margin_top(16)
+        label.set_margin_bottom(4)
+        label.set_margin_start(12)
+        label.set_margin_end(12)
+        return label
 
     # ------------------------------------------------------------------
     # Download / import for editing

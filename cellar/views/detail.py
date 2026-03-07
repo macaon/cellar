@@ -127,14 +127,10 @@ class DetailView(Gtk.Box):
             and bool(_cat_crc and _stored_crc and _cat_crc != _stored_crc)
         )
         self._screenshot_paths: list[str] = []
-        # Runner compatibility state
-        self._installed_runners: list[str] = []
         self._runner_override: str | None = (
             (installed_record or {}).get("runner_override") if is_installed else None
         )
         self._runner_label: Gtk.Label | None = None
-        self._runner_warning_icon: Gtk.Image | None = None
-        self._runners_loaded: bool = False
         # Base image resolution — populated once by _resolve_base_async.
         # Observers registered before resolution completes are called on idle.
         self._base_sz: int = 0
@@ -211,9 +207,6 @@ class DetailView(Gtk.Box):
 
         content_box.append(self._make_info_cards())
 
-        # Kick off async runner compatibility check.
-        self._check_runners_async()
-
     # ------------------------------------------------------------------
     # Install helpers
     # ------------------------------------------------------------------
@@ -247,34 +240,10 @@ class DetailView(Gtk.Box):
         if self._is_installed:
             self._on_open_clicked()
             return
-        if self._entry.platform == "linux":
-            self._proceed_to_install()
-            return
-        bw = self._entry.built_with
-        required_runner = (bw.runner if bw else "") or ""
-        effective = self._runner_override or required_runner
-        runner_to_install = ""
-        if required_runner and self._runners_loaded and effective not in self._installed_runners:
-            runner_to_install = effective
-        self._proceed_to_install(runner_to_install=runner_to_install)
+        self._proceed_to_install()
 
-    def _resolve_runner_info(self, runner_name: str) -> dict | None:
-        """Return download info dict for *runner_name*, or ``None`` if unavailable."""
-        from cellar.backend import runners
-        from cellar.backend.umu import runners_dir
-
-        info = runners.get_release_info(runner_name)
-        if not info:
-            return None
-        return {
-            "url": info.get("url", ""),
-            "checksum": info.get("checksum", ""),
-            "target_dir": runners_dir() / runner_name,
-        }
-
-    def _proceed_to_install(self, *, runner_to_install: str = "") -> None:
+    def _proceed_to_install(self) -> None:
         archive_uri = self._resolve(self._entry.archive) if self._entry.archive else ""
-        runner_info = self._resolve_runner_info(runner_to_install) if runner_to_install else None
 
         # Resolve base archive for delta installs.
         runner = self._get_base_runner()
@@ -285,9 +254,6 @@ class DetailView(Gtk.Box):
             archive_uri=archive_uri,
             on_success=self._on_install_success,
             token=self._token,
-            runner_to_install=runner_to_install,
-            runner_info=runner_info,
-            installed_runners=list(self._installed_runners),
             base_entry=base_entry,
             base_archive_uri=base_archive_uri,
         )
@@ -534,37 +500,6 @@ class DetailView(Gtk.Box):
         root = self.get_root()
         if hasattr(root, "toast_overlay"):
             root.toast_overlay.add_toast(Adw.Toast(title=message))
-
-    # ------------------------------------------------------------------
-    # Runner compatibility
-    # ------------------------------------------------------------------
-
-    def _check_runners_async(self) -> None:
-        """Start a background thread that lists installed runners and updates the banner."""
-        bw = self._entry.built_with
-        if not bw or not bw.runner:
-            return
-
-        def _work():
-            from cellar.backend import runners
-            return runners.installed_runners()
-
-        run_in_background(_work, on_done=self._on_runners_loaded)
-
-    def _on_runners_loaded(self, runners: list[str]) -> None:
-        self._installed_runners = runners
-        self._runners_loaded = True
-        required = (self._entry.built_with.runner if self._entry.built_with else "") or ""
-        if not required or not self._runner_warning_icon:
-            return
-        effective = self._runner_override or required
-        missing = effective not in runners
-        self._runner_warning_icon.set_visible(missing)
-        if missing:
-            self._runner_warning_icon.set_tooltip_text(
-                f"Runner \u201c{effective}\u201d is not installed"
-            )
-
 
     # ------------------------------------------------------------------
     # Section builders
@@ -1029,18 +964,11 @@ class DetailView(Gtk.Box):
         card.append(icon)
 
         runner_name = self._runner_override or (bw.runner if bw else "") or ""
-        runner_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        runner_row.set_halign(Gtk.Align.CENTER)
-        card.append(runner_row)
 
         self._runner_label = Gtk.Label(label=runner_name)
         self._runner_label.add_css_class("heading")
-        runner_row.append(self._runner_label)
-
-        self._runner_warning_icon = Gtk.Image.new_from_icon_name("dialog-warning-symbolic")
-        self._runner_warning_icon.add_css_class("warning")
-        self._runner_warning_icon.set_visible(False)
-        runner_row.append(self._runner_warning_icon)
+        self._runner_label.set_halign(Gtk.Align.CENTER)
+        card.append(self._runner_label)
 
         bottom_lbl = Gtk.Label(label="Wine")
         bottom_lbl.add_css_class("dim-label")
@@ -1246,7 +1174,6 @@ class DetailView(Gtk.Box):
         toolbar.set_content(content)
 
         dlg = Adw.Dialog(title="Wine", content_width=340)
-        _dlg_ref.append(dlg)
         dlg.set_child(toolbar)
         dlg.present(self)
 
@@ -1379,23 +1306,14 @@ class DetailView(Gtk.Box):
 
 
 # ---------------------------------------------------------------------------
-# Runner manager dialog
-# ---------------------------------------------------------------------------
 # Install progress dialog
 # ---------------------------------------------------------------------------
 
 
-
-
-
 class InstallProgressDialog(Adw.Dialog):
-    """Two-phase install dialog: confirmation → progress.
+    """Install progress dialog — downloads base (if needed) + app archive.
 
-    Phase 1 (confirm): shown for Linux apps (install path) and when a runner
-    needs downloading.  Skipped automatically for simple Windows installs.
-
-    Phase 2 (progress): background install with a progress bar and a body
-    Cancel button.
+    Shows a progress bar and Cancel button.  Starts automatically on present.
     """
 
     def __init__(
@@ -1405,9 +1323,6 @@ class InstallProgressDialog(Adw.Dialog):
         archive_uri: str,
         on_success: Callable,  # (prefix_dir: str, install_path: str, runner: str, install_size: int) -> None
         token: str | None = None,
-        runner_to_install: str = "",
-        runner_info: dict | None = None,
-        installed_runners: list[str] | None = None,
         base_entry=None,            # BaseEntry | None — for delta installs
         base_archive_uri: str = "", # resolved URI for the base archive
     ) -> None:
@@ -1417,17 +1332,13 @@ class InstallProgressDialog(Adw.Dialog):
         self._on_success = on_success
         self._token = token
         self._cancel_event = threading.Event()
-        self._runner_to_install = runner_to_install
-        self._runner_info = runner_info
-        self._installed_runners = installed_runners or []
         self._base_entry = base_entry
         self._base_archive_uri = base_archive_uri
 
         self._build_ui()
         self.connect("closed", lambda _d: self._cancel_event.set())
 
-        # Always auto-proceed straight to the progress page.
-        GLib.idle_add(self._on_proceed_clicked, None)
+        GLib.idle_add(self._start_install)
 
     # ── UI construction ───────────────────────────────────────────────────
 
@@ -1447,11 +1358,6 @@ class InstallProgressDialog(Adw.Dialog):
             make_progress_page("Downloading", self._on_cancel_progress_clicked)
         )
         return box
-
-    # ── Signal handlers ───────────────────────────────────────────────────
-
-    def _on_proceed_clicked(self, _btn) -> None:
-        self._start_install()
 
     def _on_cancel_progress_clicked(self, _btn) -> None:
         self._cancel_event.set()
@@ -1482,35 +1388,6 @@ class InstallProgressDialog(Adw.Dialog):
 
         def _run() -> None:
             try:
-                # ── Runner download (if needed) ───────────────────────────
-                if self._runner_to_install and self._runner_info:
-                    from cellar.views.install_runner import _Cancelled, _download_and_extract_runner
-
-                    _set_phase("Downloading\u2026")
-
-                    try:
-                        _download_and_extract_runner(
-                            url=self._runner_info["url"],
-                            checksum=self._runner_info["checksum"],
-                            target_dir=self._runner_info["target_dir"],
-                            progress_cb=_dl_progress,
-                            stats_cb=_dl_stats,
-                            phase_cb=_set_phase,
-                            name_cb=None,
-                            cancel_event=self._cancel_event,
-                        )
-                    except _Cancelled:
-                        from cellar.backend.installer import InstallCancelled as _IC
-                        raise _IC("Cancelled")
-
-                    if self._cancel_event.is_set():
-                        raise InstallCancelled("Cancelled")
-
-                # ── App install (includes base download if needed) ────────
-                _set_phase("Downloading & extracting\u2026")
-                effective_runner = self._runner_to_install or (
-                    self._installed_runners[0] if self._installed_runners else ""
-                )
                 prefix_dir = install_app(
                     self._entry,
                     self._archive_uri,
@@ -1525,8 +1402,10 @@ class InstallProgressDialog(Adw.Dialog):
                 )
                 from cellar.backend.umu import prefixes_dir as _prefixes_dir
                 from cellar.utils.paths import dir_size_bytes as _dir_size
+                bw = self._entry.built_with
+                runner = (bw.runner if bw else "") or ""
                 _install_size = _dir_size(_prefixes_dir() / prefix_dir)
-                GLib.idle_add(self._on_done, prefix_dir, str(_prefixes_dir()), effective_runner, _install_size)
+                GLib.idle_add(self._on_done, prefix_dir, str(_prefixes_dir()), runner, _install_size)
             except InstallCancelled:
                 GLib.idle_add(self._on_cancelled)
             except Exception as exc:  # noqa: BLE001

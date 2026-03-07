@@ -47,7 +47,7 @@ def make_loading_stack(label: str = "Loading\u2026") -> tuple[Gtk.Stack, Gtk.Lis
 
 def make_progress_page(
     label: str,
-    on_cancel: Callable[[], None],
+    on_cancel: Callable,
     *,
     show_text: bool = True,
 ) -> tuple[Gtk.Box, Gtk.Label, Gtk.ProgressBar, Gtk.Button]:
@@ -75,7 +75,7 @@ def make_progress_page(
     cancel_btn = Gtk.Button(label="Cancel")
     cancel_btn.set_halign(Gtk.Align.CENTER)
     cancel_btn.set_margin_top(6)
-    cancel_btn.connect("clicked", lambda _: on_cancel())
+    cancel_btn.connect("clicked", on_cancel)
     box.append(cancel_btn)
 
     return box, phase_label, progress_bar, cancel_btn

@@ -1,10 +1,17 @@
 python_sources = files(
   '__init__.py',
-  'repo.py',
-  'installer.py',
-  'updater.py',
-  'bottles.py',
+  'base_store.py',
+  'config.py',
   'database.py',
+  'installer.py',
+  'manifest.py',
+  'packager.py',
+  'project.py',
+  'repo.py',
+  'runners.py',
+  'steam.py',
+  'umu.py',
+  'updater.py',
 )
 
 python.install_sources(python_sources, subdir: 'cellar/backend')

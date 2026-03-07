@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Cellar
+Comment=A GNOME storefront for Windows and Linux applications
+Exec=cellar
+Icon=io.github.cellar
+Terminal=false
+Type=Application
+Categories=GNOME;GTK;Utility;
+StartupWMClass=cellar

@@ -6,8 +6,14 @@ from pathlib import Path
 # When running from the source tree, data/ sits two levels above this file.
 _SRC_DATA = Path(__file__).parent.parent.parent / "data"
 
-# Flatpak / meson-installed location.
-_INSTALLED_DATA = Path("/app/share/cellar")
+
+def _installed_data_dirs() -> list[Path]:
+    """Return candidate installed data directories in XDG preference order."""
+    xdg_home = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
+    xdg_sys = os.environ.get("XDG_DATA_DIRS", "/usr/local/share:/usr/share")
+    dirs = [xdg_home] + [Path(d) for d in xdg_sys.split(":") if d]
+    dirs.append(Path("/app/share"))  # Flatpak
+    return [d / "cellar" for d in dirs]
 
 
 def icons_dir() -> str:
@@ -17,7 +23,7 @@ def icons_dir() -> str:
     Checked in the source tree first so ``PYTHONPATH=. python3 -m cellar.main``
     works without a build step.
     """
-    for candidate in (_SRC_DATA / "icons", _INSTALLED_DATA / "icons"):
+    for candidate in [_SRC_DATA / "icons"] + [d / "icons" for d in _installed_data_dirs()]:
         if candidate.is_dir():
             return str(candidate)
     return str(_SRC_DATA / "icons")
@@ -60,12 +66,8 @@ def ui_file(name: str) -> str:
     Checks the source tree first so the app can be run directly with
     ``PYTHONPATH=. python3 -m cellar.main`` during development.
     """
-    for candidate in (
-        _SRC_DATA / "ui" / name,
-        _INSTALLED_DATA / "ui" / name,
-    ):
+    candidates = [_SRC_DATA / "ui" / name] + [d / "ui" / name for d in _installed_data_dirs()]
+    for candidate in candidates:
         if candidate.exists():
             return str(candidate)
-    raise FileNotFoundError(
-        f"UI file '{name}' not found in {_SRC_DATA / 'ui'} or {_INSTALLED_DATA / 'ui'}"
-    )
+    raise FileNotFoundError(f"UI file '{name}' not found in any data directory")

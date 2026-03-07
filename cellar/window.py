@@ -150,7 +150,7 @@ class CellarWindow(Adw.ApplicationWindow):
         self._browse_updates.connect("app-selected", self._on_app_selected)
         self.updates_box.append(self._browse_updates)
 
-        from cellar.views.package_builder import PackageBuilderView
+        from cellar.views.builder import PackageBuilderView
         self._package_builder = PackageBuilderView(
             on_catalogue_changed=self._load_catalogue,
         )
@@ -459,7 +459,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="io.github.cellar",
-            version="0.43.23",
+            version="0.43.24",
             comments="A GNOME storefront for Windows and Linux apps.",
             license_type=Gtk.License.GPL_3_0,
         )

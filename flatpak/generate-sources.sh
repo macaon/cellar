@@ -29,7 +29,7 @@ fi
 cd "$SCRIPT_DIR"
 
 "$GENERATOR" \
-    --runtime org.gnome.Sdk//46 \
+    --runtime org.gnome.Sdk//49 \
     --output python-sources \
     --requirements-file requirements.txt
 

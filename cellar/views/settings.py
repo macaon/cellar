@@ -585,8 +585,10 @@ class AddEditRepoDialog(Adw.Dialog):
         self._ca_row.set_visible(ssl_active)
         http_group.add(self._ca_row)
 
-        # Show HTTP group only for non-SMB URIs
-        http_group.set_visible(not is_smb)
+        # Show HTTP group only for http/https URIs
+        _existing_scheme = urlparse(_existing_uri).scheme.lower()
+        is_http = _existing_scheme in ("http", "https")
+        http_group.set_visible(is_http)
         self._http_group = http_group
 
         toolbar.set_content(scroll)
@@ -602,8 +604,9 @@ class AddEditRepoDialog(Adw.Dialog):
         scheme = urlparse(text).scheme.lower()
         # UNC paths (//server/share/…) are SMB even without the smb: prefix.
         is_smb = scheme == "smb" or (text.startswith("//") and "://" not in text)
+        is_http = scheme in ("http", "https")
         self._smb_group.set_visible(is_smb)
-        self._http_group.set_visible(not is_smb)
+        self._http_group.set_visible(is_http)
 
     def _on_ssl_toggled(self, row: Adw.SwitchRow, _param) -> None:
         self._ca_row.set_visible(row.get_active())

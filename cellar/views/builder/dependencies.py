@@ -111,9 +111,12 @@ class DependencyPickerDialog(Adw.Dialog):
     non-matching verbs.
     """
 
-    def __init__(self, project: Project, on_dep_changed: Callable) -> None:
+    def __init__(self, project: Project, on_dep_changed: Callable, runner_name: str = "") -> None:
         super().__init__(title="Dependencies", content_width=500)
         self._project = project
+        # Allow callers to pass the resolved GE-Proton runner name directly.
+        # For app projects project.runner is the base image name, not the runner.
+        self._runner_name = runner_name or project.runner
         self._on_dep_changed = on_dep_changed
         # list of (ExpanderRow, [ActionRow, ...]) for search visibility control
         self._category_rows: list[tuple[Adw.ExpanderRow, list[Adw.ActionRow]]] = []
@@ -235,7 +238,7 @@ class DependencyPickerDialog(Adw.Dialog):
             from cellar.backend.umu import run_winetricks
             result = run_winetricks(
                 self._project.prefix_path,
-                self._project.runner,
+                self._runner_name,
                 verbs,
                 line_cb=lambda line: GLib.idle_add(dlg.push_line, line),
             )

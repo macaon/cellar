@@ -875,6 +875,23 @@ class PackageBuilderView(Gtk.Box):
                 save_project(self._project)
             self._show_project(self._project, expand_sel=True)
 
+    def _resolve_runner_name(self, project: "Project") -> str:
+        """Return the GE-Proton runner name to pass to umu for *project*.
+
+        For base projects, ``project.runner`` is already the runner name.
+        For app projects, ``project.runner`` is a base image name; look up
+        the corresponding base entry to get the underlying runner name.
+        """
+        if project.project_type != "app":
+            return project.runner
+        base_name = project.runner
+        for repo in self._all_repos:
+            entry = repo._bases.get(base_name)
+            if entry is not None:
+                return entry.runner
+        # Fallback — hope the base name is also a valid runner directory.
+        return base_name
+
     def _on_init_prefix_clicked(self, _btn) -> None:
         if self._project is None:
             return
@@ -890,11 +907,13 @@ class PackageBuilderView(Gtk.Box):
         progress = ProgressDialog(label="Initializing prefix…")
         progress.present(self)
 
+        runner_name = self._resolve_runner_name(project)
+
         def _work():
             from cellar.backend.umu import init_prefix
             result = init_prefix(
                 project.prefix_path,
-                project.runner,
+                runner_name,
                 steam_appid=project.steam_appid,
             )
             # umu-run "" initializes the prefix then tries to execute an
@@ -996,6 +1015,7 @@ class PackageBuilderView(Gtk.Box):
         dialog = DependencyPickerDialog(
             project=self._project,
             on_dep_changed=lambda: self._show_project(self._project),
+            runner_name=self._resolve_runner_name(self._project),
         )
         dialog.present(self)
 
@@ -1094,7 +1114,7 @@ class PackageBuilderView(Gtk.Box):
         launch_app(
             app_id=f"project-{self._project.slug}",
             entry_point="winecfg",
-            runner_name=self._project.runner,
+            runner_name=self._resolve_runner_name(self._project),
             steam_appid=self._project.steam_appid,
             prefix_dir=self._project.prefix_path,
         )
@@ -1166,7 +1186,7 @@ class PackageBuilderView(Gtk.Box):
         launch_app(
             app_id=f"project-{project.slug}",
             entry_point=project.entry_point,
-            runner_name=project.runner,
+            runner_name=self._resolve_runner_name(project),
             steam_appid=project.steam_appid,
             prefix_dir=project.prefix_path,
             launch_args=project.entry_args,
@@ -1609,6 +1629,7 @@ class PackageBuilderView(Gtk.Box):
             return
 
         project.prefix_path.mkdir(parents=True, exist_ok=True)
+        runner_name = self._resolve_runner_name(project)
 
         progress = ProgressDialog(label=label)
         progress.present(self)
@@ -1617,7 +1638,7 @@ class PackageBuilderView(Gtk.Box):
             from cellar.backend.umu import run_in_prefix
             result = run_in_prefix(
                 project.prefix_path,
-                project.runner,
+                runner_name,
                 exe,
                 timeout=600,
             )

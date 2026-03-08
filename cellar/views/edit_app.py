@@ -226,12 +226,16 @@ class EditAppDialog(Adw.Dialog):
 
         self._icon_row, self._icon_clear_btn = self._make_image_row("Icon", self._pick_icon)
         self._cover_row, self._cover_clear_btn = self._make_image_row("Cover", self._pick_cover)
-        self._logo_row, self._logo_clear_btn = self._make_image_row("Logo", self._pick_logo)
+
         self._hide_title_btn = Gtk.ToggleButton()
-        self._hide_title_btn.set_icon_name("view-conceal-symbolic")
+        self._hide_title_btn.set_icon_name("eye-open-negative-filled-symbolic")
         self._hide_title_btn.set_valign(Gtk.Align.CENTER)
+        self._hide_title_btn.set_visible(False)
         self._hide_title_btn.set_tooltip_text("Hide title — logo contains the app name")
-        self._logo_row.add_suffix(self._hide_title_btn)
+        self._hide_title_btn.connect("toggled", self._on_hide_title_toggled)
+        self._logo_row, self._logo_clear_btn = self._make_image_row(
+            "Logo", self._pick_logo, extra_suffix=self._hide_title_btn
+        )
 
         self._icon_clear_btn.connect("clicked", self._on_icon_clear)
         self._cover_clear_btn.connect("clicked", self._on_cover_clear)
@@ -305,7 +309,7 @@ class EditAppDialog(Adw.Dialog):
 
         return scroll
 
-    def _make_image_row(self, label: str, handler) -> tuple[Adw.ActionRow, Gtk.Button]:
+    def _make_image_row(self, label: str, handler, extra_suffix=None) -> tuple[Adw.ActionRow, Gtk.Button]:
         row = Adw.ActionRow(title=label)
         row.set_subtitle("No image set")
 
@@ -314,6 +318,9 @@ class EditAppDialog(Adw.Dialog):
         clear_btn.set_valign(Gtk.Align.CENTER)
         clear_btn.set_visible(False)
         row.add_suffix(clear_btn)
+
+        if extra_suffix is not None:
+            row.add_suffix(extra_suffix)
 
         change_btn = Gtk.Button(icon_name="folder-open-symbolic", tooltip_text="Browse…")
         change_btn.add_css_class("flat")
@@ -392,6 +399,7 @@ class EditAppDialog(Adw.Dialog):
         if e.logo:
             self._logo_row.set_subtitle(GLib.markup_escape_text(Path(e.logo).name))
             self._logo_clear_btn.set_visible(True)
+            self._hide_title_btn.set_visible(True)
         if e.hide_title:
             self._hide_title_btn.set_active(True)
 
@@ -504,6 +512,7 @@ class EditAppDialog(Adw.Dialog):
             self._logo_path = chooser.get_file().get_path()
             self._logo_row.set_subtitle(GLib.markup_escape_text(Path(self._logo_path).name))
             self._logo_clear_btn.set_visible(True)
+            self._hide_title_btn.set_visible(True)
             if not self._old_entry.logo and not self._hide_title_btn.get_active():
                 self._hide_title_btn.set_active(True)
 
@@ -564,6 +573,14 @@ class EditAppDialog(Adw.Dialog):
         self._screenshots_dirty = True
         self._rebuild_screenshot_list()
 
+    # ── Hide-title toggle ─────────────────────────────────────────────────
+
+    def _on_hide_title_toggled(self, btn) -> None:
+        if btn.get_active():
+            btn.set_icon_name("eye-not-looking-symbolic")
+        else:
+            btn.set_icon_name("eye-open-negative-filled-symbolic")
+
     # ── Image clear handlers ──────────────────────────────────────────────
 
     def _on_icon_clear(self, _btn) -> None:
@@ -580,6 +597,7 @@ class EditAppDialog(Adw.Dialog):
         self._logo_path = ""
         self._logo_row.set_subtitle("Will be removed")
         self._logo_clear_btn.set_visible(False)
+        self._hide_title_btn.set_visible(False)
 
     # ── Screenshot list helpers ───────────────────────────────────────────
 

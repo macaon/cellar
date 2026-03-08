@@ -1185,7 +1185,6 @@ class DetailView(Gtk.Box):
                 base_action_row.set_subtitle(_base_status_subtitle(self._base_installed))
                 if runner_pill is not None and runner_action_row is not None:
                     runner_pill.set_label(_fmt_bytes(self._runner_sz) if self._runner_sz else "Unknown")
-                    runner_action_row.set_title(self._resolved_runner or "Runner")
                     runner_action_row.set_subtitle(_base_status_subtitle(self._runner_installed))
             else:
                 # Resolution not yet done (rare — dialog opened within ms of page load).
@@ -1199,7 +1198,6 @@ class DetailView(Gtk.Box):
                     _br.set_subtitle(_base_status_subtitle(installed))
                     if _rp is not None and _rr is not None:
                         _rp.set_label(_fmt_bytes(runner_sz) if runner_sz else "Unknown")
-                        _rr.set_title(self._resolved_runner or "Runner")
                         _rr.set_subtitle(_base_status_subtitle(runner_installed))
                     _t.set_label(_fmt_bytes(total) if total else _fmt_bytes(_app))
 

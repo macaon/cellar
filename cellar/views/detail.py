@@ -134,6 +134,8 @@ class DetailView(Gtk.Box):
         # Observers registered before resolution completes are called on idle.
         self._base_sz: int = 0
         self._base_installed: bool | None = None  # None = not yet resolved
+        self._runner_sz: int = 0
+        self._runner_installed: bool | None = None  # None = not yet resolved
         self._base_resolve_cbs: list[Callable] = []
 
         toolbar = Adw.ToolbarView()
@@ -1038,6 +1040,18 @@ class DetailView(Gtk.Box):
                 pass
         return None, ""
 
+    def _find_runner_entry(self, runner_name: str) -> tuple[object | None, str]:
+        """Return (RunnerEntry, archive_uri) for *runner_name*, or (None, "") if not found."""
+        for repo in self._source_repos:
+            try:
+                runners = repo.fetch_runners()
+                if runner_name in runners:
+                    entry = runners[runner_name]
+                    return entry, repo.resolve_asset_uri(entry.archive)
+            except Exception:
+                pass
+        return None, ""
+
     def _resolve_base_async(self, val_lbl: Gtk.Label | None = None) -> None:
         """Resolve base image size + installed status once; cache on self for the dialog."""
         base_image = self._get_base_image()
@@ -1047,29 +1061,41 @@ class DetailView(Gtk.Box):
 
         def _work():
             from cellar.backend.base_store import is_base_installed
+            from cellar.backend.umu import resolve_runner_path
             installed = is_base_installed(base_image)
             base_entry, _ = self._find_base_entry(base_image)
             base_sz = base_entry.archive_size if base_entry else 0
             runner = base_entry.runner if base_entry else ""
-            return installed, base_sz, runner
+            runner_installed = bool(resolve_runner_path(runner)) if runner else True
+            runner_entry, _ = self._find_runner_entry(runner) if runner else (None, "")
+            runner_sz = runner_entry.archive_size if runner_entry else 0
+            return installed, base_sz, runner, runner_installed, runner_sz
 
         def _apply(result) -> None:
-            installed, base_sz, runner = result
+            installed, base_sz, runner, runner_installed, runner_sz = result
             self._base_installed = installed
             self._base_sz = base_sz
+            self._runner_installed = runner_installed
+            self._runner_sz = runner_sz
             if runner:
                 self._resolved_runner = runner
                 if self._runner_label:
                     self._runner_label.set_label(runner)
-            if val_lbl is not None and not installed and base_sz:
-                val_lbl.set_label(_fmt_bytes(app_size + base_sz))
+            if val_lbl is not None:
+                total = app_size
+                if not installed:
+                    total += base_sz
+                if not runner_installed:
+                    total += runner_sz
+                if total != app_size:
+                    val_lbl.set_label(_fmt_bytes(total))
             if not installed and self._base_warning_icon:
                 self._base_warning_icon.set_visible(True)
                 self._base_warning_icon.set_tooltip_text(
                     f"Base image \u201c{base_image}\u201d is not installed"
                 )
             for cb in self._base_resolve_cbs:
-                cb(installed, base_sz)
+                cb(installed, base_sz, runner_installed, runner_sz)
             self._base_resolve_cbs.clear()
 
         run_in_background(_work, on_done=_apply)
@@ -1095,9 +1121,11 @@ class DetailView(Gtk.Box):
             return r
 
         # ── Header: total size pill ──────────────────────────────────
-        # Compute initial value: if base is already resolved and missing, add its size.
-        if base_image and self._base_installed is not None:
-            _total_sz = e.archive_size + (0 if self._base_installed else self._base_sz)
+        # Compute initial value: if base+runner are already resolved, sum what's missing.
+        if base_image and self._base_installed is not None and self._runner_installed is not None:
+            _total_sz = (e.archive_size
+                         + (0 if self._base_installed else self._base_sz)
+                         + (0 if self._runner_installed else self._runner_sz))
             _initial_total = _fmt_bytes(_total_sz) if _total_sz else _fmt_bytes(e.archive_size)
         elif base_image:
             _initial_total = "…"
@@ -1122,10 +1150,15 @@ class DetailView(Gtk.Box):
 
         base_pill: Gtk.Label | None = None
         base_action_row: Adw.ActionRow | None = None
+        runner_pill: Gtk.Label | None = None
+        runner_action_row: Adw.ActionRow | None = None
         if base_image:
             base_pill = _pill("…")
             base_action_row = _row(base_pill, "Base Image", "…")
             listbox.append(base_action_row)
+            runner_pill = _pill("…")
+            runner_action_row = _row(runner_pill, "Runner", "…")
+            listbox.append(runner_action_row)
 
         # ── Layout ──────────────────────────────────────────────────
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
@@ -1144,21 +1177,30 @@ class DetailView(Gtk.Box):
         dlg.set_child(toolbar)
         dlg.present(self)
 
-        # ── Populate base row from cached resolution ─────────────────
+        # ── Populate base + runner rows from cached resolution ────────
         if base_image and base_pill is not None and base_action_row is not None:
-            if self._base_installed is not None:
-                # Already resolved — total_pill was pre-computed above; just fill the row.
-                sz = self._base_sz
-                base_pill.set_label(_fmt_bytes(sz) if sz else "Unknown")
+            if self._base_installed is not None and self._runner_installed is not None:
+                # Already resolved — total_pill was pre-computed above; just fill the rows.
+                base_pill.set_label(_fmt_bytes(self._base_sz) if self._base_sz else "Unknown")
                 base_action_row.set_subtitle(_base_status_subtitle(self._base_installed))
+                if runner_pill is not None and runner_action_row is not None:
+                    runner_pill.set_label(_fmt_bytes(self._runner_sz) if self._runner_sz else "Unknown")
+                    runner_action_row.set_title(self._resolved_runner or "Runner")
+                    runner_action_row.set_subtitle(_base_status_subtitle(self._runner_installed))
             else:
                 # Resolution not yet done (rare — dialog opened within ms of page load).
-                _p, _r, _t, _app = base_pill, base_action_row, total_pill, e.archive_size
+                _bp, _br = base_pill, base_action_row
+                _rp, _rr = runner_pill, runner_action_row
+                _t, _app = total_pill, e.archive_size
 
-                def _on_resolved(installed: bool, base_sz: int) -> None:
-                    total = _app + (0 if installed else base_sz)
-                    _p.set_label(_fmt_bytes(base_sz) if base_sz else "Unknown")
-                    _r.set_subtitle(_base_status_subtitle(installed))
+                def _on_resolved(installed: bool, base_sz: int, runner_installed: bool, runner_sz: int) -> None:
+                    total = _app + (0 if installed else base_sz) + (0 if runner_installed else runner_sz)
+                    _bp.set_label(_fmt_bytes(base_sz) if base_sz else "Unknown")
+                    _br.set_subtitle(_base_status_subtitle(installed))
+                    if _rp is not None and _rr is not None:
+                        _rp.set_label(_fmt_bytes(runner_sz) if runner_sz else "Unknown")
+                        _rr.set_title(self._resolved_runner or "Runner")
+                        _rr.set_subtitle(_base_status_subtitle(runner_installed))
                     _t.set_label(_fmt_bytes(total) if total else _fmt_bytes(_app))
 
                 self._base_resolve_cbs.append(_on_resolved)

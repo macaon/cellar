@@ -199,10 +199,14 @@ class CellarWindow(Adw.ApplicationWindow):
                         log.warning("CA cert %r not found in certs dir; ignoring", ca_cert_name)
                 smb_username = cfg.get("smb_username") or None
                 smb_password = load_smb_password(cfg["uri"]) if smb_username else None
+                ssh_username = cfg.get("ssh_username") or None
+                ssh_password = cfg.get("ssh_password") or None
                 r = Repo(
                     cfg["uri"],
                     cfg.get("name", ""),
                     ssh_identity=cfg.get("ssh_identity"),
+                    ssh_username=ssh_username,
+                    ssh_password=ssh_password,
                     ssl_verify=cfg.get("ssl_verify", True),
                     ca_cert=ca_cert_path,
                     token=cfg.get("token") or None,

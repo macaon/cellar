@@ -35,6 +35,7 @@ def _get_sftp(
     port: int,
     user: str | None,
     identity: str | None,
+    password: str | None = None,
 ):
     """Return a cached :class:`paramiko.SFTPClient` for the given connection."""
     import paramiko  # type: ignore[import]
@@ -66,6 +67,8 @@ def _get_sftp(
         }
         if identity:
             connect_kw["key_filename"] = identity
+        if password:
+            connect_kw["password"] = password
         ssh.load_system_host_keys()
         try:
             ssh.connect(**connect_kw)
@@ -146,7 +149,7 @@ class SshPath:
     (equivalent to ``shutil.rmtree``).
     """
 
-    __slots__ = ("_host", "_path", "_user", "_port", "_identity")
+    __slots__ = ("_host", "_path", "_user", "_port", "_identity", "_password")
 
     def __init__(
         self,
@@ -156,17 +159,19 @@ class SshPath:
         user: str | None = None,
         port: int | None = None,
         identity: str | None = None,
+        password: str | None = None,
     ) -> None:
         self._host = host
         self._path: str = remote_path.rstrip("/") or "/"
         self._user = user
         self._port = port or 22
         self._identity = identity
+        self._password = password
 
     # ── SFTP access ────────────────────────────────────────────────────
 
     def _sftp(self):
-        return _get_sftp(self._host, self._port, self._user, self._identity)
+        return _get_sftp(self._host, self._port, self._user, self._identity, self._password)
 
     def _child(self, name: str) -> "SshPath":
         return SshPath(
@@ -175,6 +180,7 @@ class SshPath:
             user=self._user,
             port=self._port,
             identity=self._identity,
+            password=self._password,
         )
 
     # ── Path arithmetic ────────────────────────────────────────────────
@@ -187,6 +193,7 @@ class SshPath:
             user=self._user,
             port=self._port,
             identity=self._identity,
+            password=self._password,
         )
 
     def __str__(self) -> str:
@@ -240,10 +247,12 @@ class SshPath:
             return SshPath(
                 self._host, "/",
                 user=self._user, port=self._port, identity=self._identity,
+                password=self._password,
             )
         return SshPath(
             self._host, self._path[:idx],
             user=self._user, port=self._port, identity=self._identity,
+            password=self._password,
         )
 
     # ── Filesystem operations ──────────────────────────────────────────

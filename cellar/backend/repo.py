@@ -135,16 +135,18 @@ class _SshFetcher:
         user: str | None = None,
         port: int | None = None,
         identity: str | None = None,
+        password: str | None = None,
     ) -> None:
         self._host = host
         self._root = remote_root.rstrip("/") or "/"
         self._user = user
         self._port = port or 22
         self._identity = identity
+        self._password = password
 
     def _sftp(self):
         from cellar.utils.ssh import _get_sftp
-        return _get_sftp(self._host, self._port, self._user, self._identity)
+        return _get_sftp(self._host, self._port, self._user, self._identity, self._password)
 
     def fetch_bytes(self, rel_path: str) -> bytes:
         remote = f"{self._root}/{rel_path.lstrip('/')}"
@@ -236,6 +238,8 @@ def _make_fetcher(
     uri: str,
     *,
     ssh_identity: str | None = None,
+    ssh_username: str | None = None,
+    ssh_password: str | None = None,
     ssl_verify: bool = True,
     ca_cert: str | None = None,
     token: str | None = None,
@@ -263,9 +267,10 @@ def _make_fetcher(
         return _SshFetcher(
             host=parsed.hostname,
             remote_root=parsed.path or "/",
-            user=parsed.username or None,
+            user=ssh_username or parsed.username or None,
             port=parsed.port or None,
             identity=ssh_identity,
+            password=ssh_password,
         )
 
     if scheme == "smb":
@@ -302,6 +307,8 @@ class Repo:
         name: str = "",
         *,
         ssh_identity: str | None = None,
+        ssh_username: str | None = None,
+        ssh_password: str | None = None,
         ssl_verify: bool = True,
         ca_cert: str | None = None,
         token: str | None = None,
@@ -324,6 +331,8 @@ class Repo:
         self._fetcher: _Fetcher = _make_fetcher(
             uri,
             ssh_identity=ssh_identity,
+            ssh_username=ssh_username,
+            ssh_password=ssh_password,
             ssl_verify=ssl_verify,
             ca_cert=ca_cert,
             token=token,
@@ -663,6 +672,7 @@ class Repo:
                 user=self._fetcher._user,
                 port=self._fetcher._port,
                 identity=self._fetcher._identity,
+                password=self._fetcher._password,
             )
             if rel_path:
                 return base / rel_path.lstrip("/")

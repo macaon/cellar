@@ -1,7 +1,2 @@
-<!--
-  SPDX-License-Identifier: CC0-1.0
-  SPDX-FileCopyrightText: 2026 Cellar Contributors
--->
-<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16">
-    <path fill="currentColor" d="M1.5 2.5 L14.5 2.5 L9.5 8.5 L9.5 14 L6.5 14 L6.5 8.5 Z"/>
-</svg>
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 0 16 16" width="16px"><path d="m 0 1 h 15 l -6 7 v 6 l -3 2 v -8 z m 0 0" fill="#222222"/></svg>

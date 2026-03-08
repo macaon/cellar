@@ -18,6 +18,7 @@ from gi.repository import Adw, GLib, Gio, Gtk
 
 from cellar.backend.config import (
     certs_dir,
+    clear_password,
     load_repos,
     load_ssh_password,
     save_repos,
@@ -360,6 +361,7 @@ class SettingsDialog(Adw.PreferencesDialog):
     def _on_delete_repo(self, _btn: Gtk.Button, uri: str) -> None:
         repos = [r for r in load_repos() if r["uri"] != uri]
         save_repos(repos)
+        clear_password(uri)
         self._rebuild_repo_rows()
         if self._on_repos_changed:
             self._on_repos_changed()

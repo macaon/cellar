@@ -1,5 +1,6 @@
 python_sources = files(
   '__init__.py',
+  '_remote_path.py',
   'async_work.py',
   'desktop.py',
   'http.py',

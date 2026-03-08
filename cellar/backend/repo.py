@@ -145,16 +145,26 @@ class _SshFetcher:
         self._password = password
 
     def _sftp(self):
-        from cellar.utils.ssh import _get_sftp
-        return _get_sftp(self._host, self._port, self._user, self._identity, self._password)
+        import contextlib
+        from cellar.utils.ssh import _get_sftp, _return_sftp
+
+        @contextlib.contextmanager
+        def _checkout():
+            sftp = _get_sftp(self._host, self._port, self._user, self._identity, self._password)
+            try:
+                yield sftp
+            finally:
+                _return_sftp(self._host, self._port, self._user, self._identity, sftp)
+        return _checkout()
 
     def fetch_bytes(self, rel_path: str) -> bytes:
         remote = f"{self._root}/{rel_path.lstrip('/')}"
         log.debug("SFTP fetch: %s", remote)
         try:
-            with self._sftp().open(remote, "rb") as f:
-                f.prefetch()
-                return f.read()
+            with self._sftp() as sftp:
+                with sftp.open(remote, "rb") as f:
+                    f.prefetch()
+                    return f.read()
         except FileNotFoundError:
             raise RepoError(
                 f"SSH fetch failed for {rel_path}: "

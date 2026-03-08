@@ -18,16 +18,25 @@ connection is created on first use and reused for all subsequent calls.
 
 from __future__ import annotations
 
+import contextlib
 import stat as _stat
 import threading
 from pathlib import Path
 from typing import IO
 
 
-# ── Connection cache ────────────────────────────────────────────────────
+# ── Connection pool ────────────────────────────────────────────────────
+#
+# paramiko.SFTPClient is NOT thread-safe — concurrent requests on the same
+# channel corrupt the request/response sequence.  We maintain a small pool
+# of SFTP channels per connection, all sharing a single SSH transport
+# (which IS thread-safe).  Callers that need concurrency (e.g. parallel
+# screenshot downloads) each check out their own channel.
+
+_MAX_POOL = 4  # max idle SFTP channels per connection
 
 _transport_cache: dict[tuple, "paramiko.Transport"] = {}  # type: ignore[name-defined]
-_sftp_cache: dict[tuple, "paramiko.SFTPClient"] = {}  # type: ignore[name-defined]
+_sftp_pool: dict[tuple, list["paramiko.SFTPClient"]] = {}  # type: ignore[name-defined]
 _sftp_lock = threading.Lock()
 
 
@@ -38,21 +47,20 @@ def _get_sftp(
     identity: str | None,
     password: str | None = None,
 ):
-    """Return a per-thread cached :class:`paramiko.SFTPClient`.
+    """Check out an :class:`paramiko.SFTPClient` from the connection pool.
 
-    ``paramiko.SFTPClient`` is **not** thread-safe — concurrent requests on the
-    same channel corrupt the request/response sequence.  To support parallel
-    downloads (e.g. screenshot thumbnails) we open a separate SFTP channel per
-    thread, all sharing the same underlying SSH transport (which *is* thread-safe).
+    Returns a channel that is safe to use from the calling thread.  When done,
+    call :func:`_return_sftp` to return it to the pool for reuse.  If not
+    returned, the channel is simply discarded (no leak — the transport stays).
     """
     import paramiko  # type: ignore[import]
 
     conn_key = (host, port, user, identity)
-    thread_key = (*conn_key, threading.get_ident())
     with _sftp_lock:
-        # Try to reuse the per-thread SFTP channel.
-        sftp = _sftp_cache.get(thread_key)
-        if sftp is not None:
+        # Try to pop an idle channel from the pool.
+        pool = _sftp_pool.get(conn_key, [])
+        while pool:
+            sftp = pool.pop()
             try:
                 sftp.stat(".")
                 return sftp
@@ -61,7 +69,6 @@ def _get_sftp(
                     sftp.close()
                 except Exception:
                     pass
-                del _sftp_cache[thread_key]
 
         # Get or create the shared SSH transport for this connection.
         transport = _transport_cache.get(conn_key)
@@ -93,8 +100,27 @@ def _get_sftp(
             _transport_cache[conn_key] = transport
 
         sftp = paramiko.SFTPClient.from_transport(transport)
-        _sftp_cache[thread_key] = sftp
         return sftp
+
+
+def _return_sftp(
+    host: str,
+    port: int,
+    user: str | None,
+    identity: str | None,
+    sftp: "paramiko.SFTPClient",  # type: ignore[name-defined]
+) -> None:
+    """Return a checked-out SFTP channel to the pool for reuse."""
+    conn_key = (host, port, user, identity)
+    with _sftp_lock:
+        pool = _sftp_pool.setdefault(conn_key, [])
+        if len(pool) < _MAX_POOL:
+            pool.append(sftp)
+        else:
+            try:
+                sftp.close()
+            except Exception:
+                pass
 
 
 def get_transport(
@@ -105,7 +131,9 @@ def get_transport(
 ):
     """Return the underlying :class:`paramiko.Transport` for streaming."""
     sftp = _get_sftp(host, port, user, identity)
-    return sftp.get_channel().get_transport()
+    transport = sftp.get_channel().get_transport()
+    _return_sftp(host, port, user, identity, sftp)
+    return transport
 
 
 # ── Stat result ─────────────────────────────────────────────────────────
@@ -123,14 +151,21 @@ class _SshStat:
 # ── Write stream ────────────────────────────────────────────────────────
 
 class _SshWriteStream:
-    """Writable file-like object wrapping a paramiko SFTP file handle."""
+    """Writable file-like object wrapping a paramiko SFTP file handle.
 
-    __slots__ = ("_fh", "_remote", "_closed")
+    When *sftp* and *conn* are provided, the SFTP channel is returned to the
+    connection pool on :meth:`close`.
+    """
 
-    def __init__(self, fh, remote: str) -> None:
+    __slots__ = ("_fh", "_remote", "_closed", "_sftp", "_conn")
+
+    def __init__(self, fh, remote: str, *,
+                 sftp=None, conn: tuple | None = None) -> None:
         self._fh = fh
         self._remote = remote
         self._closed = False
+        self._sftp = sftp
+        self._conn = conn  # (host, port, user, identity)
 
     def write(self, data: bytes) -> int:
         if self._closed:
@@ -147,6 +182,9 @@ class _SshWriteStream:
             return
         self._closed = True
         self._fh.close()
+        if self._sftp and self._conn:
+            _return_sftp(*self._conn, self._sftp)
+            self._sftp = None
 
     def __enter__(self):
         return self
@@ -188,8 +226,14 @@ class SshPath:
 
     # ── SFTP access ────────────────────────────────────────────────────
 
+    @contextlib.contextmanager
     def _sftp(self):
-        return _get_sftp(self._host, self._port, self._user, self._identity, self._password)
+        """Check out an SFTP channel from the pool; return it when done."""
+        sftp = _get_sftp(self._host, self._port, self._user, self._identity, self._password)
+        try:
+            yield sftp
+        finally:
+            _return_sftp(self._host, self._port, self._user, self._identity, sftp)
 
     def _child(self, name: str) -> "SshPath":
         return SshPath(
@@ -277,58 +321,63 @@ class SshPath:
 
     def exists(self) -> bool:
         try:
-            self._sftp().stat(self._path)
+            with self._sftp() as sftp:
+                sftp.stat(self._path)
             return True
         except FileNotFoundError:
             return False
 
     def is_dir(self) -> bool:
         try:
-            return _stat.S_ISDIR(self._sftp().stat(self._path).st_mode)
+            with self._sftp() as sftp:
+                return _stat.S_ISDIR(sftp.stat(self._path).st_mode)
         except Exception:
             return False
 
     def is_file(self) -> bool:
         try:
-            return _stat.S_ISREG(self._sftp().stat(self._path).st_mode)
+            with self._sftp() as sftp:
+                return _stat.S_ISREG(sftp.stat(self._path).st_mode)
         except Exception:
             return False
 
     def stat(self) -> _SshStat:
-        st = self._sftp().stat(self._path)
+        with self._sftp() as sftp:
+            st = sftp.stat(self._path)
         return _SshStat(st.st_size or 0, st.st_mode or 0)
 
     def mkdir(self, *, parents: bool = False, exist_ok: bool = False) -> None:
-        sftp = self._sftp()
-        if parents:
-            # Walk from root, creating each component as needed.
-            parts = self._path.split("/")
-            current = ""
-            for part in parts:
-                if not part:
-                    current = "/"
-                    continue
-                current = f"{current}/{part}" if current != "/" else f"/{part}"
+        with self._sftp() as sftp:
+            if parents:
+                parts = self._path.split("/")
+                current = ""
+                for part in parts:
+                    if not part:
+                        current = "/"
+                        continue
+                    current = f"{current}/{part}" if current != "/" else f"/{part}"
+                    try:
+                        sftp.stat(current)
+                    except FileNotFoundError:
+                        sftp.mkdir(current)
+            else:
                 try:
-                    sftp.stat(current)
-                except FileNotFoundError:
-                    sftp.mkdir(current)
-        else:
-            try:
-                sftp.mkdir(self._path)
-            except OSError:
-                if exist_ok and self.is_dir():
-                    return
-                raise
+                    sftp.mkdir(self._path)
+                except OSError:
+                    if exist_ok and _stat.S_ISDIR(sftp.stat(self._path).st_mode):
+                        return
+                    raise
 
     def read_bytes(self) -> bytes:
-        with self._sftp().open(self._path, "rb") as f:
-            f.prefetch()
-            return f.read()
+        with self._sftp() as sftp:
+            with sftp.open(self._path, "rb") as f:
+                f.prefetch()
+                return f.read()
 
     def write_bytes(self, data: bytes) -> None:
-        with self._sftp().open(self._path, "wb") as f:
-            f.write(data)
+        with self._sftp() as sftp:
+            with sftp.open(self._path, "wb") as f:
+                f.write(data)
 
     def read_text(self, encoding: str = "utf-8") -> str:
         return self.read_bytes().decode(encoding)
@@ -338,8 +387,12 @@ class SshPath:
 
     def open(self, mode: str = "r", encoding: str | None = None, **kwargs) -> IO:
         if "w" in mode:
-            fh = self._sftp().open(self._path, "wb")
-            return _SshWriteStream(fh, f"{self._host}:{self._path}")
+            # For write streams the SFTP channel stays checked out until
+            # the stream is closed — _SshWriteStream handles the return.
+            sftp = _get_sftp(self._host, self._port, self._user, self._identity, self._password)
+            fh = sftp.open(self._path, "wb")
+            return _SshWriteStream(fh, f"{self._host}:{self._path}",
+                                   sftp=sftp, conn=(self._host, self._port, self._user, self._identity))
         else:
             import io
             data = self.read_bytes()
@@ -349,22 +402,25 @@ class SshPath:
 
     def unlink(self, missing_ok: bool = False) -> None:
         try:
-            self._sftp().remove(self._path)
+            with self._sftp() as sftp:
+                sftp.remove(self._path)
         except FileNotFoundError:
             if not missing_ok:
                 raise
 
     def iterdir(self):
         """Yield child :class:`SshPath` objects (non-recursive)."""
-        for attr in self._sftp().listdir_attr(self._path):
+        with self._sftp() as sftp:
+            entries = sftp.listdir_attr(self._path)
+        for attr in entries:
             yield self._child(attr.filename)
 
     def rmtree(self) -> None:
         """Recursively remove this directory (like :func:`shutil.rmtree`)."""
-        self._rmtree_inner(self._path)
+        with self._sftp() as sftp:
+            self._rmtree_inner(sftp, self._path)
 
-    def _rmtree_inner(self, path: str) -> None:
-        sftp = self._sftp()
+    def _rmtree_inner(self, sftp, path: str) -> None:
         try:
             entries = sftp.listdir_attr(path)
         except Exception:
@@ -372,7 +428,7 @@ class SshPath:
         for attr in entries:
             child = f"{path}/{attr.filename}"
             if _stat.S_ISDIR(attr.st_mode or 0):
-                self._rmtree_inner(child)
+                self._rmtree_inner(sftp, child)
             else:
                 try:
                     sftp.remove(child)

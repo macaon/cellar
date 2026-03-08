@@ -192,11 +192,12 @@ def _ssh_chunks(
     identity: str | None = None,
 ) -> Iterator[bytes]:
     """Stream *remote_path* from *host* via ``paramiko`` SFTP, yielding 1 MB chunks."""
-    from cellar.utils.ssh import _get_sftp
+    from cellar.utils.ssh import _get_sftp, _return_sftp
 
     _CHUNK = 1 * 1024 * 1024
+    _port = port or 22
+    sftp = _get_sftp(host, _port, user, identity)
     try:
-        sftp = _get_sftp(host, port or 22, user, identity)
         with sftp.open(remote_path, "rb") as f:
             f.prefetch()
             while True:
@@ -208,6 +209,8 @@ def _ssh_chunks(
         raise InstallError(f"SSH file not found: {remote_path}")
     except Exception as exc:
         raise InstallError(f"SSH stream error for {remote_path}: {exc}") from exc
+    finally:
+        _return_sftp(host, _port, user, identity, sftp)
 
 
 

@@ -56,10 +56,8 @@ class EditAppDialog(Adw.Dialog):
         self._cover_path: str | None = None
         self._logo_path: str | None = None
 
-        # Screenshot list + dirty flag
-        self._screenshot_paths: list[str] = []   # effective local paths
-        self._screenshots_dirty: bool = False    # True once user adds or removes anything
-        self._steam_screenshots_data: list[dict] = []
+        # Screenshot dirty flag — True once grid has been touched
+        self._screenshots_dirty: bool = False
 
         # Load category list from repo
         from cellar.backend.packager import BASE_CATEGORIES as _BASE_CATS
@@ -249,30 +247,11 @@ class EditAppDialog(Adw.Dialog):
         # ── Screenshots ───────────────────────────────────────────────────
         ss_group = Adw.PreferencesGroup(title="Screenshots")
 
-        self._ss_empty_label = Gtk.Label(label="No screenshots")
-        self._ss_empty_label.add_css_class("dim-label")
-        self._ss_empty_label.set_margin_top(6)
-        self._ss_empty_label.set_margin_bottom(6)
-        ss_group.add(self._ss_empty_label)
-
-        self._ss_listbox = Gtk.ListBox()
-        self._ss_listbox.add_css_class("boxed-list")
-        self._ss_listbox.set_selection_mode(Gtk.SelectionMode.NONE)
-        self._ss_listbox.set_visible(False)
-        ss_group.add(self._ss_listbox)
-
-        ss_add_row = Adw.ActionRow(title="Add Screenshots")
-        ss_btns = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        ss_btns.set_valign(Gtk.Align.CENTER)
-        self._steam_ss_btn = Gtk.Button(label="From Steam\u2026")
-        self._steam_ss_btn.set_visible(False)
-        self._steam_ss_btn.connect("clicked", self._on_steam_screenshots_clicked)
-        ss_btns.append(self._steam_ss_btn)
-        browse_ss_btn = Gtk.Button(label="Browse\u2026")
-        browse_ss_btn.connect("clicked", self._pick_screenshots)
-        ss_btns.append(browse_ss_btn)
-        ss_add_row.add_suffix(ss_btns)
-        ss_group.add(ss_add_row)
+        from cellar.views.screenshot_grid import ScreenshotGridWidget
+        self._screenshot_grid = ScreenshotGridWidget(
+            on_changed=self._on_screenshots_changed
+        )
+        ss_group.add(self._screenshot_grid)
 
         page.add(ss_group)
 
@@ -406,10 +385,10 @@ class EditAppDialog(Adw.Dialog):
         # Screenshots — resolve relative paths to absolute local paths
         try:
             repo_root = self._repo.writable_path()
-            self._screenshot_paths = [str(repo_root / rel) for rel in e.screenshots]
+            ss_paths = [str(repo_root / rel) for rel in e.screenshots]
         except Exception:
-            self._screenshot_paths = []
-        self._rebuild_screenshot_list()
+            ss_paths = []
+        self._screenshot_grid.set_local_items(ss_paths)
 
         strategy = e.update_strategy or "safe"
         if strategy in _STRATEGIES:
@@ -516,62 +495,8 @@ class EditAppDialog(Adw.Dialog):
             if not self._old_entry.logo and not self._hide_title_btn.get_active():
                 self._hide_title_btn.set_active(True)
 
-    def _pick_screenshots(self, _btn) -> None:
-        self._pick_image("Select Screenshots", True, self._on_screenshots_chosen)
-
-    def _on_screenshots_chosen(self, _chooser, response, chooser) -> None:
-        if response == Gtk.ResponseType.ACCEPT:
-            files = chooser.get_files()
-            new_paths = [files.get_item(i).get_path() for i in range(files.get_n_items())]
-            self._screenshot_paths.extend(new_paths)
-            self._screenshots_dirty = True
-            self._rebuild_screenshot_list()
-
-    def _on_steam_screenshots_clicked(self, _btn) -> None:
-        if not self._steam_screenshots_data:
-            return
-        from cellar.views.steam_screenshot_picker import SteamScreenshotPickerDialog
-        picker = SteamScreenshotPickerDialog(
-            screenshots_data=self._steam_screenshots_data,
-            on_confirmed=self._on_steam_screenshots_confirmed,
-        )
-        picker.present(self.get_root())
-
-    def _on_steam_screenshots_confirmed(
-        self, selected_urls: list[str], local_paths: list[str]
-    ) -> None:
-        if not selected_urls:
-            self._screenshot_paths.extend(local_paths)
-            self._screenshots_dirty = True
-            self._rebuild_screenshot_list()
-            return
-
-        import tempfile as _tmp
-        dl_dir = Path(_tmp.mkdtemp(prefix="cellar_ss_"))
-
-        def _download():
-            from cellar.utils.http import make_session
-            session = make_session()
-            downloaded: list[str] = []
-            for url in selected_urls:
-                fname = url.split("/")[-1].split("?")[0] or "screenshot.jpg"
-                dest = dl_dir / fname
-                try:
-                    r = session.get(url, timeout=30)
-                    r.raise_for_status()
-                    dest.write_bytes(r.content)
-                    downloaded.append(str(dest))
-                except Exception as exc:  # noqa: BLE001
-                    import logging
-                    logging.getLogger(__name__).warning("Screenshot download failed: %s", exc)
-            return downloaded + list(local_paths)
-
-        run_in_background(_download, on_done=self._on_screenshots_downloaded)
-
-    def _on_screenshots_downloaded(self, paths: list[str]) -> None:
-        self._screenshot_paths.extend(paths)
+    def _on_screenshots_changed(self) -> None:
         self._screenshots_dirty = True
-        self._rebuild_screenshot_list()
 
     # ── Hide-title toggle ─────────────────────────────────────────────────
 
@@ -599,37 +524,6 @@ class EditAppDialog(Adw.Dialog):
         self._logo_clear_btn.set_visible(False)
         self._hide_title_btn.set_visible(False)
 
-    # ── Screenshot list helpers ───────────────────────────────────────────
-
-    def _rebuild_screenshot_list(self) -> None:
-        # Hide before removing rows so GTK doesn't try to move focus to a
-        # row that is being unparented (avoids gtk_list_box_row_grab_focus assertion).
-        self._ss_listbox.set_visible(False)
-        row = self._ss_listbox.get_row_at_index(0)
-        while row is not None:
-            self._ss_listbox.remove(row)
-            row = self._ss_listbox.get_row_at_index(0)
-        for path in self._screenshot_paths:
-            self._ss_listbox.append(self._make_ss_row(path))
-        has = bool(self._screenshot_paths)
-        self._ss_listbox.set_visible(has)
-        self._ss_empty_label.set_visible(not has)
-
-    def _make_ss_row(self, path: str) -> Adw.ActionRow:
-        row = Adw.ActionRow(title=Path(path).name)
-        btn = Gtk.Button(icon_name="user-trash-symbolic", tooltip_text="Remove")
-        btn.add_css_class("flat")
-        btn.add_css_class("circular")
-        btn.set_valign(Gtk.Align.CENTER)
-        btn.connect("clicked", lambda _b, p=path: self._remove_screenshot(p))
-        row.add_suffix(btn)
-        return row
-
-    def _remove_screenshot(self, path: str) -> None:
-        self._screenshot_paths.remove(path)
-        self._screenshots_dirty = True
-        self._rebuild_screenshot_list()
-
     # ── Steam lookup ──────────────────────────────────────────────────────
 
     def _on_steam_lookup(self, _btn) -> None:
@@ -656,8 +550,7 @@ class EditAppDialog(Adw.Dialog):
             if not buf.get_text(buf.get_start_iter(), buf.get_end_iter(), False).strip():
                 buf.set_text(result["description"])
         if result.get("screenshots"):
-            self._steam_screenshots_data = result["screenshots"]
-            self._steam_ss_btn.set_visible(True)
+            self._screenshot_grid.add_steam(result["screenshots"])
 
     # ── Save flow ─────────────────────────────────────────────────────────
 
@@ -707,14 +600,10 @@ class EditAppDialog(Adw.Dialog):
         else:
             logo_rel = f"apps/{app_id}/logo.png"
 
-        # Screenshots: dirty flag controls whether to send None (keep) or list (replace/clear)
-        if self._screenshots_dirty:
-            screenshot_rels = tuple(
-                f"apps/{app_id}/screenshots/{i + 1:02d}{Path(p).suffix}"
-                for i, p in enumerate(self._screenshot_paths)
-            )
-        else:
-            screenshot_rels = e.screenshots
+        # Screenshots resolved in the background thread (may need Steam downloads).
+        # Use existing rels as placeholder; thread replaces when dirty.
+        screenshot_rels = e.screenshots
+        _grid_items = self._screenshot_grid.get_items() if self._screenshots_dirty else None
 
         from cellar.models.app_entry import AppEntry
 
@@ -750,11 +639,11 @@ class EditAppDialog(Adw.Dialog):
             "icon": self._icon_path,      # None / "" / path
             "cover": self._cover_path,
             "logo": self._logo_path,
-            "screenshots": self._screenshot_paths if self._screenshots_dirty else None,
+            "screenshots": None,          # filled in thread when dirty
         }
 
         self._cancel_event.clear()
-        self._saved_entry = new_entry  # made available to _on_save_done
+        self._saved_entry = new_entry  # may be replaced in thread; read by _on_save_done
         self._stack.set_visible_child_name("progress")
         self._progress_bar.set_fraction(0.0)
         self._progress_label.set_text("Saving changes\u2026")
@@ -762,6 +651,8 @@ class EditAppDialog(Adw.Dialog):
         repo_root = self._repo.writable_path()
 
         def _run():
+            import tempfile as _tmp
+
             from cellar.backend.packager import (
                 CancelledError,
                 update_in_repo,
@@ -782,11 +673,45 @@ class EditAppDialog(Adw.Dialog):
             def _progress(fraction: float) -> None:
                 GLib.idle_add(self._progress_bar.set_fraction, fraction)
 
+            _run_entry = new_entry  # local alias; replaced below when screenshots are dirty
+
+            if _grid_items is not None:
+                # Resolve screenshots: download any Steam-pending items first.
+                _phase("Downloading screenshots\u2026")
+                dl_dir = Path(_tmp.mkdtemp(prefix="cellar_ss_"))
+                final_paths: list[str] = []
+                from cellar.utils.http import make_session as _make_session
+                _session = _make_session()
+                for _item in _grid_items:
+                    if _item.local_path:
+                        final_paths.append(_item.local_path)
+                    elif _item.full_url:
+                        _fname = _item.full_url.split("/")[-1].split("?")[0] or "screenshot.jpg"
+                        _dest = dl_dir / _fname
+                        try:
+                            _r = _session.get(_item.full_url, timeout=30)
+                            _r.raise_for_status()
+                            _dest.write_bytes(_r.content)
+                            final_paths.append(str(_dest))
+                        except Exception as _exc:  # noqa: BLE001
+                            import logging as _log
+                            _log.getLogger(__name__).warning(
+                                "Screenshot download failed: %s", _exc
+                            )
+                images["screenshots"] = final_paths
+                ss_rels = tuple(
+                    f"apps/{app_id}/screenshots/{i + 1:02d}{Path(p).suffix}"
+                    for i, p in enumerate(final_paths)
+                )
+                from dataclasses import replace as _dc_replace
+                _run_entry = _dc_replace(new_entry, screenshots=ss_rels)
+                self._saved_entry = _run_entry
+
             try:
                 update_in_repo(
                     repo_root,
                     e,
-                    new_entry,
+                    _run_entry,
                     images,
                     progress_cb=_progress,
                     phase_cb=_phase,

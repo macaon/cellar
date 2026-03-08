@@ -5,8 +5,8 @@ python_sources = files(
   'edit_app.py',
   'install_runner.py',
   'settings.py',
+  'screenshot_grid.py',
   'steam_picker.py',
-  'steam_screenshot_picker.py',
   'update_app.py',
   'widgets.py',
 )

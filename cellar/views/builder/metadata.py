@@ -50,7 +50,6 @@ class AppMetadataDialog(Adw.Dialog):
         self._tmp_logo: str = ""
         self._tmp_screenshots: list[str] = []
         self._chooser = None
-        self._steam_screenshots_data: list[dict] = []
 
         self._build_ui()
 
@@ -223,23 +222,10 @@ class AppMetadataDialog(Adw.Dialog):
         self._logo_row.add_suffix(logo_btn)
         img_group.add(self._logo_row)
 
-        ss_count = len(p.screenshot_paths) if p else 0
-        self._ss_row = Adw.ActionRow(title="Screenshots")
-        self._ss_row.set_subtitle(
-            f"{ss_count} file{'s' if ss_count != 1 else ''} selected"
-            if ss_count else "None selected"
-        )
-        ss_btns = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        ss_btns.set_valign(Gtk.Align.CENTER)
-        self._steam_ss_btn = Gtk.Button(label="From Steam\u2026")
-        self._steam_ss_btn.set_visible(False)
-        self._steam_ss_btn.connect("clicked", self._on_steam_screenshots_clicked)
-        ss_btns.append(self._steam_ss_btn)
-        browse_btn = Gtk.Button(label="Browse\u2026")
-        browse_btn.connect("clicked", self._on_pick_screenshots)
-        ss_btns.append(browse_btn)
-        self._ss_row.add_suffix(ss_btns)
-        img_group.add(self._ss_row)
+        from cellar.views.screenshot_grid import ScreenshotGridWidget
+        self._screenshot_grid = ScreenshotGridWidget(on_changed=self._on_screenshots_changed)
+        self._screenshot_grid.set_local_items(list(p.screenshot_paths) if p else [])
+        img_group.add(self._screenshot_grid)
 
         page.add(img_group)
         toolbar.set_content(page)
@@ -344,28 +330,26 @@ class AppMetadataDialog(Adw.Dialog):
         if result.get("category") and result["category"] in self._cats:
             self._cat_row.set_selected(self._cats.index(result["category"]) + 1)
         if result.get("screenshots"):
-            self._steam_screenshots_data = result["screenshots"]
-            self._steam_ss_btn.set_visible(True)
+            self._screenshot_grid.add_steam(result["screenshots"])
 
-    def _on_steam_screenshots_clicked(self, _btn) -> None:
-        if not self._steam_screenshots_data:
+    def _on_screenshots_changed(self) -> None:
+        """Called by the grid whenever the screenshot list changes.
+
+        Saves local items immediately.  Any Steam-pending items are downloaded
+        eagerly to the project dir (or a temp dir in create mode), then
+        promoted to local items in the grid so they persist with the project.
+        """
+        items = self._screenshot_grid.get_items()
+        local_paths = [i.local_path for i in items if i.local_path]
+        if self._project:
+            self._project.screenshot_paths = local_paths
+            save_project(self._project)
+        else:
+            self._tmp_screenshots = local_paths
+
+        steam_items = [i for i in items if i.is_steam]
+        if not steam_items:
             return
-        from cellar.views.steam_screenshot_picker import SteamScreenshotPickerDialog
-        picker = SteamScreenshotPickerDialog(
-            screenshots_data=self._steam_screenshots_data,
-            on_confirmed=self._on_steam_screenshots_confirmed,
-        )
-        picker.present(self.get_root())
-
-    def _on_steam_screenshots_confirmed(
-        self, selected_urls: list[str], local_paths: list[str]
-    ) -> None:
-        if not selected_urls:
-            all_paths = list(local_paths)
-            self._apply_screenshot_paths(all_paths)
-            return
-
-        self._ss_row.set_subtitle("Downloading\u2026")
 
         if self._project:
             dl_dir = self._project.project_dir / "screenshots"
@@ -374,37 +358,31 @@ class AppMetadataDialog(Adw.Dialog):
             import tempfile as _tmp
             dl_dir = Path(_tmp.mkdtemp(prefix="cellar-ss-"))
 
-        def _download() -> None:
+        def _download(items=steam_items, dl_dir=dl_dir) -> list[str]:
             from cellar.utils.http import make_session
             session = make_session()
             downloaded: list[str] = []
-            for i, url in enumerate(selected_urls):
+            for i, item in enumerate(items):
                 try:
-                    resp = session.get(url, timeout=30)
+                    resp = session.get(item.full_url, timeout=30)
                     if resp.ok:
-                        suffix = ".jpg" if url.lower().endswith(".jpg") else ".png"
+                        suffix = ".jpg" if item.full_url.lower().endswith(".jpg") else ".png"
                         dest = dl_dir / f"steam_{i:02d}{suffix}"
                         dest.write_bytes(resp.content)
                         downloaded.append(str(dest))
                 except Exception as exc:  # noqa: BLE001
                     log.warning("Screenshot download failed: %s", exc)
-            GLib.idle_add(self._on_screenshots_downloaded, downloaded + list(local_paths))
+            return downloaded
 
-        run_in_background(_download)
+        def _done(downloaded: list[str]) -> None:
+            # Swap steam items out of the grid; add downloaded local items.
+            # clear_steam() doesn't fire on_changed; add_local() will, which
+            # then saves the updated paths to the project.
+            self._screenshot_grid.clear_steam()
+            if downloaded:
+                self._screenshot_grid.add_local(downloaded)
 
-    def _on_screenshots_downloaded(self, paths: list[str]) -> None:
-        self._apply_screenshot_paths(paths)
-
-    def _apply_screenshot_paths(self, paths: list[str]) -> None:
-        count = len(paths)
-        self._ss_row.set_subtitle(
-            f"{count} file{'s' if count != 1 else ''} selected" if count else "None selected"
-        )
-        if self._project:
-            self._project.screenshot_paths = paths
-            save_project(self._project)
-        else:
-            self._tmp_screenshots = paths
+        run_in_background(_download, on_done=_done)
 
     def _on_pick_icon(self, _btn) -> None:
         self._pick_image("Select Icon", False, self._on_icon_chosen)
@@ -453,24 +431,6 @@ class AppMetadataDialog(Adw.Dialog):
             self._project.hide_title = btn.get_active()
             save_project(self._project)
 
-    def _on_pick_screenshots(self, _btn) -> None:
-        self._pick_image("Select Screenshots", True, self._on_screenshots_chosen)
-
-    def _on_screenshots_chosen(self, _c, response, chooser) -> None:
-        if response == Gtk.ResponseType.ACCEPT:
-            files = chooser.get_files()
-            paths = [files.get_item(i).get_path() for i in range(files.get_n_items())]
-            count = len(paths)
-            self._ss_row.set_subtitle(
-                f"{count} file{'s' if count != 1 else ''} selected"
-                if count else "None selected"
-            )
-            if self._project:
-                self._project.screenshot_paths = paths
-                save_project(self._project)
-            else:
-                self._tmp_screenshots = paths
-
     def _on_create_clicked(self, _btn) -> None:
         from cellar.backend.project import create_project
 
@@ -508,8 +468,9 @@ class AppMetadataDialog(Adw.Dialog):
         if self._tmp_logo:
             project.logo_path = self._tmp_logo
         project.hide_title = self._hide_title_btn.get_active()
-        if self._tmp_screenshots:
-            project.screenshot_paths = self._tmp_screenshots
+        local_ss = [i.local_path for i in self._screenshot_grid.get_items() if i.local_path]
+        if local_ss:
+            project.screenshot_paths = local_ss
         save_project(project)
 
         self.close()

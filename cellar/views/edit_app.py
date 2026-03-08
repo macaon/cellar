@@ -469,15 +469,14 @@ class EditAppDialog(Adw.Dialog):
         if e.description:
             self._desc_view.get_buffer().set_text(e.description)
 
+        if e.steam_appid is not None:
+            self._steam_appid_entry.set_text(str(e.steam_appid))
+
         if e.platform == "linux":
-            self._steam_appid_entry.set_visible(False)
             self._entry_point_entry.set_title("Launch Target")
             self._entry_point_entry.set_tooltip_text(
                 "Executable path within the app directory, e.g. \u201cbin/mygame\u201d"
             )
-        else:
-            if e.steam_appid is not None:
-                self._steam_appid_entry.set_text(str(e.steam_appid))
 
         if e.entry_point:
             self._entry_point = e.entry_point
@@ -916,7 +915,7 @@ class EditAppDialog(Adw.Dialog):
             compatibility_notes=e.compatibility_notes,
             changelog=e.changelog,
             lock_runner=e.lock_runner,
-            steam_appid=steam_appid if e.platform != "linux" else e.steam_appid,
+            steam_appid=steam_appid,
             platform=e.platform,
             screenshot_sources=e.screenshot_sources,
         )

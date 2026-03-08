@@ -46,7 +46,7 @@ class UpdateDialog(Adw.Dialog):
         base_archive_uri: str = "",
         token: str | None = None,
     ) -> None:
-        super().__init__(title=f"Update {entry.name}", content_width=440)
+        super().__init__(title=f"Update {entry.name}", content_width=440, content_height=480)
         self._entry = entry
         self._installed_record = installed_record
         self._prefix_path = prefix_path
@@ -93,7 +93,7 @@ class UpdateDialog(Adw.Dialog):
             hscrollbar_policy=Gtk.PolicyType.NEVER,
             vscrollbar_policy=Gtk.PolicyType.AUTOMATIC,
         )
-        scroll.set_propagate_natural_height(True)
+        scroll.set_vexpand(True)
 
         page = Adw.PreferencesPage()
         scroll.set_child(page)

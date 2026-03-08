@@ -280,12 +280,12 @@ class DetailView(Gtk.Box):
             self._launch_linux_app()
             return
         from cellar.backend.umu import launch_app
-        from cellar.backend import database
-        rec = self._installed_record or {}
-        runner_name = rec.get("runner") or ""
+        # Resolve runner from catalogue: app.base_image → bases[base_image].runner
+        runner_name = self._resolved_runner
         if not runner_name:
-            db_rec = database.get_installed(self._entry.id) or {}
-            runner_name = db_rec.get("runner") or ""
+            base_entry, _ = self._find_base_entry(self._entry.base_image)
+            if base_entry:
+                runner_name = base_entry.runner
         launch_app(
             app_id=self._entry.id,
             entry_point=self._entry.entry_point or "",

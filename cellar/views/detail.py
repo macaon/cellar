@@ -470,6 +470,9 @@ class DetailView(Gtk.Box):
         remove_act.connect("activate", self._on_remove_shortcut)
         ag.add_action(remove_act)
 
+        manage_act = Gio.SimpleAction.new("manage-shortcuts", None)
+        manage_act.connect("activate", self._on_manage_shortcuts)
+        ag.add_action(manage_act)
 
         self.insert_action_group("detail", ag)
         self._refresh_gear_menu()
@@ -480,10 +483,15 @@ class DetailView(Gtk.Box):
         menu = Gio.Menu()
         if self._has_update:
             menu.append("Update", "detail.update")
-        if has_desktop_entry(self._entry.id):
+
+        targets = self._entry.launch_targets
+        if len(targets) > 1:
+            menu.append("Desktop Shortcuts\u2026", "detail.manage-shortcuts")
+        elif has_desktop_entry(self._entry.id):
             menu.append("Remove Desktop Shortcut", "detail.remove-shortcut")
         else:
             menu.append("Create Desktop Shortcut", "detail.create-shortcut")
+
         menu.append("Open Install Folder", "detail.open-folder")
         self._gear_btn.set_menu_model(menu)
 
@@ -504,43 +512,41 @@ class DetailView(Gtk.Box):
         p = prefixes_dir() / self._entry.id
         return str(p) if p.is_dir() else None
 
-    def _on_create_shortcut(self, _action, _param) -> None:
-        from cellar.utils.desktop import create_desktop_entry
-
-        icon_source: str | None = None
+    def _resolve_icon_source(self) -> str | None:
         if self._entry.icon:
             resolved = self._resolve(self._entry.icon)
             if resolved and Path(resolved).is_file():
-                icon_source = resolved
+                return resolved
+        return None
 
+    def _create_shortcut_for_target(
+        self, target: dict | None = None, target_idx: int = 0,
+    ) -> None:
+        from cellar.utils.desktop import create_desktop_entry
+
+        icon_source = self._resolve_icon_source()
+        kwargs: dict = dict(
+            entry=self._entry,
+            bottle_name=self._entry.id,
+            icon_source=icon_source,
+            target=target,
+            target_idx=target_idx,
+        )
         if self._entry.platform == "linux":
             from cellar.backend.umu import native_dir
-            try:
-                create_desktop_entry(
-                    entry=self._entry,
-                    bottle_name=self._entry.id,
-                    icon_source=icon_source,
-                    install_path=str(native_dir()),
-                )
-                self._refresh_gear_menu()
-                self._add_toast(f"Shortcut created for {self._entry.name}")
-            except Exception as exc:
-                log.error("Failed to create desktop entry: %s", exc)
-                self._add_toast("Failed to create shortcut")
-            return
-
-        # Windows app — umu desktop shortcut
+            kwargs["install_path"] = str(native_dir())
         try:
-            create_desktop_entry(
-                entry=self._entry,
-                bottle_name=self._entry.id,
-                icon_source=icon_source,
-            )
-            self._refresh_gear_menu()
-            self._add_toast(f"Shortcut created for {self._entry.name}")
+            create_desktop_entry(**kwargs)
         except Exception as exc:
             log.error("Failed to create desktop entry: %s", exc)
             self._add_toast("Failed to create shortcut")
+            return
+        name = (target or {}).get("name", self._entry.name)
+        self._add_toast(f"Shortcut created for {name}")
+
+    def _on_create_shortcut(self, _action, _param) -> None:
+        self._create_shortcut_for_target()
+        self._refresh_gear_menu()
 
     def _on_remove_shortcut(self, _action, _param) -> None:
         from cellar.utils.desktop import remove_desktop_entry
@@ -548,6 +554,47 @@ class DetailView(Gtk.Box):
         remove_desktop_entry(self._entry.id)
         self._refresh_gear_menu()
         self._add_toast(f"Shortcut removed for {self._entry.name}")
+
+    def _on_manage_shortcuts(self, _action, _param) -> None:
+        from cellar.utils.desktop import has_desktop_entry
+
+        targets = self._entry.launch_targets
+        if not targets:
+            return
+
+        dialog = Adw.AlertDialog(
+            heading="Desktop Shortcuts",
+            body=f"Toggle desktop shortcuts for {self._entry.name}.",
+        )
+        dialog.add_response("done", "Done")
+        dialog.set_close_response("done")
+
+        listbox = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+        listbox.add_css_class("boxed-list")
+        listbox.set_margin_start(0)
+        listbox.set_margin_end(0)
+
+        for i, t in enumerate(targets):
+            name = t.get("name", t.get("path", f"Target {i}"))
+            row = Adw.SwitchRow(title=name)
+            row.set_active(has_desktop_entry(self._entry.id, i))
+            row.connect("notify::active", self._on_shortcut_switch_toggled, i, t)
+            listbox.append(row)
+
+        dialog.set_extra_child(listbox)
+        dialog.present(self.get_root())
+
+    def _on_shortcut_switch_toggled(
+        self, row: Adw.SwitchRow, _pspec, target_idx: int, target: dict,
+    ) -> None:
+        from cellar.utils.desktop import remove_desktop_entry
+
+        if row.get_active():
+            self._create_shortcut_for_target(target=target, target_idx=target_idx)
+        else:
+            remove_desktop_entry(self._entry.id, target_idx=target_idx)
+            name = target.get("name", self._entry.name)
+            self._add_toast(f"Shortcut removed for {name}")
 
     def _add_toast(self, message: str) -> None:
         root = self.get_root()

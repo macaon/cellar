@@ -86,7 +86,7 @@ class ScreenshotGridWidget(Gtk.Box):
         self._flow = Gtk.FlowBox()
         self._flow.set_valign(Gtk.Align.START)
         self._flow.set_selection_mode(Gtk.SelectionMode.NONE)
-        self._flow.set_max_children_per_line(10)
+        self._flow.set_max_children_per_line(2 if not self._scrolled else 10)
         self._flow.set_min_children_per_line(1)
         self._flow.set_row_spacing(8)
         self._flow.set_column_spacing(8)
@@ -323,6 +323,8 @@ class ScreenshotGridWidget(Gtk.Box):
     def _make_tile(self, item: ScreenshotItem, kind: str, idx: int) -> Gtk.FlowBoxChild:
         fbc = Gtk.FlowBoxChild()
         fbc.set_focusable(False)
+        fbc.set_hexpand(False)
+        fbc.set_halign(Gtk.Align.START)
         fbc.add_css_class("ss-tile-cell")
         fbc._ss_item = item
 

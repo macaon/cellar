@@ -27,6 +27,7 @@ import logging
 
 from cellar.utils.async_work import run_in_background
 from cellar.utils.progress import fmt_stats as _fmt_stats
+from cellar.views.browse import _FixedBox
 from cellar.views.widgets import make_progress_page
 
 log = logging.getLogger(__name__)
@@ -334,7 +335,7 @@ class EditAppDialog(Adw.Dialog):
         img_list.set_selection_mode(Gtk.SelectionMode.NONE)
 
         self._icon_row, self._icon_clear_btn, self._icon_thumb = self._make_image_row(
-            "Icon", self._pick_icon
+            "Icon", self._pick_icon, thumb_size=52
         )
         self._cover_row, self._cover_clear_btn, self._cover_thumb = self._make_image_row(
             "Cover", self._pick_cover
@@ -391,16 +392,20 @@ class EditAppDialog(Adw.Dialog):
         return scroll
 
     def _make_image_row(
-        self, label: str, handler, extra_suffix=None
+        self, label: str, handler, extra_suffix=None, thumb_size: int = 64
     ) -> tuple[Adw.ActionRow, Gtk.Button, Gtk.Picture]:
         row = Adw.ActionRow(title=label)
         row.set_subtitle("No image set")
 
         thumb = Gtk.Picture()
-        thumb.set_size_request(64, 64)
         thumb.set_content_fit(Gtk.ContentFit.CONTAIN)
         thumb.add_css_class("image-row-thumb")
-        row.add_prefix(thumb)
+
+        thumb_wrap = _FixedBox(thumb_size, thumb_size)
+        thumb_wrap.set_halign(Gtk.Align.CENTER)
+        thumb_wrap.set_valign(Gtk.Align.CENTER)
+        thumb_wrap.set_child(thumb)
+        row.add_prefix(thumb_wrap)
 
         clear_btn = Gtk.Button(icon_name="user-trash-symbolic", tooltip_text="Remove image")
         clear_btn.add_css_class("flat")

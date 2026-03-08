@@ -26,6 +26,7 @@ from typing import IO
 
 # ── Connection cache ────────────────────────────────────────────────────
 
+_transport_cache: dict[tuple, "paramiko.Transport"] = {}  # type: ignore[name-defined]
 _sftp_cache: dict[tuple, "paramiko.SFTPClient"] = {}  # type: ignore[name-defined]
 _sftp_lock = threading.Lock()
 
@@ -37,14 +38,21 @@ def _get_sftp(
     identity: str | None,
     password: str | None = None,
 ):
-    """Return a cached :class:`paramiko.SFTPClient` for the given connection."""
+    """Return a per-thread cached :class:`paramiko.SFTPClient`.
+
+    ``paramiko.SFTPClient`` is **not** thread-safe — concurrent requests on the
+    same channel corrupt the request/response sequence.  To support parallel
+    downloads (e.g. screenshot thumbnails) we open a separate SFTP channel per
+    thread, all sharing the same underlying SSH transport (which *is* thread-safe).
+    """
     import paramiko  # type: ignore[import]
 
-    key = (host, port, user, identity)
+    conn_key = (host, port, user, identity)
+    thread_key = (*conn_key, threading.get_ident())
     with _sftp_lock:
-        sftp = _sftp_cache.get(key)
+        # Try to reuse the per-thread SFTP channel.
+        sftp = _sftp_cache.get(thread_key)
         if sftp is not None:
-            # Check the connection is still alive.
             try:
                 sftp.stat(".")
                 return sftp
@@ -53,29 +61,39 @@ def _get_sftp(
                     sftp.close()
                 except Exception:
                     pass
-                del _sftp_cache[key]
+                del _sftp_cache[thread_key]
 
-        ssh = paramiko.SSHClient()
-        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        connect_kw: dict = {
-            "hostname": host,
-            "port": port,
-            "username": user,
-            "timeout": 30,
-            "allow_agent": True,
-            "look_for_keys": True,
-        }
-        if identity:
-            connect_kw["key_filename"] = identity
-        if password:
-            connect_kw["password"] = password
-        ssh.load_system_host_keys()
-        try:
-            ssh.connect(**connect_kw)
-        except Exception as exc:
-            raise OSError(f"SSH connection to {host}:{port} failed: {exc}") from exc
-        sftp = ssh.open_sftp()
-        _sftp_cache[key] = sftp
+        # Get or create the shared SSH transport for this connection.
+        transport = _transport_cache.get(conn_key)
+        if transport is not None and not transport.is_active():
+            transport = None
+            del _transport_cache[conn_key]
+
+        if transport is None:
+            ssh = paramiko.SSHClient()
+            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            connect_kw: dict = {
+                "hostname": host,
+                "port": port,
+                "username": user,
+                "timeout": 30,
+                "allow_agent": True,
+                "look_for_keys": True,
+            }
+            if identity:
+                connect_kw["key_filename"] = identity
+            if password:
+                connect_kw["password"] = password
+            ssh.load_system_host_keys()
+            try:
+                ssh.connect(**connect_kw)
+            except Exception as exc:
+                raise OSError(f"SSH connection to {host}:{port} failed: {exc}") from exc
+            transport = ssh.get_transport()
+            _transport_cache[conn_key] = transport
+
+        sftp = paramiko.SFTPClient.from_transport(transport)
+        _sftp_cache[thread_key] = sftp
         return sftp
 
 

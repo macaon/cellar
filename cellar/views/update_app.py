@@ -100,7 +100,7 @@ class UpdateDialog(Adw.Dialog):
 
         # ── Version info ──────────────────────────────────────────────────
         ver_group = Adw.PreferencesGroup(title="Update")
-        current = self._installed_record.get("installed_version") or "unknown"
+        current = self._installed_record.get("version") or "unknown"
         ver_group.add(Adw.ActionRow(title="Current version", subtitle=current))
         ver_group.add(Adw.ActionRow(title="New version", subtitle=self._entry.version or "unknown"))
         page.add(ver_group)
@@ -110,7 +110,7 @@ class UpdateDialog(Adw.Dialog):
 
         self._backup_row = Adw.ActionRow(
             title="Choose backup location…",
-            subtitle="Optional — create a .tar.gz of the current bottle before updating",
+            subtitle="Optional — create a .tar.gz of the current prefix before updating",
             activatable=True,
         )
         self._backup_row.add_suffix(

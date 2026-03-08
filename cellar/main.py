@@ -105,7 +105,6 @@ class CellarApplication(Adw.Application):
                 "}"
                 ".ss-tile {"
                 "  border-radius: 8px;"
-                "  overflow: hidden;"
                 "  background-color: black;"
                 "}"
                 ".ss-tile.selected {"

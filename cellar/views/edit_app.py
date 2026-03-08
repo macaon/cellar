@@ -108,12 +108,14 @@ class EditAppDialog(Adw.Dialog):
         hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         scroll.set_child(hbox)
 
-        # ── Left column: metadata ─────────────────────────────────────────
+        # ── Left column: metadata (fixed width, never grows) ─────────────
         left_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         left_box.set_size_request(360, -1)
+        left_box.set_hexpand(False)
 
         page = Adw.PreferencesPage()
         page.set_vexpand(True)
+        page.set_hexpand(False)
         left_box.append(page)
         hbox.append(left_box)
 

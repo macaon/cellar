@@ -94,7 +94,13 @@ class AppMetadataDialog(Adw.Dialog):
         left_box.set_size_request(360, -1)
         left_box.set_hexpand(False)
 
-        page = Adw.PreferencesPage()
+        # Plain box instead of AdwPreferencesPage — the page has a built-in
+        # ScrolledWindow which creates a second scrollbar when nested inside ours.
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
+        page.set_margin_top(12)
+        page.set_margin_bottom(12)
+        page.set_margin_start(12)
+        page.set_margin_end(12)
         page.set_vexpand(True)
         page.set_hexpand(False)
         left_box.append(page)
@@ -125,7 +131,7 @@ class AppMetadataDialog(Adw.Dialog):
         self._slug_row.add_css_class("property")
         id_group.add(self._slug_row)
 
-        page.add(id_group)
+        page.append(id_group)
 
         # Details
         det_group = Adw.PreferencesGroup(title="Details")
@@ -187,7 +193,7 @@ class AppMetadataDialog(Adw.Dialog):
             self._genres_row.connect("changed", self._on_genres_changed)
         det_group.add(self._genres_row)
 
-        page.add(det_group)
+        page.append(det_group)
 
         # Description
         desc_group = Adw.PreferencesGroup(title="Description")
@@ -204,7 +210,7 @@ class AppMetadataDialog(Adw.Dialog):
             self._desc_row.connect("changed", lambda r: self._save("description", r.get_text()))
         desc_group.add(self._desc_row)
 
-        page.add(desc_group)
+        page.append(desc_group)
 
         # ── Vertical separator ────────────────────────────────────────────
         hbox.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))

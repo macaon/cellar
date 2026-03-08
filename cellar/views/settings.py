@@ -265,6 +265,27 @@ class SettingsDialog(Adw.PreferencesDialog):
                 f"SMB: {smb_username}" + (" (password stored)" if has_pw else " (no password)")
             )
             row.add_prefix(icon)
+        elif uri.startswith("ssh://"):
+            from urllib.parse import urlparse as _urlparse
+            from cellar.backend.config import load_ssh_password
+            ssh_user = _urlparse(uri).username or ""
+            has_pw = bool(load_ssh_password(uri))
+            ssh_identity = repo_cfg.get("ssh_identity") or ""
+            if ssh_identity:
+                icon = Gtk.Image.new_from_icon_name("channel-secure-symbolic")
+                icon.set_tooltip_text(
+                    f"SSH: {ssh_user} (key: {Path(ssh_identity).name})"
+                    if ssh_user else f"SSH key: {Path(ssh_identity).name}"
+                )
+            else:
+                icon = Gtk.Image.new_from_icon_name(
+                    "channel-secure-symbolic" if has_pw else "dialog-password-symbolic"
+                )
+                icon.set_tooltip_text(
+                    f"SSH: {ssh_user}" + (" (password stored)" if has_pw else " (agent/config)")
+                    if ssh_user else ("SSH (password stored)" if has_pw else "SSH (agent/config)")
+                )
+            row.add_prefix(icon)
         elif token:
             icon = Gtk.Image.new_from_icon_name("channel-secure-symbolic")
             icon.set_tooltip_text("Bearer token configured")

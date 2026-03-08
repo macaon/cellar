@@ -486,39 +486,81 @@ class EditAppDialog(Adw.Dialog):
         if e.hide_title:
             self._hide_title_btn.set_active(True)
 
-        # Resolve image assets via repo (handles SMB/SSH cache download) in background
-        _assets = {k: v for k, v in [("icon", e.icon), ("cover", e.cover), ("logo", e.logo)] if v}
+        # Load image assets — peek cache first (no I/O), resolve missing ones in background.
+        # For local repos, peek returns "" but resolve_asset_uri returns the path directly.
+        import os as _os
+        peek = self._repo.peek_asset_cache
+
+        def _peek_or_none(rel: str) -> str | None:
+            p = peek(rel)
+            return p if (p and _os.path.isfile(p)) else None
+
+        # Single images: apply cached thumbnails synchronously
+        for key, rel, thumb in [
+            ("icon",  e.icon,  self._icon_thumb),
+            ("cover", e.cover, self._cover_thumb),
+            ("logo",  e.logo,  self._logo_thumb),
+        ]:
+            if rel:
+                cached = _peek_or_none(rel)
+                if cached:
+                    thumb.set_filename(cached)
+
+        # Screenshots: build list from cache; collect missing rels for background fetch
         _ss_rels = list(e.screenshots)
+        _ss_cached: list[str] = []
+        _ss_missing: list[tuple[int, str]] = []   # (original index, rel)
+        for i, rel in enumerate(_ss_rels):
+            cached = _peek_or_none(rel)
+            if cached:
+                _ss_cached.append(cached)
+            else:
+                _ss_missing.append((i, rel))
 
-        def _resolve_assets():
-            result = {}
-            for key, rel in _assets.items():
-                try:
-                    result[key] = self._repo.resolve_asset_uri(rel)
-                except Exception:
-                    pass
-            ss_paths = []
-            for rel in _ss_rels:
-                try:
-                    p = self._repo.resolve_asset_uri(rel)
-                    if p:
-                        ss_paths.append(p)
-                except Exception:
-                    pass
-            return result, ss_paths
+        if _ss_cached:
+            self._screenshot_grid.set_local_items(_ss_cached)
 
-        def _on_assets_resolved(res):
-            resolved, ss_paths = res
-            if "icon" in resolved:
-                self._icon_thumb.set_filename(resolved["icon"])
-            if "cover" in resolved:
-                self._cover_thumb.set_filename(resolved["cover"])
-            if "logo" in resolved:
-                self._logo_thumb.set_filename(resolved["logo"])
-            if ss_paths:
-                self._screenshot_grid.set_local_items(ss_paths)
+        # Resolve anything not already cached (and single images that weren't cached)
+        _uncached_single = {
+            k: rel for k, rel in [("icon", e.icon), ("cover", e.cover), ("logo", e.logo)]
+            if rel and not _peek_or_none(rel)
+        }
 
-        run_in_background(_resolve_assets, on_done=_on_assets_resolved)
+        if _uncached_single or _ss_missing:
+            def _resolve_missing():
+                singles = {}
+                for key, rel in _uncached_single.items():
+                    try:
+                        singles[key] = self._repo.resolve_asset_uri(rel)
+                    except Exception:
+                        pass
+                extra_ss: list[tuple[int, str]] = []
+                for idx, rel in _ss_missing:
+                    try:
+                        p = self._repo.resolve_asset_uri(rel)
+                        if p:
+                            extra_ss.append((idx, p))
+                    except Exception:
+                        pass
+                return singles, extra_ss
+
+            def _on_missing_resolved(res):
+                singles, extra_ss = res
+                if "icon" in singles:
+                    self._icon_thumb.set_filename(singles["icon"])
+                if "cover" in singles:
+                    self._cover_thumb.set_filename(singles["cover"])
+                if "logo" in singles:
+                    self._logo_thumb.set_filename(singles["logo"])
+                if extra_ss:
+                    # Merge newly resolved screenshots into the grid
+                    # Re-build full list preserving original order
+                    merged = list(_ss_cached)
+                    for _idx, path in extra_ss:
+                        merged.append(path)
+                    self._screenshot_grid.set_local_items(merged)
+
+            run_in_background(_resolve_missing, on_done=_on_missing_resolved)
 
         # Steam screenshot suggestions — fetch if steam_appid is set
         if e.steam_appid:

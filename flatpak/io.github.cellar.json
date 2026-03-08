@@ -12,6 +12,7 @@
     "--socket=ssh-auth",
     "--filesystem=home",
     "--device=dri",
+    "--allow=multiarch",
     "--talk-name=org.freedesktop.Flatpak",
     "--talk-name=org.freedesktop.secrets"
   ],

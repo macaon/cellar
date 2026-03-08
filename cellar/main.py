@@ -1,6 +1,7 @@
 """GApplication entry point for Cellar."""
 
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -215,7 +216,7 @@ def _ensure_desktop_entry() -> None:
 
 
 _XDG_DATA_HOME = Path(
-    __import__("os").environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")
+    os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")
 )
 
 

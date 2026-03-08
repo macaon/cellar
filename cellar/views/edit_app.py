@@ -301,20 +301,27 @@ class EditAppDialog(Adw.Dialog):
         img_list.append(self._logo_row)
         right_box.append(img_list)
 
-        # Separator between image rows and screenshot grid
-        hsep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
-        hsep.set_margin_top(12)
-        hsep.set_margin_bottom(4)
-        right_box.append(hsep)
+        # Screenshots section
+        ss_label = Gtk.Label(label="Screenshots")
+        ss_label.set_xalign(0)
+        ss_label.add_css_class("heading")
+        ss_label.set_margin_top(16)
+        ss_label.set_margin_bottom(6)
+        ss_label.set_margin_start(4)
+        right_box.append(ss_label)
 
-        # Screenshot grid — no inner scroll; outer scroll handles everything
+        ss_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        ss_box.add_css_class("card")
+        ss_box.set_vexpand(True)
+
         from cellar.views.screenshot_grid import ScreenshotGridWidget
         self._screenshot_grid = ScreenshotGridWidget(
             on_changed=self._on_screenshots_changed,
             scrolled=False,
             vexpand=True,
         )
-        right_box.append(self._screenshot_grid)
+        ss_box.append(self._screenshot_grid)
+        right_box.append(ss_box)
 
         return scroll
 

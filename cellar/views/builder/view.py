@@ -1165,21 +1165,52 @@ class PackageBuilderView(Gtk.Box):
         if self._project is None:
             return
         project = self._project
-        if not project.entry_point:
+        if not project.entry_points:
             self._show_toast("Add a launch target before test launching.")
+            return
+        if len(project.entry_points) == 1:
+            self._do_test_launch(project, project.entry_points[0])
+            return
+        # Multiple targets — let the user pick
+        dialog = Adw.AlertDialog(
+            heading="Select Launch Target",
+            body="Choose which target to test:",
+        )
+        for i, ep in enumerate(project.entry_points):
+            dialog.add_response(str(i), ep.get("name", ep.get("path", "")))
+        dialog.add_response("cancel", "Cancel")
+        dialog.set_close_response("cancel")
+        dialog.connect("response", self._on_launch_target_chosen, project)
+        dialog.present(self)
+
+    def _on_launch_target_chosen(self, _dialog, response: str, project) -> None:
+        if response == "cancel":
+            return
+        try:
+            idx = int(response)
+        except ValueError:
+            return
+        if 0 <= idx < len(project.entry_points):
+            self._do_test_launch(project, project.entry_points[idx])
+
+    def _do_test_launch(self, project, ep: dict) -> None:
+        entry_path = ep.get("path", "")
+        entry_args = ep.get("args", "")
+        if not entry_path:
+            self._show_toast("Launch target has no executable path.")
             return
         if project.project_type == "linux":
             if not project.source_dir:
                 self._show_toast("Set a source folder first.")
                 return
-            exe = Path(project.source_dir) / project.entry_point
+            exe = Path(project.source_dir) / entry_path
             if not exe.exists():
                 self._show_toast(f"Executable not found: {exe}")
                 return
             import shlex
             cmd = [str(exe)]
-            if project.entry_args:
-                cmd += shlex.split(project.entry_args)
+            if entry_args:
+                cmd += shlex.split(entry_args)
             subprocess.Popen(cmd, start_new_session=True)
             return
         if not project.runner:
@@ -1188,11 +1219,11 @@ class PackageBuilderView(Gtk.Box):
         from cellar.backend.umu import launch_app
         launch_app(
             app_id=f"project-{project.slug}",
-            entry_point=project.entry_point,
+            entry_point=entry_path,
             runner_name=self._resolve_runner_name(project),
             steam_appid=project.steam_appid,
             prefix_dir=project.prefix_path,
-            launch_args=project.entry_args,
+            launch_args=entry_args,
         )
 
     def _on_publish_app_clicked(self, _btn) -> None:

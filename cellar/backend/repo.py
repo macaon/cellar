@@ -150,12 +150,20 @@ class _SshFetcher:
 
     def fetch_bytes(self, rel_path: str) -> bytes:
         remote = f"{self._root}/{rel_path.lstrip('/')}"
+        log.debug("SFTP fetch: %s", remote)
         try:
             with self._sftp().open(remote, "rb") as f:
                 f.prefetch()
                 return f.read()
         except FileNotFoundError:
-            raise RepoError(f"SSH fetch failed for {rel_path}: file not found")
+            raise RepoError(
+                f"SSH fetch failed for {rel_path}: "
+                f"file not found at {remote}"
+            )
+        except IOError as exc:
+            raise RepoError(
+                f"SSH fetch failed for {rel_path} at {remote}: {exc}"
+            ) from exc
         except Exception as exc:
             raise RepoError(f"SSH fetch failed for {rel_path}: {exc}") from exc
 

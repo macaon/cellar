@@ -343,6 +343,22 @@ class AppMetadataDialog(Adw.Dialog):
 
     # ── Helpers ───────────────────────────────────────────────────────────
 
+    @staticmethod
+    def _import_image_to_project(project: "Project", src_path: str, slot: str) -> str:
+        """Copy *src_path* into the project directory as ``<slot><ext>``.
+
+        Returns the destination path (always inside the project directory).
+        If *src_path* is already inside the project directory the file is left
+        in place and the same path is returned.
+        """
+        import shutil
+        src = Path(src_path)
+        dest = project.project_dir / f"{slot}{src.suffix}"
+        if src.resolve() != dest.resolve():
+            project.project_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest)
+        return str(dest)
+
     def _save(self, attr: str, value) -> None:
         if self._project:
             setattr(self._project, attr, value)
@@ -502,6 +518,8 @@ class AppMetadataDialog(Adw.Dialog):
     def _on_icon_chosen(self, _c, response, chooser) -> None:
         if response == Gtk.ResponseType.ACCEPT:
             path = chooser.get_file().get_path()
+            if self._project:
+                path = self._import_image_to_project(self._project, path, "icon")
             self._icon_row.set_subtitle(GLib.markup_escape_text(Path(path).name))
             self._icon_clear_btn.set_visible(True)
             self._icon_thumb.set_filename(path)
@@ -518,6 +536,8 @@ class AppMetadataDialog(Adw.Dialog):
     def _on_cover_chosen(self, _c, response, chooser) -> None:
         if response == Gtk.ResponseType.ACCEPT:
             path = chooser.get_file().get_path()
+            if self._project:
+                path = self._import_image_to_project(self._project, path, "cover")
             self._cover_row.set_subtitle(GLib.markup_escape_text(Path(path).name))
             self._cover_clear_btn.set_visible(True)
             self._cover_thumb.set_filename(path)
@@ -534,6 +554,8 @@ class AppMetadataDialog(Adw.Dialog):
     def _on_logo_chosen(self, _c, response, chooser) -> None:
         if response == Gtk.ResponseType.ACCEPT:
             path = chooser.get_file().get_path()
+            if self._project:
+                path = self._import_image_to_project(self._project, path, "logo")
             self._logo_row.set_subtitle(GLib.markup_escape_text(Path(path).name))
             self._logo_clear_btn.set_visible(True)
             self._logo_thumb.set_filename(path)
@@ -588,11 +610,11 @@ class AppMetadataDialog(Adw.Dialog):
         genres_txt = self._genres_row.get_text().strip()
         project.genres = [g.strip() for g in genres_txt.split(",") if g.strip()] if genres_txt else []
         if self._tmp_icon:
-            project.icon_path = self._tmp_icon
+            project.icon_path = self._import_image_to_project(project, self._tmp_icon, "icon")
         if self._tmp_cover:
-            project.cover_path = self._tmp_cover
+            project.cover_path = self._import_image_to_project(project, self._tmp_cover, "cover")
         if self._tmp_logo:
-            project.logo_path = self._tmp_logo
+            project.logo_path = self._import_image_to_project(project, self._tmp_logo, "logo")
         project.hide_title = self._hide_title_btn.get_active()
         local_ss = [i.local_path for i in self._screenshot_grid.get_items() if i.local_path]
         if local_ss:

@@ -261,7 +261,7 @@ class CellarWindow(Adw.ApplicationWindow):
                 installed_ids = {e.id for e in installed_entries}
                 self._browse_explore.load_entries(entries, resolve_asset=resolver, installed_ids=installed_ids)
                 self._browse_installed.load_entries(installed_entries, resolve_asset=resolver, installed_ids=installed_ids)
-                self._browse_updates.load_entries(update_entries, resolve_asset=resolver)
+                self._browse_updates.load_entries(update_entries, resolve_asset=resolver, installed_ids=installed_ids)
                 self.updates_page.set_badge_number(len(update_entries))
                 self._rebuild_filter_popover(entries)
             else:
@@ -459,7 +459,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="io.github.cellar",
-            version="0.46.12",
+            version="0.46.13",
             comments="A GNOME storefront for Windows and Linux apps.",
             license_type=Gtk.License.GPL_3_0,
         )

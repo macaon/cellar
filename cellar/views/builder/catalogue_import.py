@@ -61,7 +61,7 @@ class CatalogueEntriesDialog(Adw.Dialog):
 
         # List page: three PreferencesGroups inside a scroll
         scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
-        scroll.set_min_content_height(300)
+        scroll.set_min_content_height(500)
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=24)
         vbox.set_margin_top(12)
         vbox.set_margin_bottom(12)

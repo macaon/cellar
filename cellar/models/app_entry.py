@@ -121,6 +121,11 @@ class AppEntry:
     logo: str = ""       # transparent logo (Steam-style) — replaces icon+name in detail view
     hide_title: bool = False   # suppress name label when logo is present
     screenshots: tuple[str, ...] = ()
+    # Maps repo-relative screenshot path → original source URL (e.g. Steam CDN).
+    # Sparse: only screenshots downloaded from a remote URL have an entry.
+    # Used by the edit dialog to filter already-downloaded screenshots from
+    # Steam suggestions on re-open, preventing duplicates.
+    screenshot_sources: dict[str, str] = field(default_factory=dict)
 
     # ── Installation ──────────────────────────────────────────────────────
     archive: str = ""
@@ -177,6 +182,7 @@ class AppEntry:
             logo=data.get("logo", ""),
             hide_title=bool(data.get("hide_title", False)),
             screenshots=tuple(data.get("screenshots", [])),
+            screenshot_sources=dict(data.get("screenshot_sources", {})),
             archive=data.get("archive", ""),
             archive_size=int(data.get("archive_size", 0)),
             archive_crc32=data.get("archive_crc32", data.get("archive_sha256", "")),
@@ -222,6 +228,8 @@ class AppEntry:
         if self.hide_title:
             d["hide_title"] = True
         _opt_seq(d, "screenshots", self.screenshots)
+        if self.screenshot_sources:
+            d["screenshot_sources"] = dict(self.screenshot_sources)
         _opt_str(d, "archive", self.archive)
         if self.archive_size:
             d["archive_size"] = self.archive_size

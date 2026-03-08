@@ -522,7 +522,8 @@ class EditAppDialog(Adw.Dialog):
                 _ss_missing.append((i, rel))
 
         if _ss_cached:
-            self._screenshot_grid.set_local_items(_ss_cached)
+            _ss_source_urls = [e.screenshot_sources.get(r) for r in _ss_rels if _peek_or_none(r)]
+            self._screenshot_grid.set_local_items(_ss_cached, _ss_source_urls)
 
         # Resolve anything not already cached (and single images that weren't cached)
         _uncached_single = {
@@ -562,7 +563,9 @@ class EditAppDialog(Adw.Dialog):
                     merged = list(_ss_cached)
                     for _idx, path in extra_ss:
                         merged.append(path)
-                    self._screenshot_grid.set_local_items(merged)
+                    merged_rels = _ss_rels  # same length and order as merged paths
+                    merged_sources = [e.screenshot_sources.get(r) for r in merged_rels]
+                    self._screenshot_grid.set_local_items(merged, merged_sources)
 
             run_in_background(_resolve_missing, on_done=_on_missing_resolved)
 
@@ -952,12 +955,20 @@ class EditAppDialog(Adw.Dialog):
                 _phase("Downloading screenshots\u2026")
                 dl_dir = Path(_tmp.mkdtemp(prefix="cellar_ss_"))
                 final_paths: list[str] = []
+                # source_url per final_path: None for locally-added files, URL for Steam downloads
+                final_sources: list[str | None] = []
                 from cellar.utils.http import make_session as _make_session
                 _session = _make_session()
                 for _item in _grid_items:
                     if _item.local_path:
                         log.debug("  item local_path=%r", _item.local_path)
                         final_paths.append(_item.local_path)
+                        # Preserve any existing source URL from the old entry
+                        _old_rel = next(
+                            (r for r in e.screenshots if str(repo_root / r) == _item.local_path),
+                            None,
+                        )
+                        final_sources.append(e.screenshot_sources.get(_old_rel) if _old_rel else None)
                     elif _item.full_url:
                         _fname = _item.full_url.split("/")[-1].split("?")[0] or "screenshot.jpg"
                         _dest = dl_dir / _fname
@@ -968,6 +979,7 @@ class EditAppDialog(Adw.Dialog):
                             _dest.write_bytes(_r.content)
                             log.debug("    downloaded OK (%d bytes)", len(_r.content))
                             final_paths.append(str(_dest))
+                            final_sources.append(_item.full_url)
                         except Exception as _exc:  # noqa: BLE001
                             log.warning("Screenshot download failed: %s", _exc)
                 log.debug("edit save: final_paths=%s", final_paths)
@@ -977,8 +989,15 @@ class EditAppDialog(Adw.Dialog):
                     for i, p in enumerate(final_paths)
                 )
                 log.debug("edit save: ss_rels=%s", ss_rels)
+                # Build sparse sources dict: only entries that have a URL
+                ss_sources = {
+                    rel: src
+                    for rel, src in zip(ss_rels, final_sources)
+                    if src
+                }
+                log.debug("edit save: ss_sources=%s", ss_sources)
                 from dataclasses import replace as _dc_replace
-                _run_entry = _dc_replace(new_entry, screenshots=ss_rels)
+                _run_entry = _dc_replace(new_entry, screenshots=ss_rels, screenshot_sources=ss_sources)
                 self._saved_entry = _run_entry
             else:
                 log.debug("edit save: screenshots not dirty, keeping existing rels=%s", e.screenshots)

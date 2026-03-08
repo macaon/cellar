@@ -761,17 +761,18 @@ class DetailView(Gtk.Box):
 
         self._populate_screenshots(wrapper, slots)
 
-        def _work():
-            resolved = []
-            for s in screenshots:
-                path = self._resolve(s)
-                if os.path.isfile(path):
-                    resolved.append(path)
-            return resolved
+        # Pre-allocate; each per-slot task fills its own index when resolved.
+        self._screenshot_paths = [""] * len(screenshots)
 
-        def _on_resolved(paths: list[str]) -> None:
-            self._screenshot_paths = paths
-            for idx, (slot, path) in enumerate(zip(slots, paths)):
+        for slot_idx, (s, slot) in enumerate(zip(screenshots, slots)):
+
+            def _work(s=s) -> str:
+                path = self._resolve(s)
+                return path if os.path.isfile(path) else ""
+
+            def _on_slot_done(path: str, slot=slot, idx=slot_idx) -> None:
+                if not path:
+                    return  # leave spinner; download failed
                 # Remove spinner
                 child = slot.get_first_child()
                 while child:
@@ -788,15 +789,10 @@ class DetailView(Gtk.Box):
                 click.connect("released", self._on_screenshot_clicked, idx)
                 pic.add_controller(click)
                 slot.append(pic)
-            # Remove any trailing slots whose images failed to resolve.
-            # set_visible(False) is not enough — AdwCarousel still includes
-            # invisible children as navigable pages, showing a blank.
-            for slot in slots[len(paths):]:
-                parent = slot.get_parent()
-                if parent is not None:
-                    parent.remove(slot)
+                self._screenshot_paths[idx] = path
 
-        run_in_background(_work, on_done=_on_resolved)
+            run_in_background(_work, on_done=_on_slot_done)
+
         return wrapper
 
     def _make_screenshot_pic(self, path: str, idx: int) -> Gtk.Picture:
@@ -888,7 +884,12 @@ class DetailView(Gtk.Box):
         wrapper.append(Adw.CarouselIndicatorDots(carousel=carousel))
 
     def _on_screenshot_clicked(self, _gesture, _n, _x, _y, index: int) -> None:
-        dialog = ScreenshotDialog(self._screenshot_paths, index)
+        # Filter to only loaded paths (some may still be downloading).
+        # Re-map start index so the correct image opens in the dialog.
+        loaded = [(i, p) for i, p in enumerate(self._screenshot_paths) if p]
+        paths = [p for _, p in loaded]
+        start = next((pos for pos, (i, _) in enumerate(loaded) if i == index), 0)
+        dialog = ScreenshotDialog(paths, start)
         dialog.present(self.get_root())
 
     def _make_info_cards(self) -> Gtk.Box:

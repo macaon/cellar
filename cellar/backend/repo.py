@@ -539,9 +539,16 @@ class Repo:
         parts = rel_path.lstrip("/").split("/")
         dest = self._cache_dir.joinpath(*parts)
         if dest.exists():
-            return str(dest)
+            if dest.stat().st_size > 0:
+                return str(dest)
+            # Zero-byte file left by a failed prior download — evict and re-fetch.
+            dest.unlink(missing_ok=True)
+            log.debug("Evicting zero-byte cached asset %r; re-fetching", rel_path)
         try:
             data = self._fetcher.fetch_bytes(rel_path)
+            if not data:
+                log.warning("Empty response for asset %r; skipping cache write", rel_path)
+                return ""
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(data)
             return str(dest)

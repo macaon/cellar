@@ -916,7 +916,7 @@ class EditAppDialog(Adw.Dialog):
             compatibility_notes=e.compatibility_notes,
             changelog=e.changelog,
             lock_runner=e.lock_runner,
-            steam_appid=steam_appid if e.platform != "linux" else None,
+            steam_appid=steam_appid if e.platform != "linux" else e.steam_appid,
             platform=e.platform,
             screenshot_sources=e.screenshot_sources,
         )

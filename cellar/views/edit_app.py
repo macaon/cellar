@@ -137,7 +137,13 @@ class EditAppDialog(Adw.Dialog):
         left_box.set_size_request(360, -1)
         left_box.set_hexpand(False)
 
-        page = Adw.PreferencesPage()
+        # Plain box instead of AdwPreferencesPage — the page has a built-in
+        # ScrolledWindow which creates a second scrollbar when nested inside ours.
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
+        page.set_margin_top(12)
+        page.set_margin_bottom(12)
+        page.set_margin_start(12)
+        page.set_margin_end(12)
         page.set_vexpand(True)
         page.set_hexpand(False)
         left_box.append(page)
@@ -160,7 +166,7 @@ class EditAppDialog(Adw.Dialog):
         self._id_row.set_subtitle_selectable(True)
         identity_group.add(self._id_row)
 
-        page.add(identity_group)
+        page.append(identity_group)
 
         # Details
         details_group = Adw.PreferencesGroup(title="Details")
@@ -194,7 +200,7 @@ class EditAppDialog(Adw.Dialog):
         self._genres_entry.set_tooltip_text("Comma-separated, e.g. Action, RPG")
         details_group.add(self._genres_entry)
 
-        page.add(details_group)
+        page.append(details_group)
 
         # Descriptions — Summary + Description editor in one unified card
         desc_group = Adw.PreferencesGroup(title="Descriptions")
@@ -260,7 +266,7 @@ class EditAppDialog(Adw.Dialog):
         desc_outer.append(self._desc_view)
 
         desc_group.add(desc_outer)
-        page.add(desc_group)
+        page.append(desc_group)
 
         # Launch Settings
         launch_group = Adw.PreferencesGroup(title="Launch Settings")
@@ -295,7 +301,7 @@ class EditAppDialog(Adw.Dialog):
         )
         launch_group.add(self._launch_args_entry)
 
-        page.add(launch_group)
+        page.append(launch_group)
 
         # Danger Zone
         danger_group = Adw.PreferencesGroup(title="Danger Zone")
@@ -308,7 +314,7 @@ class EditAppDialog(Adw.Dialog):
         delete_btn.connect("clicked", self._on_delete_clicked)
         danger_group.add(delete_btn)
 
-        page.add(danger_group)
+        page.append(danger_group)
 
         # ── Vertical separator ────────────────────────────────────────────
         hbox.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))

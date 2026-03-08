@@ -719,16 +719,20 @@ class DetailView(Gtk.Box):
 
     def _make_screenshots(self) -> Gtk.Widget | None:
         if not self._entry.screenshots:
+            log.debug("_make_screenshots: no screenshots on entry, returning None")
             return None
 
         screenshots = list(self._entry.screenshots)
+        log.debug("_make_screenshots: %d screenshot(s): %s", len(screenshots), screenshots)
 
         # Fast path: peek the cache for every screenshot.  If all are already
         # on disk, build the carousel synchronously — no placeholders, no shift.
         cached_paths = []
         for s in screenshots:
             p = self._peek(s)
-            if p and os.path.isfile(p):
+            exists = bool(p) and os.path.isfile(p)
+            log.debug("  peek %r -> %r  isfile=%s", s, p, exists)
+            if exists:
                 cached_paths.append(p)
             else:
                 cached_paths = []
@@ -738,10 +742,13 @@ class DetailView(Gtk.Box):
         wrapper.add_css_class("screenshots-band")
 
         if cached_paths:
+            log.debug("_make_screenshots: fast path — all %d cached", len(cached_paths))
             self._screenshot_paths = cached_paths
             pages = [self._make_screenshot_pic(p, i) for i, p in enumerate(cached_paths)]
             self._populate_screenshots(wrapper, pages)
             return wrapper
+
+        log.debug("_make_screenshots: slow path — starting per-slot downloads")
 
         # Slow path: build the carousel immediately with fixed-height placeholder
         # slots so the layout reserves the correct space — no jump when images load.
@@ -766,12 +773,16 @@ class DetailView(Gtk.Box):
 
         for slot_idx, (s, slot) in enumerate(zip(screenshots, slots)):
 
-            def _work(s=s) -> str:
+            def _work(s=s, idx=slot_idx) -> str:
                 path = self._resolve(s)
-                return path if os.path.isfile(path) else ""
+                result = path if os.path.isfile(path) else ""
+                log.debug("  slot %d: resolve(%r) -> %r  isfile=%s", idx, s, path, bool(result))
+                return result
 
             def _on_slot_done(path: str, slot=slot, idx=slot_idx) -> None:
+                log.debug("  slot %d: _on_slot_done path=%r", idx, path)
                 if not path:
+                    log.debug("  slot %d: empty path — leaving spinner", idx)
                     return  # leave spinner; download failed
                 # Remove spinner
                 child = slot.get_first_child()
@@ -790,6 +801,7 @@ class DetailView(Gtk.Box):
                 pic.add_controller(click)
                 slot.append(pic)
                 self._screenshot_paths[idx] = path
+                log.debug("  slot %d: picture inserted for %r", idx, path)
 
             run_in_background(_work, on_done=_on_slot_done)
 

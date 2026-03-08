@@ -367,6 +367,8 @@ class CellarWindow(Adw.ApplicationWindow):
             from cellar.views.detail import DetailView
 
             def _on_edit_done(updated_entry):
+                log.debug("_on_edit_done: updated_entry.id=%r screenshots=%s",
+                          updated_entry.id, updated_entry.screenshots)
                 import dataclasses as _dc
                 try:
                     icons = self._first_repo.fetch_category_icons() if self._first_repo else {}
@@ -376,10 +378,14 @@ class CellarWindow(Adw.ApplicationWindow):
                 if icon:
                     updated_entry = _dc.replace(updated_entry, category_icon=icon)
                 current_page = self.nav_view.get_visible_page()
+                log.debug("_on_edit_done: current_page=%r", current_page)
                 if current_page is not None:
+                    repos_for_detail = self._entry_repos.get(updated_entry.id) or source_repos
+                    log.debug("_on_edit_done: source_repos for DetailView: %s",
+                              [r.uri for r in repos_for_detail])
                     new_detail = DetailView(
                         updated_entry,
-                        source_repos=self._entry_repos.get(updated_entry.id) or source_repos,
+                        source_repos=repos_for_detail,
                         is_writable=can_write,
                         on_edit=_on_edit if can_write else None,
                         is_installed=is_installed,

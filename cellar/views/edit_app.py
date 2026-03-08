@@ -23,9 +23,13 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk
 
+import logging
+
 from cellar.utils.async_work import run_in_background
 from cellar.utils.progress import fmt_stats as _fmt_stats
 from cellar.views.widgets import make_progress_page
+
+log = logging.getLogger(__name__)
 
 _STRATEGIES = ["safe", "full"]
 _STRATEGY_LABELS = ["Safe (preserve user data)", "Full (complete replacement)"]
@@ -944,6 +948,7 @@ class EditAppDialog(Adw.Dialog):
 
             if _grid_items is not None:
                 # Resolve screenshots: download any Steam-pending items first.
+                log.debug("edit save: %d grid item(s) to process", len(_grid_items))
                 _phase("Downloading screenshots\u2026")
                 dl_dir = Path(_tmp.mkdtemp(prefix="cellar_ss_"))
                 final_paths: list[str] = []
@@ -951,28 +956,32 @@ class EditAppDialog(Adw.Dialog):
                 _session = _make_session()
                 for _item in _grid_items:
                     if _item.local_path:
+                        log.debug("  item local_path=%r", _item.local_path)
                         final_paths.append(_item.local_path)
                     elif _item.full_url:
                         _fname = _item.full_url.split("/")[-1].split("?")[0] or "screenshot.jpg"
                         _dest = dl_dir / _fname
+                        log.debug("  item full_url=%r -> downloading to %s", _item.full_url, _dest)
                         try:
                             _r = _session.get(_item.full_url, timeout=30)
                             _r.raise_for_status()
                             _dest.write_bytes(_r.content)
+                            log.debug("    downloaded OK (%d bytes)", len(_r.content))
                             final_paths.append(str(_dest))
                         except Exception as _exc:  # noqa: BLE001
-                            import logging as _log
-                            _log.getLogger(__name__).warning(
-                                "Screenshot download failed: %s", _exc
-                            )
+                            log.warning("Screenshot download failed: %s", _exc)
+                log.debug("edit save: final_paths=%s", final_paths)
                 images["screenshots"] = final_paths
                 ss_rels = tuple(
                     f"apps/{app_id}/screenshots/{i + 1:02d}{Path(p).suffix}"
                     for i, p in enumerate(final_paths)
                 )
+                log.debug("edit save: ss_rels=%s", ss_rels)
                 from dataclasses import replace as _dc_replace
                 _run_entry = _dc_replace(new_entry, screenshots=ss_rels)
                 self._saved_entry = _run_entry
+            else:
+                log.debug("edit save: screenshots not dirty, keeping existing rels=%s", e.screenshots)
 
             try:
                 update_in_repo(
@@ -985,6 +994,7 @@ class EditAppDialog(Adw.Dialog):
                     stats_cb=_stats,
                     cancel_event=self._cancel_event,
                 )
+                log.debug("edit save: update_in_repo done")
                 # Delete repo screenshot files the user unchecked.
                 if _excluded_locals:
                     new_rels_set = set(_run_entry.screenshots)
@@ -997,6 +1007,7 @@ class EditAppDialog(Adw.Dialog):
                                 if old_rel not in new_rels_set:
                                     try:
                                         (repo_root / old_rel).unlink(missing_ok=True)
+                                        log.debug("edit save: deleted excluded screenshot %r", old_rel)
                                     except Exception:
                                         pass
                                 break
@@ -1005,8 +1016,10 @@ class EditAppDialog(Adw.Dialog):
                 # the old ones from cache.
                 if _grid_items is not None:
                     _all_ss_rels = set(e.screenshots) | set(_run_entry.screenshots)
+                    log.debug("edit save: evicting cache for %s", sorted(_all_ss_rels))
                     for _rel in _all_ss_rels:
                         self._repo.evict_asset_cache(_rel)
+                log.debug("edit save: saved_entry.screenshots=%s", self._saved_entry.screenshots)
                 GLib.idle_add(self._on_save_done)
             except CancelledError:
                 GLib.idle_add(self._on_save_cancelled)
@@ -1021,6 +1034,7 @@ class EditAppDialog(Adw.Dialog):
         self._cancel_progress_btn.set_sensitive(False)
 
     def _on_save_done(self) -> None:
+        log.debug("_on_save_done: saved_entry.screenshots=%s", self._saved_entry.screenshots)
         self.close()
         self._on_done(self._saved_entry)
 

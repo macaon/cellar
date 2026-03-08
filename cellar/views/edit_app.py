@@ -172,16 +172,19 @@ class EditAppDialog(Adw.Dialog):
 
         page.add(details_group)
 
-        # Descriptions
+        # Descriptions — Summary + Description editor in one unified card
         desc_group = Adw.PreferencesGroup(title="Descriptions")
 
-        self._summary_entry = Adw.EntryRow(title="Summary")
-        desc_group.add(self._summary_entry)
-
-        # Description — card-styled editor with formatting toolbar
         desc_outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         desc_outer.add_css_class("card")
 
+        # Summary row inside the card
+        self._summary_entry = Adw.EntryRow(title="Summary")
+        desc_outer.append(self._summary_entry)
+
+        desc_outer.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
+
+        # Description header with formatting toolbar
         desc_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         desc_header.set_margin_top(8)
         desc_header.set_margin_bottom(4)
@@ -249,6 +252,12 @@ class EditAppDialog(Adw.Dialog):
         self._entry_point_entry.set_tooltip_text(
             "Windows-style path to the main .exe, e.g. C:\\Program Files\\App\\app.exe"
         )
+        ep_browse_btn = Gtk.Button(icon_name="folder-open-symbolic")
+        ep_browse_btn.add_css_class("flat")
+        ep_browse_btn.set_valign(Gtk.Align.CENTER)
+        ep_browse_btn.set_tooltip_text("Browse for executable…")
+        ep_browse_btn.connect("clicked", self._on_browse_entry_point)
+        self._entry_point_entry.add_suffix(ep_browse_btn)
         launch_group.add(self._entry_point_entry)
 
         self._launch_args_entry = Adw.EntryRow(title="Launch Arguments")
@@ -583,6 +592,60 @@ class EditAppDialog(Adw.Dialog):
             btn.set_icon_name("eye-not-looking-symbolic")
         else:
             btn.set_icon_name("eye-open-negative-filled-symbolic")
+
+    # ── Entry point browser ───────────────────────────────────────────────
+
+    def _on_browse_entry_point(self, _btn) -> None:
+        import os
+        from cellar.backend.umu import prefixes_dir
+        e = self._old_entry
+        if e.platform == "linux":
+            from cellar.backend.database import get_installed
+            rec = get_installed(e.id)
+            install_path = Path(rec["install_path"]) if rec and rec.get("install_path") else Path.home()
+            browse_root = install_path
+            title = "Select Executable"
+        else:
+            prefix = prefixes_dir() / e.id / "drive_c"
+            browse_root = prefix if prefix.is_dir() else Path.home()
+            title = "Select Executable (.exe)"
+
+        chooser = Gtk.FileChooserNative(
+            title=title,
+            transient_for=self.get_root(),
+            action=Gtk.FileChooserAction.OPEN,
+            accept_label="Select",
+        )
+        from gi.repository import Gio
+        chooser.set_current_folder(Gio.File.new_for_path(str(browse_root)))
+        if e.platform != "linux":
+            exe_filter = Gtk.FileFilter()
+            exe_filter.set_name("Windows executables (*.exe)")
+            exe_filter.add_pattern("*.exe")
+            chooser.add_filter(exe_filter)
+        chooser.connect("response", self._on_entry_point_chosen, chooser, browse_root, e.platform)
+        chooser.show()
+        self._ep_chooser = chooser  # keep reference alive
+
+    def _on_entry_point_chosen(self, _c, response, chooser, browse_root: Path, platform: str) -> None:
+        import os
+        if response != Gtk.ResponseType.ACCEPT:
+            return
+        abs_path = chooser.get_file().get_path()
+        if platform == "linux":
+            try:
+                rel = os.path.relpath(abs_path, str(browse_root))
+            except ValueError:
+                rel = abs_path
+            formatted = rel
+        else:
+            drive_c = browse_root
+            try:
+                rel = os.path.relpath(abs_path, str(drive_c))
+                formatted = "C:\\" + rel.replace("/", "\\")
+            except ValueError:
+                formatted = abs_path
+        self._entry_point_entry.set_text(formatted)
 
     # ── Image clear handlers ──────────────────────────────────────────────
 

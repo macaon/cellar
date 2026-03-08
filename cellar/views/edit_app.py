@@ -120,9 +120,9 @@ class EditAppDialog(Adw.Dialog):
         hbox.append(left_box)
 
         # Identity
-        identity_group = Adw.PreferencesGroup(title="Identity")
+        identity_group = Adw.PreferencesGroup()
 
-        self._name_entry = Adw.EntryRow(title="Name *")
+        self._name_entry = Adw.EntryRow(title="Title *")
         self._name_entry.connect("changed", self._on_name_changed)
         steam_btn = Gtk.Button(icon_name="system-search-symbolic")
         steam_btn.add_css_class("flat")
@@ -136,28 +136,47 @@ class EditAppDialog(Adw.Dialog):
         self._id_row.set_subtitle_selectable(True)
         identity_group.add(self._id_row)
 
-        self._version_entry = Adw.EntryRow(title="Version")
-        identity_group.add(self._version_entry)
-
-        self._category_row = Adw.ComboRow(title="Category")
-        self._category_row.set_model(Gtk.StringList.new(self._categories))
-        identity_group.add(self._category_row)
-
-        self._steam_appid_entry = Adw.EntryRow(title="Steam App ID (optional)")
-        self._steam_appid_entry.set_tooltip_text(
-            "Used to set GAMEID for protonfixes. Leave empty to use GAMEID=0."
-        )
-        identity_group.add(self._steam_appid_entry)
-
         page.add(identity_group)
 
         # Details
         details_group = Adw.PreferencesGroup(title="Details")
 
-        self._summary_entry = Adw.EntryRow(title="Summary")
-        details_group.add(self._summary_entry)
+        self._version_entry = Adw.EntryRow(title="Version")
+        details_group.add(self._version_entry)
+
+        self._category_row = Adw.ComboRow(title="Category")
+        self._category_row.set_model(Gtk.StringList.new(self._categories))
+        details_group.add(self._category_row)
+
+        self._developer_entry = Adw.EntryRow(title="Developer")
+        details_group.add(self._developer_entry)
+
+        self._publisher_entry = Adw.EntryRow(title="Publisher")
+        details_group.add(self._publisher_entry)
+
+        self._year_entry = Adw.EntryRow(title="Release Year")
+        details_group.add(self._year_entry)
+
+        self._steam_appid_entry = Adw.EntryRow(title="Steam App ID")
+        self._steam_appid_entry.set_tooltip_text(
+            "Used to set GAMEID for protonfixes. Leave empty to use GAMEID=0."
+        )
+        details_group.add(self._steam_appid_entry)
+
+        self._website_entry = Adw.EntryRow(title="Website")
+        details_group.add(self._website_entry)
+
+        self._genres_entry = Adw.EntryRow(title="Genres")
+        self._genres_entry.set_tooltip_text("Comma-separated, e.g. Action, RPG")
+        details_group.add(self._genres_entry)
 
         page.add(details_group)
+
+        # Descriptions
+        desc_group = Adw.PreferencesGroup(title="Descriptions")
+
+        self._summary_entry = Adw.EntryRow(title="Summary")
+        desc_group.add(self._summary_entry)
 
         # Description — card-styled editor with formatting toolbar
         desc_outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -213,37 +232,32 @@ class EditAppDialog(Adw.Dialog):
         self._desc_view.set_size_request(-1, 100)
         desc_outer.append(self._desc_view)
 
-        desc_wrapper = Adw.PreferencesGroup()
-        desc_wrapper.add(desc_outer)
-        page.add(desc_wrapper)
+        desc_group.add(desc_outer)
+        page.add(desc_group)
 
-        # Attribution
-        attr_group = Adw.PreferencesGroup(title="Attribution")
-        self._developer_entry = Adw.EntryRow(title="Developer")
-        self._publisher_entry = Adw.EntryRow(title="Publisher")
-        self._year_entry = Adw.EntryRow(title="Release Year")
-        attr_group.add(self._developer_entry)
-        attr_group.add(self._publisher_entry)
-        attr_group.add(self._year_entry)
-        page.add(attr_group)
-
-        # Install
-        install_group = Adw.PreferencesGroup(title="Install")
+        # Launch Settings
+        launch_group = Adw.PreferencesGroup(title="Launch Settings")
 
         self._strategy_row = Adw.ComboRow(title="Update Strategy")
         strat_model = Gtk.StringList()
         for label in _STRATEGY_LABELS:
             strat_model.append(label)
         self._strategy_row.set_model(strat_model)
-        install_group.add(self._strategy_row)
+        launch_group.add(self._strategy_row)
 
-        self._entry_point_entry = Adw.EntryRow(title="Entry Point (optional)")
+        self._entry_point_entry = Adw.EntryRow(title="Launch Target")
         self._entry_point_entry.set_tooltip_text(
             "Windows-style path to the main .exe, e.g. C:\\Program Files\\App\\app.exe"
         )
-        install_group.add(self._entry_point_entry)
+        launch_group.add(self._entry_point_entry)
 
-        page.add(install_group)
+        self._launch_args_entry = Adw.EntryRow(title="Launch Arguments")
+        self._launch_args_entry.set_tooltip_text(
+            "Optional arguments passed to the entry point on launch."
+        )
+        launch_group.add(self._launch_args_entry)
+
+        page.add(launch_group)
 
         # Danger Zone
         danger_group = Adw.PreferencesGroup(title="Danger Zone")
@@ -400,25 +414,29 @@ class EditAppDialog(Adw.Dialog):
         self._version_entry.set_text(e.version)
         if e.category in self._categories:
             self._category_row.set_selected(self._categories.index(e.category))
+        self._developer_entry.set_text(e.developer or "")
+        self._publisher_entry.set_text(e.publisher or "")
+        if e.release_year:
+            self._year_entry.set_text(str(e.release_year))
+        self._website_entry.set_text(e.website or "")
+        self._genres_entry.set_text(", ".join(e.genres) if e.genres else "")
         self._summary_entry.set_text(e.summary or "")
 
         if e.description:
             self._desc_view.get_buffer().set_text(e.description)
 
-        self._developer_entry.set_text(e.developer or "")
-        self._publisher_entry.set_text(e.publisher or "")
-        if e.release_year:
-            self._year_entry.set_text(str(e.release_year))
-
         if e.platform == "linux":
             self._steam_appid_entry.set_visible(False)
-            self._entry_point_entry.set_title("Entry Point")
+            self._entry_point_entry.set_title("Launch Target")
             self._entry_point_entry.set_tooltip_text(
                 "Executable path within the app directory, e.g. \u201cbin/mygame\u201d"
             )
         else:
             if e.steam_appid is not None:
                 self._steam_appid_entry.set_text(str(e.steam_appid))
+
+        self._entry_point_entry.set_text(e.entry_point or "")
+        self._launch_args_entry.set_text(e.launch_args or "")
 
         # Single images — show current filename, enable clear button, load thumbnail
         try:
@@ -452,8 +470,6 @@ class EditAppDialog(Adw.Dialog):
         strategy = e.update_strategy or "safe"
         if strategy in _STRATEGIES:
             self._strategy_row.set_selected(_STRATEGIES.index(strategy))
-
-        self._entry_point_entry.set_text(e.entry_point or "")
 
         self._update_save_button()
 
@@ -608,6 +624,14 @@ class EditAppDialog(Adw.Dialog):
             self._publisher_entry.set_text(result["publisher"])
         if result.get("year") and not self._year_entry.get_text().strip():
             self._year_entry.set_text(str(result["year"]))
+        if result.get("website") and not self._website_entry.get_text().strip():
+            self._website_entry.set_text(result["website"])
+        if result.get("genres") and not self._genres_entry.get_text().strip():
+            genres = result["genres"]
+            if isinstance(genres, list):
+                self._genres_entry.set_text(", ".join(genres))
+            else:
+                self._genres_entry.set_text(str(genres))
         if result.get("summary") and not self._summary_entry.get_text().strip():
             self._summary_entry.set_text(result["summary"])
         if result.get("description"):
@@ -639,8 +663,12 @@ class EditAppDialog(Adw.Dialog):
         release_year = int(year_text) if year_text.isdigit() else None
         steam_appid_text = self._steam_appid_entry.get_text().strip()
         steam_appid = int(steam_appid_text) if steam_appid_text.isdigit() else None
+        website = self._website_entry.get_text().strip()
+        genres_text = self._genres_entry.get_text().strip()
+        genres = tuple(g.strip() for g in genres_text.split(",") if g.strip()) if genres_text else ()
         strategy = _STRATEGIES[self._strategy_row.get_selected()]
         entry_point = self._entry_point_entry.get_text().strip()
+        launch_args = self._launch_args_entry.get_text().strip()
 
         # Single images: None=keep existing, ""=clear, str=new file
         if self._icon_path is None:
@@ -692,12 +720,15 @@ class EditAppDialog(Adw.Dialog):
             logo=logo_rel,
             hide_title=self._hide_title_btn.get_active(),
             screenshots=screenshot_rels,
+            website=website,
+            genres=genres,
             archive=e.archive,
             archive_size=e.archive_size,
             archive_crc32=e.archive_crc32,
             install_size_estimate=e.install_size_estimate,
             update_strategy=strategy,
             entry_point=entry_point,
+            launch_args=launch_args,
             compatibility_notes=e.compatibility_notes,
             changelog=e.changelog,
             lock_runner=e.lock_runner,

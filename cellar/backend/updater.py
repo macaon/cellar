@@ -121,23 +121,26 @@ def backup_bottle(
     dest_path: Path,
     *,
     progress_cb: Callable[[float], None] | None = None,
+    stats_cb: Callable[[int, int, float], None] | None = None,
     phase_cb: Callable[[str], None] | None = None,
     cancel_event: threading.Event | None = None,
 ) -> None:
     """Archive *prefix_path* as a ``.tar.gz`` at *dest_path*.
 
     The archive contains a single top-level directory named after the
-    bottle so that it can be re-imported by Cellar if needed.
+    prefix so that it can be re-imported by Cellar if needed.
 
     Parameters
     ----------
     prefix_path:
-        The bottle directory to back up.
+        The prefix directory to back up.
     dest_path:
         Destination ``.tar.gz`` file path.  Parent directories are
         created automatically.
     progress_cb:
         Optional ``(fraction)`` callback in [0, 1].
+    stats_cb:
+        Optional ``(bytes_done, bytes_total, speed_bps)`` callback.
     phase_cb:
         Optional ``(label)`` callback for phase name changes.
     cancel_event:
@@ -157,20 +160,31 @@ def backup_bottle(
     dest_path.parent.mkdir(parents=True, exist_ok=True)
 
     all_files = [p for p in prefix_path.rglob("*") if p.is_file()]
-    total = max(len(all_files), 1)
+    file_sizes = {fp: fp.stat().st_size for fp in all_files}
+    total_bytes = max(sum(file_sizes.values()), 1)
+    bytes_done = 0
+    t_start = time.monotonic()
+    t_last_stats = t_start
 
     try:
         with tarfile.open(dest_path, "w:gz") as tf:
-            for i, fp in enumerate(all_files):
+            for fp in all_files:
                 if _cancelled():
                     raise UpdateCancelled
+                if phase_cb and bytes_done == 0:
+                    phase_cb("Backing up\u2026")
                 arcname = Path(prefix_path.name) / fp.relative_to(prefix_path)
                 tf.add(fp, arcname=str(arcname))
-                if i % 20 == 0:
-                    if phase_cb and i == 0:
-                        phase_cb("Backing up\u2026")
+                bytes_done += file_sizes[fp]
+                now = time.monotonic()
+                elapsed = now - t_start
+                if now - t_last_stats >= 0.1:
+                    t_last_stats = now
+                    speed = bytes_done / elapsed if elapsed > 0 else 0.0
                     if progress_cb:
-                        progress_cb(i / total)
+                        progress_cb(bytes_done / total_bytes)
+                    if stats_cb:
+                        stats_cb(bytes_done, total_bytes, speed)
     except UpdateCancelled:
         dest_path.unlink(missing_ok=True)
         raise
@@ -180,6 +194,9 @@ def backup_bottle(
 
     if progress_cb:
         progress_cb(1.0)
+    if stats_cb:
+        elapsed = time.monotonic() - t_start
+        stats_cb(total_bytes, total_bytes, total_bytes / elapsed if elapsed > 0 else 0.0)
 
 
 def update_app_safe(
@@ -263,6 +280,7 @@ def update_app_safe(
             prefix_path,
             backup_path,
             progress_cb=_sub(0.0, 0.20),
+            stats_cb=stats_cb,
             phase_cb=phase_cb,
             cancel_event=cancel_event,
         )

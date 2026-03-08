@@ -196,7 +196,7 @@ class UpdateDialog(Adw.Dialog):
             GLib.source_remove(self._pulse_id)
             self._pulse_id = None
         self._phase_label.set_text(label)
-        if "Updating" in label or "Backing up" in label or "Preparing" in label:
+        if "Updating" in label or "Preparing" in label:
             self._progress_bar.set_fraction(0.0)
             self._progress_bar.set_show_text(False)
             self._pulse_id = GLib.timeout_add(80, self._do_pulse)

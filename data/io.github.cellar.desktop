@@ -6,4 +6,4 @@ Icon=io.github.cellar
 Terminal=false
 Type=Application
 Categories=GNOME;GTK;Utility;
-StartupWMClass=cellar
+StartupWMClass=io.github.cellar

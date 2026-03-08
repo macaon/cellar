@@ -203,6 +203,7 @@ def _ensure_desktop_entry() -> None:
             "Terminal=false\n"
             "Type=Application\n"
             "Categories=GNOME;GTK;Utility;\n"
+            "StartupWMClass=io.github.cellar\n"
         )
     except Exception:
         pass  # never block app launch over a desktop-integration hiccup

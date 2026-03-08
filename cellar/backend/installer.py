@@ -372,6 +372,8 @@ def install_app(
     *,
     base_entry=None,                # BaseEntry if entry.base_image is set
     base_archive_uri: str = "",     # resolved URI for the base archive
+    runner_entry=None,              # RunnerEntry if base_entry is set
+    runner_archive_uri: str = "",   # resolved URI for the runner archive
     download_cb: Callable[[float], None] | None = None,
     download_stats_cb: Callable[[int, int, float], None] | None = None,
     install_cb: Callable[[float], None] | None = None,
@@ -416,7 +418,24 @@ def install_app(
     from cellar.backend.config import install_data_dir  # noqa: PLC0415
     bottle_dest = prefixes_dir() / entry.id
 
-    # ── Step 0 (delta only): Ensure base image is installed ────────────
+    # ── Step 0a: Ensure runner is installed ────────────────────────────
+    if base_entry and base_entry.runner:
+        _ensure_runner_installed(
+            base_entry.runner,
+            runner_entry=runner_entry,
+            runner_archive_uri=runner_archive_uri,
+            phase_cb=phase_cb,
+            download_cb=download_cb,
+            download_stats_cb=download_stats_cb,
+            install_cb=install_cb,
+            cancel_event=cancel_event,
+            token=token,
+            ssl_verify=ssl_verify,
+            ca_cert=ca_cert,
+            ssh_identity=ssh_identity,
+        )
+
+    # ── Step 0b (delta only): Ensure base image is installed ───────────
     if entry.base_image:
         _ensure_base_installed(
             entry.base_image,
@@ -835,6 +854,76 @@ def _ensure_base_installed(
         raise
 
     database.mark_base_installed(runner, base_archive_uri)
+
+    if download_cb:
+        download_cb(1.0)
+    if install_cb:
+        install_cb(1.0)
+
+
+def _ensure_runner_installed(
+    runner_name: str,
+    *,
+    runner_entry,
+    runner_archive_uri: str,
+    phase_cb: Callable[[str], None] | None,
+    download_cb: Callable[[float], None] | None,
+    download_stats_cb: Callable[[int, int, float], None] | None,
+    install_cb: Callable[[float], None] | None,
+    cancel_event: threading.Event | None,
+    token: str | None,
+    ssl_verify: bool,
+    ca_cert: str | None,
+    ssh_identity: str | None = None,
+) -> None:
+    """Download and install the runner (GE-Proton) if not already present.
+
+    Streams directly into ``runners_dir()/runner_name/``.
+    """
+    from cellar.backend.umu import resolve_runner_path, runners_dir  # noqa: PLC0415
+
+    if resolve_runner_path(runner_name):
+        return  # already installed
+
+    if not runner_archive_uri:
+        raise InstallError(
+            f"Runner {runner_name!r} is not installed and no download URI provided."
+        )
+
+    _check_cancel(cancel_event)
+    if phase_cb:
+        phase_cb(f"Downloading & extracting runner ({runner_name})\u2026")
+    if download_cb:
+        download_cb(0.0)
+
+    expected_size = runner_entry.archive_size if runner_entry else 0
+    expected_crc32 = (runner_entry.archive_crc32 if runner_entry else "") or ""
+
+    dest = runners_dir() / runner_name
+    dest.mkdir(parents=True, exist_ok=True)
+    try:
+        chunks, total = _build_source(
+            runner_archive_uri,
+            expected_size=expected_size,
+            token=token,
+            ssl_verify=ssl_verify,
+            ca_cert=ca_cert,
+            ssh_identity=ssh_identity,
+        )
+        _stream_and_extract(
+            chunks, total,
+            is_zst=runner_archive_uri.endswith(".tar.zst"),
+            dest=dest,
+            expected_crc32=expected_crc32,
+            cancel_event=cancel_event,
+            progress_cb=download_cb,
+            stats_cb=download_stats_cb,
+            name_cb=None,
+            strip_top_dir=True,
+        )
+    except Exception:
+        shutil.rmtree(dest, ignore_errors=True)
+        raise
 
     if download_cb:
         download_cb(1.0)

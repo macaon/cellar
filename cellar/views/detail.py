@@ -248,8 +248,14 @@ class DetailView(Gtk.Box):
         archive_uri = self._resolve(self._entry.archive) if self._entry.archive else ""
 
         # Resolve base archive for delta installs.
-        runner = self._get_base_image()
-        base_entry, base_archive_uri = self._find_base_entry(runner) if runner else (None, "")
+        base_image = self._get_base_image()
+        base_entry, base_archive_uri = self._find_base_entry(base_image) if base_image else (None, "")
+
+        # Resolve runner archive (runner binary required by umu-launcher).
+        runner_name = base_entry.runner if base_entry else ""
+        runner_entry, runner_archive_uri = (
+            self._find_runner_entry(runner_name) if runner_name else (None, "")
+        )
 
         dialog = InstallProgressDialog(
             entry=self._entry,
@@ -259,6 +265,8 @@ class DetailView(Gtk.Box):
             ssh_identity=self._ssh_identity,
             base_entry=base_entry,
             base_archive_uri=base_archive_uri,
+            runner_entry=runner_entry,
+            runner_archive_uri=runner_archive_uri,
         )
         dialog.present(self.get_root())
 
@@ -1417,6 +1425,8 @@ class InstallProgressDialog(Adw.Dialog):
         ssh_identity: str | None = None,
         base_entry=None,            # BaseEntry | None — for delta installs
         base_archive_uri: str = "", # resolved URI for the base archive
+        runner_entry=None,            # RunnerEntry | None
+        runner_archive_uri: str = "", # resolved URI for the runner archive
     ) -> None:
         super().__init__(title=f"Install {entry.name}", content_width=360)
         self._entry = entry
@@ -1427,6 +1437,8 @@ class InstallProgressDialog(Adw.Dialog):
         self._cancel_event = threading.Event()
         self._base_entry = base_entry
         self._base_archive_uri = base_archive_uri
+        self._runner_entry = runner_entry
+        self._runner_archive_uri = runner_archive_uri
 
         self._build_ui()
         self.connect("closed", lambda _d: self._cancel_event.set())
@@ -1486,6 +1498,8 @@ class InstallProgressDialog(Adw.Dialog):
                     self._archive_uri,
                     base_entry=self._base_entry,
                     base_archive_uri=self._base_archive_uri,
+                    runner_entry=self._runner_entry,
+                    runner_archive_uri=self._runner_archive_uri,
                     download_cb=_dl_progress,
                     download_stats_cb=_dl_stats,
                     install_cb=_inst_progress,

@@ -1261,7 +1261,8 @@ class PackageBuilderView(Gtk.Box):
         if project.screenshot_paths:
             images["screenshots"] = list(project.screenshot_paths)
 
-        progress = ProgressDialog(label="Compressing…")
+        cancel_event = threading.Event()
+        progress = ProgressDialog(label="Compressing\u2026", cancel_event=cancel_event)
         progress.present(self)
 
         from cellar.utils.progress import fmt_size, trunc_middle as _trunc
@@ -1276,8 +1277,6 @@ class PackageBuilderView(Gtk.Box):
             text = (_trunc(name, 28) + " \u2022 " if name else "") + fmt_size(n) + " written"
             GLib.idle_add(progress.set_stats, text)
 
-        cancel_event = threading.Event()
-
         def _reset_phase(label: str) -> None:
             _current_file[0] = ""
             GLib.idle_add(progress.set_label, label)
@@ -1287,12 +1286,13 @@ class PackageBuilderView(Gtk.Box):
         def _work():
             from cellar.backend.packager import (
                 compress_prefix_zst, compress_prefix_delta_zst, import_to_repo,
+                CancelledError,
             )
 
             # Download any Steam screenshots the user selected in metadata
             nonlocal entry, images
             if project.selected_steam_urls:
-                GLib.idle_add(progress.set_label, "Downloading screenshots…")
+                GLib.idle_add(progress.set_label, "Downloading screenshots\u2026")
                 from cellar.utils.http import make_session as _make_session
                 from dataclasses import replace as _dc_replace
                 _session = _make_session()
@@ -1336,35 +1336,10 @@ class PackageBuilderView(Gtk.Box):
             archive_dest = repo_root / entry.archive
             archive_dest.parent.mkdir(parents=True, exist_ok=True)
 
-            if project.project_type == "linux":
-                size, crc32 = compress_prefix_zst(
-                    _src_path,
-                    archive_dest,
-                    cancel_event=cancel_event,
-                    progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                    file_cb=_file_cb,
-                    bytes_cb=_bytes_cb,
-                )
-                base_image = ""
-            else:
-                from cellar.backend.base_store import is_base_installed, base_path
-                _use_delta = is_base_installed(project.runner)
-                if _use_delta:
-                    _reset_phase("Scanning files…")
-                    size, crc32 = compress_prefix_delta_zst(
-                        _src_path,
-                        base_path(project.runner),
-                        archive_dest,
-                        cancel_event=cancel_event,
-                        phase_cb=_reset_phase,
-                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                        file_cb=_file_cb,
-                        bytes_cb=_bytes_cb,
-                    )
-                    base_image = project.runner
-                else:
+            try:
+                if project.project_type == "linux":
                     size, crc32 = compress_prefix_zst(
-                        project.prefix_path,
+                        _src_path,
                         archive_dest,
                         cancel_event=cancel_event,
                         progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
@@ -1372,8 +1347,41 @@ class PackageBuilderView(Gtk.Box):
                         bytes_cb=_bytes_cb,
                     )
                     base_image = ""
+                else:
+                    from cellar.backend.base_store import is_base_installed, base_path
+                    _use_delta = is_base_installed(project.runner)
+                    if _use_delta:
+                        _reset_phase("Scanning files\u2026")
+                        size, crc32 = compress_prefix_delta_zst(
+                            _src_path,
+                            base_path(project.runner),
+                            archive_dest,
+                            cancel_event=cancel_event,
+                            phase_cb=_reset_phase,
+                            progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+                            file_cb=_file_cb,
+                            bytes_cb=_bytes_cb,
+                        )
+                        base_image = project.runner
+                    else:
+                        size, crc32 = compress_prefix_zst(
+                            project.prefix_path,
+                            archive_dest,
+                            cancel_event=cancel_event,
+                            progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+                            file_cb=_file_cb,
+                            bytes_cb=_bytes_cb,
+                        )
+                        base_image = ""
+            except CancelledError:
+                # Clean up the partial archive from the repo.
+                try:
+                    archive_dest.unlink(missing_ok=True)
+                except Exception:
+                    pass
+                raise
 
-            GLib.idle_add(progress.set_label, "Finalizing…")
+            GLib.idle_add(progress.set_label, "Finalizing\u2026")
             GLib.idle_add(progress.set_stats, "")
             GLib.idle_add(progress.start_pulse)
             final_entry = _dc_replace(
@@ -1403,6 +1411,9 @@ class PackageBuilderView(Gtk.Box):
 
         def _error(msg: str) -> None:
             progress.force_close()
+            if cancel_event.is_set():
+                self._show_toast("Publish cancelled.")
+                return
             err = Adw.AlertDialog(heading="Publish failed", body=msg)
             err.add_response("ok", "OK")
             err.present(self)
@@ -1447,7 +1458,8 @@ class PackageBuilderView(Gtk.Box):
             )
             return
 
-        progress = ProgressDialog(label="Compressing…")
+        cancel_event = threading.Event()
+        progress = ProgressDialog(label="Compressing\u2026", cancel_event=cancel_event)
         progress.present(self)
 
         from cellar.utils.progress import fmt_size, trunc_middle as _trunc
@@ -1462,8 +1474,6 @@ class PackageBuilderView(Gtk.Box):
             text = (_trunc(name, 28) + " \u2022 " if name else "") + fmt_size(n) + " written"
             GLib.idle_add(progress.set_stats, text)
 
-        cancel_event = threading.Event()
-
         def _reset_phase(label: str) -> None:
             _current_file[0] = ""
             GLib.idle_add(progress.set_label, label)
@@ -1473,49 +1483,57 @@ class PackageBuilderView(Gtk.Box):
         def _work():
             from cellar.backend.packager import (
                 compress_prefix_zst, compress_prefix_delta_zst, update_in_repo,
+                CancelledError,
             )
             repo_root = repo.writable_path()
             archive_dest = repo_root / old_entry.archive
             archive_dest.parent.mkdir(parents=True, exist_ok=True)
 
-            if project.project_type == "linux":
-                size, crc32 = compress_prefix_zst(
-                    _src_path,
-                    archive_dest,
-                    cancel_event=cancel_event,
-                    progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                    file_cb=_file_cb,
-                    bytes_cb=_bytes_cb,
-                )
-                base_image = ""
-            else:
-                from cellar.backend.base_store import is_base_installed, base_path
-                _use_delta = is_base_installed(project.runner)
-                if _use_delta:
-                    _reset_phase("Scanning files…")
-                    size, crc32 = compress_prefix_delta_zst(
-                        project.prefix_path,
-                        base_path(project.runner),
-                        archive_dest,
-                        cancel_event=cancel_event,
-                        phase_cb=_reset_phase,
-                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                        file_cb=_file_cb,
-                        bytes_cb=_bytes_cb,
-                    )
-                    base_image = project.runner
-                else:
+            try:
+                if project.project_type == "linux":
                     size, crc32 = compress_prefix_zst(
-                        project.prefix_path,
+                        _src_path,
                         archive_dest,
                         cancel_event=cancel_event,
                         progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
                         file_cb=_file_cb,
                         bytes_cb=_bytes_cb,
                     )
-                    base_image = old_entry.base_image  # preserve existing delta setting
+                    base_image = ""
+                else:
+                    from cellar.backend.base_store import is_base_installed, base_path
+                    _use_delta = is_base_installed(project.runner)
+                    if _use_delta:
+                        _reset_phase("Scanning files\u2026")
+                        size, crc32 = compress_prefix_delta_zst(
+                            project.prefix_path,
+                            base_path(project.runner),
+                            archive_dest,
+                            cancel_event=cancel_event,
+                            phase_cb=_reset_phase,
+                            progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+                            file_cb=_file_cb,
+                            bytes_cb=_bytes_cb,
+                        )
+                        base_image = project.runner
+                    else:
+                        size, crc32 = compress_prefix_zst(
+                            project.prefix_path,
+                            archive_dest,
+                            cancel_event=cancel_event,
+                            progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+                            file_cb=_file_cb,
+                            bytes_cb=_bytes_cb,
+                        )
+                        base_image = old_entry.base_image  # preserve existing delta setting
+            except CancelledError:
+                try:
+                    archive_dest.unlink(missing_ok=True)
+                except Exception:
+                    pass
+                raise
 
-            GLib.idle_add(progress.set_label, "Finalizing…")
+            GLib.idle_add(progress.set_label, "Finalizing\u2026")
             GLib.idle_add(progress.set_stats, "")
             GLib.idle_add(progress.start_pulse)
             new_entry = _dc_replace(
@@ -1545,6 +1563,9 @@ class PackageBuilderView(Gtk.Box):
 
         def _error(msg: str) -> None:
             progress.force_close()
+            if cancel_event.is_set():
+                self._show_toast("Publish cancelled.")
+                return
             err = Adw.AlertDialog(heading="Publish failed", body=msg)
             err.add_response("ok", "OK")
             err.present(self)
@@ -1563,7 +1584,8 @@ class PackageBuilderView(Gtk.Box):
             return
 
         repo = self._writable_repos[0]
-        progress = ProgressDialog(label="Compressing and uploading…")
+        cancel_event = threading.Event()
+        progress = ProgressDialog(label="Compressing and uploading\u2026", cancel_event=cancel_event)
         progress.present(self)
 
         from cellar.utils.progress import fmt_size, trunc_middle as _trunc
@@ -1583,46 +1605,59 @@ class PackageBuilderView(Gtk.Box):
         def _work():
             from cellar.backend.packager import (
                 compress_prefix_zst, compress_runner_zst,
-                upsert_runner, upsert_base,
+                upsert_runner, upsert_base, CancelledError,
             )
             from cellar.backend.base_store import install_base_from_dir
             from cellar.backend.umu import runners_dir
 
             runner = project.runner
             repo_root = repo.writable_path()
+            _partial_files = []  # track files to clean up on cancel
 
-            # ── Compress and upload the runner ────────────────────────────
-            runner_src = runners_dir() / runner
-            runner_archive_rel = f"runners/{runner}.tar.zst"
-            runner_archive_dest = repo_root / runner_archive_rel
-            runner_archive_dest.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                # ── Compress and upload the runner ────────────────────────
+                runner_src = runners_dir() / runner
+                runner_archive_rel = f"runners/{runner}.tar.zst"
+                runner_archive_dest = repo_root / runner_archive_rel
+                runner_archive_dest.parent.mkdir(parents=True, exist_ok=True)
 
-            GLib.idle_add(progress.set_label, "Compressing and uploading runner…")
-            GLib.idle_add(progress.set_fraction, 0.0)
-            runner_size, runner_crc32 = compress_runner_zst(
-                runner_src,
-                runner_archive_dest,
-                progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                file_cb=_file_cb,
-                bytes_cb=_bytes_cb,
-            )
+                GLib.idle_add(progress.set_label, "Compressing and uploading runner\u2026")
+                GLib.idle_add(progress.set_fraction, 0.0)
+                _partial_files.append(runner_archive_dest)
+                runner_size, runner_crc32 = compress_runner_zst(
+                    runner_src,
+                    runner_archive_dest,
+                    cancel_event=cancel_event,
+                    progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+                    file_cb=_file_cb,
+                    bytes_cb=_bytes_cb,
+                )
 
-            # ── Compress and upload the base image ────────────────────────
-            GLib.idle_add(progress.set_label, "Compressing and uploading base image…")
-            GLib.idle_add(progress.set_fraction, 0.0)
-            archive_dest_rel = f"bases/{base_name}-base.tar.zst"
-            archive_dest = repo_root / archive_dest_rel
-            archive_dest.parent.mkdir(parents=True, exist_ok=True)
+                # ── Compress and upload the base image ────────────────────
+                GLib.idle_add(progress.set_label, "Compressing and uploading base image\u2026")
+                GLib.idle_add(progress.set_fraction, 0.0)
+                archive_dest_rel = f"bases/{base_name}-base.tar.zst"
+                archive_dest = repo_root / archive_dest_rel
+                archive_dest.parent.mkdir(parents=True, exist_ok=True)
 
-            size, crc32 = compress_prefix_zst(
-                project.prefix_path,
-                archive_dest,
-                progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                file_cb=_file_cb,
-                bytes_cb=_bytes_cb,
-            )
+                _partial_files.append(archive_dest)
+                size, crc32 = compress_prefix_zst(
+                    project.prefix_path,
+                    archive_dest,
+                    cancel_event=cancel_event,
+                    progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+                    file_cb=_file_cb,
+                    bytes_cb=_bytes_cb,
+                )
+            except CancelledError:
+                for f in _partial_files:
+                    try:
+                        f.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+                raise
 
-            GLib.idle_add(progress.set_label, "Finalizing…")
+            GLib.idle_add(progress.set_label, "Finalizing\u2026")
             GLib.idle_add(progress.set_stats, "")
             GLib.idle_add(progress.start_pulse)
             upsert_runner(
@@ -1632,7 +1667,7 @@ class PackageBuilderView(Gtk.Box):
                 repo_root, base_name, runner, archive_dest_rel, crc32, size,
             )
 
-            GLib.idle_add(progress.set_label, "Installing base locally…")
+            GLib.idle_add(progress.set_label, "Installing base locally\u2026")
             GLib.idle_add(progress.set_fraction, 0.0)
             install_base_from_dir(
                 project.prefix_path,
@@ -1653,6 +1688,9 @@ class PackageBuilderView(Gtk.Box):
 
         def _error(msg: str) -> None:
             progress.force_close()
+            if cancel_event.is_set():
+                self._show_toast("Publish cancelled.")
+                return
             err = Adw.AlertDialog(heading="Failed", body=msg)
             err.add_response("ok", "OK")
             err.present(self)

@@ -12,11 +12,16 @@ from gi.repository import Adw, GLib, Gtk
 
 
 class ProgressDialog(Adw.Dialog):
-    """Simple blocking progress dialog for long-running operations."""
+    """Simple blocking progress dialog for long-running operations.
 
-    def __init__(self, label: str) -> None:
+    When *cancel_event* is provided, a Cancel button is shown that sets the
+    event when clicked, allowing the background thread to abort gracefully.
+    """
+
+    def __init__(self, label: str, cancel_event: "threading.Event | None" = None) -> None:
         super().__init__(content_width=340, content_height=120)
         self.set_can_close(False)
+        self._cancel_event = cancel_event
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         box.set_margin_top(24)
@@ -36,7 +41,21 @@ class ProgressDialog(Adw.Dialog):
 
         box.append(self._label)
         box.append(self._bar)
+
+        if cancel_event is not None:
+            self._cancel_btn = Gtk.Button(label="Cancel")
+            self._cancel_btn.set_halign(Gtk.Align.CENTER)
+            self._cancel_btn.add_css_class("pill")
+            self._cancel_btn.connect("clicked", self._on_cancel)
+            box.append(self._cancel_btn)
+
         self.set_child(box)
+
+    def _on_cancel(self, _btn) -> None:
+        if self._cancel_event is not None:
+            self._cancel_event.set()
+        self._cancel_btn.set_sensitive(False)
+        self._cancel_btn.set_label("Cancelling\u2026")
 
     def _pulse(self) -> bool:
         self._bar.pulse()

@@ -415,13 +415,12 @@ class CatalogueEntriesDialog(Adw.Dialog):
                     slug = f"{base_slug}-{i}"
                     i += 1
 
-                _ep = entry.entry_point or ""
                 project = Project(
                     name=entry.name,
                     slug=slug,
                     project_type="app" if entry.platform == "windows" else "linux",
                     runner=entry.base_image,
-                    entry_points=[{"name": "Main", "path": _ep}] if _ep else [],
+                    entry_points=[dict(t) for t in entry.launch_targets],
                     steam_appid=entry.steam_appid,
                     initialized=True,
                     origin_app_id=entry.id,

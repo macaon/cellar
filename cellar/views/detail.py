@@ -288,11 +288,43 @@ class DetailView(Gtk.Box):
             self._on_install_done(prefix_dir, install_path, runner, install_size)
 
     def _on_open_clicked(self) -> None:
+        targets = self._entry.launch_targets
+        if not targets:
+            return
+        if len(targets) == 1:
+            self._launch_target(targets[0])
+            return
+        # Multiple targets — let the user pick.
+        dialog = Adw.AlertDialog(
+            heading="Select Launch Target",
+            body="Choose which target to launch:",
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.set_response_appearance("cancel", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_close_response("cancel")
+        for i, t in enumerate(targets):
+            dialog.add_response(str(i), t.get("name", t.get("path", "")))
+        dialog.connect("response", self._on_launch_target_chosen)
+        dialog.present(self.get_root())
+
+    def _on_launch_target_chosen(self, _dialog, response: str) -> None:
+        if response == "cancel":
+            return
+        try:
+            idx = int(response)
+        except ValueError:
+            return
+        targets = self._entry.launch_targets
+        if 0 <= idx < len(targets):
+            self._launch_target(targets[idx])
+
+    def _launch_target(self, target: dict) -> None:
+        entry_path = target.get("path", "")
+        entry_args = target.get("args", "")
         if self._entry.platform == "linux":
-            self._launch_linux_app()
+            self._launch_linux_target(entry_path, entry_args)
             return
         from cellar.backend.umu import launch_app
-        # Resolve runner from catalogue: app.base_image → bases[base_image].runner
         runner_name = self._resolved_runner
         if not runner_name:
             base_entry, _ = self._find_base_entry(self._entry.base_image)
@@ -300,23 +332,23 @@ class DetailView(Gtk.Box):
                 runner_name = base_entry.runner
         launch_app(
             app_id=self._entry.id,
-            entry_point=self._entry.entry_point or "",
+            entry_point=entry_path,
             runner_name=runner_name,
             steam_appid=self._entry.steam_appid,
-            launch_args=self._entry.launch_args,
+            launch_args=entry_args,
         )
 
-    def _launch_linux_app(self) -> None:
-        """Launch a native Linux app by executing its entry_point directly."""
+    def _launch_linux_target(self, entry_path: str, entry_args: str) -> None:
+        """Launch a native Linux app target."""
         import subprocess as _sp
-        if not self._entry.entry_point:
+        if not entry_path:
             return
         from cellar.backend.umu import native_dir, is_cellar_sandboxed
-        exe = native_dir() / self._entry.id / self._entry.entry_point
         import shlex as _shlex
+        exe = native_dir() / self._entry.id / entry_path
         cmd = [str(exe)]
-        if self._entry.launch_args:
-            cmd += _shlex.split(self._entry.launch_args)
+        if entry_args:
+            cmd += _shlex.split(entry_args)
         if is_cellar_sandboxed():
             cmd = ["flatpak-spawn", "--host"] + cmd
         _sp.Popen(cmd, cwd=str(exe.parent), start_new_session=True)

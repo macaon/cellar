@@ -725,6 +725,14 @@ class EditAppDialog(Adw.Dialog):
         else:
             btn.set_icon_name("eye-open-negative-filled-symbolic")
 
+    def _build_launch_targets(self, entry_point: str, launch_args: str) -> tuple[dict, ...]:
+        """Build launch_targets tuple, preserving secondary targets from the old entry."""
+        old = list(self._old_entry.launch_targets)
+        primary = {"name": old[0].get("name", "Main") if old else "Main", "path": entry_point}
+        if launch_args:
+            primary["args"] = launch_args
+        return tuple([primary] + old[1:])
+
     # ── Entry point browser ───────────────────────────────────────────────
 
     def _on_browse_entry_point(self, _btn) -> None:
@@ -926,8 +934,7 @@ class EditAppDialog(Adw.Dialog):
             archive_crc32=e.archive_crc32,
             install_size_estimate=e.install_size_estimate,
             update_strategy=strategy,
-            entry_point=entry_point,
-            launch_args=launch_args,
+            launch_targets=self._build_launch_targets(entry_point, launch_args),
             compatibility_notes=e.compatibility_notes,
             changelog=e.changelog,
             lock_runner=e.lock_runner,

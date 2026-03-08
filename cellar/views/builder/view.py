@@ -1280,8 +1280,7 @@ class PackageBuilderView(Gtk.Box):
                 for i, p in enumerate(project.screenshot_paths)
             ),
             archive=f"apps/{_slug}/{_slug}.tar.zst",
-            entry_point=project.entry_point,
-            launch_args=project.entry_args,
+            launch_targets=tuple(project.entry_points),
             update_strategy="safe",
             platform="linux" if project.project_type == "linux" else "windows",
         )
@@ -1574,6 +1573,7 @@ class PackageBuilderView(Gtk.Box):
                 archive_crc32=crc32,
                 archive_size=size,
                 base_image=base_image,
+                launch_targets=tuple(project.entry_points),
             )
             update_in_repo(
                 repo_root,

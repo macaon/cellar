@@ -143,14 +143,26 @@ class AppEntry:
     # For Linux apps, entry_point is the executable
     # path relative to the installed app directory (e.g. "bin/mygame").
     platform: str = "windows"
-    # Path to the main executable.  For Windows: relative to drive_c
-    # (e.g. "Program Files/App/app.exe").  For Linux: relative to the
-    # installed app directory (e.g. "bin/mygame" or "MyGame.x86_64").
-    entry_point: str = ""
-    launch_args: str = ""
+    # Launch targets — each dict has {"name": str, "path": str, "args": str}.
+    # For Windows: path is relative to drive_c (e.g. "Program Files/App/app.exe").
+    # For Linux: path is relative to the installed app directory.
+    # The first target is the primary/default launch target.
+    launch_targets: tuple[dict, ...] = ()
     compatibility_notes: str = ""
     changelog: str = ""
     lock_runner: bool = False
+
+    # ------------------------------------------------------------------
+    # Convenience accessors (primary = first target)
+    # ------------------------------------------------------------------
+
+    @property
+    def entry_point(self) -> str:
+        return self.launch_targets[0]["path"] if self.launch_targets else ""
+
+    @property
+    def launch_args(self) -> str:
+        return self.launch_targets[0].get("args", "") if self.launch_targets else ""
 
     # ------------------------------------------------------------------
     # Serialisation
@@ -191,8 +203,7 @@ class AppEntry:
             base_image=data.get("base_image", ""),
             steam_appid=data.get("steam_appid"),
             platform=data.get("platform", "windows"),
-            entry_point=data.get("entry_point", ""),
-            launch_args=data.get("launch_args", ""),
+            launch_targets=tuple(data.get("launch_targets", [])),
             compatibility_notes=data.get("compatibility_notes", ""),
             changelog=data.get("changelog", ""),
             lock_runner=bool(data.get("lock_runner", False)),
@@ -241,8 +252,8 @@ class AppEntry:
         if self.steam_appid is not None:
             d["steam_appid"] = self.steam_appid
         d["platform"] = self.platform
-        _opt_str(d, "entry_point", self.entry_point)
-        _opt_str(d, "launch_args", self.launch_args)
+        if self.launch_targets:
+            d["launch_targets"] = [dict(t) for t in self.launch_targets]
         _opt_str(d, "compatibility_notes", self.compatibility_notes)
         _opt_str(d, "changelog", self.changelog)
         if self.lock_runner:

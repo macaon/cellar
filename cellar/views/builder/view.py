@@ -1679,7 +1679,7 @@ class _ProjectRow(Gtk.ListBoxRow):
         box.set_margin_top(8)
         box.set_margin_bottom(8)
         box.set_margin_start(12)
-        box.set_margin_end(12)
+        box.set_margin_end(8)
 
         top = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
 

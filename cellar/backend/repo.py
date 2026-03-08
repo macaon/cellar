@@ -653,11 +653,16 @@ class Repo:
 
         For SMB repos returns a :class:`~cellar.utils.smb.SmbPath` — a
         path-like object that delegates all I/O to ``smbclient`` without
-        creating a GVFS/FUSE mount point.  ``packager.py`` can use the same
-        path arithmetic (``/``, ``.mkdir()``, ``.open()``, etc.) on either
-        object type.
+        creating a GVFS/FUSE mount point.
 
-        Raises :exc:`RepoError` for HTTP/SSH repos.
+        For SSH repos returns a :class:`~cellar.utils.ssh.SshPath` — a
+        path-like object that delegates all I/O to the system ``ssh``
+        client.
+
+        ``packager.py`` can use the same path arithmetic (``/``,
+        ``.mkdir()``, ``.open()``, etc.) on any of these object types.
+
+        Raises :exc:`RepoError` for HTTP repos (read-only).
         """
         if isinstance(self._fetcher, _LocalFetcher):
             return self._fetcher._root / rel_path.lstrip("/")
@@ -665,6 +670,19 @@ class Repo:
         if isinstance(self._fetcher, _SmbFetcher):
             from cellar.utils.smb import SmbPath
             base = SmbPath(self._fetcher._base_unc)
+            if rel_path:
+                return base / rel_path.lstrip("/")
+            return base
+
+        if isinstance(self._fetcher, _SshFetcher):
+            from cellar.utils.ssh import SshPath
+            base = SshPath(
+                self._fetcher._host,
+                self._fetcher._root,
+                user=self._fetcher._user,
+                port=self._fetcher._port,
+                identity=self._fetcher._identity,
+            )
             if rel_path:
                 return base / rel_path.lstrip("/")
             return base

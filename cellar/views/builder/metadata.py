@@ -13,6 +13,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk
 
 from cellar.backend.project import Project, save_project
+from cellar.views.browse import _FixedBox
 
 log = logging.getLogger(__name__)
 
@@ -222,11 +223,11 @@ class AppMetadataDialog(Adw.Dialog):
         img_list.add_css_class("boxed-list")
         img_list.set_selection_mode(Gtk.SelectionMode.NONE)
 
-        self._icon_row, self._icon_clear_btn, self._icon_thumb = self._make_image_row(
-            "Icon", self._on_pick_icon
+        self._icon_row, self._icon_clear_btn, self._icon_thumb, self._icon_thumb_wrap = self._make_image_row(
+            "Icon", self._on_pick_icon, thumb_w=52, thumb_h=52
         )
-        self._cover_row, self._cover_clear_btn, self._cover_thumb = self._make_image_row(
-            "Cover", self._on_pick_cover
+        self._cover_row, self._cover_clear_btn, self._cover_thumb, self._cover_thumb_wrap = self._make_image_row(
+            "Cover", self._on_pick_cover, thumb_w=52, thumb_h=70
         )
 
         self._hide_title_btn = Gtk.ToggleButton()
@@ -236,8 +237,8 @@ class AppMetadataDialog(Adw.Dialog):
         self._hide_title_btn.set_tooltip_text("Hide title \u2014 logo contains the app name")
         self._hide_title_btn.set_active(bool(p and p.hide_title))
         self._hide_title_btn.connect("toggled", self._on_hide_title_toggled)
-        self._logo_row, self._logo_clear_btn, self._logo_thumb = self._make_image_row(
-            "Logo", self._on_pick_logo, extra_suffix=self._hide_title_btn
+        self._logo_row, self._logo_clear_btn, self._logo_thumb, self._logo_thumb_wrap = self._make_image_row(
+            "Logo", self._on_pick_logo, extra_suffix=self._hide_title_btn, thumb_w=130, thumb_h=52
         )
 
         self._icon_clear_btn.connect("clicked", self._on_icon_clear)
@@ -249,14 +250,17 @@ class AppMetadataDialog(Adw.Dialog):
             self._icon_row.set_subtitle(GLib.markup_escape_text(Path(p.icon_path).name))
             self._icon_clear_btn.set_visible(True)
             self._icon_thumb.set_filename(p.icon_path)
+            self._icon_thumb_wrap.set_visible(True)
         if p and p.cover_path:
             self._cover_row.set_subtitle(GLib.markup_escape_text(Path(p.cover_path).name))
             self._cover_clear_btn.set_visible(True)
             self._cover_thumb.set_filename(p.cover_path)
+            self._cover_thumb_wrap.set_visible(True)
         if p and p.logo_path:
             self._logo_row.set_subtitle(GLib.markup_escape_text(Path(p.logo_path).name))
             self._logo_clear_btn.set_visible(True)
             self._logo_thumb.set_filename(p.logo_path)
+            self._logo_thumb_wrap.set_visible(True)
             self._hide_title_btn.set_visible(True)
         if p and p.hide_title:
             self._hide_title_btn.set_icon_name("eye-not-looking-symbolic")
@@ -304,16 +308,21 @@ class AppMetadataDialog(Adw.Dialog):
         self.set_child(toolbar)
 
     def _make_image_row(
-        self, label: str, handler, extra_suffix=None
-    ) -> tuple[Adw.ActionRow, Gtk.Button, Gtk.Picture]:
+        self, label: str, handler, extra_suffix=None, thumb_w: int = 64, thumb_h: int = 64
+    ) -> tuple[Adw.ActionRow, Gtk.Button, Gtk.Picture, _FixedBox]:
         row = Adw.ActionRow(title=label)
         row.set_subtitle("Not set")
 
         thumb = Gtk.Picture()
-        thumb.set_size_request(64, 64)
         thumb.set_content_fit(Gtk.ContentFit.CONTAIN)
         thumb.add_css_class("image-row-thumb")
-        row.add_prefix(thumb)
+
+        thumb_wrap = _FixedBox(thumb_w, thumb_h)
+        thumb_wrap.set_halign(Gtk.Align.CENTER)
+        thumb_wrap.set_valign(Gtk.Align.CENTER)
+        thumb_wrap.set_visible(False)
+        thumb_wrap.set_child(thumb)
+        row.add_prefix(thumb_wrap)
 
         clear_btn = Gtk.Button(icon_name="user-trash-symbolic", tooltip_text="Remove image")
         clear_btn.add_css_class("flat")
@@ -330,7 +339,7 @@ class AppMetadataDialog(Adw.Dialog):
         change_btn.connect("clicked", handler)
         row.add_suffix(change_btn)
 
-        return row, clear_btn, thumb
+        return row, clear_btn, thumb, thumb_wrap
 
     # ── Helpers ───────────────────────────────────────────────────────────
 
@@ -460,6 +469,7 @@ class AppMetadataDialog(Adw.Dialog):
         self._icon_row.set_subtitle("Not set")
         self._icon_clear_btn.set_visible(False)
         self._icon_thumb.set_paintable(None)
+        self._icon_thumb_wrap.set_visible(False)
         if self._project:
             self._project.icon_path = ""
             save_project(self._project)
@@ -470,6 +480,7 @@ class AppMetadataDialog(Adw.Dialog):
         self._cover_row.set_subtitle("Not set")
         self._cover_clear_btn.set_visible(False)
         self._cover_thumb.set_paintable(None)
+        self._cover_thumb_wrap.set_visible(False)
         if self._project:
             self._project.cover_path = ""
             save_project(self._project)
@@ -480,6 +491,7 @@ class AppMetadataDialog(Adw.Dialog):
         self._logo_row.set_subtitle("Not set")
         self._logo_clear_btn.set_visible(False)
         self._logo_thumb.set_paintable(None)
+        self._logo_thumb_wrap.set_visible(False)
         self._hide_title_btn.set_visible(False)
         if self._project:
             self._project.logo_path = ""
@@ -493,6 +505,7 @@ class AppMetadataDialog(Adw.Dialog):
             self._icon_row.set_subtitle(GLib.markup_escape_text(Path(path).name))
             self._icon_clear_btn.set_visible(True)
             self._icon_thumb.set_filename(path)
+            self._icon_thumb_wrap.set_visible(True)
             if self._project:
                 self._project.icon_path = path
                 save_project(self._project)
@@ -508,6 +521,7 @@ class AppMetadataDialog(Adw.Dialog):
             self._cover_row.set_subtitle(GLib.markup_escape_text(Path(path).name))
             self._cover_clear_btn.set_visible(True)
             self._cover_thumb.set_filename(path)
+            self._cover_thumb_wrap.set_visible(True)
             if self._project:
                 self._project.cover_path = path
                 save_project(self._project)
@@ -523,6 +537,7 @@ class AppMetadataDialog(Adw.Dialog):
             self._logo_row.set_subtitle(GLib.markup_escape_text(Path(path).name))
             self._logo_clear_btn.set_visible(True)
             self._logo_thumb.set_filename(path)
+            self._logo_thumb_wrap.set_visible(True)
             self._hide_title_btn.set_visible(True)
             if not self._hide_title_btn.get_active():
                 self._hide_title_btn.set_active(True)

@@ -16,6 +16,7 @@ from gi.repository import Adw, GLib, Gtk
 
 from cellar.backend.project import Project, load_projects, save_project
 from cellar.utils.async_work import run_in_background
+from cellar.utils.progress import fmt_stats
 from cellar.views.builder.progress import ProgressDialog
 
 log = logging.getLogger(__name__)
@@ -254,7 +255,7 @@ class CatalogueEntriesDialog(Adw.Dialog):
                     expected_crc32=base_entry.archive_crc32,
                     cancel_event=None,
                     progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                    stats_cb=None,
+                    stats_cb=lambda d, t, s: GLib.idle_add(progress.set_stats, fmt_stats(d, t, s)),
                     name_cb=None,
                 )
 
@@ -343,7 +344,7 @@ class CatalogueEntriesDialog(Adw.Dialog):
                     expected_crc32=runner_item.archive_crc32,
                     cancel_event=None,
                     progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                    stats_cb=None,
+                    stats_cb=lambda d, t, s: GLib.idle_add(progress.set_stats, fmt_stats(d, t, s)),
                     name_cb=None,
                 )
 
@@ -400,7 +401,7 @@ class CatalogueEntriesDialog(Adw.Dialog):
                     expected_crc32=entry.archive_crc32,
                     cancel_event=None,
                     progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                    stats_cb=None,
+                    stats_cb=lambda d, t, s: GLib.idle_add(progress.set_stats, fmt_stats(d, t, s)),
                     name_cb=None,
                 )
 

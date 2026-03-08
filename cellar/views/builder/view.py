@@ -465,6 +465,11 @@ class PackageBuilderView(Gtk.Box):
                     subtitle=_ep_subtitle,
                 )
                 _ep_row.set_subtitle_selectable(True)
+                _rename_btn = Gtk.Button(icon_name="document-edit-symbolic")
+                _rename_btn.set_valign(Gtk.Align.CENTER)
+                _rename_btn.add_css_class("flat")
+                _rename_btn.connect("clicked", self._on_rename_entry_point_clicked, _ep)
+                _ep_row.add_suffix(_rename_btn)
                 _rm_btn = Gtk.Button(icon_name="edit-delete-symbolic")
                 _rm_btn.set_valign(Gtk.Align.CENTER)
                 _rm_btn.add_css_class("flat")
@@ -518,6 +523,11 @@ class PackageBuilderView(Gtk.Box):
                     subtitle=_ep_subtitle,
                 )
                 _ep_row.set_subtitle_selectable(True)
+                _rename_btn = Gtk.Button(icon_name="document-edit-symbolic")
+                _rename_btn.set_valign(Gtk.Align.CENTER)
+                _rename_btn.add_css_class("flat")
+                _rename_btn.connect("clicked", self._on_rename_entry_point_clicked, _ep)
+                _ep_row.add_suffix(_rename_btn)
                 _rm_btn = Gtk.Button(icon_name="edit-delete-symbolic")
                 _rm_btn.set_valign(Gtk.Align.CENTER)
                 _rm_btn.add_css_class("flat")
@@ -1146,6 +1156,30 @@ class PackageBuilderView(Gtk.Box):
         project.entry_points.append(ep)
         save_project(project)
         self._show_project(project)
+
+    def _on_rename_entry_point_clicked(self, _btn, ep: dict) -> None:
+        if self._project is None:
+            return
+        dialog = Adw.AlertDialog(heading="Rename Launch Target")
+        entry = Gtk.Entry(text=ep.get("name", ""))
+        entry.set_activates_default(True)
+        dialog.set_extra_child(entry)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("rename", "Rename")
+        dialog.set_response_appearance("rename", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("rename")
+        dialog.connect("response", self._on_rename_response, ep, entry)
+        dialog.present(self.get_root())
+
+    def _on_rename_response(self, _dialog, response: str, ep: dict, entry: Gtk.Entry) -> None:
+        if response != "rename" or self._project is None:
+            return
+        new_name = entry.get_text().strip()
+        if not new_name:
+            return
+        ep["name"] = new_name
+        save_project(self._project)
+        self._show_project(self._project)
 
     def _on_remove_entry_point_clicked(self, _btn, ep: dict) -> None:
         if self._project is None:

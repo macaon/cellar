@@ -198,7 +198,8 @@ def _ssh_chunks(
     _port = port or 22
     sftp = _get_sftp(host, _port, user, identity)
     try:
-        with sftp.open(remote_path, "rb") as f:
+        with sftp.open(remote_path, "rb", bufsize=_CHUNK) as f:
+            f.MAX_REQUEST_SIZE = _CHUNK  # 1 MB per request vs 32 KB default
             f.prefetch()
             while True:
                 chunk = f.read(_CHUNK)

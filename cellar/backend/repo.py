@@ -163,6 +163,7 @@ class _SshFetcher:
         try:
             with self._sftp() as sftp:
                 with sftp.open(remote, "rb") as f:
+                    f.MAX_REQUEST_SIZE = 1024 * 1024
                     f.prefetch()
                     return f.read()
         except FileNotFoundError:

@@ -131,12 +131,17 @@ class EditAppDialog(Adw.Dialog):
         self._version_entry = Adw.EntryRow(title="Version")
         identity_group.add(self._version_entry)
 
-        page.add(identity_group)
-
-        # ── Category ──────────────────────────────────────────────────────
         self._category_row = Adw.ComboRow(title="Category")
         self._category_row.set_model(Gtk.StringList.new(self._categories))
         identity_group.add(self._category_row)
+
+        self._steam_appid_entry = Adw.EntryRow(title="Steam App ID (optional)")
+        self._steam_appid_entry.set_tooltip_text(
+            "Used to set GAMEID for protonfixes. Leave empty to use GAMEID=0."
+        )
+        identity_group.add(self._steam_appid_entry)
+
+        page.add(identity_group)
 
         # ── Details ───────────────────────────────────────────────────────
         details_group = Adw.PreferencesGroup(title="Details")
@@ -215,17 +220,6 @@ class EditAppDialog(Adw.Dialog):
         attr_group.add(self._publisher_entry)
         attr_group.add(self._year_entry)
         page.add(attr_group)
-
-        # ── Wine Components ───────────────────────────────────────────────
-        self._wine_group = Adw.PreferencesGroup(title="Wine Components")
-
-        self._steam_appid_entry = Adw.EntryRow(title="Steam App ID (optional)")
-        self._steam_appid_entry.set_tooltip_text(
-            "Used to set GAMEID for protonfixes. Leave empty to use GAMEID=0."
-        )
-        self._wine_group.add(self._steam_appid_entry)
-
-        page.add(self._wine_group)
 
         # ── Images ────────────────────────────────────────────────────────
         images_group = Adw.PreferencesGroup(title="Images")
@@ -378,7 +372,7 @@ class EditAppDialog(Adw.Dialog):
             self._year_entry.set_text(str(e.release_year))
 
         if e.platform == "linux":
-            self._wine_group.set_visible(False)
+            self._steam_appid_entry.set_visible(False)
             self._entry_point_entry.set_title("Entry Point")
             self._entry_point_entry.set_tooltip_text(
                 "Executable path within the app directory, e.g. \u201cbin/mygame\u201d"

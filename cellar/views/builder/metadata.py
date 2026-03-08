@@ -22,8 +22,8 @@ class AppMetadataDialog(Adw.Dialog):
     """Unified dialog for creating or editing an App project's metadata.
 
     Pass ``project=None`` for create mode (shows Cancel + Create buttons).
-    Pass an existing ``project`` for edit mode (shows Done button, auto-saves).
-    In edit mode the title is locked once the prefix has been initialized.
+    Pass an existing ``project`` for edit mode (shows Cancel + Done buttons).
+    In edit mode changes are only persisted when Done is clicked.
     """
 
     def __init__(
@@ -72,7 +72,7 @@ class AppMetadataDialog(Adw.Dialog):
             header.pack_start(cancel_btn)
             done_btn = Gtk.Button(label="Done")
             done_btn.add_css_class("suggested-action")
-            done_btn.connect("clicked", lambda _: self.close())
+            done_btn.connect("clicked", self._on_done_clicked)
             header.pack_end(done_btn)
         else:
             cancel_btn = Gtk.Button(label="Cancel")
@@ -143,8 +143,6 @@ class AppMetadataDialog(Adw.Dialog):
 
         self._version_row = Adw.EntryRow(title="Version")
         self._version_row.set_text(p.version if p else "1.0")
-        if self._is_edit:
-            self._version_row.connect("changed", lambda r: self._save("version", r.get_text()))
         det_group.add(self._version_row)
 
         self._cats = list(_BASE_CATS)
@@ -153,49 +151,35 @@ class AppMetadataDialog(Adw.Dialog):
         cat_val = p.category if p else ""
         if cat_val in self._cats:
             self._cat_row.set_selected(self._cats.index(cat_val) + 1)
-        if self._is_edit:
-            self._cat_row.connect("notify::selected", self._on_cat_changed)
         det_group.add(self._cat_row)
 
         self._dev_row = Adw.EntryRow(title="Developer")
         self._dev_row.set_text(p.developer if p else "")
-        if self._is_edit:
-            self._dev_row.connect("changed", lambda r: self._save("developer", r.get_text()))
         det_group.add(self._dev_row)
 
         self._pub_row = Adw.EntryRow(title="Publisher")
         self._pub_row.set_text(p.publisher if p else "")
-        if self._is_edit:
-            self._pub_row.connect("changed", lambda r: self._save("publisher", r.get_text()))
         det_group.add(self._pub_row)
 
         self._year_row = Adw.EntryRow(title="Release Year")
         if p and p.release_year:
             self._year_row.set_text(str(p.release_year))
-        if self._is_edit:
-            self._year_row.connect("changed", self._on_year_changed)
         det_group.add(self._year_row)
 
         self._steam_row = Adw.EntryRow(title="Steam App ID")
         self._steam_row.set_tooltip_text("Used for protonfixes. Leave empty for GAMEID=0.")
         if p and p.steam_appid is not None:
             self._steam_row.set_text(str(p.steam_appid))
-        if self._is_edit:
-            self._steam_row.connect("changed", self._on_steam_changed)
         det_group.add(self._steam_row)
 
         self._website_row = Adw.EntryRow(title="Website")
         self._website_row.set_text(p.website if p else "")
-        if self._is_edit:
-            self._website_row.connect("changed", lambda r: self._save("website", r.get_text()))
         det_group.add(self._website_row)
 
         self._genres_row = Adw.EntryRow(title="Genres")
         self._genres_row.set_tooltip_text("Comma-separated list, e.g. Action, RPG")
         if p and p.genres:
             self._genres_row.set_text(", ".join(p.genres))
-        if self._is_edit:
-            self._genres_row.connect("changed", self._on_genres_changed)
         det_group.add(self._genres_row)
 
         page.append(det_group)
@@ -205,14 +189,10 @@ class AppMetadataDialog(Adw.Dialog):
 
         self._summary_row = Adw.EntryRow(title="Summary")
         self._summary_row.set_text(p.summary if p else "")
-        if self._is_edit:
-            self._summary_row.connect("changed", lambda r: self._save("summary", r.get_text()))
         desc_group.add(self._summary_row)
 
         self._desc_row = Adw.EntryRow(title="Description")
         self._desc_row.set_text(p.description if p else "")
-        if self._is_edit:
-            self._desc_row.connect("changed", lambda r: self._save("description", r.get_text()))
         desc_group.add(self._desc_row)
 
         page.append(desc_group)
@@ -374,11 +354,93 @@ class AppMetadataDialog(Adw.Dialog):
             shutil.copy2(src, dest)
         return str(dest)
 
+    def _collect_from_widgets(self) -> dict:
+        """Read current values from all widgets and return as a dict of project attrs."""
+        cat_idx = self._cat_row.get_selected()
+        year_txt = self._year_row.get_text().strip()
+        steam_txt = self._steam_row.get_text().strip()
+        genres_txt = self._genres_row.get_text().strip()
+
+        vals: dict = {
+            "version": self._version_row.get_text().strip() or "1.0",
+            "category": self._cats[cat_idx - 1] if cat_idx > 0 else "",
+            "developer": self._dev_row.get_text().strip(),
+            "publisher": self._pub_row.get_text().strip(),
+            "release_year": None,
+            "steam_appid": int(steam_txt) if steam_txt.isdigit() else None,
+            "website": self._website_row.get_text().strip(),
+            "genres": [g.strip() for g in genres_txt.split(",") if g.strip()] if genres_txt else [],
+            "summary": self._summary_row.get_text().strip(),
+            "description": self._desc_row.get_text().strip(),
+            "hide_title": self._hide_title_btn.get_active(),
+        }
+        try:
+            vals["release_year"] = int(year_txt) if year_txt else None
+        except ValueError:
+            pass
+
+        if isinstance(self._title_row, Adw.EntryRow):
+            vals["name"] = self._title_row.get_text().strip()
+
+        # Image paths — use tmp_ in create mode, direct path in edit mode
+        vals["icon_path"] = self._tmp_icon
+        vals["cover_path"] = self._tmp_cover
+        vals["logo_path"] = self._tmp_logo
+
+        return vals
+
+    def _on_done_clicked(self, _btn) -> None:
+        """Persist all widget values to the project and close."""
+        if not self._project:
+            self.close()
+            return
+
+        vals = self._collect_from_widgets()
+        for attr, value in vals.items():
+            if attr in ("icon_path", "cover_path", "logo_path"):
+                # Image paths handled below
+                continue
+            setattr(self._project, attr, value)
+
+        # Image paths — only update if user picked a new file (non-empty tmp_)
+        if self._tmp_icon:
+            self._project.icon_path = self._import_image_to_project(self._project, self._tmp_icon, "icon")
+        elif self._tmp_icon == "" and self._icon_row.get_subtitle() == "Not set":
+            self._project.icon_path = ""
+
+        if self._tmp_cover:
+            self._project.cover_path = self._import_image_to_project(self._project, self._tmp_cover, "cover")
+        elif self._tmp_cover == "" and self._cover_row.get_subtitle() == "Not set":
+            self._project.cover_path = ""
+
+        if self._tmp_logo:
+            self._project.logo_path = self._import_image_to_project(self._project, self._tmp_logo, "logo")
+        elif self._tmp_logo == "" and self._logo_row.get_subtitle() == "Not set":
+            self._project.logo_path = ""
+
+        # Screenshots
+        items = self._screenshot_grid.get_items()
+        self._project.screenshot_paths = [i.local_path for i in items if i.local_path]
+        all_steam = self._screenshot_grid.get_all_steam_items()
+        self._project.steam_screenshots = [
+            {"full": i.full_url, "thumbnail": i.thumb_url or ""}
+            for i in all_steam if i.full_url
+        ]
+        self._project.selected_steam_urls = [
+            i.full_url for i in items if i.is_steam and i.full_url
+        ]
+
+        save_project(self._project)
+        if self._on_changed:
+            self._on_changed()
+        self.close()
+
     def _on_cancel_clicked(self, _btn) -> None:
-        """Revert all changes made during this session and close."""
+        """Discard changes and close. The project on disk is unchanged."""
         if self._project and self._snapshot:
+            # Restore the in-memory project to its original state so the
+            # caller's reference reflects the on-disk version.
             restored = Project.from_dict(self._snapshot)
-            # Copy all metadata fields back from the snapshot
             for attr in (
                 "name", "version", "category", "developer", "publisher",
                 "release_year", "website", "genres", "summary", "description",
@@ -387,17 +449,7 @@ class AppMetadataDialog(Adw.Dialog):
                 "selected_steam_urls",
             ):
                 setattr(self._project, attr, getattr(restored, attr))
-            save_project(self._project)
-            if self._on_changed:
-                self._on_changed()
         self.close()
-
-    def _save(self, attr: str, value) -> None:
-        if self._project:
-            setattr(self._project, attr, value)
-            save_project(self._project)
-            if self._on_changed:
-                self._on_changed()
 
     def _pick_image(self, title: str, multi: bool, callback) -> None:
         chooser = Gtk.FileChooserNative(
@@ -422,39 +474,30 @@ class AppMetadataDialog(Adw.Dialog):
     # ── Signal handlers ───────────────────────────────────────────────────
 
     def _on_title_changed(self, row) -> None:
-        from cellar.backend.packager import slugify
-        title = row.get_text().strip()
-        if self._is_edit:
-            self._save("name", title)
-        else:
+        if not self._is_edit:
+            from cellar.backend.packager import slugify
+            title = row.get_text().strip()
             slug = slugify(title) if title else ""
             self._slug_row.set_subtitle(slug)
             self._create_btn.set_sensitive(bool(title))
 
-    def _on_cat_changed(self, row, _param) -> None:
-        if self._project:
-            idx = row.get_selected()
-            self._project.category = self._cats[idx - 1] if idx > 0 else ""
-            save_project(self._project)
-            if self._on_changed:
-                self._on_changed()
+    def _on_screenshots_changed(self) -> None:
+        """Called by the grid whenever the screenshot list changes.
 
-    def _on_year_changed(self, row) -> None:
-        txt = row.get_text().strip()
-        try:
-            val = int(txt) if txt else None
-        except ValueError:
-            return
-        self._save("release_year", val)
-
-    def _on_steam_changed(self, row) -> None:
-        txt = row.get_text().strip()
-        self._save("steam_appid", int(txt) if txt.isdigit() else None)
-
-    def _on_genres_changed(self, row) -> None:
-        txt = row.get_text().strip()
-        genres = [g.strip() for g in txt.split(",") if g.strip()] if txt else []
-        self._save("genres", genres)
+        In create mode, stash into tmp fields. In edit mode, no-op —
+        values are read from the grid on Done.
+        """
+        if not self._project:
+            items = self._screenshot_grid.get_items()
+            self._tmp_screenshots = [i.local_path for i in items if i.local_path]
+            all_steam = self._screenshot_grid.get_all_steam_items()
+            self._tmp_steam_screenshots = [
+                {"full": i.full_url, "thumbnail": i.thumb_url or ""}
+                for i in all_steam if i.full_url
+            ]
+            self._tmp_selected_steam_urls = [
+                i.full_url for i in items if i.is_steam and i.full_url
+            ]
 
     def _fetch_steam_screenshots(self, steam_appid: int) -> None:
         """Fetch Steam screenshots in the background and add to the grid."""
@@ -509,26 +552,6 @@ class AppMetadataDialog(Adw.Dialog):
         if result.get("screenshots"):
             self._screenshot_grid.add_steam(result["screenshots"])
 
-    def _on_screenshots_changed(self) -> None:
-        """Called by the grid whenever the screenshot list changes. Saves local + steam state."""
-        items = self._screenshot_grid.get_items()
-        local_paths = [i.local_path for i in items if i.local_path]
-        all_steam = self._screenshot_grid.get_all_steam_items()
-        steam_data = [
-            {"full": i.full_url, "thumbnail": i.thumb_url or ""}
-            for i in all_steam if i.full_url
-        ]
-        selected_urls = [i.full_url for i in items if i.is_steam and i.full_url]
-        if self._project:
-            self._project.screenshot_paths = local_paths
-            self._project.steam_screenshots = steam_data
-            self._project.selected_steam_urls = selected_urls
-            save_project(self._project)
-        else:
-            self._tmp_screenshots = local_paths
-            self._tmp_steam_screenshots = steam_data
-            self._tmp_selected_steam_urls = selected_urls
-
     def _on_pick_icon(self, _btn) -> None:
         self._pick_image("Select Icon", False, self._on_icon_chosen)
 
@@ -537,22 +560,14 @@ class AppMetadataDialog(Adw.Dialog):
         self._icon_clear_btn.set_visible(False)
         self._icon_thumb.set_paintable(None)
         self._icon_thumb_wrap.set_visible(False)
-        if self._project:
-            self._project.icon_path = ""
-            save_project(self._project)
-        else:
-            self._tmp_icon = ""
+        self._tmp_icon = ""
 
     def _on_cover_clear(self, _btn) -> None:
         self._cover_row.set_subtitle("Not set")
         self._cover_clear_btn.set_visible(False)
         self._cover_thumb.set_paintable(None)
         self._cover_thumb_wrap.set_visible(False)
-        if self._project:
-            self._project.cover_path = ""
-            save_project(self._project)
-        else:
-            self._tmp_cover = ""
+        self._tmp_cover = ""
 
     def _on_logo_clear(self, _btn) -> None:
         self._logo_row.set_subtitle("Not set")
@@ -560,26 +575,16 @@ class AppMetadataDialog(Adw.Dialog):
         self._logo_thumb.set_paintable(None)
         self._logo_thumb_wrap.set_visible(False)
         self._hide_title_btn.set_visible(False)
-        if self._project:
-            self._project.logo_path = ""
-            save_project(self._project)
-        else:
-            self._tmp_logo = ""
+        self._tmp_logo = ""
 
     def _on_icon_chosen(self, _c, response, chooser) -> None:
         if response == Gtk.ResponseType.ACCEPT:
             path = chooser.get_file().get_path()
-            if self._project:
-                path = self._import_image_to_project(self._project, path, "icon")
             self._icon_row.set_subtitle(GLib.markup_escape_text(Path(path).name))
             self._icon_clear_btn.set_visible(True)
             self._icon_thumb.set_filename(path)
             self._icon_thumb_wrap.set_visible(True)
-            if self._project:
-                self._project.icon_path = path
-                save_project(self._project)
-            else:
-                self._tmp_icon = path
+            self._tmp_icon = path
 
     def _on_pick_cover(self, _btn) -> None:
         self._pick_image("Select Cover", False, self._on_cover_chosen)
@@ -587,17 +592,11 @@ class AppMetadataDialog(Adw.Dialog):
     def _on_cover_chosen(self, _c, response, chooser) -> None:
         if response == Gtk.ResponseType.ACCEPT:
             path = chooser.get_file().get_path()
-            if self._project:
-                path = self._import_image_to_project(self._project, path, "cover")
             self._cover_row.set_subtitle(GLib.markup_escape_text(Path(path).name))
             self._cover_clear_btn.set_visible(True)
             self._cover_thumb.set_filename(path)
             self._cover_thumb_wrap.set_visible(True)
-            if self._project:
-                self._project.cover_path = path
-                save_project(self._project)
-            else:
-                self._tmp_cover = path
+            self._tmp_cover = path
 
     def _on_pick_logo(self, _btn) -> None:
         self._pick_image("Select Logo (transparent PNG)", False, self._on_logo_chosen)
@@ -605,8 +604,6 @@ class AppMetadataDialog(Adw.Dialog):
     def _on_logo_chosen(self, _c, response, chooser) -> None:
         if response == Gtk.ResponseType.ACCEPT:
             path = chooser.get_file().get_path()
-            if self._project:
-                path = self._import_image_to_project(self._project, path, "logo")
             self._logo_row.set_subtitle(GLib.markup_escape_text(Path(path).name))
             self._logo_clear_btn.set_visible(True)
             self._logo_thumb.set_filename(path)
@@ -614,21 +611,13 @@ class AppMetadataDialog(Adw.Dialog):
             self._hide_title_btn.set_visible(True)
             if not self._hide_title_btn.get_active():
                 self._hide_title_btn.set_active(True)
-            if self._project:
-                self._project.logo_path = path
-                self._project.hide_title = self._hide_title_btn.get_active()
-                save_project(self._project)
-            else:
-                self._tmp_logo = path
+            self._tmp_logo = path
 
     def _on_hide_title_toggled(self, btn: Gtk.ToggleButton) -> None:
         if btn.get_active():
             btn.set_icon_name("eye-not-looking-symbolic")
         else:
             btn.set_icon_name("eye-open-negative-filled-symbolic")
-        if self._project:
-            self._project.hide_title = btn.get_active()
-            save_project(self._project)
 
     def _on_create_clicked(self, _btn) -> None:
         from cellar.backend.project import create_project

@@ -42,6 +42,7 @@ class CatalogueEntriesDialog(Adw.Dialog):
         self._on_catalogue_changed = on_catalogue_changed
         self._entries: list[tuple] = []  # (item, repo, kind) — kind = "app" | "base" | "runner"
         self._row_widgets: list[Adw.ActionRow] = []
+        self._del_buttons: list[Gtk.Button] = []
 
         toolbar = Adw.ToolbarView()
         header = Adw.HeaderBar()
@@ -150,7 +151,7 @@ class CatalogueEntriesDialog(Adw.Dialog):
                 has_frame=False,
                 tooltip_text="Install runner locally" if kind == "runner" else "Import for editing",
             )
-            dl_btn.connect("clicked", self._on_download_clicked, idx)
+            dl_btn.connect("clicked", self._on_download_clicked, row)
             row.add_suffix(dl_btn)
 
             if kind == "base":
@@ -182,33 +183,83 @@ class CatalogueEntriesDialog(Adw.Dialog):
             )
             if can_delete:
                 del_btn.add_css_class("destructive-action")
-            del_btn.connect("clicked", self._on_delete_clicked, idx)
+            del_btn.connect("clicked", self._on_delete_clicked, row)
             row.add_suffix(del_btn)
 
             groups[kind].add(row)
             self._row_widgets.append(row)
+            self._del_buttons.append(del_btn)
             counts[kind] += 1
 
-        # Show a placeholder in the Apps group when nothing was found at all
-        if not results:
-            self._apps_group.add(Adw.ActionRow(
-                title="No entries found",
-                subtitle="Add a repository with published apps.",
-            ))
+        self._update_empty_state()
 
-        # Hide empty groups
-        self._apps_group.set_visible(counts["app"] > 0 or not results)
+        self._stack.set_visible_child_name("list")
+
+    def _update_empty_state(self) -> None:
+        """Show/hide groups and placeholder based on remaining entries."""
+        counts = {"app": 0, "base": 0, "runner": 0}
+        for _, _, kind in self._entries:
+            counts[kind] += 1
+        has_any = bool(self._entries)
+
+        if not has_any:
+            if not hasattr(self, "_empty_row"):
+                self._empty_row = Adw.ActionRow(
+                    title="No entries found",
+                    subtitle="Add a repository with published apps.",
+                )
+            self._apps_group.add(self._empty_row)
+            self._apps_group.set_visible(True)
+        else:
+            if hasattr(self, "_empty_row"):
+                try:
+                    self._apps_group.remove(self._empty_row)
+                except Exception:
+                    pass
+            self._apps_group.set_visible(counts["app"] > 0)
         self._bases_group.set_visible(counts["base"] > 0)
         self._runners_group.set_visible(counts["runner"] > 0)
 
-        self._stack.set_visible_child_name("list")
+    def _refresh_delete_buttons(self) -> None:
+        """Recalculate dependency sets and update delete button sensitivity."""
+        depended_bases: set[tuple[str, str]] = set()
+        for item, repo, kind in self._entries:
+            if kind == "app" and item.base_image:
+                depended_bases.add((repo.uri, item.base_image))
+        depended_runners: set[tuple[str, str]] = set()
+        for item, repo, kind in self._entries:
+            if kind == "base":
+                depended_runners.add((repo.uri, item.runner))
+
+        for i, (item, repo, kind) in enumerate(self._entries):
+            del_btn = self._del_buttons[i]
+            if not repo.is_writable:
+                continue
+            if kind == "base":
+                is_depended = (repo.uri, item.name) in depended_bases
+                can_delete = not is_depended
+                tooltip = "Apps in this repo depend on this base" if is_depended else "Remove from repo"
+            elif kind == "runner":
+                is_depended = (repo.uri, item.name) in depended_runners
+                can_delete = not is_depended
+                tooltip = "Base images in this repo depend on this runner" if is_depended else "Remove from repo"
+            else:
+                continue  # apps are always deletable if writable
+            del_btn.set_sensitive(can_delete)
+            del_btn.set_tooltip_text(tooltip)
+            if can_delete:
+                del_btn.add_css_class("destructive-action")
+            else:
+                del_btn.remove_css_class("destructive-action")
 
     # ------------------------------------------------------------------
     # Download / import for editing
     # ------------------------------------------------------------------
 
-    def _on_download_clicked(self, _btn, idx: int) -> None:
-        if not (0 <= idx < len(self._entries)):
+    def _on_download_clicked(self, _btn, row: Adw.ActionRow) -> None:
+        try:
+            idx = self._row_widgets.index(row)
+        except ValueError:
             return
         item, repo, kind = self._entries[idx]
         if kind == "base":
@@ -505,8 +556,10 @@ class CatalogueEntriesDialog(Adw.Dialog):
     # Delete from repo
     # ------------------------------------------------------------------
 
-    def _on_delete_clicked(self, _btn, idx: int) -> None:
-        if not (0 <= idx < len(self._entries)):
+    def _on_delete_clicked(self, _btn, row: Adw.ActionRow) -> None:
+        try:
+            idx = self._row_widgets.index(row)
+        except ValueError:
             return
         item, repo, kind = self._entries[idx]
         name = item.name
@@ -518,11 +571,15 @@ class CatalogueEntriesDialog(Adw.Dialog):
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("remove", "Remove")
         dialog.set_response_appearance("remove", Adw.ResponseAppearance.DESTRUCTIVE)
-        dialog.connect("response", self._on_delete_confirmed, idx)
+        dialog.connect("response", self._on_delete_confirmed, row)
         dialog.present(self)
 
-    def _on_delete_confirmed(self, _dialog, response: str, idx: int) -> None:
+    def _on_delete_confirmed(self, _dialog, response: str, row: Adw.ActionRow) -> None:
         if response != "remove":
+            return
+        try:
+            idx = self._row_widgets.index(row)
+        except ValueError:
             return
         item, repo, kind = self._entries[idx]
 
@@ -539,8 +596,11 @@ class CatalogueEntriesDialog(Adw.Dialog):
         def _done(_result) -> None:
             _item, _repo, kind = self._entries.pop(idx)
             row = self._row_widgets.pop(idx)
+            self._del_buttons.pop(idx)
             group = {"app": self._apps_group, "base": self._bases_group, "runner": self._runners_group}[kind]
             group.remove(row)
+            self._refresh_delete_buttons()
+            self._update_empty_state()
             if self._on_catalogue_changed:
                 self._on_catalogue_changed()
 

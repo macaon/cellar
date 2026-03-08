@@ -788,9 +788,13 @@ class DetailView(Gtk.Box):
                 click.connect("released", self._on_screenshot_clicked, idx)
                 pic.add_controller(click)
                 slot.append(pic)
-            # Hide any trailing slots whose images failed to resolve
+            # Remove any trailing slots whose images failed to resolve.
+            # set_visible(False) is not enough — AdwCarousel still includes
+            # invisible children as navigable pages, showing a blank.
             for slot in slots[len(paths):]:
-                slot.set_visible(False)
+                parent = slot.get_parent()
+                if parent is not None:
+                    parent.remove(slot)
 
         run_in_background(_work, on_done=_on_resolved)
         return wrapper

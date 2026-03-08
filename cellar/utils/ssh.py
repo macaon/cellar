@@ -33,7 +33,9 @@ from typing import IO
 # (which IS thread-safe).  Callers that need concurrency (e.g. parallel
 # screenshot downloads) each check out their own channel.
 
-_MAX_POOL = 4  # max idle SFTP channels per connection
+_MAX_POOL = 4       # max idle SFTP channels per connection
+_WINDOW_SIZE = 2 * 1024 * 1024 * 1024 - 1  # ~2 GB SSH channel window (max allowed)
+_MAX_PACKET = 32768  # max SSH packet payload
 
 _transport_cache: dict[tuple, "paramiko.Transport"] = {}  # type: ignore[name-defined]
 _sftp_pool: dict[tuple, list["paramiko.SFTPClient"]] = {}  # type: ignore[name-defined]
@@ -99,7 +101,9 @@ def _get_sftp(
             transport = ssh.get_transport()
             _transport_cache[conn_key] = transport
 
-        sftp = paramiko.SFTPClient.from_transport(transport)
+        sftp = paramiko.SFTPClient.from_transport(
+            transport, window_size=_WINDOW_SIZE, max_packet_size=_MAX_PACKET,
+        )
         return sftp
 
 
@@ -377,6 +381,7 @@ class SshPath:
     def write_bytes(self, data: bytes) -> None:
         with self._sftp() as sftp:
             with sftp.open(self._path, "wb") as f:
+                f.set_pipelined(True)
                 f.write(data)
 
     def read_text(self, encoding: str = "utf-8") -> str:
@@ -391,6 +396,7 @@ class SshPath:
             # the stream is closed — _SshWriteStream handles the return.
             sftp = _get_sftp(self._host, self._port, self._user, self._identity, self._password)
             fh = sftp.open(self._path, "wb")
+            fh.set_pipelined(True)  # queue writes without waiting for ACKs
             return _SshWriteStream(fh, f"{self._host}:{self._path}",
                                    sftp=sftp, conn=(self._host, self._port, self._user, self._identity))
         else:

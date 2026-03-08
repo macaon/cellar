@@ -315,7 +315,8 @@ class EditAppDialog(Adw.Dialog):
         clear_btn.set_visible(False)
         row.add_suffix(clear_btn)
 
-        change_btn = Gtk.Button(label="Change…")
+        change_btn = Gtk.Button(icon_name="folder-open-symbolic", tooltip_text="Browse…")
+        change_btn.add_css_class("flat")
         change_btn.set_valign(Gtk.Align.CENTER)
         change_btn.connect("clicked", handler)
         row.add_suffix(change_btn)

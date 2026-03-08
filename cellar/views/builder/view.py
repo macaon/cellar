@@ -44,6 +44,7 @@ from cellar.views.builder.metadata import AppMetadataDialog
 from cellar.views.builder.pickers import (
     AddLaunchTargetDialog,
     BasePickerDialog,
+    RepoPickerDialog,
     RunnerPickerDialog,
 )
 from cellar.views.builder.progress import ProgressDialog
@@ -1249,7 +1250,16 @@ class PackageBuilderView(Gtk.Box):
             self._show_toast("No writable repository configured.")
             return
 
-        repo = self._writable_repos[0]
+        if len(self._writable_repos) > 1:
+            dlg = RepoPickerDialog(
+                self._writable_repos,
+                lambda repo: self._do_publish_app(project, repo),
+            )
+            dlg.present(self)
+            return
+        self._do_publish_app(project, self._writable_repos[0])
+
+    def _do_publish_app(self, project: Project, repo) -> None:
         _src_path = Path(project.source_dir) if project.project_type == "linux" else project.content_path
 
         # Build AppEntry from project metadata.
@@ -1616,7 +1626,16 @@ class PackageBuilderView(Gtk.Box):
             self._show_toast("No writable repository configured.")
             return
 
-        repo = self._writable_repos[0]
+        if len(self._writable_repos) > 1:
+            dlg = RepoPickerDialog(
+                self._writable_repos,
+                lambda repo: self._do_publish_base(project, repo),
+            )
+            dlg.present(self)
+            return
+        self._do_publish_base(project, self._writable_repos[0])
+
+    def _do_publish_base(self, project: Project, repo) -> None:
         cancel_event = threading.Event()
         progress = ProgressDialog(label="Compressing and uploading\u2026", cancel_event=cancel_event)
         progress.present(self)

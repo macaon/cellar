@@ -3,10 +3,8 @@
 A single GtkFlowBox showing local screenshots first, then Steam suggestions.
 
 Every tile has a checkmark: checked = included in catalogue / will be uploaded.
-For Steam tiles, checked also means "download on save". Unchecking a local tile
-in edit mode marks the file for deletion from repo on save.
-
-Drag-and-drop reorders local items.
+Local tiles are pre-checked; unchecking marks the file for deletion from repo on save.
+Steam tiles start unchecked; checking triggers download + inclusion on save.
 """
 
 from __future__ import annotations
@@ -19,10 +17,9 @@ from pathlib import Path
 
 import gi
 
-gi.require_version("Gdk", "4.0")
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Gdk, GLib, GObject, Gtk
+from gi.repository import GLib, Gtk
 
 from cellar.utils.async_work import run_in_background
 
@@ -80,7 +77,6 @@ class ScreenshotGridWidget(Gtk.Box):
         self._steam: list[ScreenshotItem] = []
         self._selected_local: set[int] = set()
         self._selected_steam: set[int] = set()
-        self._drag_src_idx: int | None = None
 
         self._tmp_dir: Path | None = None
 
@@ -93,6 +89,7 @@ class ScreenshotGridWidget(Gtk.Box):
         self._flow = Gtk.FlowBox()
         self._flow.set_valign(Gtk.Align.START)
         self._flow.set_selection_mode(Gtk.SelectionMode.NONE)
+        self._flow.set_activate_on_single_click(False)
         if not self._scrolled:
             # Embedded two-pane: exactly 2 columns, tiles fill their column
             self._flow.set_min_children_per_line(2)
@@ -347,58 +344,8 @@ class ScreenshotGridWidget(Gtk.Box):
         )
         overlay.add_controller(gesture)
 
-        # Drag-and-drop for local items only
-        if kind == "local":
-            self._attach_dnd(fbc, idx)
-
         fbc.set_child(overlay)
         return fbc
-
-    # ── Drag-and-drop (local items only) ──────────────────────────────────
-
-    def _attach_dnd(self, fbc: Gtk.FlowBoxChild, idx: int) -> None:
-        drag_src = Gtk.DragSource()
-        drag_src.set_actions(Gdk.DragAction.MOVE)
-        drag_src.connect("prepare", self._on_drag_prepare, idx)
-        drag_src.connect("drag-end", self._on_drag_end)
-        fbc.add_controller(drag_src)
-
-        drop_tgt = Gtk.DropTarget.new(GObject.TYPE_INT, Gdk.DragAction.MOVE)
-        drop_tgt.connect("drop", self._on_drop, idx)
-        fbc.add_controller(drop_tgt)
-
-    def _on_drag_prepare(self, _src, _x, _y, idx: int) -> Gdk.ContentProvider:
-        self._drag_src_idx = idx
-        val = GObject.Value()
-        val.init(GObject.TYPE_INT)
-        val.set_int(idx)
-        return Gdk.ContentProvider.new_for_value(val)
-
-    def _on_drag_end(self, _src, _drag, _delete_data) -> None:
-        self._drag_src_idx = None
-
-    def _on_drop(self, _target, _value, _x, _y, dst_idx: int) -> bool:
-        src_idx = self._drag_src_idx
-        if src_idx is None or src_idx == dst_idx:
-            return False
-
-        item = self._local.pop(src_idx)
-
-        # Remap selection indices after the move
-        new_sel: set[int] = set()
-        for si in self._selected_local:
-            if si == src_idx:
-                new_sel.add(dst_idx)
-            elif src_idx < dst_idx:
-                new_sel.add(si - 1 if src_idx < si <= dst_idx else si)
-            else:
-                new_sel.add(si + 1 if dst_idx <= si < src_idx else si)
-        self._selected_local = new_sel
-
-        self._local.insert(dst_idx, item)
-        self._rebuild()
-        self._on_changed()
-        return True
 
     # ── Selection ─────────────────────────────────────────────────────────
 

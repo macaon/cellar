@@ -665,7 +665,7 @@ class DetailView(Gtk.Box):
                 uri_lbl.set_selectable(True)
                 uri_lbl.set_wrap(True)
                 pop_box.append(uri_lbl)
-                uri_lbl.connect("map", lambda lbl: lbl.select_region(0, 0))
+                uri_lbl.connect("map", lambda lbl: GLib.idle_add(lbl.select_region, 0, 0))
         else:
             # Multi-repo popover: radio buttons for source selection.
             pop_box = Gtk.Box(

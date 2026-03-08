@@ -33,7 +33,7 @@ The project is called **Cellar**.
 |---|---|---|
 | Local path / `file://` | Yes | |
 | `http://` / `https://` | **No** | Read-only; optional bearer token auth |
-| `ssh://[user@]host[:port]/path` | Yes | `BatchMode=yes`; key auth via agent or `ssh_identity=` |
+| `sftp://[user@]host[:port]/path` | Yes | Pure-Python via `paramiko`; key auth via agent or `ssh_identity=` |
 | `smb://` | Yes | Via `smbprotocol` (pure Python, no GVFS) |
 
 HTTP(S) image assets are downloaded to a per-session temp cache (`Repo._fetch_to_cache`) — GdkPixbuf can't pass auth headers. Archives return URLs (installer handles auth). Bearer token stored per-repo in `config.json`, sent as `Authorization: Bearer <token>`.

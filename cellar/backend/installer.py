@@ -4,8 +4,8 @@ Install flow (Windows / umu apps)
 ----------------------------------
 1. **Acquire** — for local archives (``file://`` or bare path) the file is
    used in-place; for HTTP(S) it is streamed to a temp file in 1 MB chunks
-   with progress reporting and cancel support.  SSH/SMB/NFS archives raise
-   ``InstallError`` (not yet supported).
+   with progress reporting and cancel support.  SFTP and SMB archives are
+   streamed via their respective pure-Python transports.
 2. **Verify** — CRC32 checksum checked against ``AppEntry.archive_crc32``
    (skipped when the field is empty).
 3. **Extract** — ``tarfile`` extracts to a temporary directory.
@@ -259,9 +259,9 @@ def _build_source(
                 size = 0
         return _smb_chunks(unc), size
 
-    if scheme == "ssh":
+    if scheme == "sftp":
         if not parsed.hostname:
-            raise InstallError(f"Invalid SSH URI (no host): {uri!r}")
+            raise InstallError(f"Invalid SFTP URI (no host): {uri!r}")
         return _ssh_chunks(
             parsed.hostname,
             parsed.path,
@@ -272,7 +272,7 @@ def _build_source(
 
     raise InstallError(
         f"Downloading from {scheme!r} repos is not supported. "
-        "Use a local, HTTP(S), SSH, or SMB repo."
+        "Use a local, HTTP(S), SFTP, or SMB repo."
     )
 
 

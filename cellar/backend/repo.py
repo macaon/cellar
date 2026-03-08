@@ -4,7 +4,7 @@ Supported URI schemes
 ---------------------
 - Bare local path or ``file://`` → reads directly from the filesystem
 - ``http://`` / ``https://``     → fetches via urllib (no extra deps); **read-only**
-- ``ssh://[user@]host[:port]/path`` → pure-Python SSHv2 via ``paramiko``;
+- ``sftp://[user@]host[:port]/path`` → pure-Python SSHv2 via ``paramiko``;
   key auth handled by SSH agent / ``~/.ssh/config``;
   explicit identity file via ``ssh_identity=``
 - ``smb://``                     → pure-Python SMBv2/v3 via ``smbprotocol``
@@ -171,7 +171,7 @@ class _SshFetcher:
         user_part = f"{self._user}@" if self._user else ""
         port_part = f":{self._port}" if self._port != 22 else ""
         return (
-            f"ssh://{user_part}{self._host}{port_part}"
+            f"sftp://{user_part}{self._host}{port_part}"
             f"{self._root}/{rel_path.lstrip('/')}"
         )
 
@@ -239,7 +239,7 @@ class _SmbFetcher:
 # Fetcher factory
 # ---------------------------------------------------------------------------
 
-_SUPPORTED_SCHEMES = "local path, file://, http(s)://, ssh://, smb://"
+_SUPPORTED_SCHEMES = "local path, file://, http(s)://, sftp://, smb://"
 
 
 def _make_fetcher(
@@ -269,9 +269,9 @@ def _make_fetcher(
     if scheme in ("http", "https"):
         return _HttpFetcher(uri, ssl_verify=ssl_verify, ca_cert=ca_cert, token=token)
 
-    if scheme == "ssh":
+    if scheme == "sftp":
         if not parsed.hostname:
-            raise RepoError(f"Invalid SSH URI (no host): {uri!r}")
+            raise RepoError(f"Invalid SFTP URI (no host): {uri!r}")
         return _SshFetcher(
             host=parsed.hostname,
             remote_root=parsed.path or "/",
@@ -301,7 +301,7 @@ class Repo:
     """Represents a single Cellar repository source.
 
     *uri* can be any of the supported schemes listed at the top of this module.
-    For ``ssh://`` repos, an explicit identity file path can be passed via
+    For ``sftp://`` repos, an explicit identity file path can be passed via
     *ssh_identity*; otherwise the system SSH agent / ``~/.ssh/config`` is used.
 
     HTTP(S) repos are **read-only** — ``is_writable`` returns ``False`` and
@@ -653,9 +653,8 @@ class Repo:
         path-like object that delegates all I/O to ``smbclient`` without
         creating a GVFS/FUSE mount point.
 
-        For SSH repos returns a :class:`~cellar.utils.ssh.SshPath` — a
-        path-like object that delegates all I/O to the system ``ssh``
-        client.
+        For SFTP repos returns a :class:`~cellar.utils.ssh.SshPath` — a
+        path-like object that delegates all I/O to ``paramiko`` SFTP.
 
         ``packager.py`` can use the same path arithmetic (``/``,
         ``.mkdir()``, ``.open()``, etc.) on any of these object types.

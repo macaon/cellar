@@ -266,7 +266,7 @@ class SettingsDialog(Adw.PreferencesDialog):
                 f"SMB: {smb_username}" + (" (password stored)" if has_pw else " (no password)")
             )
             row.add_prefix(icon)
-        elif uri.startswith("ssh://"):
+        elif uri.startswith("sftp://"):
             from urllib.parse import urlparse as _urlparse
             from cellar.backend.config import load_ssh_password
             ssh_user = _urlparse(uri).username or ""
@@ -275,16 +275,16 @@ class SettingsDialog(Adw.PreferencesDialog):
             if ssh_identity:
                 icon = Gtk.Image.new_from_icon_name("channel-secure-symbolic")
                 icon.set_tooltip_text(
-                    f"SSH: {ssh_user} (key: {Path(ssh_identity).name})"
-                    if ssh_user else f"SSH key: {Path(ssh_identity).name}"
+                    f"SFTP: {ssh_user} (key: {Path(ssh_identity).name})"
+                    if ssh_user else f"SFTP key: {Path(ssh_identity).name}"
                 )
             else:
                 icon = Gtk.Image.new_from_icon_name(
                     "channel-secure-symbolic" if has_pw else "dialog-password-symbolic"
                 )
                 icon.set_tooltip_text(
-                    f"SSH: {ssh_user}" + (" (password stored)" if has_pw else " (agent/config)")
-                    if ssh_user else ("SSH (password stored)" if has_pw else "SSH (agent/config)")
+                    f"SFTP: {ssh_user}" + (" (password stored)" if has_pw else " (agent/config)")
+                    if ssh_user else ("SFTP (password stored)" if has_pw else "SFTP (agent/config)")
                 )
             row.add_prefix(icon)
         elif token:
@@ -408,7 +408,7 @@ class SettingsDialog(Adw.PreferencesDialog):
 # Add / Edit Repository dialog
 # ---------------------------------------------------------------------------
 
-_SCHEME_PREFIXES = ("", "http://", "https://", "smb://", "ssh://")
+_SCHEME_PREFIXES = ("", "http://", "https://", "smb://", "sftp://")
 
 
 def _split_uri(uri: str) -> tuple[int, str]:
@@ -490,7 +490,7 @@ class AddEditRepoDialog(Adw.Dialog):
         _initial_text = _SCHEME_PREFIXES[_scheme_idx] + _path_text
 
         scheme_model = Gtk.StringList()
-        for label in ("Local", "HTTP", "HTTPS", "SMB", "SSH"):
+        for label in ("Local", "HTTP", "HTTPS", "SMB", "SFTP"):
             scheme_model.append(label)
         self._scheme_dropdown = Gtk.DropDown(model=scheme_model, valign=Gtk.Align.CENTER)
         self._scheme_dropdown.add_css_class("flat")
@@ -534,7 +534,7 @@ class AddEditRepoDialog(Adw.Dialog):
 
         self._smb_group.set_visible(_scheme_idx == 3)
 
-        # SSH credentials group (shown only when URI scheme is ssh://)
+        # SFTP credentials group (shown only when URI scheme is sftp://)
         self._ssh_group = Adw.PreferencesGroup(
             title="SFTP Credentials",
             description=(
@@ -698,7 +698,7 @@ class AddEditRepoDialog(Adw.Dialog):
         name = self._name_row.get_text().strip()
         scheme = urlparse(uri).scheme.lower()
         is_smb = scheme == "smb"
-        is_ssh = scheme == "ssh"
+        is_ssh = scheme == "sftp"
 
         token = self._token_row.get_text().strip() or None if scheme in ("http", "https") else None
         ssl_verify = self._ssl_row.get_active() if scheme == "https" else True
@@ -875,7 +875,7 @@ class AddEditRepoDialog(Adw.Dialog):
             self._init_local_repo(uri, name, token, ssl_verify, smb_username, smb_password, ssh_username, ssh_password)
         elif scheme == "smb":
             self._init_smb_repo(uri, name, token, ssl_verify, smb_username, smb_password, ssh_username, ssh_password)
-        elif scheme == "ssh":
+        elif scheme == "sftp":
             self._init_ssh_repo(uri, name, token, ssl_verify, smb_username, smb_password, ssh_username, ssh_password)
         else:
             self._alert(
@@ -971,65 +971,36 @@ class AddEditRepoDialog(Adw.Dialog):
         ssh_username: str | None = None,
         ssh_password: str | None = None,
     ) -> None:
-        import shlex
-        import subprocess
+        from cellar.utils.ssh import SshPath
 
         parsed = urlparse(uri)
         if not parsed.hostname:
-            self._alert("Invalid URI", f"No hostname in SSH URI: {uri!r}")
+            self._alert("Invalid URI", f"No hostname in SFTP URI: {uri!r}")
             return
 
-        dest = (
-            f"{parsed.username}@{parsed.hostname}"
-            if parsed.username
-            else parsed.hostname
+        user = ssh_username or parsed.username or None
+        root = SshPath(
+            parsed.hostname,
+            parsed.path or "/",
+            user=user,
+            port=parsed.port,
+            password=ssh_password,
         )
-        base_args = [
-            "ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
-        ]
-        if parsed.port:
-            base_args += ["-p", str(parsed.port)]
-        base_args.append(dest)
-
-        path = parsed.path or "/"
         try:
-            result = subprocess.run(
-                base_args + ["mkdir", "-p", path],
-                capture_output=True, timeout=30, check=False,
-            )
-        except FileNotFoundError:
-            self._alert("Could Not Initialise", "ssh not found; install an OpenSSH client.")
-            return
-        except subprocess.TimeoutExpired:
-            self._alert("Could Not Initialise", "SSH connection timed out.")
-            return
-        if result.returncode != 0:
-            stderr = result.stderr.decode(errors="replace").strip()
-            self._alert(
-                "Could Not Initialise",
-                f"Could not create directory: {stderr or 'SSH error'}",
-            )
+            root.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            self._alert("Could Not Initialise", str(exc))
             return
 
-        cat_path = path.rstrip("/") + "/catalogue.json"
-        data = json.dumps(_empty_catalogue(), indent=2, ensure_ascii=False).encode()
+        cat_path = root / "catalogue.json"
+        data = json.dumps(_empty_catalogue(), indent=2, ensure_ascii=False)
         try:
-            result = subprocess.run(
-                base_args + [f"cat > {shlex.quote(cat_path)}"],
-                input=data, capture_output=True, timeout=30, check=False,
-            )
-        except subprocess.TimeoutExpired:
-            self._alert("Could Not Initialise", "SSH connection timed out while writing.")
-            return
-        if result.returncode != 0:
-            stderr = result.stderr.decode(errors="replace").strip()
-            self._alert(
-                "Could Not Initialise",
-                f"Could not write catalogue.json: {stderr or 'SSH error'}",
-            )
+            cat_path.write_text(data)
+        except OSError as exc:
+            self._alert("Could Not Initialise", f"Could not write catalogue.json: {exc}")
             return
 
-        log.info("Initialised new SSH repo at %s", uri)
+        log.info("Initialised new SFTP repo at %s", uri)
         self._finish_save(uri, name, token, ssl_verify, None, smb_username, smb_password, ssh_username, ssh_password)
 
     # ------------------------------------------------------------------

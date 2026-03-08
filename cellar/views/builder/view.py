@@ -44,8 +44,8 @@ from cellar.views.builder.metadata import AppMetadataDialog
 from cellar.views.builder.pickers import (
     AddLaunchTargetDialog,
     BasePickerDialog,
-    RepoPickerDialog,
     RunnerPickerDialog,
+    pick_repo,
 )
 from cellar.views.builder.progress import ProgressDialog
 
@@ -1251,11 +1251,11 @@ class PackageBuilderView(Gtk.Box):
             return
 
         if len(self._writable_repos) > 1:
-            dlg = RepoPickerDialog(
+            pick_repo(
                 self._writable_repos,
+                self,
                 lambda repo: self._do_publish_app(project, repo),
             )
-            dlg.present(self)
             return
         self._do_publish_app(project, self._writable_repos[0])
 
@@ -1627,11 +1627,11 @@ class PackageBuilderView(Gtk.Box):
             return
 
         if len(self._writable_repos) > 1:
-            dlg = RepoPickerDialog(
+            pick_repo(
                 self._writable_repos,
+                self,
                 lambda repo: self._do_publish_base(project, repo),
             )
-            dlg.present(self)
             return
         self._do_publish_base(project, self._writable_repos[0])
 

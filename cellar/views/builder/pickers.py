@@ -249,66 +249,29 @@ class RunnerPickerDialog(Adw.Dialog):
         self._on_installed(runner_name)
 
 
-class RepoPickerDialog(Adw.Dialog):
-    """Lets the user choose which writable repository to publish to.
+def pick_repo(repos: list, parent: Gtk.Widget, on_selected: Callable) -> None:
+    """Show a simple alert dialog to choose which writable repo to publish to.
 
-    If there is only one writable repo, callers should skip this dialog
-    and use it directly.
+    Each repo becomes a response button.  Cancel dismisses without calling
+    *on_selected*.  Callers should skip this when there is only one writable
+    repo and use it directly.
     """
+    dlg = Adw.AlertDialog(heading="Choose Repository")
+    dlg.add_response("cancel", "Cancel")
+    repo_map: dict[str, object] = {}
+    for i, repo in enumerate(repos):
+        resp_id = f"repo{i}"
+        label = repo.name or repo.uri
+        dlg.add_response(resp_id, label)
+        repo_map[resp_id] = repo
+    dlg.set_close_response("cancel")
 
-    def __init__(self, repos: list, on_selected: Callable) -> None:
-        super().__init__(title="Choose Repository", content_width=440)
-        self._repos = repos
-        self._on_selected = on_selected
-        self._selected_idx: int = -1
+    def _on_response(_dlg, resp_id):
+        if resp_id in repo_map:
+            on_selected(repo_map[resp_id])
 
-        toolbar = Adw.ToolbarView()
-        header = Adw.HeaderBar()
-        header.set_show_end_title_buttons(False)
-
-        cancel_btn = Gtk.Button(label="Cancel")
-        cancel_btn.connect("clicked", lambda _: self.close())
-        header.pack_start(cancel_btn)
-
-        self._select_btn = Gtk.Button(label="Select")
-        self._select_btn.add_css_class("suggested-action")
-        self._select_btn.set_sensitive(False)
-        self._select_btn.connect("clicked", self._on_select_clicked)
-        header.pack_end(self._select_btn)
-
-        toolbar.add_top_bar(header)
-
-        list_box = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE)
-        list_box.add_css_class("boxed-list")
-        list_box.set_margin_top(12)
-        list_box.set_margin_bottom(12)
-        list_box.set_margin_start(12)
-        list_box.set_margin_end(12)
-        list_box.connect("row-selected", self._on_row_selected)
-
-        for repo in repos:
-            row = Adw.ActionRow(title=repo.name or repo.uri)
-            if repo.name:
-                row.set_subtitle(repo.uri)
-            list_box.append(row)
-
-        toolbar.set_content(list_box)
-        self.set_child(toolbar)
-
-    def _on_row_selected(self, _lb, row: Gtk.ListBoxRow | None) -> None:
-        if row is None:
-            self._selected_idx = -1
-            self._select_btn.set_sensitive(False)
-            return
-        self._selected_idx = row.get_index()
-        self._select_btn.set_sensitive(True)
-
-    def _on_select_clicked(self, _btn) -> None:
-        if not (0 <= self._selected_idx < len(self._repos)):
-            return
-        repo = self._repos[self._selected_idx]
-        self.close()
-        self._on_selected(repo)
+    dlg.connect("response", _on_response)
+    dlg.present(parent)
 
 
 class BasePickerDialog(Adw.Dialog):

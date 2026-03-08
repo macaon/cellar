@@ -621,7 +621,7 @@ class DetailView(Gtk.Box):
     def _make_repo_button(self) -> Gtk.Widget:
         """Return a flat MenuButton showing the current source repo.
 
-        Single repo: popover shows name (heading) + URI (dim-label, selectable).
+        Single repo: popover shows name (heading) + URI (dim-label).
         Multiple repos: popover shows radio buttons for source selection.
         Always shown (even with a single repo), so the user knows the source.
         """
@@ -662,10 +662,8 @@ class DetailView(Gtk.Box):
                 uri_lbl = Gtk.Label(label=getattr(first, "uri", ""))
                 uri_lbl.add_css_class("dim-label")
                 uri_lbl.set_xalign(0)
-                uri_lbl.set_selectable(True)
                 uri_lbl.set_wrap(True)
                 pop_box.append(uri_lbl)
-                uri_lbl.connect("map", lambda lbl: GLib.idle_add(lbl.select_region, 0, 0))
         else:
             # Multi-repo popover: radio buttons for source selection.
             pop_box = Gtk.Box(

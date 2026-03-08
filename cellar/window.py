@@ -11,7 +11,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, GLib, Gio, Gtk
+from gi.repository import Adw, Gio, Gtk
 
 from cellar.utils.paths import ui_file
 
@@ -95,7 +95,7 @@ class CellarWindow(Adw.ApplicationWindow):
 
         # Category check buttons in the filter popover — rebuilt after each catalogue load.
         self._category_btns: dict[str, Gtk.CheckButton] = {}
-        self._active_category: str = ""
+        self._active_categories: set[str] = set()
 
         # The first successfully loaded Repo — used to resolve asset URIs in
         # the browse grid and callbacks.  Updated on every catalogue reload.
@@ -175,7 +175,7 @@ class CellarWindow(Adw.ApplicationWindow):
         self._first_repo = None
         self._writable_repos = []
         self._category_btns = {}
-        self._active_category = ""
+        self._active_categories = set()
         self.filter_button.remove_css_class("suggested-action")
 
         env_uri = os.environ.get("CELLAR_REPO", "")
@@ -290,7 +290,7 @@ class CellarWindow(Adw.ApplicationWindow):
         """Build (or rebuild) the category filter popover from the current entry list."""
         categories = sorted({e.category for e in entries if e.category})
         self._category_btns = {}
-        self._active_category = ""
+        self._active_categories = set()
 
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         outer.set_margin_top(4)
@@ -313,14 +313,9 @@ class CellarWindow(Adw.ApplicationWindow):
 
             outer.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
 
-            group_anchor: Gtk.CheckButton | None = None
             for cat in categories:
                 btn = Gtk.CheckButton(label=cat)
                 btn.add_css_class("flat")
-                if group_anchor is None:
-                    group_anchor = btn
-                else:
-                    btn.set_group(group_anchor)
                 btn.connect("toggled", self._on_category_toggled, cat)
                 self._category_btns[cat] = btn
                 outer.append(btn)
@@ -330,38 +325,27 @@ class CellarWindow(Adw.ApplicationWindow):
         self.filter_button.set_popover(popover)
 
     def _on_category_toggled(self, btn: Gtk.CheckButton, category: str) -> None:
-        if not btn.get_active():
-            # Button was deactivated — could be the radio group switching to
-            # another button, or the user clicking the active button to deselect
-            # it.  Defer the check so the newly activated button (if any) has
-            # already fired its own toggled signal before we decide.
-            GLib.idle_add(self._sync_filter_state)
-            return
-        self._active_category = category
-        self.filter_button.add_css_class("suggested-action")
-        self._browse_explore.set_active_category(category)
-        self._browse_installed.set_active_category(category)
-        self._browse_updates.set_active_category(category)
-        self.filter_button.get_popover().popdown()
-
-    def _sync_filter_state(self) -> bool:
-        """Clear the filter if no category button is currently active."""
-        if not any(b.get_active() for b in self._category_btns.values()):
-            self._active_category = ""
+        if btn.get_active():
+            self._active_categories.add(category)
+        else:
+            self._active_categories.discard(category)
+        active = self._active_categories.copy()
+        if active:
+            self.filter_button.add_css_class("suggested-action")
+        else:
             self.filter_button.remove_css_class("suggested-action")
-            self._browse_explore.set_active_category("")
-            self._browse_installed.set_active_category("")
-            self._browse_updates.set_active_category("")
-        return GLib.SOURCE_REMOVE
+        self._browse_explore.set_active_categories(active)
+        self._browse_installed.set_active_categories(active)
+        self._browse_updates.set_active_categories(active)
 
     def _on_filter_clear(self, _button: Gtk.Button) -> None:
         for btn in self._category_btns.values():
             btn.set_active(False)
-        self._active_category = ""
+        self._active_categories = set()
         self.filter_button.remove_css_class("suggested-action")
-        self._browse_explore.set_active_category("")
-        self._browse_installed.set_active_category("")
-        self._browse_updates.set_active_category("")
+        self._browse_explore.set_active_categories(set())
+        self._browse_installed.set_active_categories(set())
+        self._browse_updates.set_active_categories(set())
         self.filter_button.get_popover().popdown()
 
     # ── Signal handlers ───────────────────────────────────────────────────
@@ -475,7 +459,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="io.github.cellar",
-            version="0.46.25",
+            version="0.46.26",
             comments="A GNOME storefront for Windows and Linux apps.",
             license_type=Gtk.License.GPL_3_0,
         )

@@ -248,16 +248,16 @@ class EditAppDialog(Adw.Dialog):
         self._strategy_row.set_model(strat_model)
         launch_group.add(self._strategy_row)
 
-        self._entry_point_entry = Adw.EntryRow(title="Launch Target")
-        self._entry_point_entry.set_tooltip_text(
-            "Windows-style path to the main .exe, e.g. C:\\Program Files\\App\\app.exe"
-        )
+        self._entry_point_entry = Adw.ActionRow(title="Launch Target")
+        self._entry_point_entry.set_subtitle("Not set")
+        self._entry_point_entry.set_subtitle_selectable(True)
         ep_browse_btn = Gtk.Button(icon_name="folder-open-symbolic")
         ep_browse_btn.add_css_class("flat")
         ep_browse_btn.set_valign(Gtk.Align.CENTER)
         ep_browse_btn.set_tooltip_text("Browse for executable…")
         ep_browse_btn.connect("clicked", self._on_browse_entry_point)
         self._entry_point_entry.add_suffix(ep_browse_btn)
+        self._entry_point_entry.set_activatable_widget(ep_browse_btn)
         launch_group.add(self._entry_point_entry)
 
         self._launch_args_entry = Adw.EntryRow(title="Launch Arguments")
@@ -444,7 +444,10 @@ class EditAppDialog(Adw.Dialog):
             if e.steam_appid is not None:
                 self._steam_appid_entry.set_text(str(e.steam_appid))
 
-        self._entry_point_entry.set_text(e.entry_point or "")
+        if e.entry_point:
+            self._entry_point_entry.set_subtitle(GLib.markup_escape_text(e.entry_point))
+        else:
+            self._entry_point_entry.set_subtitle("Not set")
         self._launch_args_entry.set_text(e.launch_args or "")
 
         # Single images — show current filename, enable clear button, load thumbnail
@@ -645,7 +648,7 @@ class EditAppDialog(Adw.Dialog):
                 formatted = "C:\\" + rel.replace("/", "\\")
             except ValueError:
                 formatted = abs_path
-        self._entry_point_entry.set_text(formatted)
+        self._entry_point_entry.set_subtitle(GLib.markup_escape_text(formatted))
 
     # ── Image clear handlers ──────────────────────────────────────────────
 
@@ -730,7 +733,8 @@ class EditAppDialog(Adw.Dialog):
         genres_text = self._genres_entry.get_text().strip()
         genres = tuple(g.strip() for g in genres_text.split(",") if g.strip()) if genres_text else ()
         strategy = _STRATEGIES[self._strategy_row.get_selected()]
-        entry_point = self._entry_point_entry.get_text().strip()
+        _ep_sub = self._entry_point_entry.get_subtitle() or ""
+        entry_point = "" if _ep_sub == "Not set" else _ep_sub
         launch_args = self._launch_args_entry.get_text().strip()
 
         # Single images: None=keep existing, ""=clear, str=new file

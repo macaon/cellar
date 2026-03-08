@@ -262,40 +262,8 @@ class ScreenshotGridWidget(Gtk.Box):
         for i, item in enumerate(self._local):
             self._flow.append(self._make_tile(item, "local", i))
 
-        if self._steam:
-            self._flow.append(self._make_divider())
-            for i, item in enumerate(self._steam):
-                self._flow.append(self._make_tile(item, "steam", i))
-
-    def _make_divider(self) -> Gtk.FlowBoxChild:
-        fbc = Gtk.FlowBoxChild()
-        fbc.set_focusable(False)
-        fbc.set_hexpand(True)
-        fbc.add_css_class("ss-divider-child")
-
-        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        box.set_margin_top(4)
-        box.set_margin_bottom(4)
-        box.set_margin_start(4)
-        box.set_margin_end(4)
-
-        sep1 = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
-        sep1.set_hexpand(True)
-        sep1.set_valign(Gtk.Align.CENTER)
-
-        lbl = Gtk.Label(label="Available on Steam")
-        lbl.add_css_class("dim-label")
-        lbl.add_css_class("caption")
-
-        sep2 = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
-        sep2.set_hexpand(True)
-        sep2.set_valign(Gtk.Align.CENTER)
-
-        box.append(sep1)
-        box.append(lbl)
-        box.append(sep2)
-        fbc.set_child(box)
-        return fbc
+        for i, item in enumerate(self._steam):
+            self._flow.append(self._make_tile(item, "steam", i))
 
     def _make_tile(self, item: ScreenshotItem, kind: str, idx: int) -> Gtk.FlowBoxChild:
         fbc = Gtk.FlowBoxChild()

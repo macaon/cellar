@@ -60,6 +60,9 @@ class EditAppDialog(Adw.Dialog):
         self._cover_path: str | None = None
         self._logo_path: str | None = None
 
+        # Raw (unescaped) entry point value
+        self._entry_point: str = ""
+
         # Screenshot dirty flag — True once grid has been touched
         self._screenshots_dirty: bool = False
 
@@ -471,8 +474,10 @@ class EditAppDialog(Adw.Dialog):
                 self._steam_appid_entry.set_text(str(e.steam_appid))
 
         if e.entry_point:
+            self._entry_point = e.entry_point
             self._entry_point_entry.set_subtitle(GLib.markup_escape_text(e.entry_point))
         else:
+            self._entry_point = ""
             self._entry_point_entry.set_subtitle("Not set")
         self._launch_args_entry.set_text(e.launch_args or "")
 
@@ -754,6 +759,7 @@ class EditAppDialog(Adw.Dialog):
                 formatted = "C:\\" + rel.replace("/", "\\")
             except ValueError:
                 formatted = abs_path
+        self._entry_point = formatted
         self._entry_point_entry.set_subtitle(GLib.markup_escape_text(formatted))
 
     # ── Image clear handlers ──────────────────────────────────────────────
@@ -839,8 +845,7 @@ class EditAppDialog(Adw.Dialog):
         genres_text = self._genres_entry.get_text().strip()
         genres = tuple(g.strip() for g in genres_text.split(",") if g.strip()) if genres_text else ()
         strategy = _STRATEGIES[self._strategy_row.get_selected()]
-        _ep_sub = self._entry_point_entry.get_subtitle() or ""
-        entry_point = "" if _ep_sub == "Not set" else _ep_sub
+        entry_point = self._entry_point
         launch_args = self._launch_args_entry.get_text().strip()
 
         # Single images: None=keep existing, ""=clear, str=new file

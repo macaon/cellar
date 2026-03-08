@@ -292,9 +292,7 @@ class RepoPickerDialog(Adw.Dialog):
                 row.set_subtitle(repo.uri)
             list_box.append(row)
 
-        sw = Gtk.ScrolledWindow(vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER)
-        sw.set_child(list_box)
-        toolbar.set_content(sw)
+        toolbar.set_content(list_box)
         self.set_child(toolbar)
 
     def _on_row_selected(self, _lb, row: Gtk.ListBoxRow | None) -> None:

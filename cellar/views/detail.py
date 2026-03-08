@@ -113,6 +113,7 @@ class DetailView(Gtk.Box):
         self._resolve = _first.resolve_asset_uri if _first else (lambda rel: rel)
         self._peek = _first.peek_asset_cache if _first else (lambda _: "")
         self._token = _first.token if _first else None
+        self._ssh_identity = _first.ssh_identity if _first else None
         self._is_writable = is_writable
         self._on_edit = on_edit
         self._is_installed = is_installed
@@ -255,6 +256,7 @@ class DetailView(Gtk.Box):
             archive_uri=archive_uri,
             on_success=self._on_install_success,
             token=self._token,
+            ssh_identity=self._ssh_identity,
             base_entry=base_entry,
             base_archive_uri=base_archive_uri,
         )
@@ -700,6 +702,7 @@ class DetailView(Gtk.Box):
         repo = self._source_repos[idx]
         self._resolve = repo.resolve_asset_uri
         self._token = repo.token
+        self._ssh_identity = repo.ssh_identity
         self._source_label.set_label(repo.name)
         self._source_popover.popdown()
 
@@ -1411,6 +1414,7 @@ class InstallProgressDialog(Adw.Dialog):
         archive_uri: str,
         on_success: Callable,  # (prefix_dir: str, install_path: str, runner: str, install_size: int) -> None
         token: str | None = None,
+        ssh_identity: str | None = None,
         base_entry=None,            # BaseEntry | None — for delta installs
         base_archive_uri: str = "", # resolved URI for the base archive
     ) -> None:
@@ -1419,6 +1423,7 @@ class InstallProgressDialog(Adw.Dialog):
         self._archive_uri = archive_uri
         self._on_success = on_success
         self._token = token
+        self._ssh_identity = ssh_identity
         self._cancel_event = threading.Event()
         self._base_entry = base_entry
         self._base_archive_uri = base_archive_uri
@@ -1487,6 +1492,7 @@ class InstallProgressDialog(Adw.Dialog):
                     phase_cb=_set_phase,
                     cancel_event=self._cancel_event,
                     token=self._token,
+                    ssh_identity=self._ssh_identity,
                 )
                 from cellar.backend.umu import prefixes_dir as _prefixes_dir
                 from cellar.utils.paths import dir_size_bytes as _dir_size
@@ -1528,6 +1534,7 @@ class InstallProgressDialog(Adw.Dialog):
                     phase_cb=_set_phase,
                     cancel_event=self._cancel_event,
                     token=self._token,
+                    ssh_identity=self._ssh_identity,
                 )
                 from cellar.utils.paths import dir_size_bytes as _dir_size
                 _install_size = _dir_size(install_dest)

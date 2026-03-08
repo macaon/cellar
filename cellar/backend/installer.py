@@ -183,6 +183,45 @@ def _smb_chunks(unc: str) -> Iterator[bytes]:
         raise InstallError(f"SMB read error for {unc}: {exc}") from exc
 
 
+def _ssh_chunks(
+    host: str,
+    remote_path: str,
+    *,
+    user: str | None = None,
+    port: int | None = None,
+    identity: str | None = None,
+) -> Iterator[bytes]:
+    """Stream *remote_path* from *host* via ``ssh … cat``, yielding 1 MB chunks."""
+    _CHUNK = 1 * 1024 * 1024
+    args = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new"]
+    if port:
+        args += ["-p", str(port)]
+    if identity:
+        args += ["-i", identity]
+    args.append(f"{user}@{host}" if user else host)
+    args += ["cat", remote_path]
+    try:
+        proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except FileNotFoundError:
+        raise InstallError(
+            "ssh executable not found; install OpenSSH client to use ssh:// repos"
+        )
+    assert proc.stdout is not None
+    try:
+        for chunk in iter(lambda: proc.stdout.read(_CHUNK), b""):  # type: ignore[union-attr]
+            yield chunk
+    except OSError as exc:
+        proc.kill()
+        raise InstallError(f"SSH stream error for {remote_path}: {exc}") from exc
+    proc.wait()
+    if proc.returncode != 0:
+        assert proc.stderr is not None
+        stderr = proc.stderr.read().decode(errors="replace").strip()
+        raise InstallError(
+            f"SSH stream failed for {remote_path}: {stderr or 'unknown error'}"
+        )
+
+
 
 
 def _build_source(
@@ -192,11 +231,9 @@ def _build_source(
     token: str | None = None,
     ssl_verify: bool = True,
     ca_cert: str | None = None,
+    ssh_identity: str | None = None,
 ) -> tuple[Iterator[bytes], int]:
-    """Return ``(chunk_iterator, total_bytes)`` for *uri*.
-
-    Raises ``InstallError`` for unsupported schemes (e.g. SSH).
-    """
+    """Return ``(chunk_iterator, total_bytes)`` for *uri*."""
     parsed = urlparse(uri)
     scheme = parsed.scheme.lower()
 
@@ -234,9 +271,20 @@ def _build_source(
                 size = 0
         return _smb_chunks(unc), size
 
+    if scheme == "ssh":
+        if not parsed.hostname:
+            raise InstallError(f"Invalid SSH URI (no host): {uri!r}")
+        return _ssh_chunks(
+            parsed.hostname,
+            parsed.path,
+            user=parsed.username or None,
+            port=parsed.port or None,
+            identity=ssh_identity,
+        ), expected_size
+
     raise InstallError(
-        f"Downloading from {scheme!r} repos is not yet supported. "
-        "Use a local, HTTP(S), SMB, or NFS repo."
+        f"Downloading from {scheme!r} repos is not supported. "
+        "Use a local, HTTP(S), SSH, or SMB repo."
     )
 
 
@@ -333,6 +381,7 @@ def install_app(
     token: str | None = None,
     ssl_verify: bool = True,
     ca_cert: str | None = None,
+    ssh_identity: str | None = None,
 ) -> str:
     """Download, verify, extract, and install *entry* to the Cellar prefix store.
 
@@ -381,6 +430,7 @@ def install_app(
             token=token,
             ssl_verify=ssl_verify,
             ca_cert=ca_cert,
+            ssh_identity=ssh_identity,
         )
 
     # ── Steps 1-3: Stream, verify CRC32, extract (single pass) ─────────
@@ -398,6 +448,7 @@ def install_app(
         token=token,
         ssl_verify=ssl_verify,
         ca_cert=ca_cert,
+        ssh_identity=ssh_identity,
     )
 
     if entry.base_image:
@@ -482,6 +533,7 @@ def install_linux_app(
     token: str | None = None,
     ssl_verify: bool = True,
     ca_cert: str | None = None,
+    ssh_identity: str | None = None,
 ) -> tuple[str, Path]:
     """Download, verify, extract, and install a Linux native app.
 
@@ -512,6 +564,7 @@ def install_linux_app(
         token=token,
         ssl_verify=ssl_verify,
         ca_cert=ca_cert,
+        ssh_identity=ssh_identity,
     )
 
     # Stream directly into the final install directory, stripping the single
@@ -728,6 +781,7 @@ def _ensure_base_installed(
     token: str | None,
     ssl_verify: bool,
     ca_cert: str | None,
+    ssh_identity: str | None = None,
 ) -> None:
     """Download, verify, and install the base image for *runner* if not already present.
 
@@ -763,6 +817,7 @@ def _ensure_base_installed(
             token=token,
             ssl_verify=ssl_verify,
             ca_cert=ca_cert,
+            ssh_identity=ssh_identity,
         )
         _stream_and_extract(
             chunks, total,

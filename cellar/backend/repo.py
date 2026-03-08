@@ -576,6 +576,18 @@ class Repo:
         dest = self._cache_dir.joinpath(*repo_relative.lstrip("/").split("/"))
         return str(dest) if dest.exists() else ""
 
+    def evict_asset_cache(self, repo_relative: str) -> None:
+        """Delete the cached copy of *repo_relative* so the next resolve re-fetches it.
+
+        No-op for local repos or when the file is not currently cached.
+        """
+        if isinstance(self._fetcher, _LocalFetcher) or not repo_relative:
+            return
+        if self._cache_dir is None:
+            return
+        dest = self._cache_dir.joinpath(*repo_relative.lstrip("/").split("/"))
+        dest.unlink(missing_ok=True)
+
     def fetch_categories(self) -> list[str]:
         """Return the ordered category list for this repo.
 

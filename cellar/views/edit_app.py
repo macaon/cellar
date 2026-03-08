@@ -1000,6 +1000,13 @@ class EditAppDialog(Adw.Dialog):
                                     except Exception:
                                         pass
                                 break
+                # Evict cached copies of any changed screenshots so the
+                # detail view re-fetches the new files instead of showing
+                # the old ones from cache.
+                if _grid_items is not None:
+                    _all_ss_rels = set(e.screenshots) | set(_run_entry.screenshots)
+                    for _rel in _all_ss_rels:
+                        self._repo.evict_asset_cache(_rel)
                 GLib.idle_add(self._on_save_done)
             except CancelledError:
                 GLib.idle_add(self._on_save_cancelled)

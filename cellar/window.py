@@ -11,7 +11,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gio, Gtk
+from gi.repository import Adw, GLib, Gio, Gtk
 
 from cellar.utils.paths import ui_file
 
@@ -331,7 +331,11 @@ class CellarWindow(Adw.ApplicationWindow):
 
     def _on_category_toggled(self, btn: Gtk.CheckButton, category: str) -> None:
         if not btn.get_active():
-            # Ignore the deactivation signal fired by the radio group.
+            # Button was deactivated — could be the radio group switching to
+            # another button, or the user clicking the active button to deselect
+            # it.  Defer the check so the newly activated button (if any) has
+            # already fired its own toggled signal before we decide.
+            GLib.idle_add(self._sync_filter_state)
             return
         self._active_category = category
         self.filter_button.add_css_class("suggested-action")
@@ -339,6 +343,16 @@ class CellarWindow(Adw.ApplicationWindow):
         self._browse_installed.set_active_category(category)
         self._browse_updates.set_active_category(category)
         self.filter_button.get_popover().popdown()
+
+    def _sync_filter_state(self) -> bool:
+        """Clear the filter if no category button is currently active."""
+        if not any(b.get_active() for b in self._category_btns.values()):
+            self._active_category = ""
+            self.filter_button.remove_css_class("suggested-action")
+            self._browse_explore.set_active_category("")
+            self._browse_installed.set_active_category("")
+            self._browse_updates.set_active_category("")
+        return GLib.SOURCE_REMOVE
 
     def _on_filter_clear(self, _button: Gtk.Button) -> None:
         for btn in self._category_btns.values():
@@ -461,7 +475,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="io.github.cellar",
-            version="0.46.24",
+            version="0.46.25",
             comments="A GNOME storefront for Windows and Linux apps.",
             license_type=Gtk.License.GPL_3_0,
         )

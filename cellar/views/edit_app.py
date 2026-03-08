@@ -110,7 +110,7 @@ class EditAppDialog(Adw.Dialog):
 
         # ── Left column: metadata ─────────────────────────────────────────
         left_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        left_box.set_width_request(360)
+        left_box.set_size_request(360, -1)
 
         page = Adw.PreferencesPage()
         page.set_vexpand(True)

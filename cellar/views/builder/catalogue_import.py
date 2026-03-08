@@ -418,12 +418,23 @@ class CatalogueEntriesDialog(Adw.Dialog):
                 project = Project(
                     name=entry.name,
                     slug=slug,
-                    project_type="app",
+                    project_type="app" if entry.platform == "windows" else "linux",
                     runner=entry.base_image,
                     entry_points=[{"name": "Main", "path": _ep}] if _ep else [],
                     steam_appid=entry.steam_appid,
                     initialized=True,
                     origin_app_id=entry.id,
+                    # Catalogue metadata
+                    version=entry.version or "1.0",
+                    category=entry.category or "",
+                    developer=entry.developer or "",
+                    publisher=entry.publisher or "",
+                    release_year=entry.release_year,
+                    website=entry.website or "",
+                    genres=list(entry.genres) if entry.genres else [],
+                    summary=entry.summary or "",
+                    description=entry.description or "",
+                    hide_title=entry.hide_title,
                 )
 
                 GLib.idle_add(progress.set_label, "Copying prefix\u2026")
@@ -436,6 +447,37 @@ class CatalogueEntriesDialog(Adw.Dialog):
                     elif src.is_file():
                         dst.parent.mkdir(parents=True, exist_ok=True)
                         shutil.copy2(src, dst)
+
+                # Download image assets from the repo into the project directory
+                GLib.idle_add(progress.set_label, "Downloading images\u2026")
+                project.project_dir.mkdir(parents=True, exist_ok=True)
+
+                for slot, rel_path in [("icon", entry.icon), ("cover", entry.cover), ("logo", entry.logo)]:
+                    if not rel_path:
+                        continue
+                    try:
+                        local = repo.resolve_asset_uri(rel_path)
+                        if local and Path(local).is_file():
+                            ext = Path(local).suffix or Path(rel_path).suffix
+                            dest = project.project_dir / f"{slot}{ext}"
+                            shutil.copy2(local, dest)
+                            setattr(project, f"{slot}_path", str(dest))
+                    except Exception:
+                        log.warning("Could not download %s for import", slot)
+
+                # Download screenshots
+                screenshot_paths: list[str] = []
+                for idx, ss_rel in enumerate(entry.screenshots):
+                    try:
+                        local = repo.resolve_asset_uri(ss_rel)
+                        if local and Path(local).is_file():
+                            ext = Path(local).suffix or Path(ss_rel).suffix
+                            dest = project.project_dir / f"screenshot_{idx}{ext}"
+                            shutil.copy2(local, dest)
+                            screenshot_paths.append(str(dest))
+                    except Exception:
+                        log.warning("Could not download screenshot %s", ss_rel)
+                project.screenshot_paths = screenshot_paths
 
                 save_project(project)
                 return project

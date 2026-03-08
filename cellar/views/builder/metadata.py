@@ -310,6 +310,10 @@ class AppMetadataDialog(Adw.Dialog):
         ss_box.append(self._screenshot_grid)
         right_box.append(ss_box)
 
+        # Fetch Steam screenshots if steam_appid is set (deduplicates automatically)
+        if p and p.steam_appid:
+            self._fetch_steam_screenshots(p.steam_appid)
+
         toolbar.set_content(scroll)
         self.set_child(toolbar)
 
@@ -428,6 +432,24 @@ class AppMetadataDialog(Adw.Dialog):
         txt = row.get_text().strip()
         genres = [g.strip() for g in txt.split(",") if g.strip()] if txt else []
         self._save("genres", genres)
+
+    def _fetch_steam_screenshots(self, steam_appid: int) -> None:
+        """Fetch Steam screenshots in the background and add to the grid."""
+        from cellar.utils.async_work import run_in_background
+
+        def _work():
+            from cellar.backend.steam import fetch_details
+            try:
+                details = fetch_details(steam_appid)
+                return details.get("screenshots", [])
+            except Exception:
+                return []
+
+        def _done(screenshots):
+            if screenshots:
+                self._screenshot_grid.add_steam(screenshots)
+
+        run_in_background(_work, on_done=_done)
 
     def _on_steam_lookup(self, _btn) -> None:
         from cellar.views.steam_picker import SteamPickerDialog

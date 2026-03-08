@@ -238,19 +238,22 @@ class AppMetadataDialog(Adw.Dialog):
 
         # Prefill thumbnails in edit mode
         if p and p.icon_path:
+            icon_display = self._convert_if_needed(p.icon_path)
             self._icon_row.set_subtitle(GLib.markup_escape_text(Path(p.icon_path).name))
             self._icon_clear_btn.set_visible(True)
-            self._icon_thumb.set_filename(p.icon_path)
+            self._icon_thumb.set_filename(icon_display)
             self._icon_thumb_wrap.set_visible(True)
         if p and p.cover_path:
+            cover_display = self._convert_if_needed(p.cover_path)
             self._cover_row.set_subtitle(GLib.markup_escape_text(Path(p.cover_path).name))
             self._cover_clear_btn.set_visible(True)
-            self._cover_thumb.set_filename(p.cover_path)
+            self._cover_thumb.set_filename(cover_display)
             self._cover_thumb_wrap.set_visible(True)
         if p and p.logo_path:
+            logo_display = self._convert_if_needed(p.logo_path)
             self._logo_row.set_subtitle(GLib.markup_escape_text(Path(p.logo_path).name))
             self._logo_clear_btn.set_visible(True)
-            self._logo_thumb.set_filename(p.logo_path)
+            self._logo_thumb.set_filename(logo_display)
             self._logo_thumb_wrap.set_visible(True)
             self._hide_title_btn.set_visible(True)
         if p and p.hide_title:
@@ -342,15 +345,27 @@ class AppMetadataDialog(Adw.Dialog):
     def _import_image_to_project(project: "Project", src_path: str, slot: str) -> str:
         """Copy *src_path* into the project directory as ``<slot><ext>``.
 
+        ICO and BMP files are converted to PNG on import so that GTK can
+        display them as thumbnails immediately.
+
         Returns the destination path (always inside the project directory).
         If *src_path* is already inside the project directory the file is left
         in place and the same path is returned.
         """
         import shutil
         src = Path(src_path)
+        ext = src.suffix.lower()
+        project.project_dir.mkdir(parents=True, exist_ok=True)
+
+        if ext in (".ico", ".bmp"):
+            from cellar.utils.images import Image
+            dest = project.project_dir / f"{slot}.png"
+            with Image.open(src) as img:
+                img.convert("RGBA").save(dest, format="PNG")
+            return str(dest)
+
         dest = project.project_dir / f"{slot}{src.suffix}"
         if src.resolve() != dest.resolve():
-            project.project_dir.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dest)
         return str(dest)
 
@@ -577,9 +592,22 @@ class AppMetadataDialog(Adw.Dialog):
         self._hide_title_btn.set_visible(False)
         self._tmp_logo = ""
 
+    @staticmethod
+    def _convert_if_needed(path: str) -> str:
+        """Convert ICO/BMP to a temp PNG so GTK can display it."""
+        ext = Path(path).suffix.lower()
+        if ext not in (".ico", ".bmp"):
+            return path
+        import tempfile
+        from cellar.utils.images import Image
+        with Image.open(path) as img:
+            tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+            img.convert("RGBA").save(tmp.name, format="PNG")
+            return tmp.name
+
     def _on_icon_chosen(self, _c, response, chooser) -> None:
         if response == Gtk.ResponseType.ACCEPT:
-            path = chooser.get_file().get_path()
+            path = self._convert_if_needed(chooser.get_file().get_path())
             self._icon_row.set_subtitle(GLib.markup_escape_text(Path(path).name))
             self._icon_clear_btn.set_visible(True)
             self._icon_thumb.set_filename(path)
@@ -591,7 +619,7 @@ class AppMetadataDialog(Adw.Dialog):
 
     def _on_cover_chosen(self, _c, response, chooser) -> None:
         if response == Gtk.ResponseType.ACCEPT:
-            path = chooser.get_file().get_path()
+            path = self._convert_if_needed(chooser.get_file().get_path())
             self._cover_row.set_subtitle(GLib.markup_escape_text(Path(path).name))
             self._cover_clear_btn.set_visible(True)
             self._cover_thumb.set_filename(path)
@@ -603,7 +631,7 @@ class AppMetadataDialog(Adw.Dialog):
 
     def _on_logo_chosen(self, _c, response, chooser) -> None:
         if response == Gtk.ResponseType.ACCEPT:
-            path = chooser.get_file().get_path()
+            path = self._convert_if_needed(chooser.get_file().get_path())
             self._logo_row.set_subtitle(GLib.markup_escape_text(Path(path).name))
             self._logo_clear_btn.set_visible(True)
             self._logo_thumb.set_filename(path)

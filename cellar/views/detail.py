@@ -207,7 +207,9 @@ class DetailView(Gtk.Box):
         if e.description:
             content_box.append(self._make_description())
 
-        content_box.append(self._make_info_cards())
+        self._content_box = content_box
+        self._info_cards = self._make_info_cards()
+        content_box.append(self._info_cards)
 
     # ------------------------------------------------------------------
     # Install helpers
@@ -284,6 +286,7 @@ class DetailView(Gtk.Box):
         if self._runner_label:
             self._runner_label.set_label(runner)
         self._update_install_button()
+        self._rebuild_info_cards()
         if self._on_install_done:
             self._on_install_done(prefix_dir, install_path, runner, install_size)
 
@@ -412,6 +415,7 @@ class DetailView(Gtk.Box):
         if self._installed_record is not None and install_size:
             self._installed_record = {**self._installed_record, "install_size": install_size}
         self._update_install_button()
+        self._rebuild_info_cards()
         if self._on_update_done:
             self._on_update_done(install_size)
 
@@ -444,6 +448,7 @@ class DetailView(Gtk.Box):
         self._is_installed = False
         self._installed_record = None
         self._update_install_button()
+        self._rebuild_info_cards()
         if self._on_remove_done:
             self._on_remove_done()
 
@@ -1101,6 +1106,19 @@ class DetailView(Gtk.Box):
             last.add_css_class("info-cell-last")
 
         return outer
+
+    def _rebuild_info_cards(self) -> None:
+        """Replace the info cards row in-place (e.g. after install/remove)."""
+        new_cards = self._make_info_cards()
+        parent = self._info_cards.get_parent()
+        if parent is not None:
+            prev = self._info_cards.get_prev_sibling()
+            parent.remove(self._info_cards)
+            if prev is not None:
+                parent.insert_child_after(new_cards, prev)
+            else:
+                parent.prepend(new_cards)
+        self._info_cards = new_cards
 
     def _make_wine_card(self) -> Gtk.Box:
         """Return a card showing the Wine base image."""

@@ -912,6 +912,7 @@ class EditAppDialog(Adw.Dialog):
             lock_runner=e.lock_runner,
             steam_appid=steam_appid if e.platform != "linux" else None,
             platform=e.platform,
+            screenshot_sources=e.screenshot_sources,
         )
 
         images = {

@@ -294,7 +294,7 @@ class AppMetadataDialog(Adw.Dialog):
         )
         self._screenshot_grid.set_local_items(list(p.screenshot_paths) if p else [])
         if p and p.steam_screenshots:
-            self._screenshot_grid.add_steam(p.steam_screenshots)
+            self._screenshot_grid.add_steam(p.steam_screenshots, notify=False)
             if p.selected_steam_urls:
                 self._screenshot_grid.select_steam_by_urls(set(p.selected_steam_urls))
         ss_box.append(self._screenshot_grid)

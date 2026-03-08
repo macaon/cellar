@@ -146,11 +146,12 @@ class ScreenshotGridWidget(Gtk.Box):
         self._rebuild()
         self._on_changed()
 
-    def add_steam(self, steam_data: list[dict]) -> None:
+    def add_steam(self, steam_data: list[dict], *, notify: bool = True) -> None:
         """Add Steam screenshot suggestions, deduplicating against existing local items.
 
         *steam_data* is a list of ``{"thumbnail": url, "full": url}`` dicts.
         Steam items start unchecked; the user checks the ones they want.
+        Pass ``notify=False`` when restoring saved state to suppress the on_changed callback.
         """
         existing_filenames = {
             Path(item.local_path).name
@@ -185,7 +186,8 @@ class ScreenshotGridWidget(Gtk.Box):
         self._steam.extend(added)
         self._rebuild()
         self._load_steam_thumbnails(added)
-        self._on_changed()
+        if notify:
+            self._on_changed()
 
     def set_items(self, items: list[ScreenshotItem]) -> None:
         """Restore full widget state (local + steam-pending). Local items are pre-checked."""

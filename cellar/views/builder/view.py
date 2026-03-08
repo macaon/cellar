@@ -1688,10 +1688,10 @@ class _ProjectRow(Gtk.ListBoxRow):
         self._label.set_ellipsize(3)  # Pango.EllipsizeMode.END
         top.append(self._label)
 
-        _badge_labels = {"base": "Base", "linux": "Linux"}
-        badge = Gtk.Label(label=_badge_labels.get(project.project_type, "App"))
-        badge.add_css_class("caption")
+        _type_icons = {"base": "package-x-generic-symbolic", "linux": "penguin-alt-symbolic"}
+        badge = Gtk.Image.new_from_icon_name(_type_icons.get(project.project_type, "grid-large-symbolic"))
         badge.add_css_class("dim-label")
+        badge.set_valign(Gtk.Align.CENTER)
         top.append(badge)
 
         del_btn = Gtk.Button(icon_name="user-trash-symbolic", tooltip_text="Delete package")

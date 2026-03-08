@@ -151,6 +151,9 @@ class SteamPickerDialog(Adw.Dialog):
         return False
 
     def _trigger_search(self, query: str) -> None:
+        if self._debounce_id is not None:
+            GLib.source_remove(self._debounce_id)
+            self._debounce_id = None
         self._search_gen += 1
         gen = self._search_gen
         self._stack.set_visible_child_name("spinner")

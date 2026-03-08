@@ -7,6 +7,7 @@ python_sources = files(
   'paths.py',
   'progress.py',
   'smb.py',
+  'ssh.py',
 )
 
 python.install_sources(python_sources, subdir: 'cellar/utils')

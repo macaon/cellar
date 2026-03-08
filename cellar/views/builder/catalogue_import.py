@@ -276,12 +276,12 @@ class CatalogueEntriesDialog(Adw.Dialog):
                     initialized=True,
                 )
 
-                GLib.idle_add(progress.set_label, "Copying prefix\u2026")
+                GLib.idle_add(progress.set_label, "Copying content\u2026")
                 GLib.idle_add(progress.set_fraction, 0.0)
-                project.prefix_path.mkdir(parents=True, exist_ok=True)
+                project.content_path.mkdir(parents=True, exist_ok=True)
                 for src in bottle_src.rglob("*"):
                     rel = src.relative_to(bottle_src)
-                    dst = project.prefix_path / rel
+                    dst = project.content_path / rel
                     if src.is_dir():
                         dst.mkdir(parents=True, exist_ok=True)
                     elif src.is_file():
@@ -438,11 +438,11 @@ class CatalogueEntriesDialog(Adw.Dialog):
                     hide_title=entry.hide_title,
                 )
 
-                GLib.idle_add(progress.set_label, "Copying prefix\u2026")
-                project.prefix_path.mkdir(parents=True, exist_ok=True)
+                GLib.idle_add(progress.set_label, "Copying content\u2026")
+                project.content_path.mkdir(parents=True, exist_ok=True)
                 for src in bottle_src.rglob("*"):
                     rel = src.relative_to(bottle_src)
-                    dst = project.prefix_path / rel
+                    dst = project.content_path / rel
                     if src.is_dir():
                         dst.mkdir(parents=True, exist_ok=True)
                     elif src.is_file():
@@ -484,7 +484,7 @@ class CatalogueEntriesDialog(Adw.Dialog):
                 # so the project is immediately publishable. User can still
                 # pick a different folder via "Choose…" if needed.
                 if project.project_type == "linux":
-                    project.source_dir = str(project.prefix_path)
+                    project.source_dir = str(project.content_path)
 
                 save_project(project)
                 return project

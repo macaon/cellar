@@ -383,7 +383,7 @@ class PackageBuilderView(Gtk.Box):
         # ── 3. Prefix (Windows / Base only) ───────────────────────────────
         if project.project_type != "linux":
             prefix_group = Adw.PreferencesGroup(title="Prefix")
-            prefix_exists = project.prefix_path.is_dir()
+            prefix_exists = project.content_path.is_dir()
             status_text = "Initialized" if (prefix_exists and project.initialized) else (
                 "Directory exists (not initialized)" if prefix_exists else "Not initialized"
             )
@@ -900,12 +900,12 @@ class PackageBuilderView(Gtk.Box):
             return
         project = self._project
         if project.project_type == "linux":
-            project.prefix_path.mkdir(parents=True, exist_ok=True)
+            project.content_path.mkdir(parents=True, exist_ok=True)
             self._on_init_done(project, True)
             return
         if not project.runner:
             return
-        project.prefix_path.mkdir(parents=True, exist_ok=True)
+        project.content_path.mkdir(parents=True, exist_ok=True)
 
         progress = ProgressDialog(label="Initializing prefix…")
         progress.present(self)
@@ -915,14 +915,14 @@ class PackageBuilderView(Gtk.Box):
         def _work():
             from cellar.backend.umu import init_prefix
             result = init_prefix(
-                project.prefix_path,
+                project.content_path,
                 runner_name,
                 steam_appid=project.steam_appid,
             )
             # umu-run "" initializes the prefix then tries to execute an
             # empty string, which Wine rejects with exit code 1.  Use the
             # presence of drive_c as the real success indicator.
-            return result.returncode == 0 or (project.prefix_path / "drive_c").is_dir()
+            return result.returncode == 0 or (project.content_path / "drive_c").is_dir()
 
         def _finish(ok: bool) -> None:
             progress.force_close()
@@ -1101,9 +1101,9 @@ class PackageBuilderView(Gtk.Box):
         if self._project.project_type == "linux":
             target = Path(self._project.source_dir) if self._project.source_dir else None
         else:
-            target = self._project.prefix_path / "drive_c"
+            target = self._project.content_path / "drive_c"
             if not target.is_dir():
-                target = self._project.prefix_path
+                target = self._project.content_path
         if not target or not target.is_dir():
             self._show_toast("Directory not set yet.")
             return
@@ -1119,7 +1119,7 @@ class PackageBuilderView(Gtk.Box):
             entry_point="winecfg",
             runner_name=self._resolve_runner_name(self._project),
             steam_appid=self._project.steam_appid,
-            prefix_dir=self._project.prefix_path,
+            prefix_dir=self._project.content_path,
         )
 
     def _on_add_entry_point_clicked(self, _btn) -> None:
@@ -1130,13 +1130,13 @@ class PackageBuilderView(Gtk.Box):
             if not project.source_dir:
                 self._show_toast("Choose a source folder first.")
                 return
-            prefix_path = Path(project.source_dir)
+            content_path = Path(project.source_dir)
             platform = "linux"
         else:
-            prefix_path = project.prefix_path
+            content_path = project.content_path
             platform = "windows"
         dialog = AddLaunchTargetDialog(
-            prefix_path=prefix_path,
+            content_path=content_path,
             platform=platform,
             on_added=lambda ep: self._on_entry_point_added(project, ep),
         )
@@ -1223,7 +1223,7 @@ class PackageBuilderView(Gtk.Box):
             entry_point=entry_path,
             runner_name=self._resolve_runner_name(project),
             steam_appid=project.steam_appid,
-            prefix_dir=project.prefix_path,
+            prefix_dir=project.content_path,
             launch_args=entry_args,
         )
 
@@ -1248,7 +1248,7 @@ class PackageBuilderView(Gtk.Box):
             return
 
         repo = self._writable_repos[0]
-        _src_path = Path(project.source_dir) if project.project_type == "linux" else project.prefix_path
+        _src_path = Path(project.source_dir) if project.project_type == "linux" else project.content_path
 
         # Build AppEntry from project metadata.
         from cellar.models.app_entry import AppEntry
@@ -1396,7 +1396,7 @@ class PackageBuilderView(Gtk.Box):
                         base_image = project.runner
                     else:
                         size, crc32 = compress_prefix_zst(
-                            project.prefix_path,
+                            project.content_path,
                             archive_dest,
                             cancel_event=cancel_event,
                             progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
@@ -1471,7 +1471,7 @@ class PackageBuilderView(Gtk.Box):
             self._show_toast("No writable repository configured.")
             return
 
-        _src_path = Path(project.source_dir) if project.project_type == "linux" else project.prefix_path
+        _src_path = Path(project.source_dir) if project.project_type == "linux" else project.content_path
 
         # Find a writable repo that has this entry.
         repo = None
@@ -1537,7 +1537,7 @@ class PackageBuilderView(Gtk.Box):
                     if _use_delta:
                         _reset_phase("Scanning files\u2026")
                         size, crc32 = compress_prefix_delta_zst(
-                            project.prefix_path,
+                            project.content_path,
                             base_path(project.runner),
                             archive_dest,
                             cancel_event=cancel_event,
@@ -1549,7 +1549,7 @@ class PackageBuilderView(Gtk.Box):
                         base_image = project.runner
                     else:
                         size, crc32 = compress_prefix_zst(
-                            project.prefix_path,
+                            project.content_path,
                             archive_dest,
                             cancel_event=cancel_event,
                             progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
@@ -1673,7 +1673,7 @@ class PackageBuilderView(Gtk.Box):
 
                 _partial_files.append(archive_dest)
                 size, crc32 = compress_prefix_zst(
-                    project.prefix_path,
+                    project.content_path,
                     archive_dest,
                     cancel_event=cancel_event,
                     progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
@@ -1701,7 +1701,7 @@ class PackageBuilderView(Gtk.Box):
             GLib.idle_add(progress.set_label, "Installing base locally\u2026")
             GLib.idle_add(progress.set_fraction, 0.0)
             install_base_from_dir(
-                project.prefix_path,
+                project.content_path,
                 base_name,
                 repo_source=repo.uri,
                 progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
@@ -1744,7 +1744,7 @@ class PackageBuilderView(Gtk.Box):
             self._show_toast("Select a runner first.")
             return
 
-        project.prefix_path.mkdir(parents=True, exist_ok=True)
+        project.content_path.mkdir(parents=True, exist_ok=True)
         runner_name = self._resolve_runner_name(project)
 
         progress = ProgressDialog(label=label)
@@ -1753,7 +1753,7 @@ class PackageBuilderView(Gtk.Box):
         def _work():
             from cellar.backend.umu import run_in_prefix
             result = run_in_prefix(
-                project.prefix_path,
+                project.content_path,
                 runner_name,
                 exe,
                 timeout=600,

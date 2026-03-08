@@ -237,7 +237,7 @@ class DependencyPickerDialog(Adw.Dialog):
         def _work():
             from cellar.backend.umu import run_winetricks
             result = run_winetricks(
-                self._project.prefix_path,
+                self._project.content_path,
                 self._runner_name,
                 verbs,
                 line_cb=lambda line: GLib.idle_add(dlg.push_line, line),

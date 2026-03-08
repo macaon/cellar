@@ -23,9 +23,9 @@ log = logging.getLogger(__name__)
 class AddLaunchTargetDialog(Adw.Dialog):
     """Dialog for adding a new launch target (name + executable path) to a project."""
 
-    def __init__(self, prefix_path: Path, on_added: Callable, platform: str = "windows") -> None:
+    def __init__(self, content_path: Path, on_added: Callable, platform: str = "windows") -> None:
         super().__init__(title="Add Launch Target", content_width=480)
-        self._prefix_path = prefix_path
+        self._content_path = content_path
         self._platform = platform
         self._on_added = on_added
         self._chosen_path: str = ""
@@ -80,10 +80,10 @@ class AddLaunchTargetDialog(Adw.Dialog):
 
     def _on_browse_clicked(self, _btn) -> None:
         if self._platform == "linux":
-            browse_root = self._prefix_path
+            browse_root = self._content_path
             title = "Select Executable"
         else:
-            browse_root = self._prefix_path / "drive_c"
+            browse_root = self._content_path / "drive_c"
             title = "Select Executable (.exe)"
         chooser = Gtk.FileChooserNative(
             title=title,
@@ -108,12 +108,12 @@ class AddLaunchTargetDialog(Adw.Dialog):
         abs_path = chooser.get_file().get_path()
         if self._platform == "linux":
             try:
-                rel = os.path.relpath(abs_path, str(self._prefix_path))
+                rel = os.path.relpath(abs_path, str(self._content_path))
             except ValueError:
                 rel = abs_path
             display_path = rel
         else:
-            drive_c = self._prefix_path / "drive_c"
+            drive_c = self._content_path / "drive_c"
             try:
                 rel = os.path.relpath(abs_path, str(drive_c))
                 display_path = "C:\\" + rel.replace("/", "\\")

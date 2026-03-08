@@ -87,8 +87,8 @@ class Project:
         return projects_dir() / self.slug
 
     @property
-    def prefix_path(self) -> Path:
-        return self.project_dir / "prefix"
+    def content_path(self) -> Path:
+        return self.project_dir / "content"
 
     # ------------------------------------------------------------------
     # Serialisation
@@ -276,15 +276,15 @@ def package_project(
     """
     from cellar.backend.packager import compress_prefix_zst
 
-    if not project.prefix_path.is_dir():
+    if not project.content_path.is_dir():
         raise RuntimeError(
-            f"Prefix directory not found: {project.prefix_path}\n"
-            "Initialize the prefix before packaging."
+            f"Content directory not found: {project.content_path}\n"
+            "Initialize the project before packaging."
         )
 
     dest = project.project_dir / f"{project.slug}.tar.zst"
     size, crc32 = compress_prefix_zst(
-        project.prefix_path,
+        project.content_path,
         dest,
         cancel_event=cancel_event,
         progress_cb=progress_cb,

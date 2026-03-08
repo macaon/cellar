@@ -975,12 +975,8 @@ class EditAppDialog(Adw.Dialog):
                     if _item.local_path:
                         log.debug("  item local_path=%r", _item.local_path)
                         final_paths.append(_item.local_path)
-                        # Preserve any existing source URL from the old entry
-                        _old_rel = next(
-                            (r for r in e.screenshots if str(repo_root / r) == _item.local_path),
-                            None,
-                        )
-                        final_sources.append(e.screenshot_sources.get(_old_rel) if _old_rel else None)
+                        # source_url is pre-populated from e.screenshot_sources during prefill
+                        final_sources.append(_item.source_url)
                     elif _item.full_url:
                         _fname = _item.full_url.split("/")[-1].split("?")[0] or "screenshot.jpg"
                         _dest = dl_dir / _fname

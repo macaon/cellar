@@ -1300,6 +1300,7 @@ class PackageBuilderView(Gtk.Box):
                 dl_dir.mkdir(parents=True, exist_ok=True)
                 _selected = set(project.selected_steam_urls)
                 _downloaded: list[str] = []
+                _steam_url_for_path: dict[str, str] = {}
                 for i, ss in enumerate(project.steam_screenshots):
                     if ss.get("full") not in _selected:
                         continue
@@ -1310,14 +1311,21 @@ class PackageBuilderView(Gtk.Box):
                             _dest = dl_dir / f"steam_{i:02d}{_suffix}"
                             _dest.write_bytes(_resp.content)
                             _downloaded.append(str(_dest))
+                            _steam_url_for_path[str(_dest)] = ss["full"]
                     except Exception as _exc:  # noqa: BLE001
                         log.warning("Screenshot download failed: %s", _exc)
                 if _downloaded:
+                    _n_existing = len(project.screenshot_paths)
                     project.screenshot_paths = list(project.screenshot_paths) + _downloaded
-                    entry = _dc_replace(entry, screenshots=tuple(
+                    _new_rels = tuple(
                         f"apps/{_slug}/screenshots/{j + 1:02d}{Path(p).suffix}"
                         for j, p in enumerate(project.screenshot_paths)
-                    ))
+                    )
+                    _ss_sources = {
+                        _new_rels[_n_existing + k]: _steam_url_for_path[_downloaded[k]]
+                        for k in range(len(_downloaded))
+                    }
+                    entry = _dc_replace(entry, screenshots=_new_rels, screenshot_sources=_ss_sources)
                     images["screenshots"] = list(project.screenshot_paths)
                 project.steam_screenshots = []
                 project.selected_steam_urls = []

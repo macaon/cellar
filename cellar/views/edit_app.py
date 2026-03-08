@@ -334,10 +334,10 @@ class EditAppDialog(Adw.Dialog):
         img_list.add_css_class("boxed-list")
         img_list.set_selection_mode(Gtk.SelectionMode.NONE)
 
-        self._icon_row, self._icon_clear_btn, self._icon_thumb = self._make_image_row(
+        self._icon_row, self._icon_clear_btn, self._icon_thumb, self._icon_thumb_wrap = self._make_image_row(
             "Icon", self._pick_icon, thumb_w=52, thumb_h=52
         )
-        self._cover_row, self._cover_clear_btn, self._cover_thumb = self._make_image_row(
+        self._cover_row, self._cover_clear_btn, self._cover_thumb, self._cover_thumb_wrap = self._make_image_row(
             "Cover", self._pick_cover, thumb_w=52, thumb_h=70
         )
 
@@ -347,7 +347,7 @@ class EditAppDialog(Adw.Dialog):
         self._hide_title_btn.set_visible(False)
         self._hide_title_btn.set_tooltip_text("Hide title — logo contains the app name")
         self._hide_title_btn.connect("toggled", self._on_hide_title_toggled)
-        self._logo_row, self._logo_clear_btn, self._logo_thumb = self._make_image_row(
+        self._logo_row, self._logo_clear_btn, self._logo_thumb, self._logo_thumb_wrap = self._make_image_row(
             "Logo", self._pick_logo, extra_suffix=self._hide_title_btn, thumb_w=130, thumb_h=52
         )
 
@@ -393,7 +393,7 @@ class EditAppDialog(Adw.Dialog):
 
     def _make_image_row(
         self, label: str, handler, extra_suffix=None, thumb_w: int = 64, thumb_h: int = 64
-    ) -> tuple[Adw.ActionRow, Gtk.Button, Gtk.Picture]:
+    ) -> tuple[Adw.ActionRow, Gtk.Button, Gtk.Picture, _FixedBox]:
         row = Adw.ActionRow(title=label)
         row.set_subtitle("No image set")
 
@@ -404,6 +404,7 @@ class EditAppDialog(Adw.Dialog):
         thumb_wrap = _FixedBox(thumb_w, thumb_h)
         thumb_wrap.set_halign(Gtk.Align.CENTER)
         thumb_wrap.set_valign(Gtk.Align.CENTER)
+        thumb_wrap.set_visible(False)
         thumb_wrap.set_child(thumb)
         row.add_prefix(thumb_wrap)
 
@@ -422,7 +423,7 @@ class EditAppDialog(Adw.Dialog):
         change_btn.connect("clicked", handler)
         row.add_suffix(change_btn)
 
-        return row, clear_btn, thumb
+        return row, clear_btn, thumb, thumb_wrap
 
     def _build_progress(self) -> Gtk.Widget:
         box, self._progress_label, self._progress_bar, self._cancel_progress_btn = (
@@ -515,15 +516,16 @@ class EditAppDialog(Adw.Dialog):
             return p if (p and _os.path.isfile(p)) else None
 
         # Single images: apply cached thumbnails synchronously
-        for key, rel, thumb in [
-            ("icon",  e.icon,  self._icon_thumb),
-            ("cover", e.cover, self._cover_thumb),
-            ("logo",  e.logo,  self._logo_thumb),
+        for key, rel, thumb, wrap in [
+            ("icon",  e.icon,  self._icon_thumb,  self._icon_thumb_wrap),
+            ("cover", e.cover, self._cover_thumb, self._cover_thumb_wrap),
+            ("logo",  e.logo,  self._logo_thumb,  self._logo_thumb_wrap),
         ]:
             if rel:
                 cached = _peek_or_none(rel)
                 if cached:
                     thumb.set_filename(cached)
+                    wrap.set_visible(True)
 
         # Screenshots: build list from cache; collect missing rels for background fetch
         _ss_rels = list(e.screenshots)
@@ -568,10 +570,13 @@ class EditAppDialog(Adw.Dialog):
                 singles, extra_ss = res
                 if "icon" in singles:
                     self._icon_thumb.set_filename(singles["icon"])
+                    self._icon_thumb_wrap.set_visible(True)
                 if "cover" in singles:
                     self._cover_thumb.set_filename(singles["cover"])
+                    self._cover_thumb_wrap.set_visible(True)
                 if "logo" in singles:
                     self._logo_thumb.set_filename(singles["logo"])
+                    self._logo_thumb_wrap.set_visible(True)
                 if extra_ss:
                     # Merge newly resolved screenshots into the grid
                     # Re-build full list preserving original order
@@ -682,6 +687,7 @@ class EditAppDialog(Adw.Dialog):
             self._icon_row.set_subtitle(GLib.markup_escape_text(Path(self._icon_path).name))
             self._icon_clear_btn.set_visible(True)
             self._icon_thumb.set_filename(self._icon_path)
+            self._icon_thumb_wrap.set_visible(True)
 
     def _pick_cover(self, _btn) -> None:
         self._pick_image("Select Cover", False, self._on_cover_chosen)
@@ -692,6 +698,7 @@ class EditAppDialog(Adw.Dialog):
             self._cover_row.set_subtitle(GLib.markup_escape_text(Path(self._cover_path).name))
             self._cover_clear_btn.set_visible(True)
             self._cover_thumb.set_filename(self._cover_path)
+            self._cover_thumb_wrap.set_visible(True)
 
     def _pick_logo(self, _btn) -> None:
         self._pick_image("Select Logo (transparent PNG)", False, self._on_logo_chosen)
@@ -702,6 +709,7 @@ class EditAppDialog(Adw.Dialog):
             self._logo_row.set_subtitle(GLib.markup_escape_text(Path(self._logo_path).name))
             self._logo_clear_btn.set_visible(True)
             self._logo_thumb.set_filename(self._logo_path)
+            self._logo_thumb_wrap.set_visible(True)
             self._hide_title_btn.set_visible(True)
             if not self._old_entry.logo and not self._hide_title_btn.get_active():
                 self._hide_title_btn.set_active(True)
@@ -779,18 +787,21 @@ class EditAppDialog(Adw.Dialog):
         self._icon_row.set_subtitle("Will be removed")
         self._icon_clear_btn.set_visible(False)
         self._icon_thumb.set_paintable(None)
+        self._icon_thumb_wrap.set_visible(False)
 
     def _on_cover_clear(self, _btn) -> None:
         self._cover_path = ""
         self._cover_row.set_subtitle("Will be removed")
         self._cover_clear_btn.set_visible(False)
         self._cover_thumb.set_paintable(None)
+        self._cover_thumb_wrap.set_visible(False)
 
     def _on_logo_clear(self, _btn) -> None:
         self._logo_path = ""
         self._logo_row.set_subtitle("Will be removed")
         self._logo_clear_btn.set_visible(False)
         self._logo_thumb.set_paintable(None)
+        self._logo_thumb_wrap.set_visible(False)
         self._hide_title_btn.set_visible(False)
 
     # ── Steam lookup ──────────────────────────────────────────────────────

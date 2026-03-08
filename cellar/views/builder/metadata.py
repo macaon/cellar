@@ -39,7 +39,8 @@ class AppMetadataDialog(Adw.Dialog):
         _new_titles = {"linux": "New Linux App"}
         super().__init__(
             title="Details" if self._is_edit else _new_titles.get(self._project_type, "New App"),
-            content_width=480,
+            content_width=1100,
+            content_height=680,
         )
         self._project = project
         self._on_created = on_created
@@ -77,12 +78,27 @@ class AppMetadataDialog(Adw.Dialog):
             header.pack_end(self._create_btn)
 
         toolbar.add_top_bar(header)
-        page = Adw.PreferencesPage()
 
-        # ── Identity ──────────────────────────────────────────────────────
+        # Single scroll wraps both panes
+        scroll = Gtk.ScrolledWindow(
+            hscrollbar_policy=Gtk.PolicyType.NEVER,
+            vscrollbar_policy=Gtk.PolicyType.AUTOMATIC,
+        )
+        hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        scroll.set_child(hbox)
+
+        # ── Left column: metadata ─────────────────────────────────────────
+        left_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        left_box.set_size_request(360, -1)
+
+        page = Adw.PreferencesPage()
+        page.set_vexpand(True)
+        left_box.append(page)
+        hbox.append(left_box)
+
+        # Identity
         id_group = Adw.PreferencesGroup()
 
-        # Title — editable unless prefix is already initialized
         title_locked = self._is_edit and bool(p and p.initialized)
         if title_locked:
             self._title_row = Adw.ActionRow(title="Title")
@@ -100,7 +116,6 @@ class AppMetadataDialog(Adw.Dialog):
             self._title_row.add_suffix(steam_btn)
         id_group.add(self._title_row)
 
-        # App ID
         slug_subtitle = p.slug if p else ""
         self._slug_row = Adw.ActionRow(title="App ID", subtitle=slug_subtitle)
         self._slug_row.add_css_class("property")
@@ -108,7 +123,7 @@ class AppMetadataDialog(Adw.Dialog):
 
         page.add(id_group)
 
-        # ── Details ───────────────────────────────────────────────────────
+        # Details
         det_group = Adw.PreferencesGroup(title="Details")
 
         self._version_row = Adw.EntryRow(title="Version")
@@ -170,7 +185,7 @@ class AppMetadataDialog(Adw.Dialog):
 
         page.add(det_group)
 
-        # ── Description ───────────────────────────────────────────────────
+        # Description
         desc_group = Adw.PreferencesGroup(title="Description")
 
         self._summary_row = Adw.EntryRow(title="Summary")
@@ -187,49 +202,114 @@ class AppMetadataDialog(Adw.Dialog):
 
         page.add(desc_group)
 
-        # ── Images ────────────────────────────────────────────────────────
-        img_group = Adw.PreferencesGroup(title="Images")
+        # ── Vertical separator ────────────────────────────────────────────
+        hbox.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
 
-        self._icon_row = Adw.ActionRow(title="Icon")
-        icon_sub = Path(p.icon_path).name if (p and p.icon_path) else "Not set"
-        self._icon_row.set_subtitle(icon_sub)
-        icon_btn = Gtk.Button(label="Choose\u2026", valign=Gtk.Align.CENTER)
-        icon_btn.connect("clicked", self._on_pick_icon)
-        self._icon_row.add_suffix(icon_btn)
-        img_group.add(self._icon_row)
+        # ── Right column: media ───────────────────────────────────────────
+        right_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        right_box.set_hexpand(True)
+        right_box.set_margin_top(16)
+        right_box.set_margin_bottom(16)
+        right_box.set_margin_start(16)
+        right_box.set_margin_end(16)
+        hbox.append(right_box)
 
-        self._cover_row = Adw.ActionRow(title="Cover")
-        cover_sub = Path(p.cover_path).name if (p and p.cover_path) else "Not set"
-        self._cover_row.set_subtitle(cover_sub)
-        cover_btn = Gtk.Button(label="Choose\u2026", valign=Gtk.Align.CENTER)
-        cover_btn.connect("clicked", self._on_pick_cover)
-        self._cover_row.add_suffix(cover_btn)
-        img_group.add(self._cover_row)
+        # Image rows in a boxed-list
+        img_list = Gtk.ListBox()
+        img_list.add_css_class("boxed-list")
+        img_list.set_selection_mode(Gtk.SelectionMode.NONE)
 
-        self._logo_row = Adw.ActionRow(title="Logo")
-        logo_sub = Path(p.logo_path).name if (p and p.logo_path) else "Not set"
-        self._logo_row.set_subtitle(logo_sub)
+        self._icon_row, self._icon_clear_btn, self._icon_thumb = self._make_image_row(
+            "Icon", self._on_pick_icon
+        )
+        self._cover_row, self._cover_clear_btn, self._cover_thumb = self._make_image_row(
+            "Cover", self._on_pick_cover
+        )
+
         self._hide_title_btn = Gtk.ToggleButton()
-        self._hide_title_btn.set_icon_name("view-conceal-symbolic")
+        self._hide_title_btn.set_icon_name("eye-open-negative-filled-symbolic")
         self._hide_title_btn.set_valign(Gtk.Align.CENTER)
+        self._hide_title_btn.set_visible(False)
         self._hide_title_btn.set_tooltip_text("Hide title \u2014 logo contains the app name")
         self._hide_title_btn.set_active(bool(p and p.hide_title))
-        if self._is_edit:
-            self._hide_title_btn.connect("toggled", self._on_hide_title_toggled)
-        self._logo_row.add_suffix(self._hide_title_btn)
-        logo_btn = Gtk.Button(label="Choose\u2026", valign=Gtk.Align.CENTER)
-        logo_btn.connect("clicked", self._on_pick_logo)
-        self._logo_row.add_suffix(logo_btn)
-        img_group.add(self._logo_row)
+        self._hide_title_btn.connect("toggled", self._on_hide_title_toggled)
+        self._logo_row, self._logo_clear_btn, self._logo_thumb = self._make_image_row(
+            "Logo", self._on_pick_logo, extra_suffix=self._hide_title_btn
+        )
 
+        self._icon_clear_btn.connect("clicked", self._on_icon_clear)
+        self._cover_clear_btn.connect("clicked", self._on_cover_clear)
+        self._logo_clear_btn.connect("clicked", self._on_logo_clear)
+
+        # Prefill thumbnails in edit mode
+        if p and p.icon_path:
+            self._icon_row.set_subtitle(GLib.markup_escape_text(Path(p.icon_path).name))
+            self._icon_clear_btn.set_visible(True)
+            self._icon_thumb.set_filename(p.icon_path)
+        if p and p.cover_path:
+            self._cover_row.set_subtitle(GLib.markup_escape_text(Path(p.cover_path).name))
+            self._cover_clear_btn.set_visible(True)
+            self._cover_thumb.set_filename(p.cover_path)
+        if p and p.logo_path:
+            self._logo_row.set_subtitle(GLib.markup_escape_text(Path(p.logo_path).name))
+            self._logo_clear_btn.set_visible(True)
+            self._logo_thumb.set_filename(p.logo_path)
+            self._hide_title_btn.set_visible(True)
+        if p and p.hide_title:
+            self._hide_title_btn.set_icon_name("eye-not-looking-symbolic")
+
+        img_list.append(self._icon_row)
+        img_list.append(self._cover_row)
+        img_list.append(self._logo_row)
+        right_box.append(img_list)
+
+        # Separator between image rows and screenshot grid
+        hsep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        hsep.set_margin_top(12)
+        hsep.set_margin_bottom(4)
+        right_box.append(hsep)
+
+        # Screenshot grid — no inner scroll; outer scroll handles everything
         from cellar.views.screenshot_grid import ScreenshotGridWidget
-        self._screenshot_grid = ScreenshotGridWidget(on_changed=self._on_screenshots_changed)
+        self._screenshot_grid = ScreenshotGridWidget(
+            on_changed=self._on_screenshots_changed,
+            scrolled=False,
+            vexpand=True,
+        )
         self._screenshot_grid.set_local_items(list(p.screenshot_paths) if p else [])
-        img_group.add(self._screenshot_grid)
+        right_box.append(self._screenshot_grid)
 
-        page.add(img_group)
-        toolbar.set_content(page)
+        toolbar.set_content(scroll)
         self.set_child(toolbar)
+
+    def _make_image_row(
+        self, label: str, handler, extra_suffix=None
+    ) -> tuple[Adw.ActionRow, Gtk.Button, Gtk.Picture]:
+        row = Adw.ActionRow(title=label)
+        row.set_subtitle("Not set")
+
+        thumb = Gtk.Picture()
+        thumb.set_size_request(64, 64)
+        thumb.set_content_fit(Gtk.ContentFit.CONTAIN)
+        thumb.add_css_class("image-row-thumb")
+        row.add_prefix(thumb)
+
+        clear_btn = Gtk.Button(icon_name="user-trash-symbolic", tooltip_text="Remove image")
+        clear_btn.add_css_class("flat")
+        clear_btn.set_valign(Gtk.Align.CENTER)
+        clear_btn.set_visible(False)
+        row.add_suffix(clear_btn)
+
+        if extra_suffix is not None:
+            row.add_suffix(extra_suffix)
+
+        change_btn = Gtk.Button(icon_name="folder-open-symbolic", tooltip_text="Browse\u2026")
+        change_btn.add_css_class("flat")
+        change_btn.set_valign(Gtk.Align.CENTER)
+        change_btn.connect("clicked", handler)
+        row.add_suffix(change_btn)
+
+        return row, clear_btn, thumb
 
     # ── Helpers ───────────────────────────────────────────────────────────
 
@@ -387,10 +467,43 @@ class AppMetadataDialog(Adw.Dialog):
     def _on_pick_icon(self, _btn) -> None:
         self._pick_image("Select Icon", False, self._on_icon_chosen)
 
+    def _on_icon_clear(self, _btn) -> None:
+        self._icon_row.set_subtitle("Not set")
+        self._icon_clear_btn.set_visible(False)
+        self._icon_thumb.set_paintable(None)
+        if self._project:
+            self._project.icon_path = ""
+            save_project(self._project)
+        else:
+            self._tmp_icon = ""
+
+    def _on_cover_clear(self, _btn) -> None:
+        self._cover_row.set_subtitle("Not set")
+        self._cover_clear_btn.set_visible(False)
+        self._cover_thumb.set_paintable(None)
+        if self._project:
+            self._project.cover_path = ""
+            save_project(self._project)
+        else:
+            self._tmp_cover = ""
+
+    def _on_logo_clear(self, _btn) -> None:
+        self._logo_row.set_subtitle("Not set")
+        self._logo_clear_btn.set_visible(False)
+        self._logo_thumb.set_paintable(None)
+        self._hide_title_btn.set_visible(False)
+        if self._project:
+            self._project.logo_path = ""
+            save_project(self._project)
+        else:
+            self._tmp_logo = ""
+
     def _on_icon_chosen(self, _c, response, chooser) -> None:
         if response == Gtk.ResponseType.ACCEPT:
             path = chooser.get_file().get_path()
             self._icon_row.set_subtitle(GLib.markup_escape_text(Path(path).name))
+            self._icon_clear_btn.set_visible(True)
+            self._icon_thumb.set_filename(path)
             if self._project:
                 self._project.icon_path = path
                 save_project(self._project)
@@ -404,6 +517,8 @@ class AppMetadataDialog(Adw.Dialog):
         if response == Gtk.ResponseType.ACCEPT:
             path = chooser.get_file().get_path()
             self._cover_row.set_subtitle(GLib.markup_escape_text(Path(path).name))
+            self._cover_clear_btn.set_visible(True)
+            self._cover_thumb.set_filename(path)
             if self._project:
                 self._project.cover_path = path
                 save_project(self._project)
@@ -417,6 +532,9 @@ class AppMetadataDialog(Adw.Dialog):
         if response == Gtk.ResponseType.ACCEPT:
             path = chooser.get_file().get_path()
             self._logo_row.set_subtitle(GLib.markup_escape_text(Path(path).name))
+            self._logo_clear_btn.set_visible(True)
+            self._logo_thumb.set_filename(path)
+            self._hide_title_btn.set_visible(True)
             if not self._hide_title_btn.get_active():
                 self._hide_title_btn.set_active(True)
             if self._project:
@@ -427,6 +545,10 @@ class AppMetadataDialog(Adw.Dialog):
                 self._tmp_logo = path
 
     def _on_hide_title_toggled(self, btn: Gtk.ToggleButton) -> None:
+        if btn.get_active():
+            btn.set_icon_name("eye-not-looking-symbolic")
+        else:
+            btn.set_icon_name("eye-open-negative-filled-symbolic")
         if self._project:
             self._project.hide_title = btn.get_active()
             save_project(self._project)

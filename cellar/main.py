@@ -12,6 +12,7 @@ logging.basicConfig(
 # smbprotocol is very chatty at INFO level (logs every read/write response).
 logging.getLogger("smbprotocol").setLevel(logging.WARNING)
 logging.getLogger("smbclient").setLevel(logging.WARNING)
+log = logging.getLogger(__name__)
 
 import gi
 
@@ -211,8 +212,8 @@ def _ensure_desktop_entry() -> None:
             "Categories=GNOME;GTK;Utility;\n"
             "StartupWMClass=io.github.cellar\n"
         )
-    except Exception:
-        pass  # never block app launch over a desktop-integration hiccup
+    except Exception as exc:
+        log.debug("Desktop entry creation failed: %s", exc)
 
 
 _XDG_DATA_HOME = Path(

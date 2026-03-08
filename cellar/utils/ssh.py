@@ -19,12 +19,15 @@ connection is created on first use and reused for all subsequent calls.
 from __future__ import annotations
 
 import contextlib
+import logging
 import stat as _stat
 import threading
 from pathlib import Path
 from typing import IO
 
 from cellar.utils._remote_path import RemotePathMixin
+
+log = logging.getLogger(__name__)
 
 
 # ── Connection pool ────────────────────────────────────────────────────
@@ -407,6 +410,7 @@ class SshPath(RemotePathMixin):
         try:
             entries = sftp.listdir_attr(path)
         except Exception:
+            log.debug("rmtree: failed to list %s", path)
             return
         for attr in entries:
             child = f"{path}/{attr.filename}"
@@ -416,8 +420,8 @@ class SshPath(RemotePathMixin):
                 try:
                     sftp.remove(child)
                 except Exception:
-                    pass
+                    log.debug("rmtree: failed to remove file %s", child)
         try:
             sftp.rmdir(path)
         except Exception:
-            pass
+            log.debug("rmtree: failed to remove dir %s", path)

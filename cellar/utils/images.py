@@ -184,7 +184,7 @@ def optimize_image(src: str | Path, dest, role: str) -> None:
                     png_dest.rename(dest)
                 return
         except Exception:
-            # Last resort: copy the raw file.
+            log.warning("ICO/BMP→PNG conversion failed for %s; copying raw file", src)
             shutil.copyfile(src, dest)
             return
 
@@ -202,6 +202,7 @@ def optimize_image(src: str | Path, dest, role: str) -> None:
                 if png_dest != dest:
                     png_dest.rename(dest)
         except Exception:
+            log.warning("Logo conversion failed for %s; copying raw file", src)
             shutil.copyfile(src, dest)
         return
 
@@ -222,4 +223,5 @@ def optimize_image(src: str | Path, dest, role: str) -> None:
             if jpeg_dest != dest:
                 jpeg_dest.rename(dest)
     except Exception:
+        log.warning("Image optimisation failed for %s; copying raw file", src)
         shutil.copyfile(src, dest)

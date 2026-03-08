@@ -65,7 +65,8 @@ def _secret_schema_obj():
         )
         _secret_available = True
         return _secret_schema
-    except Exception:
+    except Exception as exc:
+        log.debug("libsecret unavailable: %s", exc)
         _secret_available = False
         return None
 
@@ -101,7 +102,8 @@ def _libsecret_load(service: str, uri: str) -> str | None:
         return Secret.password_lookup_sync(
             schema, {"service": service, "uri": uri}, None
         )
-    except Exception:
+    except Exception as exc:
+        log.debug("libsecret lookup failed: %s", exc)
         return None
 
 
@@ -113,8 +115,8 @@ def _libsecret_clear(service: str, uri: str) -> None:
     try:
         from gi.repository import Secret  # type: ignore[import]
         Secret.password_clear_sync(schema, {"service": service, "uri": uri}, None)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.debug("libsecret clear failed: %s", exc)
 
 
 def save_password(uri: str, password: str) -> None:

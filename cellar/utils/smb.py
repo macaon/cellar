@@ -12,12 +12,15 @@ UNC path convention
 
 from __future__ import annotations
 
+import logging
 import stat as _stat
 from pathlib import Path
 from typing import IO
 from urllib.parse import urlparse
 
 from cellar.utils._remote_path import RemotePathMixin
+
+log = logging.getLogger(__name__)
 
 
 def smb_uri_to_unc(uri: str) -> str:
@@ -173,13 +176,13 @@ class SmbPath(RemotePathMixin):
                 try:
                     smbclient.remove(f"{root_str}/{name}")
                 except Exception:
-                    pass
+                    log.debug("rmtree: failed to remove file %s/%s", root_str, name)
             for name in dirs:
                 try:
                     smbclient.rmdir(f"{root_str}/{name}")
                 except Exception:
-                    pass
+                    log.debug("rmtree: failed to remove dir %s/%s", root_str, name)
         try:
             smbclient.rmdir(self._unc)
         except Exception:
-            pass
+            log.debug("rmtree: failed to remove root %s", self._unc)

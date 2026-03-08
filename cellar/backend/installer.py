@@ -191,35 +191,23 @@ def _ssh_chunks(
     port: int | None = None,
     identity: str | None = None,
 ) -> Iterator[bytes]:
-    """Stream *remote_path* from *host* via ``ssh … cat``, yielding 1 MB chunks."""
+    """Stream *remote_path* from *host* via ``paramiko`` SFTP, yielding 1 MB chunks."""
+    from cellar.utils.ssh import _get_sftp
+
     _CHUNK = 1 * 1024 * 1024
-    args = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new"]
-    if port:
-        args += ["-p", str(port)]
-    if identity:
-        args += ["-i", identity]
-    args.append(f"{user}@{host}" if user else host)
-    args += ["cat", remote_path]
     try:
-        proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        sftp = _get_sftp(host, port or 22, user, identity)
+        with sftp.open(remote_path, "rb") as f:
+            f.prefetch()
+            while True:
+                chunk = f.read(_CHUNK)
+                if not chunk:
+                    break
+                yield chunk
     except FileNotFoundError:
-        raise InstallError(
-            "ssh executable not found; install OpenSSH client to use ssh:// repos"
-        )
-    assert proc.stdout is not None
-    try:
-        for chunk in iter(lambda: proc.stdout.read(_CHUNK), b""):  # type: ignore[union-attr]
-            yield chunk
-    except OSError as exc:
-        proc.kill()
+        raise InstallError(f"SSH file not found: {remote_path}")
+    except Exception as exc:
         raise InstallError(f"SSH stream error for {remote_path}: {exc}") from exc
-    proc.wait()
-    if proc.returncode != 0:
-        assert proc.stderr is not None
-        stderr = proc.stderr.read().decode(errors="replace").strip()
-        raise InstallError(
-            f"SSH stream failed for {remote_path}: {stderr or 'unknown error'}"
-        )
 
 
 

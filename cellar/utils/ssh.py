@@ -1,62 +1,131 @@
-"""SSH path utilities for reading and writing to remote hosts via system ssh.
+"""SSH path utilities for reading and writing to remote hosts via paramiko.
 
 ``SshPath`` mimics the subset of :class:`pathlib.Path` used by
 ``packager.py`` and related code so that the same functions work for
 local filesystem repos, SMB share repos, and SSH repos.
 
-All operations use the system ``ssh`` executable with ``BatchMode=yes``
-so they fail fast instead of hanging on a password prompt.  Authentication
-is handled by the SSH agent, ``~/.ssh/config``, or an explicit identity file.
+``paramiko`` is a pure-Python SSHv2 implementation — no system ``ssh``
+binary is required, making this fully self-contained inside the Flatpak.
+Authentication is handled via the SSH agent, ``~/.ssh/config``, or an
+explicit identity file.
+
+Connection management
+---------------------
+``SshPath`` instances share a single :class:`paramiko.SFTPClient` per
+(host, port, user, identity) tuple, cached in ``_sftp_cache``.  The
+connection is created on first use and reused for all subsequent calls.
 """
 
 from __future__ import annotations
 
-import os
-import subprocess
+import stat as _stat
+import threading
 from pathlib import Path
 from typing import IO
 
 
+# ── Connection cache ────────────────────────────────────────────────────
+
+_sftp_cache: dict[tuple, "paramiko.SFTPClient"] = {}  # type: ignore[name-defined]
+_sftp_lock = threading.Lock()
+
+
+def _get_sftp(
+    host: str,
+    port: int,
+    user: str | None,
+    identity: str | None,
+):
+    """Return a cached :class:`paramiko.SFTPClient` for the given connection."""
+    import paramiko  # type: ignore[import]
+
+    key = (host, port, user, identity)
+    with _sftp_lock:
+        sftp = _sftp_cache.get(key)
+        if sftp is not None:
+            # Check the connection is still alive.
+            try:
+                sftp.stat(".")
+                return sftp
+            except Exception:
+                try:
+                    sftp.close()
+                except Exception:
+                    pass
+                del _sftp_cache[key]
+
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        connect_kw: dict = {
+            "hostname": host,
+            "port": port,
+            "username": user,
+            "timeout": 30,
+            "allow_agent": True,
+            "look_for_keys": True,
+        }
+        if identity:
+            connect_kw["key_filename"] = identity
+        ssh.load_system_host_keys()
+        try:
+            ssh.connect(**connect_kw)
+        except Exception as exc:
+            raise OSError(f"SSH connection to {host}:{port} failed: {exc}") from exc
+        sftp = ssh.open_sftp()
+        _sftp_cache[key] = sftp
+        return sftp
+
+
+def get_transport(
+    host: str,
+    port: int,
+    user: str | None,
+    identity: str | None,
+):
+    """Return the underlying :class:`paramiko.Transport` for streaming."""
+    sftp = _get_sftp(host, port, user, identity)
+    return sftp.get_channel().get_transport()
+
+
+# ── Stat result ─────────────────────────────────────────────────────────
+
 class _SshStat:
-    """Minimal stat result holding only ``st_size``."""
+    """Minimal stat result holding ``st_size`` and ``st_mode``."""
 
-    __slots__ = ("st_size",)
+    __slots__ = ("st_size", "st_mode")
 
-    def __init__(self, st_size: int) -> None:
+    def __init__(self, st_size: int, st_mode: int = 0) -> None:
         self.st_size = st_size
+        self.st_mode = st_mode
 
+
+# ── Write stream ────────────────────────────────────────────────────────
 
 class _SshWriteStream:
-    """Writable file-like object that streams bytes to a remote file via ssh.
+    """Writable file-like object wrapping a paramiko SFTP file handle."""
 
-    Spawns ``ssh host "cat > /remote/path"`` and pipes data to stdin.
-    """
+    __slots__ = ("_fh", "_remote", "_closed")
 
-    __slots__ = ("_proc", "_remote", "_closed")
-
-    def __init__(self, proc: subprocess.Popen, remote: str) -> None:
-        self._proc = proc
+    def __init__(self, fh, remote: str) -> None:
+        self._fh = fh
         self._remote = remote
         self._closed = False
 
     def write(self, data: bytes) -> int:
         if self._closed:
             raise ValueError("I/O operation on closed file")
-        self._proc.stdin.write(data)
+        self._fh.write(data)
         return len(data)
 
     def flush(self) -> None:
         if not self._closed:
-            self._proc.stdin.flush()
+            self._fh.flush()
 
     def close(self) -> None:
         if self._closed:
             return
         self._closed = True
-        self._proc.stdin.close()
-        rc = self._proc.wait()
-        if rc != 0:
-            raise OSError(f"SSH write to {self._remote} failed (exit {rc})")
+        self._fh.close()
 
     def __enter__(self):
         return self
@@ -65,8 +134,10 @@ class _SshWriteStream:
         self.close()
 
 
+# ── SshPath ─────────────────────────────────────────────────────────────
+
 class SshPath:
-    """A path-like object backed by the system ``ssh`` client.
+    """A path-like object backed by ``paramiko`` SFTP.
 
     Mimics the ``pathlib.Path`` subset used by ``packager.py``:
     path arithmetic (``/``), ``mkdir``, ``read_bytes``, ``write_bytes``,
@@ -89,30 +160,13 @@ class SshPath:
         self._host = host
         self._path: str = remote_path.rstrip("/") or "/"
         self._user = user
-        self._port = port
+        self._port = port or 22
         self._identity = identity
 
-    # ── SSH subprocess helpers ──────────────────────────────────────────
+    # ── SFTP access ────────────────────────────────────────────────────
 
-    def _dest(self) -> str:
-        return f"{self._user}@{self._host}" if self._user else self._host
-
-    def _base_args(self) -> list[str]:
-        args = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new"]
-        if self._port:
-            args += ["-p", str(self._port)]
-        if self._identity:
-            args += ["-i", self._identity]
-        args.append(self._dest())
-        return args
-
-    def _run(self, remote_cmd: str, *, check: bool = True, timeout: int = 30) -> subprocess.CompletedProcess:
-        cmd = self._base_args() + [remote_cmd]
-        result = subprocess.run(cmd, capture_output=True, timeout=timeout, check=False)
-        if check and result.returncode != 0:
-            stderr = result.stderr.decode(errors="replace").strip()
-            raise OSError(f"SSH command failed: {remote_cmd}: {stderr or 'unknown error'}")
-        return result
+    def _sftp(self):
+        return _get_sftp(self._host, self._port, self._user, self._identity)
 
     def _child(self, name: str) -> "SshPath":
         return SshPath(
@@ -139,7 +193,8 @@ class SshPath:
         return self._path
 
     def __repr__(self) -> str:
-        return f"SshPath({self._dest()}:{self._path!r})"
+        dest = f"{self._user}@{self._host}" if self._user else self._host
+        return f"SshPath({dest}:{self._path!r})"
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, SshPath):
@@ -194,40 +249,59 @@ class SshPath:
     # ── Filesystem operations ──────────────────────────────────────────
 
     def exists(self) -> bool:
-        result = self._run(f"test -e {_quote(self._path)}", check=False)
-        return result.returncode == 0
+        try:
+            self._sftp().stat(self._path)
+            return True
+        except FileNotFoundError:
+            return False
 
     def is_dir(self) -> bool:
-        result = self._run(f"test -d {_quote(self._path)}", check=False)
-        return result.returncode == 0
+        try:
+            return _stat.S_ISDIR(self._sftp().stat(self._path).st_mode)
+        except Exception:
+            return False
 
     def is_file(self) -> bool:
-        result = self._run(f"test -f {_quote(self._path)}", check=False)
-        return result.returncode == 0
+        try:
+            return _stat.S_ISREG(self._sftp().stat(self._path).st_mode)
+        except Exception:
+            return False
 
     def stat(self) -> _SshStat:
-        result = self._run(f"stat -c %s {_quote(self._path)}")
-        return _SshStat(int(result.stdout.strip()))
+        st = self._sftp().stat(self._path)
+        return _SshStat(st.st_size or 0, st.st_mode or 0)
 
     def mkdir(self, *, parents: bool = False, exist_ok: bool = False) -> None:
+        sftp = self._sftp()
         if parents:
-            self._run(f"mkdir -p {_quote(self._path)}")
+            # Walk from root, creating each component as needed.
+            parts = self._path.split("/")
+            current = ""
+            for part in parts:
+                if not part:
+                    current = "/"
+                    continue
+                current = f"{current}/{part}" if current != "/" else f"/{part}"
+                try:
+                    sftp.stat(current)
+                except FileNotFoundError:
+                    sftp.mkdir(current)
         else:
-            if exist_ok:
-                self._run(f"mkdir -p {_quote(self._path)}")
-            else:
-                self._run(f"mkdir {_quote(self._path)}")
+            try:
+                sftp.mkdir(self._path)
+            except OSError:
+                if exist_ok and self.is_dir():
+                    return
+                raise
 
     def read_bytes(self) -> bytes:
-        result = self._run(f"cat {_quote(self._path)}")
-        return result.stdout
+        with self._sftp().open(self._path, "rb") as f:
+            f.prefetch()
+            return f.read()
 
     def write_bytes(self, data: bytes) -> None:
-        cmd = self._base_args() + [f"cat > {_quote(self._path)}"]
-        proc = subprocess.run(cmd, input=data, capture_output=True, timeout=60, check=False)
-        if proc.returncode != 0:
-            stderr = proc.stderr.decode(errors="replace").strip()
-            raise OSError(f"SSH write failed for {self._path}: {stderr or 'unknown error'}")
+        with self._sftp().open(self._path, "wb") as f:
+            f.write(data)
 
     def read_text(self, encoding: str = "utf-8") -> str:
         return self.read_bytes().decode(encoding)
@@ -237,12 +311,9 @@ class SshPath:
 
     def open(self, mode: str = "r", encoding: str | None = None, **kwargs) -> IO:
         if "w" in mode:
-            remote = _quote(self._path)
-            cmd = self._base_args() + [f"cat > {remote}"]
-            proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            return _SshWriteStream(proc, f"{self._dest()}:{self._path}")
+            fh = self._sftp().open(self._path, "wb")
+            return _SshWriteStream(fh, f"{self._host}:{self._path}")
         else:
-            # Read mode — return a BytesIO / StringIO with the full content.
             import io
             data = self.read_bytes()
             if "b" in mode:
@@ -250,27 +321,37 @@ class SshPath:
             return io.StringIO(data.decode(encoding or "utf-8"))
 
     def unlink(self, missing_ok: bool = False) -> None:
-        result = self._run(f"rm -f {_quote(self._path)}" if missing_ok else f"rm {_quote(self._path)}", check=False)
-        if result.returncode != 0 and not missing_ok:
-            stderr = result.stderr.decode(errors="replace").strip()
-            raise OSError(f"SSH unlink failed for {self._path}: {stderr}")
+        try:
+            self._sftp().remove(self._path)
+        except FileNotFoundError:
+            if not missing_ok:
+                raise
 
     def iterdir(self):
         """Yield child :class:`SshPath` objects (non-recursive)."""
-        result = self._run(f"ls -1 {_quote(self._path)}", check=False)
-        if result.returncode != 0:
-            return
-        for name in result.stdout.decode(errors="replace").splitlines():
-            name = name.strip()
-            if name:
-                yield self._child(name)
+        for attr in self._sftp().listdir_attr(self._path):
+            yield self._child(attr.filename)
 
     def rmtree(self) -> None:
         """Recursively remove this directory (like :func:`shutil.rmtree`)."""
-        self._run(f"rm -rf {_quote(self._path)}", check=False)
+        self._rmtree_inner(self._path)
 
-
-def _quote(path: str) -> str:
-    """Shell-quote a path for use in remote SSH commands."""
-    # Use single quotes with escaped internal single quotes.
-    return "'" + path.replace("'", "'\\''") + "'"
+    def _rmtree_inner(self, path: str) -> None:
+        sftp = self._sftp()
+        try:
+            entries = sftp.listdir_attr(path)
+        except Exception:
+            return
+        for attr in entries:
+            child = f"{path}/{attr.filename}"
+            if _stat.S_ISDIR(attr.st_mode or 0):
+                self._rmtree_inner(child)
+            else:
+                try:
+                    sftp.remove(child)
+                except Exception:
+                    pass
+        try:
+            sftp.rmdir(path)
+        except Exception:
+            pass

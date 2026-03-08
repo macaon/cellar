@@ -4,7 +4,7 @@ Supported URI schemes
 ---------------------
 - Bare local path or ``file://`` → reads directly from the filesystem
 - ``http://`` / ``https://``     → fetches via urllib (no extra deps); **read-only**
-- ``ssh://[user@]host[:port]/path`` → streams files through the system ssh client;
+- ``ssh://[user@]host[:port]/path`` → pure-Python SSHv2 via ``paramiko``;
   key auth handled by SSH agent / ``~/.ssh/config``;
   explicit identity file via ``ssh_identity=``
 - ``smb://``                     → pure-Python SMBv2/v3 via ``smbprotocol``
@@ -31,7 +31,6 @@ import hashlib
 import json
 import logging
 import shutil
-import subprocess
 from pathlib import Path
 from typing import Iterator, Protocol, runtime_checkable
 from urllib.parse import urlparse
@@ -121,14 +120,11 @@ class _HttpFetcher:
 
 
 class _SshFetcher:
-    """Reads files from a remote host via the system ``ssh`` client.
+    """Reads files from a remote host via ``paramiko`` (pure-Python SSHv2).
 
     Key authentication is handled transparently by the SSH agent and
     ``~/.ssh/config``.  An explicit identity file can be provided via
     the *identity* parameter.
-
-    The connection uses ``BatchMode=yes`` so it fails fast instead of
-    hanging on a password prompt.
     """
 
     def __init__(
@@ -143,42 +139,27 @@ class _SshFetcher:
         self._host = host
         self._root = remote_root.rstrip("/") or "/"
         self._user = user
-        self._port = port
+        self._port = port or 22
         self._identity = identity
 
-    def _dest(self) -> str:
-        return f"{self._user}@{self._host}" if self._user else self._host
-
-    def _base_args(self) -> list[str]:
-        args = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new"]
-        if self._port:
-            args += ["-p", str(self._port)]
-        if self._identity:
-            args += ["-i", self._identity]
-        args.append(self._dest())
-        return args
+    def _sftp(self):
+        from cellar.utils.ssh import _get_sftp
+        return _get_sftp(self._host, self._port, self._user, self._identity)
 
     def fetch_bytes(self, rel_path: str) -> bytes:
         remote = f"{self._root}/{rel_path.lstrip('/')}"
-        cmd = self._base_args() + ["cat", remote]
         try:
-            result = subprocess.run(cmd, capture_output=True, timeout=30, check=False)
+            with self._sftp().open(remote, "rb") as f:
+                f.prefetch()
+                return f.read()
         except FileNotFoundError:
-            raise RepoError(
-                "ssh executable not found; install OpenSSH client to use ssh:// repos"
-            )
-        except subprocess.TimeoutExpired as exc:
-            raise RepoError(f"SSH connection timed out fetching {rel_path}") from exc
-        if result.returncode != 0:
-            stderr = result.stderr.decode(errors="replace").strip()
-            raise RepoError(
-                f"SSH fetch failed for {rel_path}: {stderr or 'unknown error'}"
-            )
-        return result.stdout
+            raise RepoError(f"SSH fetch failed for {rel_path}: file not found")
+        except Exception as exc:
+            raise RepoError(f"SSH fetch failed for {rel_path}: {exc}") from exc
 
     def resolve_uri(self, rel_path: str) -> str:
         user_part = f"{self._user}@" if self._user else ""
-        port_part = f":{self._port}" if self._port else ""
+        port_part = f":{self._port}" if self._port != 22 else ""
         return (
             f"ssh://{user_part}{self._host}{port_part}"
             f"{self._root}/{rel_path.lstrip('/')}"

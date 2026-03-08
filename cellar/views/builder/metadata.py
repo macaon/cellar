@@ -429,12 +429,7 @@ class AppMetadataDialog(Adw.Dialog):
             self._screenshot_grid.add_steam(result["screenshots"])
 
     def _on_screenshots_changed(self) -> None:
-        """Called by the grid whenever the screenshot list changes.
-
-        Saves local items immediately.  Any Steam-pending items are downloaded
-        eagerly to the project dir (or a temp dir in create mode), then
-        promoted to local items in the grid so they persist with the project.
-        """
+        """Called by the grid whenever the screenshot list changes. Saves local paths only."""
         items = self._screenshot_grid.get_items()
         local_paths = [i.local_path for i in items if i.local_path]
         if self._project:
@@ -443,16 +438,13 @@ class AppMetadataDialog(Adw.Dialog):
         else:
             self._tmp_screenshots = local_paths
 
-        steam_items = [i for i in items if i.is_steam]
+    def _download_steam_screenshots(self, project) -> None:
+        """Download any checked Steam screenshot items to the project dir in the background."""
+        steam_items = [i for i in self._screenshot_grid.get_items() if i.is_steam]
         if not steam_items:
             return
-
-        if self._project:
-            dl_dir = self._project.project_dir / "screenshots"
-            dl_dir.mkdir(parents=True, exist_ok=True)
-        else:
-            import tempfile as _tmp
-            dl_dir = Path(_tmp.mkdtemp(prefix="cellar-ss-"))
+        dl_dir = project.project_dir / "screenshots"
+        dl_dir.mkdir(parents=True, exist_ok=True)
 
         def _download(items=steam_items, dl_dir=dl_dir) -> list[str]:
             from cellar.utils.http import make_session
@@ -470,13 +462,10 @@ class AppMetadataDialog(Adw.Dialog):
                     log.warning("Screenshot download failed: %s", exc)
             return downloaded
 
-        def _done(downloaded: list[str]) -> None:
-            # Swap steam items out of the grid; add downloaded local items.
-            # clear_steam() doesn't fire on_changed; add_local() will, which
-            # then saves the updated paths to the project.
-            self._screenshot_grid.clear_steam()
+        def _done(downloaded: list[str], project=project) -> None:
             if downloaded:
-                self._screenshot_grid.add_local(downloaded)
+                project.screenshot_paths = list(project.screenshot_paths) + downloaded
+                save_project(project)
 
         run_in_background(_download, on_done=_done)
 
@@ -610,6 +599,7 @@ class AppMetadataDialog(Adw.Dialog):
         if local_ss:
             project.screenshot_paths = local_ss
         save_project(project)
+        self._download_steam_screenshots(project)
 
         self.close()
         if self._on_created:

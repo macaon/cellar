@@ -669,6 +669,11 @@ class EditAppDialog(Adw.Dialog):
         # Use existing rels as placeholder; thread replaces when dirty.
         screenshot_rels = e.screenshots
         _grid_items = self._screenshot_grid.get_items() if self._screenshots_dirty else None
+        # Local items the user unchecked — their repo files get deleted after save.
+        _excluded_locals = (
+            self._screenshot_grid.get_excluded_local_items()
+            if self._screenshots_dirty else []
+        )
 
         from cellar.models.app_entry import AppEntry
 
@@ -783,6 +788,21 @@ class EditAppDialog(Adw.Dialog):
                     stats_cb=_stats,
                     cancel_event=self._cancel_event,
                 )
+                # Delete repo screenshot files the user unchecked.
+                if _excluded_locals:
+                    new_rels_set = set(_run_entry.screenshots)
+                    for _excl in _excluded_locals:
+                        if not _excl.local_path:
+                            continue
+                        # Match against old entry's screenshot relative paths
+                        for old_rel in e.screenshots:
+                            if str(repo_root / old_rel) == _excl.local_path:
+                                if old_rel not in new_rels_set:
+                                    try:
+                                        (repo_root / old_rel).unlink(missing_ok=True)
+                                    except Exception:
+                                        pass
+                                break
                 GLib.idle_add(self._on_save_done)
             except CancelledError:
                 GLib.idle_add(self._on_save_cancelled)

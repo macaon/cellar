@@ -38,7 +38,9 @@ class SteamPickerDialog(Adw.Dialog):
         self._build_ui()
 
         if query:
+            self._search_entry.handler_block(self._search_changed_id)
             self._search_entry.set_text(query)
+            self._search_entry.handler_unblock(self._search_changed_id)
             self._trigger_search(query)
 
     # ------------------------------------------------------------------
@@ -63,7 +65,7 @@ class SteamPickerDialog(Adw.Dialog):
         self._search_entry.set_margin_bottom(8)
         self._search_entry.set_margin_start(12)
         self._search_entry.set_margin_end(12)
-        self._search_entry.connect("search-changed", self._on_search_changed)
+        self._search_changed_id = self._search_entry.connect("search-changed", self._on_search_changed)
         outer.append(self._search_entry)
 
         outer.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))

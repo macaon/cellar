@@ -265,14 +265,21 @@ class AppMetadataDialog(Adw.Dialog):
         img_list.append(self._logo_row)
         right_box.append(img_list)
 
-        # Screenshots section heading
+        # Screenshots section heading with Add button
+        ss_heading = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        ss_heading.set_margin_top(16)
+        ss_heading.set_margin_bottom(6)
         ss_label = Gtk.Label(label="Screenshots")
-        ss_label.set_xalign(0)
         ss_label.add_css_class("heading")
-        ss_label.set_margin_top(16)
-        ss_label.set_margin_bottom(6)
         ss_label.set_margin_start(4)
-        right_box.append(ss_label)
+        ss_heading.append(ss_label)
+        ss_spacer = Gtk.Box()
+        ss_spacer.set_hexpand(True)
+        ss_heading.append(ss_spacer)
+        ss_add_btn = Gtk.Button(label="Add…")
+        ss_add_btn.connect("clicked", lambda _: self._screenshot_grid.open_file_chooser())
+        ss_heading.append(ss_add_btn)
+        right_box.append(ss_heading)
 
         ss_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         ss_box.add_css_class("card")

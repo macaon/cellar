@@ -3,9 +3,10 @@
 A single GtkFlowBox showing local screenshots first, then Steam suggestions
 (labelled with a cloud badge) below a "Available on Steam" divider row.
 
-Click a tile to toggle selection (checkmark + accent outline); drag local
-tiles to reorder.  Steam-pending items are downloaded transparently when
-``get_items()`` results are handed to the save pipeline.
+Local tiles have a trash button overlay to delete them individually.  Steam
+tiles are click-to-select (checkmark badge); selected Steam items are
+downloaded transparently when ``get_items()`` results are handed to the save
+pipeline.
 """
 
 from __future__ import annotations
@@ -51,7 +52,7 @@ class ScreenshotItem:
 
 
 class ScreenshotGridWidget(Gtk.Box):
-    """Reusable screenshot manager with grid view, selection, reordering and Steam suggestions.
+    """Reusable screenshot manager with grid view, reordering and Steam suggestions.
 
     Usage::
 
@@ -59,6 +60,7 @@ class ScreenshotGridWidget(Gtk.Box):
         grid.set_local_items(paths, source_urls)   # pre-fill from existing repo data
         grid.add_local(new_paths)
         grid.add_steam(steam_data)                 # list[{"thumbnail": url, "full": url}]
+        grid.open_file_chooser()                   # trigger file picker (e.g. from external button)
 
         # On save:
         items = grid.get_items()                   # ordered list[ScreenshotItem]
@@ -71,7 +73,6 @@ class ScreenshotGridWidget(Gtk.Box):
 
         self._local: list[ScreenshotItem] = []
         self._steam: list[ScreenshotItem] = []
-        self._selected_local: set[int] = set()
         self._selected_steam: set[int] = set()
         self._drag_src_idx: int | None = None
 
@@ -114,29 +115,6 @@ class ScreenshotGridWidget(Gtk.Box):
             self._flow.set_vexpand(True)
             self.append(self._flow)
 
-        # Action bar
-        bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        bar.set_margin_top(6)
-        bar.set_margin_start(8)
-        bar.set_margin_end(8)
-        bar.set_margin_bottom(0)
-
-        browse_btn = Gtk.Button(label="Add…")
-        browse_btn.connect("clicked", self._on_browse_clicked)
-        bar.append(browse_btn)
-
-        spacer = Gtk.Box()
-        spacer.set_hexpand(True)
-        bar.append(spacer)
-
-        self._remove_btn = Gtk.Button(label="Remove Selected")
-        self._remove_btn.add_css_class("destructive-action")
-        self._remove_btn.set_sensitive(False)
-        self._remove_btn.connect("clicked", self._on_remove_clicked)
-        bar.append(self._remove_btn)
-
-        self.append(bar)
-
         self._rebuild()
 
     # ── Public API ────────────────────────────────────────────────────────
@@ -152,7 +130,6 @@ class ScreenshotGridWidget(Gtk.Box):
             ScreenshotItem(local_path=p, source_url=s)
             for p, s in zip(paths, srcs)
         ]
-        self._selected_local.clear()
         self._rebuild()
 
     def add_local(self, paths: list[str]) -> None:
@@ -207,7 +184,6 @@ class ScreenshotGridWidget(Gtk.Box):
         """Restore full widget state (local + steam-pending) preserving cached thumb_paths."""
         self._local = [i for i in items if not i.is_steam]
         self._steam = [i for i in items if i.is_steam]
-        self._selected_local.clear()
         self._selected_steam.clear()
         self._rebuild()
 
@@ -218,8 +194,17 @@ class ScreenshotGridWidget(Gtk.Box):
         self._rebuild()
 
     def get_items(self) -> list[ScreenshotItem]:
-        """Return all items in display order: local first, then Steam pending."""
-        return list(self._local) + list(self._steam)
+        """Return items to include: all local + only selected Steam (which will be downloaded)."""
+        selected_steam = [
+            self._steam[i]
+            for i in sorted(self._selected_steam)
+            if i < len(self._steam)
+        ]
+        return list(self._local) + selected_steam
+
+    def open_file_chooser(self) -> None:
+        """Open the file chooser to add screenshots (call from an external Add button)."""
+        self._on_browse_clicked(None)
 
     # ── Thumbnail loading ─────────────────────────────────────────────────
 
@@ -274,18 +259,6 @@ class ScreenshotGridWidget(Gtk.Box):
             self._flow.remove(child)
             child = nxt
 
-        if not self._local and not self._steam:
-            fbc = Gtk.FlowBoxChild()
-            fbc.set_focusable(False)
-            lbl = Gtk.Label(label="No screenshots")
-            lbl.add_css_class("dim-label")
-            lbl.set_margin_top(16)
-            lbl.set_margin_bottom(16)
-            fbc.set_child(lbl)
-            self._flow.append(fbc)
-            self._update_remove_btn()
-            return
-
         for i, item in enumerate(self._local):
             self._flow.append(self._make_tile(item, "local", i))
 
@@ -293,8 +266,6 @@ class ScreenshotGridWidget(Gtk.Box):
             self._flow.append(self._make_divider())
             for i, item in enumerate(self._steam):
                 self._flow.append(self._make_tile(item, "steam", i))
-
-        self._update_remove_btn()
 
     def _make_divider(self) -> Gtk.FlowBoxChild:
         fbc = Gtk.FlowBoxChild()
@@ -336,16 +307,9 @@ class ScreenshotGridWidget(Gtk.Box):
         fbc.add_css_class("ss-tile-cell")
         fbc._ss_item = item
 
-        selected = (
-            (kind == "local" and idx in self._selected_local)
-            or (kind == "steam" and idx in self._selected_steam)
-        )
-
         overlay = Gtk.Overlay()
         overlay.add_css_class("ss-tile")
         overlay.set_overflow(Gtk.Overflow.HIDDEN)
-        if selected:
-            overlay.add_css_class("selected")
         fbc._ss_overlay = overlay
 
         pic = Gtk.Picture()
@@ -357,19 +321,38 @@ class ScreenshotGridWidget(Gtk.Box):
         fbc._ss_picture = pic
         overlay.set_child(pic)
 
-        # Checkmark badge — top-right corner
-        check_wrap = Gtk.Box()
-        check_wrap.set_halign(Gtk.Align.END)
-        check_wrap.set_valign(Gtk.Align.START)
-        check_icon = Gtk.Image.new_from_icon_name("checkmark-symbolic")
-        check_icon.add_css_class("ss-check-badge")
-        check_icon.set_visible(selected)
-        fbc._ss_check = check_icon
-        check_wrap.append(check_icon)
-        overlay.add_overlay(check_wrap)
+        if kind == "local":
+            # Trash button — top-right corner
+            trash_wrap = Gtk.Box()
+            trash_wrap.set_halign(Gtk.Align.END)
+            trash_wrap.set_valign(Gtk.Align.START)
+            trash_btn = Gtk.Button()
+            trash_btn.set_icon_name("user-trash-symbolic")
+            trash_btn.add_css_class("ss-trash-btn")
+            trash_btn.add_css_class("circular")
+            trash_btn.add_css_class("destructive-action")
+            trash_btn.set_margin_top(4)
+            trash_btn.set_margin_end(4)
+            trash_btn.connect("clicked", lambda _b, i=idx: self._on_tile_delete(i))
+            trash_wrap.append(trash_btn)
+            overlay.add_overlay(trash_wrap)
+        else:
+            # Steam tile: checkmark badge (click to select/deselect)
+            selected = idx in self._selected_steam
+            if selected:
+                overlay.add_css_class("selected")
 
-        # Cloud badge — bottom-left corner, Steam items only
-        if item.is_steam:
+            check_wrap = Gtk.Box()
+            check_wrap.set_halign(Gtk.Align.END)
+            check_wrap.set_valign(Gtk.Align.START)
+            check_icon = Gtk.Image.new_from_icon_name("checkmark-symbolic")
+            check_icon.add_css_class("ss-check-badge")
+            check_icon.set_visible(selected)
+            fbc._ss_check = check_icon
+            check_wrap.append(check_icon)
+            overlay.add_overlay(check_wrap)
+
+            # Cloud badge — bottom-left corner
             cloud_wrap = Gtk.Box()
             cloud_wrap.set_halign(Gtk.Align.START)
             cloud_wrap.set_valign(Gtk.Align.END)
@@ -378,13 +361,12 @@ class ScreenshotGridWidget(Gtk.Box):
             cloud_wrap.append(cloud_icon)
             overlay.add_overlay(cloud_wrap)
 
-        # Click to toggle selection
-        gesture = Gtk.GestureClick()
-        gesture.connect(
-            "released",
-            lambda _g, _n, _x, _y, k=kind, i=idx: self._on_tile_clicked(k, i),
-        )
-        overlay.add_controller(gesture)
+            gesture = Gtk.GestureClick()
+            gesture.connect(
+                "released",
+                lambda _g, _n, _x, _y, i=idx: self._on_steam_tile_clicked(i),
+            )
+            overlay.add_controller(gesture)
 
         # Drag-and-drop for local items only
         if kind == "local":
@@ -423,82 +405,53 @@ class ScreenshotGridWidget(Gtk.Box):
 
         item = self._local.pop(src_idx)
 
-        # Remap selection indices after the move
-        new_sel: set[int] = set()
-        for si in self._selected_local:
-            if si == src_idx:
-                new_sel.add(dst_idx)
-            elif src_idx < dst_idx:
-                new_sel.add(si - 1 if src_idx < si <= dst_idx else si)
-            else:
-                new_sel.add(si + 1 if dst_idx <= si < src_idx else si)
-        self._selected_local = new_sel
-
+        # Remap Steam selection indices are unaffected by local reorder
         self._local.insert(dst_idx, item)
         self._rebuild()
         self._on_changed()
         return True
 
-    # ── Selection ─────────────────────────────────────────────────────────
+    # ── Per-tile delete (local) ────────────────────────────────────────────
 
-    def _on_tile_clicked(self, kind: str, idx: int) -> None:
-        sel = self._selected_local if kind == "local" else self._selected_steam
-        if idx in sel:
-            sel.discard(idx)
+    def _on_tile_delete(self, idx: int) -> None:
+        if 0 <= idx < len(self._local):
+            del self._local[idx]
+            self._rebuild()
+            self._on_changed()
+
+    # ── Steam tile selection ───────────────────────────────────────────────
+
+    def _on_steam_tile_clicked(self, idx: int) -> None:
+        if idx in self._selected_steam:
+            self._selected_steam.discard(idx)
         else:
-            sel.add(idx)
-        self._refresh_tile_selection(kind, idx)
-        self._update_remove_btn()
+            self._selected_steam.add(idx)
+        self._refresh_steam_tile(idx)
 
-    def _refresh_tile_selection(self, kind: str, idx: int) -> None:
-        """Update a single tile's CSS class and checkmark without a full rebuild."""
-        is_sel = (
-            idx in self._selected_local if kind == "local" else idx in self._selected_steam
-        )
-        pool = self._local if kind == "local" else self._steam
-
+    def _refresh_steam_tile(self, idx: int) -> None:
+        """Update a single Steam tile's CSS class and checkmark without a full rebuild."""
+        is_sel = idx in self._selected_steam
         child = self._flow.get_first_child()
         while child is not None:
             item = getattr(child, "_ss_item", None)
-            if item is not None:
-                c_kind = "steam" if item.is_steam else "local"
-                if c_kind == kind:
-                    try:
-                        c_idx = pool.index(item)
-                    except ValueError:
-                        child = child.get_next_sibling()
-                        continue
-                    if c_idx == idx:
-                        overlay = getattr(child, "_ss_overlay", None)
-                        check = getattr(child, "_ss_check", None)
-                        if overlay:
-                            if is_sel:
-                                overlay.add_css_class("selected")
-                            else:
-                                overlay.remove_css_class("selected")
-                        if check:
-                            check.set_visible(is_sel)
-                        break
+            if item is not None and item.is_steam:
+                try:
+                    c_idx = self._steam.index(item)
+                except ValueError:
+                    child = child.get_next_sibling()
+                    continue
+                if c_idx == idx:
+                    overlay = getattr(child, "_ss_overlay", None)
+                    check = getattr(child, "_ss_check", None)
+                    if overlay:
+                        if is_sel:
+                            overlay.add_css_class("selected")
+                        else:
+                            overlay.remove_css_class("selected")
+                    if check:
+                        check.set_visible(is_sel)
+                    break
             child = child.get_next_sibling()
-
-    def _update_remove_btn(self) -> None:
-        n = len(self._selected_local) + len(self._selected_steam)
-        self._remove_btn.set_sensitive(n > 0)
-        self._remove_btn.set_label(
-            f"Remove Selected ({n})" if n > 0 else "Remove Selected"
-        )
-
-    def _on_remove_clicked(self, _btn) -> None:
-        for idx in sorted(self._selected_local, reverse=True):
-            if 0 <= idx < len(self._local):
-                del self._local[idx]
-        for idx in sorted(self._selected_steam, reverse=True):
-            if 0 <= idx < len(self._steam):
-                del self._steam[idx]
-        self._selected_local.clear()
-        self._selected_steam.clear()
-        self._rebuild()
-        self._on_changed()
 
     # ── Browse ────────────────────────────────────────────────────────────
 

@@ -158,8 +158,14 @@ class ScreenshotGridWidget(Gtk.Box):
             for item in self._local
             if item.local_path
         }
-        existing_source_urls = {
-            item.source_url for item in self._local if item.source_url
+        # Strip query strings (?t=...) for URL comparison — Steam's ?t= is an
+        # app-update timestamp that changes on store edits but doesn't affect
+        # which screenshot it is.
+        def _url_base(url: str) -> str:
+            return url.split("?")[0]
+
+        existing_source_bases = {
+            _url_base(item.source_url) for item in self._local if item.source_url
         }
         existing_steam_full = {item.full_url for item in self._steam}
 
@@ -168,7 +174,7 @@ class ScreenshotGridWidget(Gtk.Box):
             full_url = d.get("full", "")
             if not full_url:
                 continue
-            if full_url in existing_steam_full or full_url in existing_source_urls:
+            if full_url in existing_steam_full or _url_base(full_url) in existing_source_bases:
                 continue
             if Path(full_url.split("?")[0]).name in existing_filenames:
                 continue

@@ -17,6 +17,8 @@ from pathlib import Path
 from typing import IO
 from urllib.parse import urlparse
 
+from cellar.utils._remote_path import RemotePathMixin
+
 
 def smb_uri_to_unc(uri: str) -> str:
     """Convert an ``smb://server/share/path`` URI to a UNC path string.
@@ -29,7 +31,7 @@ def smb_uri_to_unc(uri: str) -> str:
     return f"//{host}{path}"
 
 
-class SmbPath:
+class SmbPath(RemotePathMixin):
     """A path-like object backed by ``smbclient`` for SMB share access.
 
     Mimics the ``pathlib.Path`` subset used by ``packager.py``:
@@ -51,6 +53,10 @@ class SmbPath:
         unc = unc.replace("\\", "/")
         self._unc: str = unc.rstrip("/") or "//"
 
+    @property
+    def _remote_str(self) -> str:
+        return self._unc
+
     # ── Path arithmetic ────────────────────────────────────────────────
 
     def __truediv__(self, other: str | Path) -> "SmbPath":
@@ -68,32 +74,8 @@ class SmbPath:
             return self._unc == other._unc
         return NotImplemented
 
-    def __ne__(self, other: object) -> bool:
-        result = self.__eq__(other)
-        if result is NotImplemented:
-            return result
-        return not result
-
     def __hash__(self) -> int:
         return hash(self._unc)
-
-    # ── Name components ────────────────────────────────────────────────
-
-    @property
-    def name(self) -> str:
-        return self._unc.rsplit("/", 1)[-1]
-
-    @property
-    def stem(self) -> str:
-        name = self.name
-        idx = name.rfind(".")
-        return name[:idx] if idx > 0 else name
-
-    @property
-    def suffix(self) -> str:
-        name = self.name
-        idx = name.rfind(".")
-        return name[idx:] if idx > 0 else ""
 
     @property
     def parent(self) -> "SmbPath":
@@ -157,12 +139,6 @@ class SmbPath:
         import smbclient  # type: ignore[import]
         with smbclient.open_file(self._unc, mode="wb") as f:
             f.write(data)
-
-    def read_text(self, encoding: str = "utf-8") -> str:
-        return self.read_bytes().decode(encoding)
-
-    def write_text(self, text: str, encoding: str = "utf-8") -> None:
-        self.write_bytes(text.encode(encoding))
 
     def open(self, mode: str = "r", encoding: str | None = None, **kwargs) -> IO:
         import smbclient  # type: ignore[import]

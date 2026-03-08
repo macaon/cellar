@@ -24,6 +24,8 @@ import threading
 from pathlib import Path
 from typing import IO
 
+from cellar.utils._remote_path import RemotePathMixin
+
 
 # ── Connection pool ────────────────────────────────────────────────────
 #
@@ -199,7 +201,7 @@ class _SshWriteStream:
 
 # ── SshPath ─────────────────────────────────────────────────────────────
 
-class SshPath:
+class SshPath(RemotePathMixin):
     """A path-like object backed by ``paramiko`` SFTP.
 
     Mimics the ``pathlib.Path`` subset used by ``packager.py``:
@@ -227,6 +229,10 @@ class SshPath:
         self._port = port or 22
         self._identity = identity
         self._password = password
+
+    @property
+    def _remote_str(self) -> str:
+        return self._path
 
     # ── SFTP access ────────────────────────────────────────────────────
 
@@ -279,32 +285,8 @@ class SshPath:
             )
         return NotImplemented
 
-    def __ne__(self, other: object) -> bool:
-        result = self.__eq__(other)
-        if result is NotImplemented:
-            return result
-        return not result
-
     def __hash__(self) -> int:
         return hash((self._host, self._path, self._user, self._port))
-
-    # ── Name components ────────────────────────────────────────────────
-
-    @property
-    def name(self) -> str:
-        return self._path.rsplit("/", 1)[-1]
-
-    @property
-    def stem(self) -> str:
-        name = self.name
-        idx = name.rfind(".")
-        return name[:idx] if idx > 0 else name
-
-    @property
-    def suffix(self) -> str:
-        name = self.name
-        idx = name.rfind(".")
-        return name[idx:] if idx > 0 else ""
 
     @property
     def parent(self) -> "SshPath":
@@ -384,12 +366,6 @@ class SshPath:
             with sftp.open(self._path, "wb") as f:
                 f.set_pipelined(True)
                 f.write(data)
-
-    def read_text(self, encoding: str = "utf-8") -> str:
-        return self.read_bytes().decode(encoding)
-
-    def write_text(self, text: str, encoding: str = "utf-8") -> None:
-        self.write_bytes(text.encode(encoding))
 
     def open(self, mode: str = "r", encoding: str | None = None, **kwargs) -> IO:
         if "w" in mode:

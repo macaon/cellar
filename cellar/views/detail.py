@@ -343,6 +343,7 @@ class DetailView(Gtk.Box):
     def _on_update_clicked(self, _btn) -> None:
         from cellar.views.update_app import UpdateDialog
         from cellar.backend.umu import native_dir, prefixes_dir
+        from cellar.backend import database
 
         if self._entry.platform == "linux":
             prefix_path = native_dir() / self._entry.id
@@ -358,9 +359,13 @@ class DetailView(Gtk.Box):
         runner = self._get_base_image()
         base_entry, base_archive_uri = self._find_base_entry(runner) if runner else (None, "")
 
+        # Re-fetch from DB so the installed version is current, not a
+        # stale copy from when the DetailView was first constructed.
+        rec = database.get_installed(self._entry.id) or self._installed_record or {}
+
         dialog = UpdateDialog(
             entry=self._entry,
-            installed_record=self._installed_record or {},
+            installed_record=rec,
             prefix_path=prefix_path,
             archive_uri=archive_uri,
             on_success=self._on_update_success,

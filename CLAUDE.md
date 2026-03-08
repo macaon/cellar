@@ -10,16 +10,16 @@ The project is called **Cellar**.
 
 ## Tech stack
 
-- **Language:** Python 3.11+
+- **Language:** Python 3.10+
 - **UI toolkit:** GTK4 + libadwaita (target GNOME 46+)
 - **Packaging:** Flatpak (target `io.github.cellar` or similar)
 - **Local data:** SQLite via `sqlite3` stdlib
-- **Network I/O:** `requests` for HTTP/HTTPS; `ssh` subprocess for SSH; `smbprotocol` for SMB
+- **Network I/O:** `requests` for HTTP/HTTPS; `paramiko` (pure Python) for SFTP/SSH; `smbprotocol` for SMB
 - **Image handling:** Pillow (load, resize, crop, ICO→PNG)
 - **Archive handling:** `tarfile` stdlib + `zstandard` for `.tar.zst`
 - **File sync:** `rsync` subprocess; Python fallback if rsync absent
 - **Wine layer:** `umu-launcher` (replaces Bottles); GE-Proton runners via GitHub Releases API
-- **Credentials:** `keyring` for SMB passwords
+- **Credentials:** `gi.repository.Secret` (libsecret) for all passwords; `config.json` fallback
 
 ---
 
@@ -33,7 +33,7 @@ The project is called **Cellar**.
 |---|---|---|
 | Local path / `file://` | Yes | |
 | `http://` / `https://` | **No** | Read-only; optional bearer token auth |
-| `sftp://[user@]host[:port]/path` | Yes | Pure-Python via `paramiko`; key auth via agent or `ssh_identity=` |
+| `sftp://[user@]host[:port]/path` | Yes | Pure-Python via `paramiko`; key auth via agent, `~/.ssh/config`, or `ssh_identity=` |
 | `smb://` | Yes | Via `smbprotocol` (pure Python, no GVFS) |
 
 HTTP(S) image assets are downloaded to a per-session temp cache (`Repo._fetch_to_cache`) — GdkPixbuf can't pass auth headers. Archives return URLs (installer handles auth). Bearer token stored per-repo in `config.json`, sent as `Authorization: Bearer <token>`.
@@ -117,14 +117,21 @@ cellar/
     window.py           # AdwApplicationWindow
     views/
       browse.py         # BrowseView (Explore/Installed/Updates tabs)
-      detail.py         # App detail + Install/Update/Remove + RunnerManagerDialog
+      detail.py         # App detail + Install/Update/Remove
       edit_app.py       # Edit/delete catalogue entry
       update_app.py     # Safe update dialog (backup + rsync overlay)
       install_runner.py # Runner download + install dialog
-      package_builder.py # Package Builder — create and publish app/base packages
       settings.py       # Preferences dialog
       steam_picker.py   # Steam game search/picker dialog
-      steam_screenshot_picker.py # Steam screenshot picker dialog
+      screenshot_grid.py # Screenshot browser, grid display, and importer
+      widgets.py        # Shared UI widget helpers (progress page, etc.)
+      builder/          # Package Builder subpackage
+        view.py         # Main builder view — project list, detail panel, publish
+        metadata.py     # Metadata editing — name, category, description, images
+        dependencies.py # Winetricks dependency picker dialog
+        pickers.py      # Runner, base image, and entry point pickers
+        catalogue_import.py  # Import existing catalogue entries into projects
+        progress.py     # Build/install progress tracking
     backend/
       repo.py           # Catalogue fetch + transport fetchers (_Local, _Http, _Ssh, _Smb)
       packager.py       # import_to_repo / update_in_repo / remove_from_repo
@@ -136,13 +143,17 @@ cellar/
       project.py        # Package Builder project persistence
       steam.py          # Steam Store API client
       database.py       # SQLite tracking (installed, bases)
-      config.py         # JSON config (~/.local/share/cellar/config.json)
+      manifest.py       # File manifest (mtime + size) for safe-update diffing
+      config.py         # JSON config + libsecret credential storage
     models/
       app_entry.py      # AppEntry + RunnerEntry + BaseEntry dataclasses
     utils/
       http.py           # requests.Session (User-Agent: Mozilla/5.0 compatible; Cellar/1.0)
       images.py         # Pillow helpers
       smb.py            # SmbPath — pathlib.Path-like SMB abstraction via smbprotocol
+      ssh.py            # SshPath — pathlib.Path-like SSH/SFTP abstraction via paramiko
+      _remote_path.py   # RemotePathMixin — shared base for SmbPath and SshPath
+      async_work.py     # Threading helpers (run_in_background)
       desktop.py        # .desktop entry creation for installed apps
       progress.py       # Shared progress-formatting helpers (fmt_size, fmt_stats)
       paths.py          # ui_file / icons_dir resolution (source tree vs installed)
@@ -163,7 +174,7 @@ cellar/
 
 ## Development priorities
 
-1–9. ~~Repo backend, Browse UI, Network transports, Detail view, Bottles backend, Local DB, Update logic, HTTP(S) auth, Delta packages~~ ✅ all done
+1–9. ~~Repo backend, Browse UI, Network transports, Detail view, Wine/umu backend, Local DB, Update logic, HTTP(S) auth, Delta packages~~ ✅ all done
 10. **Flatpak packaging** — `flatpak/io.github.cellar.json`
 11. **KDE support** — GVFS/smbclient fallback, KWallet, `XDG_CURRENT_DESKTOP`
 
@@ -191,4 +202,4 @@ PYTHONPATH=. CELLAR_REPO=tests/fixtures python3 -m cellar.main
 - **HTTP User-Agent:** Use `User-Agent: Mozilla/5.0 (compatible; Cellar/1.0)` (`http.py`). Default Python UA is blocked by Cloudflare.
 - **nginx image assets:** Use `location ^~` so prefix match beats `~* \.(png|jpg)` regex blocks.
 - **Pillow + HTTP:** Can't load URLs or pass auth headers. Use `Repo._fetch_to_cache` temp-cache pattern.
-- **Hardlinks (delta):** Require same filesystem as prefixes dir. Fall back to copy otherwise.
+- **Copy-on-write (delta):** Uses `cp --reflink=auto` for btrfs/XFS; falls back to regular copy on other filesystems.

@@ -197,7 +197,7 @@ class AppEntry:
             screenshot_sources=dict(data.get("screenshot_sources", {})),
             archive=data.get("archive", ""),
             archive_size=int(data.get("archive_size", 0)),
-            archive_crc32=data.get("archive_crc32", data.get("archive_sha256", "")),
+            archive_crc32=data.get("archive_crc32", ""),
             install_size_estimate=int(data.get("install_size_estimate", 0)),
             update_strategy=strategy,
             base_image=data.get("base_image", ""),

@@ -163,7 +163,7 @@ class CellarWindow(Adw.ApplicationWindow):
 
         # Pre-warm the GE-Proton release list in the background.
         from cellar.backend import runners
-        run_in_background(runners.fetch_releases)
+        run_in_background(runners.fetch_releases, on_error=lambda msg: log.debug("Runner pre-warm failed: %s", msg))
 
     # ── Catalogue loading ─────────────────────────────────────────────────
 
@@ -474,7 +474,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="io.github.cellar",
-            version="0.47.9",
+            version="0.47.10",
             comments="A GNOME storefront for Windows and Linux apps.",
             license_type=Gtk.License.GPL_3_0,
         )

@@ -17,6 +17,15 @@ Schema::
         }
       ]
     }
+
+Credential storage
+------------------
+Passwords are stored via ``gi.repository.Secret`` (libsecret), which speaks
+the ``org.freedesktop.secrets`` D-Bus spec.  This covers GNOME Keyring, KDE
+KWallet, and any other compliant daemon, including the Flatpak portal.
+
+Falls back to plaintext in ``config.json`` (chmod 0o600) only when no secret
+service daemon is running (headless / CI).
 """
 
 from __future__ import annotations
@@ -27,6 +36,120 @@ import os
 from pathlib import Path
 
 log = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Secret storage helpers
+# ---------------------------------------------------------------------------
+
+_LIBSECRET_SERVICE = "io.github.cellar"
+
+# Lazily-initialised libsecret schema objects.
+_secret_schema: object | None = None
+_secret_available: bool | None = None  # None = not yet probed
+
+
+def _secret_schema_obj():
+    """Return the lazily-created libsecret Schema, or None if unavailable."""
+    global _secret_schema, _secret_available
+    if _secret_available is False:
+        return None
+    if _secret_schema is not None:
+        return _secret_schema
+    try:
+        from gi.repository import Secret  # type: ignore[import]
+        _secret_schema = Secret.Schema.new(
+            _LIBSECRET_SERVICE,
+            Secret.SchemaFlags.NONE,
+            {"service": Secret.SchemaAttributeType.STRING,
+             "uri":     Secret.SchemaAttributeType.STRING},
+        )
+        _secret_available = True
+        return _secret_schema
+    except Exception:
+        _secret_available = False
+        return None
+
+
+def _libsecret_store(service: str, uri: str, password: str) -> bool:
+    """Store *password* in GNOME Keyring. Returns True on success."""
+    schema = _secret_schema_obj()
+    if schema is None:
+        return False
+    try:
+        from gi.repository import Secret  # type: ignore[import]
+        ok = Secret.password_store_sync(
+            schema,
+            {"service": service, "uri": uri},
+            Secret.COLLECTION_DEFAULT,
+            f"Cellar — {service}: {uri}",
+            password,
+            None,
+        )
+        return bool(ok)
+    except Exception as exc:
+        log.debug("libsecret store failed: %s", exc)
+        return False
+
+
+def _libsecret_load(service: str, uri: str) -> str | None:
+    """Return password from GNOME Keyring, or None."""
+    schema = _secret_schema_obj()
+    if schema is None:
+        return None
+    try:
+        from gi.repository import Secret  # type: ignore[import]
+        return Secret.password_lookup_sync(
+            schema, {"service": service, "uri": uri}, None
+        )
+    except Exception:
+        return None
+
+
+def _libsecret_clear(service: str, uri: str) -> None:
+    """Delete password from GNOME Keyring (best-effort)."""
+    schema = _secret_schema_obj()
+    if schema is None:
+        return
+    try:
+        from gi.repository import Secret  # type: ignore[import]
+        Secret.password_clear_sync(schema, {"service": service, "uri": uri}, None)
+    except Exception:
+        pass
+
+
+def _store_password(config_key: str, uri: str, password: str) -> None:
+    """Store via libsecret; fall back to config.json (chmod 0o600)."""
+    if _libsecret_store(_LIBSECRET_SERVICE, uri, password):
+        return
+    log.warning(
+        "Secret service unavailable; storing password for %s in config.json "
+        "(file is mode 0600 — avoid world-readable mounts)",
+        uri,
+    )
+    cfg = _load()
+    cfg.setdefault(config_key, {})[uri] = password
+    _save(cfg)
+    try:
+        _config_path().chmod(0o600)
+    except OSError:
+        pass
+
+
+def _load_password(config_key: str, uri: str) -> str | None:
+    """Load from libsecret, falling back to config.json."""
+    pw = _libsecret_load(_LIBSECRET_SERVICE, uri)
+    if pw is not None:
+        return pw
+    return _load().get(config_key, {}).get(uri)
+
+
+def _clear_password(config_key: str, uri: str) -> None:
+    _libsecret_clear(_LIBSECRET_SERVICE, uri)
+    cfg = _load()
+    passwords = cfg.get(config_key, {})
+    if uri in passwords:
+        del passwords[uri]
+        _save(cfg)
 
 _CONFIG_FILE = "config.json"
 
@@ -164,107 +287,35 @@ def save_install_base(path: str) -> None:
 # SMB credential helpers
 # ---------------------------------------------------------------------------
 
-_KEYRING_SERVICE = "cellar-repo"
-
-
 def save_smb_password(uri: str, password: str) -> None:
-    """Store *password* for *uri* in the system keyring.
-
-    Falls back to ``config.json`` if the keyring is unavailable (e.g. on
-    headless systems).  The fallback is logged as a warning.
-    """
-    try:
-        import keyring  # type: ignore[import]
-        keyring.set_password(_KEYRING_SERVICE, uri, password)
-        return
-    except Exception as exc:
-        log.warning(
-            "Keyring unavailable (%s); storing SMB password in config.json", exc
-        )
-    cfg = _load()
-    cfg.setdefault("smb_passwords", {})[uri] = password
-    _save(cfg)
-    # Restrict permissions on config file so the password is not world-readable.
-    try:
-        import os
-        _config_path().chmod(0o600)
-    except OSError:
-        pass
+    """Store *password* for *uri* via the secret service (or config.json fallback)."""
+    _store_password("smb_passwords", uri, password)
 
 
 def load_smb_password(uri: str) -> str | None:
     """Return the stored SMB password for *uri*, or ``None`` if not found."""
-    try:
-        import keyring  # type: ignore[import]
-        pw = keyring.get_password(_KEYRING_SERVICE, uri)
-        if pw is not None:
-            return pw
-    except Exception:
-        pass
-    return _load().get("smb_passwords", {}).get(uri)
+    return _load_password("smb_passwords", uri)
 
 
 def clear_smb_password(uri: str) -> None:
-    """Remove the stored SMB password for *uri* from keyring and config."""
-    try:
-        import keyring  # type: ignore[import]
-        keyring.delete_password(_KEYRING_SERVICE, uri)
-    except Exception:
-        pass
-    cfg = _load()
-    passwords = cfg.get("smb_passwords", {})
-    if uri in passwords:
-        del passwords[uri]
-        _save(cfg)
+    """Remove the stored SMB password for *uri*."""
+    _clear_password("smb_passwords", uri)
 
 
 # ---------------------------------------------------------------------------
 # SSH credential helpers
 # ---------------------------------------------------------------------------
 
-_KEYRING_SERVICE_SSH = "cellar-repo-ssh"
-
-
 def save_ssh_password(uri: str, password: str) -> None:
-    """Store SSH *password* for *uri* in the system keyring."""
-    try:
-        import keyring  # type: ignore[import]
-        keyring.set_password(_KEYRING_SERVICE_SSH, uri, password)
-        return
-    except Exception as exc:
-        log.warning(
-            "Keyring unavailable (%s); storing SSH password in config.json", exc
-        )
-    cfg = _load()
-    cfg.setdefault("ssh_passwords", {})[uri] = password
-    _save(cfg)
-    try:
-        _config_path().chmod(0o600)
-    except OSError:
-        pass
+    """Store SSH *password* for *uri* via the secret service (or config.json fallback)."""
+    _store_password("ssh_passwords", uri, password)
 
 
 def load_ssh_password(uri: str) -> str | None:
     """Return the stored SSH password for *uri*, or ``None`` if not found."""
-    try:
-        import keyring  # type: ignore[import]
-        pw = keyring.get_password(_KEYRING_SERVICE_SSH, uri)
-        if pw is not None:
-            return pw
-    except Exception:
-        pass
-    return _load().get("ssh_passwords", {}).get(uri)
+    return _load_password("ssh_passwords", uri)
 
 
 def clear_ssh_password(uri: str) -> None:
-    """Remove the stored SSH password for *uri* from keyring and config."""
-    try:
-        import keyring  # type: ignore[import]
-        keyring.delete_password(_KEYRING_SERVICE_SSH, uri)
-    except Exception:
-        pass
-    cfg = _load()
-    passwords = cfg.get("ssh_passwords", {})
-    if uri in passwords:
-        del passwords[uri]
-        _save(cfg)
+    """Remove the stored SSH password for *uri*."""
+    _clear_password("ssh_passwords", uri)

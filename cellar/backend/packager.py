@@ -25,10 +25,11 @@ from cellar.utils.images import optimize_image as _optimize_image
 
 
 def _rmtree(path, ignore_errors: bool = False) -> None:
-    """Remove a directory tree; works for both :class:`pathlib.Path` and
-    :class:`~cellar.utils.smb.SmbPath`."""
+    """Remove a directory tree; works for :class:`pathlib.Path`,
+    :class:`~cellar.utils.smb.SmbPath`, and :class:`~cellar.utils.ssh.SshPath`."""
     from cellar.utils.smb import SmbPath
-    if isinstance(path, SmbPath):
+    from cellar.utils.ssh import SshPath
+    if isinstance(path, (SmbPath, SshPath)):
         try:
             path.rmtree()
         except Exception:

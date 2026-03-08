@@ -25,13 +25,13 @@ with GE-Proton. Linux native apps are extracted and launched directly.
 - Linux native app support alongside Windows apps
 - Desktop shortcut creation for installed apps (per launch target)
 - Multi-target launch support — apps can define multiple launch targets (e.g. main game, editor, launcher)
-- Launch apps directly from Cellar (standard or in a terminal window)
+- Launch apps directly from Cellar
 - Offline mode — cached catalogue allows browsing and launching when the repo is unreachable
 
 **For maintainers** (requires a writable repo)
 - Package Builder — two-panel project view for creating and publishing packages:
   - **Windows app project** — initialise a WINEPREFIX with a chosen GE-Proton runner, install winetricks dependencies, run `.exe` installers, configure entry points, test-launch, then publish
-  - **Linux app project** — provide an archive, set an entry point, publish
+  - **Linux app project** — point at a local directory, set an entry point, publish
   - **Base image project** — build a shared WINEPREFIX used as the delta base for multiple app packages
   - **Import from catalogue** — pull an existing catalogue entry into a local project for re-packaging
 - Steam Store metadata lookup — search by name to auto-fill title, description, developer, genres, cover art, and screenshots
@@ -442,6 +442,24 @@ cellar/
 ## License
 
 GPL-3.0-or-later
+
+---
+
+## Acknowledgements
+
+Cellar is built on the work of many open-source projects:
+
+- **[GTK](https://gtk.org/)** and **[libadwaita](https://gnome.pages.gitlab.gnome.org/libadwaita/)** — UI toolkit and GNOME platform library
+- **[umu-launcher](https://github.com/Open-Wine-Components/umu-launcher)** — unified Wine/Proton launcher
+- **[GE-Proton](https://github.com/GloriousEggroll/proton-ge-custom)** — custom Proton builds by GloriousEggroll
+- **[Pillow](https://python-pillow.org/)** — image processing
+- **[paramiko](https://www.paramiko.org/)** — pure-Python SSHv2
+- **[smbprotocol](https://github.com/jborean93/smbprotocol)** — pure-Python SMBv2/v3
+- **[zstandard](https://github.com/indygreg/python-zstandard)** — Zstandard compression bindings
+- **[Requests](https://docs.python-requests.org/)** — HTTP client
+- **[PyGObject](https://pygobject.gnome.org/)** — Python bindings for GLib/GTK/GStreamer
+
+Tab and category icons are [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) sourced from the GNOME icon set.
 
 ---
 

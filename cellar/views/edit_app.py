@@ -335,10 +335,10 @@ class EditAppDialog(Adw.Dialog):
         img_list.set_selection_mode(Gtk.SelectionMode.NONE)
 
         self._icon_row, self._icon_clear_btn, self._icon_thumb = self._make_image_row(
-            "Icon", self._pick_icon, thumb_size=52
+            "Icon", self._pick_icon, thumb_w=52, thumb_h=52
         )
         self._cover_row, self._cover_clear_btn, self._cover_thumb = self._make_image_row(
-            "Cover", self._pick_cover
+            "Cover", self._pick_cover, thumb_w=52, thumb_h=70
         )
 
         self._hide_title_btn = Gtk.ToggleButton()
@@ -348,7 +348,7 @@ class EditAppDialog(Adw.Dialog):
         self._hide_title_btn.set_tooltip_text("Hide title — logo contains the app name")
         self._hide_title_btn.connect("toggled", self._on_hide_title_toggled)
         self._logo_row, self._logo_clear_btn, self._logo_thumb = self._make_image_row(
-            "Logo", self._pick_logo, extra_suffix=self._hide_title_btn
+            "Logo", self._pick_logo, extra_suffix=self._hide_title_btn, thumb_w=130, thumb_h=52
         )
 
         self._icon_clear_btn.connect("clicked", self._on_icon_clear)
@@ -392,7 +392,7 @@ class EditAppDialog(Adw.Dialog):
         return scroll
 
     def _make_image_row(
-        self, label: str, handler, extra_suffix=None, thumb_size: int = 64
+        self, label: str, handler, extra_suffix=None, thumb_w: int = 64, thumb_h: int = 64
     ) -> tuple[Adw.ActionRow, Gtk.Button, Gtk.Picture]:
         row = Adw.ActionRow(title=label)
         row.set_subtitle("No image set")
@@ -401,7 +401,7 @@ class EditAppDialog(Adw.Dialog):
         thumb.set_content_fit(Gtk.ContentFit.CONTAIN)
         thumb.add_css_class("image-row-thumb")
 
-        thumb_wrap = _FixedBox(thumb_size, thumb_size)
+        thumb_wrap = _FixedBox(thumb_w, thumb_h)
         thumb_wrap.set_halign(Gtk.Align.CENTER)
         thumb_wrap.set_valign(Gtk.Align.CENTER)
         thumb_wrap.set_child(thumb)

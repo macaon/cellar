@@ -139,8 +139,6 @@ class CellarApplication(Adw.Application):
                 "}"
                 ".image-row-thumb {"
                 "  border-radius: 4px;"
-                "  min-width: 64px;"
-                "  min-height: 64px;"
                 "}"
             )
             # load_from_string was added in GTK 4.12; use load_from_data for

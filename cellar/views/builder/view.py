@@ -1294,7 +1294,6 @@ class PackageBuilderView(Gtk.Box):
             if project.selected_steam_urls:
                 GLib.idle_add(progress.set_label, "Downloading screenshots\u2026")
                 from cellar.utils.http import make_session as _make_session
-                from dataclasses import replace as _dc_replace
                 _session = _make_session()
                 dl_dir = project.project_dir / "screenshots"
                 dl_dir.mkdir(parents=True, exist_ok=True)

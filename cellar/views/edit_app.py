@@ -42,7 +42,7 @@ class EditAppDialog(Adw.Dialog):
         on_done,        # callable() — called after a successful save
         on_deleted,     # callable() — called after a successful delete
     ) -> None:
-        super().__init__(title="Edit Catalogue Entry", content_width=560)
+        super().__init__(title="Edit Catalogue Entry", content_width=1100, content_height=680)
 
         self._old_entry = entry
         self._repo = repo
@@ -99,16 +99,25 @@ class EditAppDialog(Adw.Dialog):
         self.set_child(toolbar_view)
 
     def _build_form(self) -> Gtk.Widget:
+        # Single scroll wraps both panes — no nested scrolling
         scroll = Gtk.ScrolledWindow(
             hscrollbar_policy=Gtk.PolicyType.NEVER,
             vscrollbar_policy=Gtk.PolicyType.AUTOMATIC,
         )
-        scroll.set_propagate_natural_height(True)
+
+        hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        scroll.set_child(hbox)
+
+        # ── Left column: metadata ─────────────────────────────────────────
+        left_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        left_box.set_width_request(360)
 
         page = Adw.PreferencesPage()
-        scroll.set_child(page)
+        page.set_vexpand(True)
+        left_box.append(page)
+        hbox.append(left_box)
 
-        # ── Identity ──────────────────────────────────────────────────────
+        # Identity
         identity_group = Adw.PreferencesGroup(title="Identity")
 
         self._name_entry = Adw.EntryRow(title="Name *")
@@ -121,7 +130,6 @@ class EditAppDialog(Adw.Dialog):
         self._name_entry.add_suffix(steam_btn)
         identity_group.add(self._name_entry)
 
-        # App ID is read-only — renaming would break installed records
         self._id_row = Adw.ActionRow(title="App ID", subtitle=self._old_entry.id)
         self._id_row.set_subtitle_selectable(True)
         identity_group.add(self._id_row)
@@ -141,7 +149,7 @@ class EditAppDialog(Adw.Dialog):
 
         page.add(identity_group)
 
-        # ── Details ───────────────────────────────────────────────────────
+        # Details
         details_group = Adw.PreferencesGroup(title="Details")
 
         self._summary_entry = Adw.EntryRow(title="Summary")
@@ -149,7 +157,7 @@ class EditAppDialog(Adw.Dialog):
 
         page.add(details_group)
 
-        # Description — markdown-aware editor in a card-styled frame
+        # Description — card-styled editor with formatting toolbar
         desc_outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         desc_outer.add_css_class("card")
 
@@ -163,7 +171,6 @@ class EditAppDialog(Adw.Dialog):
         desc_label.set_xalign(0)
         desc_header.append(desc_label)
 
-        # Formatting toolbar
         fmt_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
         bold_btn = Gtk.Button(label="B")
         bold_btn.add_css_class("flat")
@@ -193,8 +200,7 @@ class EditAppDialog(Adw.Dialog):
         desc_header.append(fmt_box)
         desc_outer.append(desc_header)
 
-        sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
-        desc_outer.append(sep)
+        desc_outer.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
 
         self._desc_view = Gtk.TextView()
         self._desc_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
@@ -209,7 +215,7 @@ class EditAppDialog(Adw.Dialog):
         desc_wrapper.add(desc_outer)
         page.add(desc_wrapper)
 
-        # ── Attribution ───────────────────────────────────────────────────
+        # Attribution
         attr_group = Adw.PreferencesGroup(title="Attribution")
         self._developer_entry = Adw.EntryRow(title="Developer")
         self._publisher_entry = Adw.EntryRow(title="Publisher")
@@ -219,43 +225,7 @@ class EditAppDialog(Adw.Dialog):
         attr_group.add(self._year_entry)
         page.add(attr_group)
 
-        # ── Images ────────────────────────────────────────────────────────
-        images_group = Adw.PreferencesGroup(title="Images")
-
-        self._icon_row, self._icon_clear_btn = self._make_image_row("Icon", self._pick_icon)
-        self._cover_row, self._cover_clear_btn = self._make_image_row("Cover", self._pick_cover)
-
-        self._hide_title_btn = Gtk.ToggleButton()
-        self._hide_title_btn.set_icon_name("eye-open-negative-filled-symbolic")
-        self._hide_title_btn.set_valign(Gtk.Align.CENTER)
-        self._hide_title_btn.set_visible(False)
-        self._hide_title_btn.set_tooltip_text("Hide title — logo contains the app name")
-        self._hide_title_btn.connect("toggled", self._on_hide_title_toggled)
-        self._logo_row, self._logo_clear_btn = self._make_image_row(
-            "Logo", self._pick_logo, extra_suffix=self._hide_title_btn
-        )
-
-        self._icon_clear_btn.connect("clicked", self._on_icon_clear)
-        self._cover_clear_btn.connect("clicked", self._on_cover_clear)
-        self._logo_clear_btn.connect("clicked", self._on_logo_clear)
-
-        images_group.add(self._icon_row)
-        images_group.add(self._cover_row)
-        images_group.add(self._logo_row)
-        page.add(images_group)
-
-        # ── Screenshots ───────────────────────────────────────────────────
-        ss_group = Adw.PreferencesGroup(title="Screenshots")
-
-        from cellar.views.screenshot_grid import ScreenshotGridWidget
-        self._screenshot_grid = ScreenshotGridWidget(
-            on_changed=self._on_screenshots_changed
-        )
-        ss_group.add(self._screenshot_grid)
-
-        page.add(ss_group)
-
-        # ── Install ───────────────────────────────────────────────────────
+        # Install
         install_group = Adw.PreferencesGroup(title="Install")
 
         self._strategy_row = Adw.ComboRow(title="Update Strategy")
@@ -273,7 +243,7 @@ class EditAppDialog(Adw.Dialog):
 
         page.add(install_group)
 
-        # ── Danger Zone ───────────────────────────────────────────────────
+        # Danger Zone
         danger_group = Adw.PreferencesGroup(title="Danger Zone")
 
         delete_btn = Gtk.Button(label="Delete Entry…")
@@ -286,11 +256,77 @@ class EditAppDialog(Adw.Dialog):
 
         page.add(danger_group)
 
+        # ── Vertical separator ────────────────────────────────────────────
+        hbox.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
+
+        # ── Right column: media ───────────────────────────────────────────
+        right_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        right_box.set_hexpand(True)
+        right_box.set_margin_top(16)
+        right_box.set_margin_bottom(16)
+        right_box.set_margin_start(16)
+        right_box.set_margin_end(16)
+        hbox.append(right_box)
+
+        # Image rows in a boxed-list
+        img_list = Gtk.ListBox()
+        img_list.add_css_class("boxed-list")
+        img_list.set_selection_mode(Gtk.SelectionMode.NONE)
+
+        self._icon_row, self._icon_clear_btn, self._icon_thumb = self._make_image_row(
+            "Icon", self._pick_icon
+        )
+        self._cover_row, self._cover_clear_btn, self._cover_thumb = self._make_image_row(
+            "Cover", self._pick_cover
+        )
+
+        self._hide_title_btn = Gtk.ToggleButton()
+        self._hide_title_btn.set_icon_name("eye-open-negative-filled-symbolic")
+        self._hide_title_btn.set_valign(Gtk.Align.CENTER)
+        self._hide_title_btn.set_visible(False)
+        self._hide_title_btn.set_tooltip_text("Hide title — logo contains the app name")
+        self._hide_title_btn.connect("toggled", self._on_hide_title_toggled)
+        self._logo_row, self._logo_clear_btn, self._logo_thumb = self._make_image_row(
+            "Logo", self._pick_logo, extra_suffix=self._hide_title_btn
+        )
+
+        self._icon_clear_btn.connect("clicked", self._on_icon_clear)
+        self._cover_clear_btn.connect("clicked", self._on_cover_clear)
+        self._logo_clear_btn.connect("clicked", self._on_logo_clear)
+
+        img_list.append(self._icon_row)
+        img_list.append(self._cover_row)
+        img_list.append(self._logo_row)
+        right_box.append(img_list)
+
+        # Separator between image rows and screenshot grid
+        hsep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        hsep.set_margin_top(12)
+        hsep.set_margin_bottom(4)
+        right_box.append(hsep)
+
+        # Screenshot grid — no inner scroll; outer scroll handles everything
+        from cellar.views.screenshot_grid import ScreenshotGridWidget
+        self._screenshot_grid = ScreenshotGridWidget(
+            on_changed=self._on_screenshots_changed,
+            scrolled=False,
+            vexpand=True,
+        )
+        right_box.append(self._screenshot_grid)
+
         return scroll
 
-    def _make_image_row(self, label: str, handler, extra_suffix=None) -> tuple[Adw.ActionRow, Gtk.Button]:
+    def _make_image_row(
+        self, label: str, handler, extra_suffix=None
+    ) -> tuple[Adw.ActionRow, Gtk.Button, Gtk.Picture]:
         row = Adw.ActionRow(title=label)
         row.set_subtitle("No image set")
+
+        thumb = Gtk.Picture()
+        thumb.set_size_request(64, 64)
+        thumb.set_content_fit(Gtk.ContentFit.CONTAIN)
+        thumb.add_css_class("image-row-thumb")
+        row.add_prefix(thumb)
 
         clear_btn = Gtk.Button(icon_name="user-trash-symbolic", tooltip_text="Remove image")
         clear_btn.add_css_class("flat")
@@ -307,7 +343,7 @@ class EditAppDialog(Adw.Dialog):
         change_btn.connect("clicked", handler)
         row.add_suffix(change_btn)
 
-        return row, clear_btn
+        return row, clear_btn, thumb
 
     def _build_progress(self) -> Gtk.Widget:
         box, self._progress_label, self._progress_bar, self._cancel_progress_btn = (
@@ -368,17 +404,24 @@ class EditAppDialog(Adw.Dialog):
             if e.steam_appid is not None:
                 self._steam_appid_entry.set_text(str(e.steam_appid))
 
-        # Single images — show current filename + enable clear button
-        if e.icon:
-            self._icon_row.set_subtitle(GLib.markup_escape_text(Path(e.icon).name))
-            self._icon_clear_btn.set_visible(True)
-        if e.cover:
-            self._cover_row.set_subtitle(GLib.markup_escape_text(Path(e.cover).name))
-            self._cover_clear_btn.set_visible(True)
-        if e.logo:
-            self._logo_row.set_subtitle(GLib.markup_escape_text(Path(e.logo).name))
-            self._logo_clear_btn.set_visible(True)
-            self._hide_title_btn.set_visible(True)
+        # Single images — show current filename, enable clear button, load thumbnail
+        try:
+            repo_root = self._repo.writable_path()
+            if e.icon:
+                self._icon_row.set_subtitle(GLib.markup_escape_text(Path(e.icon).name))
+                self._icon_clear_btn.set_visible(True)
+                self._icon_thumb.set_filename(str(repo_root / e.icon))
+            if e.cover:
+                self._cover_row.set_subtitle(GLib.markup_escape_text(Path(e.cover).name))
+                self._cover_clear_btn.set_visible(True)
+                self._cover_thumb.set_filename(str(repo_root / e.cover))
+            if e.logo:
+                self._logo_row.set_subtitle(GLib.markup_escape_text(Path(e.logo).name))
+                self._logo_clear_btn.set_visible(True)
+                self._logo_thumb.set_filename(str(repo_root / e.logo))
+                self._hide_title_btn.set_visible(True)
+        except Exception:
+            pass
         if e.hide_title:
             self._hide_title_btn.set_active(True)
 
@@ -473,6 +516,7 @@ class EditAppDialog(Adw.Dialog):
             self._icon_path = chooser.get_file().get_path()
             self._icon_row.set_subtitle(GLib.markup_escape_text(Path(self._icon_path).name))
             self._icon_clear_btn.set_visible(True)
+            self._icon_thumb.set_filename(self._icon_path)
 
     def _pick_cover(self, _btn) -> None:
         self._pick_image("Select Cover", False, self._on_cover_chosen)
@@ -482,6 +526,7 @@ class EditAppDialog(Adw.Dialog):
             self._cover_path = chooser.get_file().get_path()
             self._cover_row.set_subtitle(GLib.markup_escape_text(Path(self._cover_path).name))
             self._cover_clear_btn.set_visible(True)
+            self._cover_thumb.set_filename(self._cover_path)
 
     def _pick_logo(self, _btn) -> None:
         self._pick_image("Select Logo (transparent PNG)", False, self._on_logo_chosen)
@@ -491,6 +536,7 @@ class EditAppDialog(Adw.Dialog):
             self._logo_path = chooser.get_file().get_path()
             self._logo_row.set_subtitle(GLib.markup_escape_text(Path(self._logo_path).name))
             self._logo_clear_btn.set_visible(True)
+            self._logo_thumb.set_filename(self._logo_path)
             self._hide_title_btn.set_visible(True)
             if not self._old_entry.logo and not self._hide_title_btn.get_active():
                 self._hide_title_btn.set_active(True)
@@ -512,16 +558,19 @@ class EditAppDialog(Adw.Dialog):
         self._icon_path = ""
         self._icon_row.set_subtitle("Will be removed")
         self._icon_clear_btn.set_visible(False)
+        self._icon_thumb.set_paintable(None)
 
     def _on_cover_clear(self, _btn) -> None:
         self._cover_path = ""
         self._cover_row.set_subtitle("Will be removed")
         self._cover_clear_btn.set_visible(False)
+        self._cover_thumb.set_paintable(None)
 
     def _on_logo_clear(self, _btn) -> None:
         self._logo_path = ""
         self._logo_row.set_subtitle("Will be removed")
         self._logo_clear_btn.set_visible(False)
+        self._logo_thumb.set_paintable(None)
         self._hide_title_btn.set_visible(False)
 
     # ── Steam lookup ──────────────────────────────────────────────────────

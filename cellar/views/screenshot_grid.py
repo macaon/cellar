@@ -64,9 +64,10 @@ class ScreenshotGridWidget(Gtk.Box):
         items = grid.get_items()                   # ordered list[ScreenshotItem]
     """
 
-    def __init__(self, *, on_changed=None, **kwargs) -> None:
+    def __init__(self, *, on_changed=None, scrolled: bool = True, **kwargs) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0, **kwargs)
         self._on_changed = on_changed or (lambda: None)
+        self._scrolled = scrolled
 
         self._local: list[ScreenshotItem] = []
         self._steam: list[ScreenshotItem] = []
@@ -82,13 +83,6 @@ class ScreenshotGridWidget(Gtk.Box):
     # ── UI construction ───────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
-        scroll = Gtk.ScrolledWindow(
-            hscrollbar_policy=Gtk.PolicyType.NEVER,
-            vscrollbar_policy=Gtk.PolicyType.AUTOMATIC,
-        )
-        scroll.set_min_content_height(160)
-        scroll.set_vexpand(True)
-
         self._flow = Gtk.FlowBox()
         self._flow.set_valign(Gtk.Align.START)
         self._flow.set_selection_mode(Gtk.SelectionMode.NONE)
@@ -101,8 +95,18 @@ class ScreenshotGridWidget(Gtk.Box):
         self._flow.set_margin_start(8)
         self._flow.set_margin_end(8)
 
-        scroll.set_child(self._flow)
-        self.append(scroll)
+        if self._scrolled:
+            scroll = Gtk.ScrolledWindow(
+                hscrollbar_policy=Gtk.PolicyType.NEVER,
+                vscrollbar_policy=Gtk.PolicyType.AUTOMATIC,
+            )
+            scroll.set_min_content_height(160)
+            scroll.set_vexpand(True)
+            scroll.set_child(self._flow)
+            self.append(scroll)
+        else:
+            self._flow.set_vexpand(True)
+            self.append(self._flow)
 
         # Action bar
         bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
@@ -192,6 +196,20 @@ class ScreenshotGridWidget(Gtk.Box):
         self._rebuild()
         self._load_steam_thumbnails(added)
         self._on_changed()
+
+    def set_items(self, items: list[ScreenshotItem]) -> None:
+        """Restore full widget state (local + steam-pending) preserving cached thumb_paths."""
+        self._local = [i for i in items if not i.is_steam]
+        self._steam = [i for i in items if i.is_steam]
+        self._selected_local.clear()
+        self._selected_steam.clear()
+        self._rebuild()
+
+    def clear_steam(self) -> None:
+        """Remove all Steam-pending items (used after eager download promotes them to local)."""
+        self._steam.clear()
+        self._selected_steam.clear()
+        self._rebuild()
 
     def get_items(self) -> list[ScreenshotItem]:
         """Return all items in display order: local first, then Steam pending."""

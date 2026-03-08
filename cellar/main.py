@@ -138,6 +138,11 @@ class CellarApplication(Adw.Application):
                 ".logo-pic {"
                 "  filter: drop-shadow(0 2px 8px rgba(0,0,0,0.3));"
                 "}"
+                ".image-row-thumb {"
+                "  border-radius: 4px;"
+                "  min-width: 64px;"
+                "  min-height: 64px;"
+                "}"
             )
             # load_from_string was added in GTK 4.12; use load_from_data for
             # compatibility with older distros (e.g. Pop_OS / Ubuntu 22.04).

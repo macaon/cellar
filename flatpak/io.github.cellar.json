@@ -84,6 +84,48 @@
       ]
     },
     {
+      "name": "python3-bcrypt",
+      "buildsystem": "simple",
+      "build-commands": [
+        "pip3 install --verbose --exists-action=i --no-index --find-links=\"file://${PWD}\" --prefix=${FLATPAK_DEST} \"bcrypt\" --no-build-isolation"
+      ],
+      "sources": [
+        {
+          "type": "file",
+          "url": "https://files.pythonhosted.org/packages/3b/71/427945e6ead72ccffe77894b2655b695ccf14ae1866cd977e185d606dd2f/bcrypt-5.0.0-cp38-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+          "sha256": "560ddb6ec730386e7b3b26b8b4c88197aaed924430e7b74666a586ac997249ef"
+        }
+      ]
+    },
+    {
+      "name": "python3-pynacl",
+      "buildsystem": "simple",
+      "build-commands": [
+        "pip3 install --verbose --exists-action=i --no-index --find-links=\"file://${PWD}\" --prefix=${FLATPAK_DEST} \"pynacl\" --no-build-isolation"
+      ],
+      "sources": [
+        {
+          "type": "file",
+          "url": "https://files.pythonhosted.org/packages/7f/81/d60984052df5c97b1d24365bc1e30024379b42c4edcd79d2436b1b9806f2/pynacl-1.6.2-cp38-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+          "sha256": "22de65bb9010a725b0dac248f353bb072969c94fa8d6b1f34b87d7953cf7bbe4"
+        }
+      ]
+    },
+    {
+      "name": "python3-paramiko",
+      "buildsystem": "simple",
+      "build-commands": [
+        "pip3 install --verbose --exists-action=i --no-index --find-links=\"file://${PWD}\" --prefix=${FLATPAK_DEST} \"paramiko\" --no-build-isolation"
+      ],
+      "sources": [
+        {
+          "type": "file",
+          "url": "https://files.pythonhosted.org/packages/15/f8/c7bd0ef12954a81a1d3cea60a13946bd9a49a0036a5927770c461eade7ae/paramiko-3.5.1-py3-none-any.whl",
+          "sha256": "43b9a0501fc2b5e70680388d9346cf252cfb7d00b0667c39e80eb43a408b8f61"
+        }
+      ]
+    },
+    {
       "name": "python3-pyyaml",
       "buildsystem": "simple",
       "build-commands": [

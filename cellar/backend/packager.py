@@ -111,10 +111,10 @@ class _CRCWriter:
         self._last_cb = 0.0
 
     def write(self, data: bytes) -> int:
-        self.crc = zlib.crc32(data, self.crc)
         n = self._fp.write(data)
+        self.crc = zlib.crc32(data[:n], self.crc)
         if self._bytes_cb:
-            self._total_written += len(data)
+            self._total_written += n
             now = time.monotonic()
             if now - self._last_cb >= 0.5:
                 self._last_cb = now

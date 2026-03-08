@@ -54,7 +54,7 @@ def _reconcile_installed_record(entry) -> dict | None:
         if not app_dir.is_dir():
             log.info(
                 "Linux app dir %r gone from disk; removing stale record for %r",
-                entry.id, entry.id,
+                str(app_dir), entry.id,
             )
             database.remove_installed(entry.id)
             return None

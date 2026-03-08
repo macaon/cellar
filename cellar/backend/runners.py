@@ -23,6 +23,7 @@ _CACHE_TTL = 3600.0  # one hour; safely within GitHub's 60 req/hr unauthenticate
 
 _cache: tuple[float, list[dict]] | None = None
 _cache_lock = threading.Lock()
+_fetch_lock = threading.Lock()
 
 
 def fetch_releases(limit: int = 20) -> list[dict]:
@@ -41,53 +42,61 @@ def fetch_releases(limit: int = 20) -> list[dict]:
     """
     global _cache
     with _cache_lock:
-        now = time.monotonic()
         if _cache is not None:
             age, releases = _cache
-            if now - age < _CACHE_TTL:
+            if time.monotonic() - age < _CACHE_TTL:
                 return releases[:limit]
 
-    from cellar.utils.http import make_session
+    # Serialise fetches so only one thread hits the network.
+    with _fetch_lock:
+        # Double-check: another thread may have refreshed while we waited.
+        with _cache_lock:
+            if _cache is not None:
+                age, releases = _cache
+                if time.monotonic() - age < _CACHE_TTL:
+                    return releases[:limit]
 
-    try:
-        session = make_session()
-        resp = session.get(
-            _RELEASES_URL,
-            params={"per_page": limit},
-            timeout=15,
-        )
-        resp.raise_for_status()
-    except Exception as exc:  # noqa: BLE001
-        log.warning("Failed to fetch GE-Proton releases: %s", exc)
-        return _cache[1][:limit] if _cache else []
+        from cellar.utils.http import make_session
 
-    releases: list[dict] = []
-    for rel in resp.json():
-        tag = rel.get("tag_name", "")
-        name = rel.get("name", "") or tag
-        assets = rel.get("assets", [])
-        for asset in assets:
-            aname: str = asset.get("name", "")
-            # The main tarball; skip checksum sidecar files.
-            if aname.endswith(".tar.gz") and not aname.endswith(".sha512sum"):
-                # Look for a SHA512 checksum sidecar asset.
-                checksum = ""
-                for other in assets:
-                    if other.get("name", "") == f"{aname}.sha512sum":
-                        checksum = "sha512:" + other.get("browser_download_url", "")
-                        break
-                releases.append({
-                    "name": name,
-                    "tag": tag,
-                    "url": asset.get("browser_download_url", ""),
-                    "size": asset.get("size", 0),
-                    "checksum": checksum,
-                })
-                break  # one tarball per release
+        try:
+            session = make_session()
+            resp = session.get(
+                _RELEASES_URL,
+                params={"per_page": limit},
+                timeout=15,
+            )
+            resp.raise_for_status()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Failed to fetch GE-Proton releases: %s", exc)
+            return _cache[1][:limit] if _cache else []
 
-    with _cache_lock:
-        _cache = (now, releases)
-    return releases[:limit]
+        releases: list[dict] = []
+        for rel in resp.json():
+            tag = rel.get("tag_name", "")
+            name = rel.get("name", "") or tag
+            assets = rel.get("assets", [])
+            for asset in assets:
+                aname: str = asset.get("name", "")
+                # The main tarball; skip checksum sidecar files.
+                if aname.endswith(".tar.gz") and not aname.endswith(".sha512sum"):
+                    # Look for a SHA512 checksum sidecar asset.
+                    checksum = ""
+                    for other in assets:
+                        if other.get("name", "") == f"{aname}.sha512sum":
+                            checksum = "sha512:" + other.get("browser_download_url", "")
+                            break
+                    releases.append({
+                        "name": name,
+                        "tag": tag,
+                        "url": asset.get("browser_download_url", ""),
+                        "size": asset.get("size", 0),
+                        "checksum": checksum,
+                    })
+                    break  # one tarball per release
+
+        with _cache_lock:
+            _cache = (time.monotonic(), releases)
+        return releases[:limit]
 
 
 def get_release_info(runner_name: str) -> dict | None:

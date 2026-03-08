@@ -472,34 +472,69 @@ class EditAppDialog(Adw.Dialog):
             self._entry_point_entry.set_subtitle("Not set")
         self._launch_args_entry.set_text(e.launch_args or "")
 
-        # Single images — show current filename, enable clear button, load thumbnail
-        try:
-            repo_root = self._repo.writable_path()
-            if e.icon:
-                self._icon_row.set_subtitle(GLib.markup_escape_text(Path(e.icon).name))
-                self._icon_clear_btn.set_visible(True)
-                self._icon_thumb.set_filename(str(repo_root / e.icon))
-            if e.cover:
-                self._cover_row.set_subtitle(GLib.markup_escape_text(Path(e.cover).name))
-                self._cover_clear_btn.set_visible(True)
-                self._cover_thumb.set_filename(str(repo_root / e.cover))
-            if e.logo:
-                self._logo_row.set_subtitle(GLib.markup_escape_text(Path(e.logo).name))
-                self._logo_clear_btn.set_visible(True)
-                self._logo_thumb.set_filename(str(repo_root / e.logo))
-                self._hide_title_btn.set_visible(True)
-        except Exception:
-            pass
+        # Single images — subtitle from filename (sync), thumbnail via resolve (async for SMB)
+        if e.icon:
+            self._icon_row.set_subtitle(GLib.markup_escape_text(Path(e.icon).name))
+            self._icon_clear_btn.set_visible(True)
+        if e.cover:
+            self._cover_row.set_subtitle(GLib.markup_escape_text(Path(e.cover).name))
+            self._cover_clear_btn.set_visible(True)
+        if e.logo:
+            self._logo_row.set_subtitle(GLib.markup_escape_text(Path(e.logo).name))
+            self._logo_clear_btn.set_visible(True)
+            self._hide_title_btn.set_visible(True)
         if e.hide_title:
             self._hide_title_btn.set_active(True)
 
-        # Screenshots — resolve relative paths to absolute local paths
-        try:
-            repo_root = self._repo.writable_path()
-            ss_paths = [str(repo_root / rel) for rel in e.screenshots]
-        except Exception:
+        # Resolve image assets via repo (handles SMB/SSH cache download) in background
+        _assets = {k: v for k, v in [("icon", e.icon), ("cover", e.cover), ("logo", e.logo)] if v}
+        _ss_rels = list(e.screenshots)
+
+        def _resolve_assets():
+            result = {}
+            for key, rel in _assets.items():
+                try:
+                    result[key] = self._repo.resolve_asset_uri(rel)
+                except Exception:
+                    pass
             ss_paths = []
-        self._screenshot_grid.set_local_items(ss_paths)
+            for rel in _ss_rels:
+                try:
+                    p = self._repo.resolve_asset_uri(rel)
+                    if p:
+                        ss_paths.append(p)
+                except Exception:
+                    pass
+            return result, ss_paths
+
+        def _on_assets_resolved(res):
+            resolved, ss_paths = res
+            if "icon" in resolved:
+                self._icon_thumb.set_filename(resolved["icon"])
+            if "cover" in resolved:
+                self._cover_thumb.set_filename(resolved["cover"])
+            if "logo" in resolved:
+                self._logo_thumb.set_filename(resolved["logo"])
+            if ss_paths:
+                self._screenshot_grid.set_local_items(ss_paths)
+
+        run_in_background(_resolve_assets, on_done=_on_assets_resolved)
+
+        # Steam screenshot suggestions — fetch if steam_appid is set
+        if e.steam_appid:
+            def _fetch_steam_ss():
+                from cellar.backend.steam import fetch_details, SteamError
+                try:
+                    details = fetch_details(e.steam_appid)
+                    return details.get("screenshots", [])
+                except Exception:
+                    return []
+
+            def _on_steam_ss(screenshots):
+                if screenshots:
+                    self._screenshot_grid.add_steam(screenshots)
+
+            run_in_background(_fetch_steam_ss, on_done=_on_steam_ss)
 
         strategy = e.update_strategy or "safe"
         if strategy in _STRATEGIES:

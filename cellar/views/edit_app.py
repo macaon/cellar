@@ -472,11 +472,12 @@ class EditAppDialog(Adw.Dialog):
             select_multiple=multi,
         )
         img_filter = Gtk.FileFilter()
-        img_filter.set_name("Images (PNG, JPG, ICO, SVG)")
+        img_filter.set_name("Images (PNG, JPG, ICO, BMP, SVG)")
         img_filter.add_mime_type("image/png")
         img_filter.add_mime_type("image/jpeg")
         img_filter.add_mime_type("image/x-icon")
         img_filter.add_mime_type("image/vnd.microsoft.icon")
+        img_filter.add_mime_type("image/bmp")
         img_filter.add_mime_type("image/svg+xml")
         chooser.add_filter(img_filter)
         chooser.connect("response", callback, chooser)
@@ -676,7 +677,7 @@ class EditAppDialog(Adw.Dialog):
         elif self._icon_path == "":
             icon_rel = ""
         else:
-            ext = ".png" if Path(self._icon_path).suffix.lower() == ".ico" else Path(self._icon_path).suffix
+            ext = ".png" if Path(self._icon_path).suffix.lower() in (".ico", ".bmp") else Path(self._icon_path).suffix
             icon_rel = f"apps/{app_id}/icon{ext}"
 
         if self._cover_path is None:

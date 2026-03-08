@@ -1221,7 +1221,8 @@ class PackageBuilderView(Gtk.Box):
         # Build AppEntry from project metadata.
         from cellar.models.app_entry import AppEntry
         _slug = project.slug
-        _icon_ext = Path(project.icon_path).suffix if project.icon_path else ".png"
+        _raw_icon_ext = Path(project.icon_path).suffix.lower() if project.icon_path else ".png"
+        _icon_ext = ".png" if _raw_icon_ext in (".ico", ".bmp") else _raw_icon_ext
         _cover_ext = Path(project.cover_path).suffix if project.cover_path else ".jpg"
         entry = AppEntry(
             id=_slug,
@@ -1678,7 +1679,7 @@ class _ProjectRow(Gtk.ListBoxRow):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         box.set_margin_top(8)
         box.set_margin_bottom(8)
-        box.set_margin_start(12)
+        box.set_margin_start(8)
 
         top = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
 

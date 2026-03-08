@@ -171,8 +171,8 @@ def optimize_image(src: str | Path, dest, role: str) -> None:
 
     src = Path(src)
 
-    # ICO → PNG conversion (any role).
-    if src.suffix.lower() == ".ico":
+    # ICO / BMP → PNG conversion (any role).
+    if src.suffix.lower() in (".ico", ".bmp"):
         try:
             with Image.open(src) as img:
                 # ICO files may contain multiple sizes; Pillow loads the
@@ -184,7 +184,7 @@ def optimize_image(src: str | Path, dest, role: str) -> None:
                     png_dest.rename(dest)
                 return
         except Exception:
-            # Last resort: copy the raw ICO file.
+            # Last resort: copy the raw file.
             shutil.copyfile(src, dest)
             return
 

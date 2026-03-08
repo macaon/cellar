@@ -45,6 +45,7 @@ log = logging.getLogger(__name__)
 
 CATALOGUE_VERSION = 1
 _ASSET_CACHE_ROOT = Path.home() / ".cache" / "cellar" / "assets"
+_CATALOGUE_CACHE_ROOT = Path.home() / ".cache" / "cellar" / "catalogues"
 
 # File extensions treated as image assets.  These are downloaded to a per-session
 # temp cache by resolve_asset_uri so that GdkPixbuf can load them from a local
@@ -376,17 +377,48 @@ class Repo:
     # Public API — reading
     # ------------------------------------------------------------------
 
+    def _catalogue_cache_path(self) -> Path | None:
+        """Return the local cache path for this repo's catalogue.json, or None for local repos."""
+        if isinstance(self._fetcher, _LocalFetcher):
+            return None
+        key = hashlib.sha256(self.uri.encode()).hexdigest()[:16]
+        return _CATALOGUE_CACHE_ROOT / key / "catalogue.json"
+
     def fetch_catalogue(self) -> list[AppEntry]:
         """Load and parse ``catalogue.json``, returning all entries.
 
         Accepts both the current wrapper format
         ``{"cellar_version": …, "apps": […]}`` and a legacy bare JSON array.
         Category icons from ``category_icons`` are injected into each entry.
+
+        On network/transport failure, falls back to a locally cached copy of
+        the catalogue written on the last successful fetch.
         """
         import dataclasses
         from cellar.backend.packager import BASE_CATEGORY_ICONS
 
-        raw = self._fetch_json("catalogue.json")
+        cache_path = self._catalogue_cache_path()
+        try:
+            raw = self._fetch_json("catalogue.json")
+            if cache_path is not None:
+                try:
+                    cache_path.parent.mkdir(parents=True, exist_ok=True)
+                    cache_path.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+                except OSError as exc:
+                    log.warning("Could not write catalogue cache for %s: %s", self.uri, exc)
+        except RepoError as exc:
+            if cache_path is not None and cache_path.exists():
+                log.warning(
+                    "Could not fetch catalogue from %s (%s); using cached copy", self.uri, exc
+                )
+                try:
+                    raw = json.loads(cache_path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError) as cache_exc:
+                    raise RepoError(
+                        f"Catalogue fetch failed and cache is unreadable: {cache_exc}"
+                    ) from exc
+            else:
+                raise
 
         category_icons_raw: dict[str, str] = {}
         if isinstance(raw, list):

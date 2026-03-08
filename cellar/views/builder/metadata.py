@@ -45,6 +45,8 @@ class AppMetadataDialog(Adw.Dialog):
         self._project = project
         self._on_created = on_created
         self._on_changed = on_changed
+        # Snapshot for cancel/revert in edit mode
+        self._snapshot: dict | None = project.to_dict() if project else None
         # Temp image paths used in create mode until the project exists
         self._tmp_icon: str = ""
         self._tmp_cover: str = ""
@@ -65,6 +67,9 @@ class AppMetadataDialog(Adw.Dialog):
         header.set_show_end_title_buttons(False)
 
         if self._is_edit:
+            cancel_btn = Gtk.Button(label="Cancel")
+            cancel_btn.connect("clicked", self._on_cancel_clicked)
+            header.pack_start(cancel_btn)
             done_btn = Gtk.Button(label="Done")
             done_btn.add_css_class("suggested-action")
             done_btn.connect("clicked", lambda _: self.close())
@@ -368,6 +373,24 @@ class AppMetadataDialog(Adw.Dialog):
             project.project_dir.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dest)
         return str(dest)
+
+    def _on_cancel_clicked(self, _btn) -> None:
+        """Revert all changes made during this session and close."""
+        if self._project and self._snapshot:
+            restored = Project.from_dict(self._snapshot)
+            # Copy all metadata fields back from the snapshot
+            for attr in (
+                "name", "version", "category", "developer", "publisher",
+                "release_year", "website", "genres", "summary", "description",
+                "steam_appid", "icon_path", "cover_path", "logo_path",
+                "hide_title", "screenshot_paths", "steam_screenshots",
+                "selected_steam_urls",
+            ):
+                setattr(self._project, attr, getattr(restored, attr))
+            save_project(self._project)
+            if self._on_changed:
+                self._on_changed()
+        self.close()
 
     def _save(self, attr: str, value) -> None:
         if self._project:

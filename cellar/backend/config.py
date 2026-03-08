@@ -117,8 +117,8 @@ def _libsecret_clear(service: str, uri: str) -> None:
         pass
 
 
-def _store_password(config_key: str, uri: str, password: str) -> None:
-    """Store via libsecret; fall back to config.json (chmod 0o600)."""
+def save_password(uri: str, password: str) -> None:
+    """Store *password* for *uri* via libsecret; fall back to config.json (chmod 0o600)."""
     if _libsecret_store(_LIBSECRET_SERVICE, uri, password):
         return
     log.warning(
@@ -127,7 +127,11 @@ def _store_password(config_key: str, uri: str, password: str) -> None:
         uri,
     )
     cfg = _load()
-    cfg.setdefault(config_key, {})[uri] = password
+    cfg.setdefault("passwords", {})[uri] = password
+    # Migrate legacy per-scheme keys on the way through.
+    for old_key in ("smb_passwords", "ssh_passwords"):
+        if uri in cfg.get(old_key, {}):
+            del cfg[old_key][uri]
     _save(cfg)
     try:
         _config_path().chmod(0o600)
@@ -135,20 +139,30 @@ def _store_password(config_key: str, uri: str, password: str) -> None:
         pass
 
 
-def _load_password(config_key: str, uri: str) -> str | None:
-    """Load from libsecret, falling back to config.json."""
+def load_password(uri: str) -> str | None:
+    """Return the stored password for *uri*, or ``None`` if not found."""
     pw = _libsecret_load(_LIBSECRET_SERVICE, uri)
     if pw is not None:
         return pw
-    return _load().get(config_key, {}).get(uri)
+    cfg = _load()
+    # Check unified key first, then legacy per-scheme fallbacks.
+    return (
+        cfg.get("passwords", {}).get(uri)
+        or cfg.get("smb_passwords", {}).get(uri)
+        or cfg.get("ssh_passwords", {}).get(uri)
+    )
 
 
-def _clear_password(config_key: str, uri: str) -> None:
+def clear_password(uri: str) -> None:
+    """Remove the stored password for *uri* from all backends."""
     _libsecret_clear(_LIBSECRET_SERVICE, uri)
     cfg = _load()
-    passwords = cfg.get(config_key, {})
-    if uri in passwords:
-        del passwords[uri]
+    changed = False
+    for key in ("passwords", "smb_passwords", "ssh_passwords"):
+        if uri in cfg.get(key, {}):
+            del cfg[key][uri]
+            changed = True
+    if changed:
         _save(cfg)
 
 _CONFIG_FILE = "config.json"
@@ -284,38 +298,13 @@ def save_install_base(path: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# SMB credential helpers
+# Per-scheme aliases (kept for call-site readability)
 # ---------------------------------------------------------------------------
 
-def save_smb_password(uri: str, password: str) -> None:
-    """Store *password* for *uri* via the secret service (or config.json fallback)."""
-    _store_password("smb_passwords", uri, password)
+save_smb_password = save_password
+load_smb_password = load_password
+clear_smb_password = clear_password
 
-
-def load_smb_password(uri: str) -> str | None:
-    """Return the stored SMB password for *uri*, or ``None`` if not found."""
-    return _load_password("smb_passwords", uri)
-
-
-def clear_smb_password(uri: str) -> None:
-    """Remove the stored SMB password for *uri*."""
-    _clear_password("smb_passwords", uri)
-
-
-# ---------------------------------------------------------------------------
-# SSH credential helpers
-# ---------------------------------------------------------------------------
-
-def save_ssh_password(uri: str, password: str) -> None:
-    """Store SSH *password* for *uri* via the secret service (or config.json fallback)."""
-    _store_password("ssh_passwords", uri, password)
-
-
-def load_ssh_password(uri: str) -> str | None:
-    """Return the stored SSH password for *uri*, or ``None`` if not found."""
-    return _load_password("ssh_passwords", uri)
-
-
-def clear_ssh_password(uri: str) -> None:
-    """Remove the stored SSH password for *uri*."""
-    _clear_password("ssh_passwords", uri)
+save_ssh_password = save_password
+load_ssh_password = load_password
+clear_ssh_password = clear_password

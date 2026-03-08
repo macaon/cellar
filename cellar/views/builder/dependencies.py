@@ -127,9 +127,10 @@ class DependencyPickerDialog(Adw.Dialog):
         header = Adw.HeaderBar()
         header.set_show_end_title_buttons(False)
 
-        close_btn = Gtk.Button(label="Close")
-        close_btn.connect("clicked", lambda _: self.close())
-        header.pack_start(close_btn)
+        done_btn = Gtk.Button(label="Done")
+        done_btn.add_css_class("suggested-action")
+        done_btn.connect("clicked", lambda _: self.close())
+        header.pack_end(done_btn)
 
         self._search_entry = Gtk.SearchEntry()
         self._search_entry.set_placeholder_text("Search\u2026")

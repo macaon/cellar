@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from cellar.utils.async_work import run_in_background
 from pathlib import Path
 from typing import Callable
 
@@ -50,6 +49,8 @@ class AppMetadataDialog(Adw.Dialog):
         self._tmp_cover: str = ""
         self._tmp_logo: str = ""
         self._tmp_screenshots: list[str] = []
+        self._tmp_steam_screenshots: list[dict] = []
+        self._tmp_selected_steam_urls: list[str] = []
         self._chooser = None
 
         self._build_ui()
@@ -292,6 +293,10 @@ class AppMetadataDialog(Adw.Dialog):
             vexpand=True,
         )
         self._screenshot_grid.set_local_items(list(p.screenshot_paths) if p else [])
+        if p and p.steam_screenshots:
+            self._screenshot_grid.add_steam(p.steam_screenshots)
+            if p.selected_steam_urls:
+                self._screenshot_grid.select_steam_by_urls(set(p.selected_steam_urls))
         ss_box.append(self._screenshot_grid)
         right_box.append(ss_box)
 
@@ -429,45 +434,24 @@ class AppMetadataDialog(Adw.Dialog):
             self._screenshot_grid.add_steam(result["screenshots"])
 
     def _on_screenshots_changed(self) -> None:
-        """Called by the grid whenever the screenshot list changes. Saves local paths only."""
+        """Called by the grid whenever the screenshot list changes. Saves local + steam state."""
         items = self._screenshot_grid.get_items()
         local_paths = [i.local_path for i in items if i.local_path]
+        all_steam = self._screenshot_grid.get_all_steam_items()
+        steam_data = [
+            {"full": i.full_url, "thumbnail": i.thumb_url or ""}
+            for i in all_steam if i.full_url
+        ]
+        selected_urls = [i.full_url for i in items if i.is_steam and i.full_url]
         if self._project:
             self._project.screenshot_paths = local_paths
+            self._project.steam_screenshots = steam_data
+            self._project.selected_steam_urls = selected_urls
             save_project(self._project)
         else:
             self._tmp_screenshots = local_paths
-
-    def _download_steam_screenshots(self, project) -> None:
-        """Download any checked Steam screenshot items to the project dir in the background."""
-        steam_items = [i for i in self._screenshot_grid.get_items() if i.is_steam]
-        if not steam_items:
-            return
-        dl_dir = project.project_dir / "screenshots"
-        dl_dir.mkdir(parents=True, exist_ok=True)
-
-        def _download(items=steam_items, dl_dir=dl_dir) -> list[str]:
-            from cellar.utils.http import make_session
-            session = make_session()
-            downloaded: list[str] = []
-            for i, item in enumerate(items):
-                try:
-                    resp = session.get(item.full_url, timeout=30)
-                    if resp.ok:
-                        suffix = ".jpg" if item.full_url.lower().endswith(".jpg") else ".png"
-                        dest = dl_dir / f"steam_{i:02d}{suffix}"
-                        dest.write_bytes(resp.content)
-                        downloaded.append(str(dest))
-                except Exception as exc:  # noqa: BLE001
-                    log.warning("Screenshot download failed: %s", exc)
-            return downloaded
-
-        def _done(downloaded: list[str], project=project) -> None:
-            if downloaded:
-                project.screenshot_paths = list(project.screenshot_paths) + downloaded
-                save_project(project)
-
-        run_in_background(_download, on_done=_done)
+            self._tmp_steam_screenshots = steam_data
+            self._tmp_selected_steam_urls = selected_urls
 
     def _on_pick_icon(self, _btn) -> None:
         self._pick_image("Select Icon", False, self._on_icon_chosen)
@@ -598,8 +582,16 @@ class AppMetadataDialog(Adw.Dialog):
         local_ss = [i.local_path for i in self._screenshot_grid.get_items() if i.local_path]
         if local_ss:
             project.screenshot_paths = local_ss
+        all_steam = self._screenshot_grid.get_all_steam_items()
+        project.steam_screenshots = [
+            {"full": i.full_url, "thumbnail": i.thumb_url or ""}
+            for i in all_steam if i.full_url
+        ]
+        project.selected_steam_urls = [
+            i.full_url for i in self._screenshot_grid.get_items()
+            if i.is_steam and i.full_url
+        ]
         save_project(project)
-        self._download_steam_screenshots(project)
 
         self.close()
         if self._on_created:

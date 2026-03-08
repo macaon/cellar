@@ -215,6 +215,18 @@ class ScreenshotGridWidget(Gtk.Box):
         ]
         return selected_local + selected_steam
 
+    def get_all_steam_items(self) -> list[ScreenshotItem]:
+        """Return all Steam suggestion items regardless of checked state."""
+        return list(self._steam)
+
+    def select_steam_by_urls(self, urls: set[str]) -> None:
+        """Pre-check Steam items whose full_url is in *urls*. Call after add_steam()."""
+        self._selected_steam = {
+            i for i, item in enumerate(self._steam)
+            if item.full_url in urls
+        }
+        self._rebuild()
+
     def get_excluded_local_items(self) -> list[ScreenshotItem]:
         """Return local items the user deselected (caller may delete the files on save)."""
         return [

@@ -63,7 +63,9 @@ class Project:
     cover_path: str = ""       # local file path to cover image
     logo_path: str = ""        # local file path to logo image (transparent PNG)
     hide_title: bool = False   # True when logo already contains the app name
-    screenshot_paths: list[str] = field(default_factory=list)  # local file paths
+    screenshot_paths: list[str] = field(default_factory=list)   # local file paths
+    steam_screenshots: list[dict] = field(default_factory=list) # [{"full": url, "thumbnail": url}]
+    selected_steam_urls: list[str] = field(default_factory=list) # full URLs the user checked
 
     # ------------------------------------------------------------------
     # Derived paths
@@ -120,6 +122,8 @@ class Project:
             logo_path=data.get("logo_path", ""),
             hide_title=bool(data.get("hide_title", False)),
             screenshot_paths=list(data.get("screenshot_paths", [])),
+            steam_screenshots=list(data.get("steam_screenshots", [])),
+            selected_steam_urls=list(data.get("selected_steam_urls", [])),
         )
 
     def to_dict(self) -> dict:
@@ -172,6 +176,10 @@ class Project:
             d["hide_title"] = True
         if self.screenshot_paths:
             d["screenshot_paths"] = list(self.screenshot_paths)
+        if self.steam_screenshots:
+            d["steam_screenshots"] = list(self.steam_screenshots)
+        if self.selected_steam_urls:
+            d["selected_steam_urls"] = list(self.selected_steam_urls)
         return d
 
 

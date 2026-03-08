@@ -1288,6 +1288,42 @@ class PackageBuilderView(Gtk.Box):
             from cellar.backend.packager import (
                 compress_prefix_zst, compress_prefix_delta_zst, import_to_repo,
             )
+
+            # Download any Steam screenshots the user selected in metadata
+            nonlocal entry, images
+            if project.selected_steam_urls:
+                GLib.idle_add(progress.set_label, "Downloading screenshots…")
+                from cellar.utils.http import make_session as _make_session
+                from dataclasses import replace as _dc_replace
+                _session = _make_session()
+                dl_dir = project.project_dir / "screenshots"
+                dl_dir.mkdir(parents=True, exist_ok=True)
+                _selected = set(project.selected_steam_urls)
+                _downloaded: list[str] = []
+                for i, ss in enumerate(project.steam_screenshots):
+                    if ss.get("full") not in _selected:
+                        continue
+                    try:
+                        _resp = _session.get(ss["full"], timeout=30)
+                        if _resp.ok:
+                            _suffix = ".jpg" if ss["full"].lower().endswith(".jpg") else ".png"
+                            _dest = dl_dir / f"steam_{i:02d}{_suffix}"
+                            _dest.write_bytes(_resp.content)
+                            _downloaded.append(str(_dest))
+                    except Exception as _exc:  # noqa: BLE001
+                        log.warning("Screenshot download failed: %s", _exc)
+                if _downloaded:
+                    project.screenshot_paths = list(project.screenshot_paths) + _downloaded
+                    entry = _dc_replace(entry, screenshots=tuple(
+                        f"apps/{_slug}/screenshots/{j + 1:02d}{Path(p).suffix}"
+                        for j, p in enumerate(project.screenshot_paths)
+                    ))
+                    images["screenshots"] = list(project.screenshot_paths)
+                project.steam_screenshots = []
+                project.selected_steam_urls = []
+                from cellar.backend.project import save_project as _save_project
+                _save_project(project)
+
             repo_root = repo.writable_path()
             archive_dest = repo_root / entry.archive
             archive_dest.parent.mkdir(parents=True, exist_ok=True)

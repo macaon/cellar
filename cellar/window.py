@@ -377,6 +377,12 @@ class CellarWindow(Adw.ApplicationWindow):
                 icon = icons.get(updated_entry.category, "")
                 if icon:
                     updated_entry = _dc.replace(updated_entry, category_icon=icon)
+                # Reload catalogue FIRST so _init_asset_cache runs with the new
+                # generated_at before the DetailView's background screenshot
+                # downloads begin.  If we did this after creating DetailView the
+                # cache wipe would race with (and delete) the freshly downloaded
+                # screenshot files.
+                self._load_catalogue()
                 current_page = self.nav_view.get_visible_page()
                 log.debug("_on_edit_done: current_page=%r", current_page)
                 if current_page is not None:
@@ -397,7 +403,6 @@ class CellarWindow(Adw.ApplicationWindow):
                     current_page.set_child(new_detail)
                     current_page.set_title(updated_entry.name)
                 self._show_toast("Entry updated")
-                self._load_catalogue()
 
             EditAppDialog(
                 entry=selected_entry,
@@ -465,7 +470,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="io.github.cellar",
-            version="0.46.56",
+            version="0.46.57",
             comments="A GNOME storefront for Windows and Linux apps.",
             license_type=Gtk.License.GPL_3_0,
         )

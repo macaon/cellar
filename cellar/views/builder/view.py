@@ -124,18 +124,10 @@ class PackageBuilderView(Gtk.Box):
         import_btn.add_css_class("flat")
         import_btn.connect("clicked", self._on_import_clicked)
 
-        self._delete_btn = Gtk.Button(icon_name="edit-delete-symbolic")
-        self._delete_btn.set_tooltip_text("Delete package")
-        self._delete_btn.add_css_class("flat")
-        self._delete_btn.add_css_class("destructive-action")
-        self._delete_btn.set_sensitive(False)
-        self._delete_btn.connect("clicked", self._on_delete_clicked)
-
         btn_box.append(new_app_btn)
         btn_box.append(new_linux_btn)
         btn_box.append(new_base_btn)
         btn_box.append(import_btn)
-        btn_box.append(self._delete_btn)
         header.pack_end(btn_box)
 
         sidebar.append(header)
@@ -196,23 +188,20 @@ class PackageBuilderView(Gtk.Box):
         self._project_rows = []
 
         for p in projects:
-            row = _ProjectRow(p)
+            row = _ProjectRow(p, on_delete=self._on_delete_clicked)
             self._list_box.append(row)
             self._project_rows.append(row)
 
         if not projects:
             self._project = None
-            self._delete_btn.set_sensitive(False)
             self._detail_stack.set_visible_child_name("empty")
 
     def _on_row_selected(self, _lb, row: Gtk.ListBoxRow | None) -> None:
         if row is None:
             self._project = None
-            self._delete_btn.set_sensitive(False)
             self._detail_stack.set_visible_child_name("empty")
             return
         self._project = row.project  # type: ignore[attr-defined]
-        self._delete_btn.set_sensitive(True)
         self._show_project(self._project)
 
     def _on_new_app_clicked(self, _btn) -> None:
@@ -248,11 +237,9 @@ class PackageBuilderView(Gtk.Box):
                 self._list_box.select_row(self._list_box.get_row_at_index(i))
                 break
 
-    def _on_delete_clicked(self, _btn) -> None:
-        if self._project is None:
-            return
-        name = self._project.name
-        slug = self._project.slug
+    def _on_delete_clicked(self, project: Project) -> None:
+        name = project.name
+        slug = project.slug
 
         dialog = Adw.AlertDialog(
             heading=f"Delete '{name}'?",
@@ -1684,7 +1671,7 @@ class PackageBuilderView(Gtk.Box):
 class _ProjectRow(Gtk.ListBoxRow):
     """A row in the project list sidebar."""
 
-    def __init__(self, project: Project) -> None:
+    def __init__(self, project: Project, on_delete: Callable[[Project], None]) -> None:
         super().__init__()
         self.project = project
 
@@ -1706,6 +1693,13 @@ class _ProjectRow(Gtk.ListBoxRow):
         badge.add_css_class("caption")
         badge.add_css_class("dim-label")
         top.append(badge)
+
+        del_btn = Gtk.Button(icon_name="user-trash-symbolic", tooltip_text="Delete package")
+        del_btn.add_css_class("flat")
+        del_btn.add_css_class("destructive-action")
+        del_btn.set_valign(Gtk.Align.CENTER)
+        del_btn.connect("clicked", lambda _b: on_delete(self.project))
+        top.append(del_btn)
 
         box.append(top)
 

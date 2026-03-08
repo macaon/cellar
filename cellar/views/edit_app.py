@@ -315,7 +315,7 @@ class EditAppDialog(Adw.Dialog):
         row = Adw.ActionRow(title=label)
         row.set_subtitle("No image set")
 
-        clear_btn = Gtk.Button(icon_name="edit-clear-symbolic", tooltip_text="Remove image")
+        clear_btn = Gtk.Button(icon_name="user-trash-symbolic", tooltip_text="Remove image")
         clear_btn.add_css_class("flat")
         clear_btn.set_valign(Gtk.Align.CENTER)
         clear_btn.set_sensitive(False)
@@ -603,7 +603,7 @@ class EditAppDialog(Adw.Dialog):
 
     def _make_ss_row(self, path: str) -> Adw.ActionRow:
         row = Adw.ActionRow(title=Path(path).name)
-        btn = Gtk.Button(icon_name="edit-delete-symbolic", tooltip_text="Remove")
+        btn = Gtk.Button(icon_name="user-trash-symbolic", tooltip_text="Remove")
         btn.add_css_class("flat")
         btn.add_css_class("circular")
         btn.set_valign(Gtk.Align.CENTER)

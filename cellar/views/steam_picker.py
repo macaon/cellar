@@ -34,13 +34,13 @@ class SteamPickerDialog(Adw.Dialog):
         self._debounce_id: int | None = None
         self._search_gen: int = 0
         self._results: list[dict] = []  # list of {appid, name}
+        self._suppress_search_changed: bool = False
 
         self._build_ui()
 
         if query:
-            self._search_entry.handler_block(self._search_changed_id)
+            self._suppress_search_changed = True
             self._search_entry.set_text(query)
-            self._search_entry.handler_unblock(self._search_changed_id)
             self._trigger_search(query)
 
     # ------------------------------------------------------------------
@@ -138,6 +138,9 @@ class SteamPickerDialog(Adw.Dialog):
     # ------------------------------------------------------------------
 
     def _on_search_changed(self, entry: Gtk.SearchEntry) -> None:
+        if self._suppress_search_changed:
+            self._suppress_search_changed = False
+            return
         query = entry.get_text().strip()
         if self._debounce_id is not None:
             GLib.source_remove(self._debounce_id)

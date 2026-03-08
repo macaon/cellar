@@ -88,6 +88,7 @@ class CellarWindow(Adw.ApplicationWindow):
     updates_page: Adw.ViewStackPage = Gtk.Template.Child()
     builder_box: Gtk.Box = Gtk.Template.Child()
     builder_page: Adw.ViewStackPage = Gtk.Template.Child()
+    view_stack: Adw.ViewStack = Gtk.Template.Child()
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
@@ -112,6 +113,7 @@ class CellarWindow(Adw.ApplicationWindow):
         )
         self.search_entry.connect("search-changed", self._on_search_changed)
         self.refresh_button.connect("clicked", self._on_refresh_clicked)
+        self.view_stack.connect("notify::visible-child", self._on_view_switched)
 
         prefs_action = Gio.SimpleAction.new("preferences", None)
         prefs_action.connect("activate", self._on_preferences_activated)
@@ -459,7 +461,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="io.github.cellar",
-            version="0.46.23",
+            version="0.46.24",
             comments="A GNOME storefront for Windows and Linux apps.",
             license_type=Gtk.License.GPL_3_0,
         )
@@ -467,6 +469,13 @@ class CellarWindow(Adw.ApplicationWindow):
 
     def _show_toast(self, message: str) -> None:
         self.toast_overlay.add_toast(Adw.Toast(title=message))
+
+    def _on_view_switched(self, stack: Adw.ViewStack, _param) -> None:
+        in_builder = stack.get_visible_child_name() == "builder"
+        self.search_button.set_visible(not in_builder)
+        self.filter_button.set_visible(not in_builder)
+        if in_builder:
+            self.search_bar.set_search_mode(False)
 
     def _on_search_toggled(self, button: Gtk.ToggleButton) -> None:
         self.search_bar.set_search_mode(button.get_active())

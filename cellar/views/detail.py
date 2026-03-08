@@ -738,11 +738,27 @@ class DetailView(Gtk.Box):
 
         if cached_paths:
             self._screenshot_paths = cached_paths
-            self._populate_screenshots(wrapper, cached_paths)
+            pages = [self._make_screenshot_pic(p, i) for i, p in enumerate(cached_paths)]
+            self._populate_screenshots(wrapper, pages)
             return wrapper
 
-        # Slow path: some images need fetching — resolve async and fill in later.
-        wrapper.set_visible(False)
+        # Slow path: build the carousel immediately with fixed-height placeholder
+        # slots so the layout reserves the correct space — no jump when images load.
+        slots: list[Gtk.Box] = []
+        for _ in screenshots:
+            slot = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+            slot.set_size_request(-1, 300)
+            slot.set_margin_start(8)
+            slot.set_margin_end(8)
+            slot.set_margin_top(4)
+            slot.set_margin_bottom(10)
+            spinner = Gtk.Spinner(spinning=True)
+            spinner.set_halign(Gtk.Align.CENTER)
+            spinner.set_valign(Gtk.Align.CENTER)
+            slot.append(spinner)
+            slots.append(slot)
+
+        self._populate_screenshots(wrapper, slots)
 
         def _work():
             resolved = []
@@ -754,37 +770,57 @@ class DetailView(Gtk.Box):
 
         def _on_resolved(paths: list[str]) -> None:
             self._screenshot_paths = paths
-            if paths:
-                self._populate_screenshots(wrapper, paths)
-                wrapper.set_visible(True)
+            for idx, (slot, path) in enumerate(zip(slots, paths)):
+                # Remove spinner
+                child = slot.get_first_child()
+                while child:
+                    nxt = child.get_next_sibling()
+                    slot.remove(child)
+                    child = nxt
+                # Insert real picture (margins are already on the slot)
+                pic = Gtk.Picture.new_for_filename(path)
+                pic.set_content_fit(Gtk.ContentFit.CONTAIN)
+                pic.set_can_shrink(True)
+                pic.set_overflow(Gtk.Overflow.HIDDEN)
+                pic.add_css_class("screenshot-pic")
+                click = Gtk.GestureClick()
+                click.connect("released", self._on_screenshot_clicked, idx)
+                pic.add_controller(click)
+                slot.append(pic)
+            # Hide any trailing slots whose images failed to resolve
+            for slot in slots[len(paths):]:
+                slot.set_visible(False)
 
         run_in_background(_work, on_done=_on_resolved)
         return wrapper
 
-    def _populate_screenshots(self, wrapper: Gtk.Box, paths: list[str]) -> None:
-        """Build and append carousel content into *wrapper*."""
+    def _make_screenshot_pic(self, path: str, idx: int) -> Gtk.Picture:
+        """Build a single carousel page widget for a screenshot at *path*."""
+        pic = Gtk.Picture.new_for_filename(path)
+        pic.set_content_fit(Gtk.ContentFit.CONTAIN)
+        pic.set_can_shrink(True)
+        pic.set_size_request(-1, 300)
+        pic.set_cursor(Gdk.Cursor.new_from_name("pointer"))
+        pic.set_overflow(Gtk.Overflow.HIDDEN)
+        pic.set_margin_start(8)
+        pic.set_margin_end(8)
+        pic.set_margin_top(4)
+        pic.set_margin_bottom(10)
+        pic.add_css_class("screenshot-pic")
+        click = Gtk.GestureClick()
+        click.connect("released", self._on_screenshot_clicked, idx)
+        pic.add_controller(click)
+        return pic
+
+    def _populate_screenshots(self, wrapper: Gtk.Box, pages: list[Gtk.Widget]) -> None:
+        """Build and append carousel content into *wrapper* from pre-built page widgets."""
         carousel = Adw.Carousel(
             allow_scroll_wheel=False, reveal_duration=200, spacing=12,
         )
-        multiple = len(paths) > 1
-        pointer_cursor = Gdk.Cursor.new_from_name("pointer")
+        multiple = len(pages) > 1
 
-        for idx, path in enumerate(paths):
-            pic = Gtk.Picture.new_for_filename(path)
-            pic.set_content_fit(Gtk.ContentFit.CONTAIN)
-            pic.set_can_shrink(True)
-            pic.set_size_request(-1, 300)
-            pic.set_cursor(pointer_cursor)
-            pic.set_overflow(Gtk.Overflow.HIDDEN)
-            pic.set_margin_start(8)
-            pic.set_margin_end(8)
-            pic.set_margin_top(4)
-            pic.set_margin_bottom(10)
-            pic.add_css_class("screenshot-pic")
-            click = Gtk.GestureClick()
-            click.connect("released", self._on_screenshot_clicked, idx)
-            pic.add_controller(click)
-            carousel.append(pic)
+        for page in pages:
+            carousel.append(page)
 
         overlay = Gtk.Overlay(child=carousel)
         wrapper.append(overlay)

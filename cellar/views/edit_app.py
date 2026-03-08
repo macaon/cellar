@@ -59,6 +59,9 @@ class EditAppDialog(Adw.Dialog):
         # Screenshot dirty flag — True once grid has been touched
         self._screenshots_dirty: bool = False
 
+        # Check whether the app is installed locally (determines entry-point editability)
+        self._locally_installed: bool = self._check_locally_installed(entry)
+
         # Load category list from repo
         from cellar.backend.packager import BASE_CATEGORIES as _BASE_CATS
         try:
@@ -68,6 +71,20 @@ class EditAppDialog(Adw.Dialog):
 
         self._build_ui()
         self._prefill()
+
+    @staticmethod
+    def _check_locally_installed(entry) -> bool:
+        """Return True if the app has a local prefix/install we can browse."""
+        try:
+            if entry.platform == "linux":
+                from cellar.backend.database import get_installed
+                rec = get_installed(entry.id)
+                return bool(rec and rec.get("install_path"))
+            else:
+                from cellar.backend.umu import prefixes_dir
+                return (prefixes_dir() / entry.id / "drive_c").is_dir()
+        except Exception:
+            return False
 
     # ── UI construction ───────────────────────────────────────────────────
 
@@ -251,13 +268,19 @@ class EditAppDialog(Adw.Dialog):
         self._entry_point_entry = Adw.ActionRow(title="Launch Target")
         self._entry_point_entry.set_subtitle("Not set")
         self._entry_point_entry.set_subtitle_selectable(True)
-        ep_browse_btn = Gtk.Button(icon_name="folder-open-symbolic")
-        ep_browse_btn.add_css_class("flat")
-        ep_browse_btn.set_valign(Gtk.Align.CENTER)
-        ep_browse_btn.set_tooltip_text("Browse for executable…")
-        ep_browse_btn.connect("clicked", self._on_browse_entry_point)
-        self._entry_point_entry.add_suffix(ep_browse_btn)
-        self._entry_point_entry.set_activatable_widget(ep_browse_btn)
+        if self._locally_installed:
+            ep_browse_btn = Gtk.Button(icon_name="folder-open-symbolic")
+            ep_browse_btn.add_css_class("flat")
+            ep_browse_btn.set_valign(Gtk.Align.CENTER)
+            ep_browse_btn.set_tooltip_text("Browse for executable…")
+            ep_browse_btn.connect("clicked", self._on_browse_entry_point)
+            self._entry_point_entry.add_suffix(ep_browse_btn)
+            self._entry_point_entry.set_activatable_widget(ep_browse_btn)
+        else:
+            not_installed_label = Gtk.Label(label="Not installed locally")
+            not_installed_label.add_css_class("dim-label")
+            not_installed_label.set_valign(Gtk.Align.CENTER)
+            self._entry_point_entry.add_suffix(not_installed_label)
         launch_group.add(self._entry_point_entry)
 
         self._launch_args_entry = Adw.EntryRow(title="Launch Arguments")

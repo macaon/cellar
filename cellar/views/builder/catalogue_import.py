@@ -17,7 +17,6 @@ from gi.repository import Adw, GLib, Gtk
 from cellar.backend.project import Project, load_projects, save_project
 from cellar.utils.async_work import run_in_background
 from cellar.views.builder.progress import ProgressDialog
-from cellar.views.widgets import make_loading_stack
 
 log = logging.getLogger(__name__)
 
@@ -40,15 +39,44 @@ class CatalogueEntriesDialog(Adw.Dialog):
         self._repos = repos
         self._on_imported = on_imported
         self._on_catalogue_changed = on_catalogue_changed
-        self._entries: list[tuple] = []  # (item, repo, kind) — kind = "app" | "base"
+        self._entries: list[tuple] = []  # (item, repo, kind) — kind = "app" | "base" | "runner"
+        self._row_widgets: list[Adw.ActionRow] = []
 
         toolbar = Adw.ToolbarView()
         header = Adw.HeaderBar()
         toolbar.add_top_bar(header)
 
-        self._stack, self._list_box = make_loading_stack("Fetching catalogue\u2026")
-        self._list_box.set_selection_mode(Gtk.SelectionMode.NONE)
-        self._list_box.set_header_func(self._section_header_func)
+        # Loading page
+        self._stack = Gtk.Stack()
+        spinner_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        spinner_box.set_valign(Gtk.Align.CENTER)
+        spinner_box.set_vexpand(True)
+        spinner = Gtk.Spinner(spinning=True)
+        spinner.set_size_request(32, 32)
+        spinner_box.append(spinner)
+        loading_lbl = Gtk.Label(label="Fetching catalogue\u2026")
+        loading_lbl.add_css_class("dim-label")
+        spinner_box.append(loading_lbl)
+        self._stack.add_named(spinner_box, "loading")
+
+        # List page: three PreferencesGroups inside a scroll
+        scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
+        scroll.set_min_content_height(300)
+        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=24)
+        vbox.set_margin_top(12)
+        vbox.set_margin_bottom(12)
+        vbox.set_margin_start(12)
+        vbox.set_margin_end(12)
+        self._apps_group = Adw.PreferencesGroup(title="Apps")
+        self._bases_group = Adw.PreferencesGroup(title="Base Images")
+        self._runners_group = Adw.PreferencesGroup(title="Runners")
+        vbox.append(self._apps_group)
+        vbox.append(self._bases_group)
+        vbox.append(self._runners_group)
+        scroll.set_child(vbox)
+        self._stack.add_named(scroll, "list")
+        self._stack.set_visible_child_name("loading")
+
         toolbar.set_content(self._stack)
         self.set_child(toolbar)
 
@@ -85,84 +113,61 @@ class CatalogueEntriesDialog(Adw.Dialog):
 
     def _populate(self, results: list[tuple]) -> None:
         self._entries = results
+        self._row_widgets = []
 
-        # Build set of (repo_uri, runner) pairs that have at least one dependent app.
-        # Used to disable the delete button on entries that have dependents.
-        # Bases depended on by apps:
+        # Build dependency sets to disable delete on entries that have dependents.
         depended_bases: set[tuple[str, str]] = set()
         for item, repo, kind in results:
             if kind == "app" and item.base_image:
                 depended_bases.add((repo.uri, item.base_image))
-        # Runners depended on by bases:
         depended_runners: set[tuple[str, str]] = set()
         for item, repo, kind in results:
             if kind == "base":
                 depended_runners.add((repo.uri, item.runner))
+
+        groups = {"app": self._apps_group, "base": self._bases_group, "runner": self._runners_group}
+        counts = {"app": 0, "base": 0, "runner": 0}
 
         for idx, (item, repo, kind) in enumerate(results):
             size_mb = (item.archive_size or 0) / 1_000_000
             size_str = f"{size_mb:.0f} MB" if size_mb else ""
             repo_name = repo.name or repo.uri
             if kind == "app":
-                title = item.name
                 base_str = f"Base: {item.base_image}" if item.base_image else ""
                 subtitle_parts = [item.version or "", base_str, size_str, repo_name]
             elif kind == "base":
-                title = item.name
                 runner_str = f"Runner: {item.runner}" if item.runner != item.name else ""
                 subtitle_parts = [runner_str, size_str, repo_name]
             else:  # runner
-                title = item.name
                 subtitle_parts = [size_str, repo_name]
             subtitle = "  \u00b7  ".join(p for p in subtitle_parts if p)
-            row = Adw.ActionRow(title=html.escape(title), subtitle=html.escape(subtitle))
+            row = Adw.ActionRow(title=html.escape(item.name), subtitle=html.escape(subtitle))
 
-            if kind == "base":
-                chip = Gtk.Label(label="Base Image")
-                chip.add_css_class("tag")
-                chip.set_valign(Gtk.Align.CENTER)
-                row.add_suffix(chip)
-            elif kind == "runner":
-                chip = Gtk.Label(label="Runner")
-                chip.add_css_class("tag")
-                chip.set_valign(Gtk.Align.CENTER)
-                row.add_suffix(chip)
-
-            if kind == "runner":
-                dl_btn = Gtk.Button(
-                    icon_name="folder-download-symbolic",
-                    valign=Gtk.Align.CENTER,
-                    has_frame=False,
-                    tooltip_text="Install runner locally",
-                )
-            else:
-                dl_btn = Gtk.Button(
-                    icon_name="folder-download-symbolic",
-                    valign=Gtk.Align.CENTER,
-                    has_frame=False,
-                    tooltip_text="Import for editing",
-                )
+            dl_btn = Gtk.Button(
+                icon_name="folder-download-symbolic",
+                valign=Gtk.Align.CENTER,
+                has_frame=False,
+                tooltip_text="Install runner locally" if kind == "runner" else "Import for editing",
+            )
             dl_btn.connect("clicked", self._on_download_clicked, idx)
             row.add_suffix(dl_btn)
 
             if kind == "base":
                 is_depended = (repo.uri, item.name) in depended_bases
                 can_delete = repo.is_writable and not is_depended
-                if is_depended:
-                    del_tooltip = "Apps in this repo depend on this base"
-                elif not repo.is_writable:
-                    del_tooltip = "Read-only repo"
-                else:
-                    del_tooltip = "Remove from repo"
+                del_tooltip = (
+                    "Apps in this repo depend on this base" if is_depended
+                    else "Read-only repo" if not repo.is_writable
+                    else "Remove from repo"
+                )
             elif kind == "runner":
                 is_depended = (repo.uri, item.name) in depended_runners
                 can_delete = repo.is_writable and not is_depended
-                if is_depended:
-                    del_tooltip = "Base images in this repo depend on this runner"
-                elif not repo.is_writable:
-                    del_tooltip = "Read-only repo"
-                else:
-                    del_tooltip = "Remove from repo"
+                del_tooltip = (
+                    "Base images in this repo depend on this runner" if is_depended
+                    else "Read-only repo" if not repo.is_writable
+                    else "Remove from repo"
+                )
             else:
                 can_delete = repo.is_writable
                 del_tooltip = "Remove from repo" if repo.is_writable else "Read-only repo"
@@ -179,50 +184,23 @@ class CatalogueEntriesDialog(Adw.Dialog):
             del_btn.connect("clicked", self._on_delete_clicked, idx)
             row.add_suffix(del_btn)
 
-            self._list_box.append(row)
+            groups[kind].add(row)
+            self._row_widgets.append(row)
+            counts[kind] += 1
 
+        # Show a placeholder in the Apps group when nothing was found at all
         if not results:
-            empty_row = Adw.ActionRow(
+            self._apps_group.add(Adw.ActionRow(
                 title="No entries found",
                 subtitle="Add a repository with published apps.",
-            )
-            self._list_box.append(empty_row)
+            ))
+
+        # Hide empty groups
+        self._apps_group.set_visible(counts["app"] > 0 or not results)
+        self._bases_group.set_visible(counts["base"] > 0)
+        self._runners_group.set_visible(counts["runner"] > 0)
 
         self._stack.set_visible_child_name("list")
-
-    def _section_header_func(
-        self, row: Gtk.ListBoxRow, before: Gtk.ListBoxRow | None
-    ) -> None:
-        idx = row.get_index()
-        if not (0 <= idx < len(self._entries)):
-            row.set_header(None)
-            return
-        _, _, kind = self._entries[idx]
-        prev_kind: str | None = None
-        if before is not None:
-            prev_idx = before.get_index()
-            if 0 <= prev_idx < len(self._entries):
-                _, _, prev_kind = self._entries[prev_idx]
-
-        if prev_kind is None and kind == "app":
-            row.set_header(self._make_section_label("Apps"))
-        elif (prev_kind is None and kind == "base") or (prev_kind == "app" and kind == "base"):
-            row.set_header(self._make_section_label("Base Images"))
-        elif prev_kind != "runner" and kind == "runner":
-            row.set_header(self._make_section_label("Runners"))
-        else:
-            row.set_header(None)
-
-    @staticmethod
-    def _make_section_label(text: str) -> Gtk.Label:
-        label = Gtk.Label(label=text, xalign=0)
-        label.add_css_class("heading")
-        label.add_css_class("dim-label")
-        label.set_margin_top(16)
-        label.set_margin_bottom(4)
-        label.set_margin_start(12)
-        label.set_margin_end(12)
-        return label
 
     # ------------------------------------------------------------------
     # Download / import for editing
@@ -511,10 +489,10 @@ class CatalogueEntriesDialog(Adw.Dialog):
                 packager.remove_from_repo(repo_root, item)
 
         def _done(_result) -> None:
-            self._entries.pop(idx)
-            row = self._list_box.get_row_at_index(idx)
-            if row:
-                self._list_box.remove(row)
+            _item, _repo, kind = self._entries.pop(idx)
+            row = self._row_widgets.pop(idx)
+            group = {"app": self._apps_group, "base": self._bases_group, "runner": self._runners_group}[kind]
+            group.remove(row)
             if self._on_catalogue_changed:
                 self._on_catalogue_changed()
 

@@ -333,8 +333,8 @@ class AppMetadataDialog(Adw.Dialog):
             self._year_row.set_text(str(result["year"]))
         if result.get("summary") and not self._summary_row.get_text().strip():
             self._summary_row.set_text(result["summary"])
-        if result.get("description") and not self._desc_row.get_text().strip():
-            self._desc_row.set_text(result["description"])
+        if result.get("summary") and not self._desc_row.get_text().strip():
+            self._desc_row.set_text(result["summary"])
         if result.get("steam_appid") and not self._steam_row.get_text().strip():
             self._steam_row.set_text(str(result["steam_appid"]))
         if result.get("website") and not self._website_row.get_text().strip():

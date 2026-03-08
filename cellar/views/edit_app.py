@@ -312,7 +312,7 @@ class EditAppDialog(Adw.Dialog):
         clear_btn = Gtk.Button(icon_name="user-trash-symbolic", tooltip_text="Remove image")
         clear_btn.add_css_class("flat")
         clear_btn.set_valign(Gtk.Align.CENTER)
-        clear_btn.set_sensitive(False)
+        clear_btn.set_visible(False)
         row.add_suffix(clear_btn)
 
         change_btn = Gtk.Button(label="Change…")
@@ -384,13 +384,13 @@ class EditAppDialog(Adw.Dialog):
         # Single images — show current filename + enable clear button
         if e.icon:
             self._icon_row.set_subtitle(GLib.markup_escape_text(Path(e.icon).name))
-            self._icon_clear_btn.set_sensitive(True)
+            self._icon_clear_btn.set_visible(True)
         if e.cover:
             self._cover_row.set_subtitle(GLib.markup_escape_text(Path(e.cover).name))
-            self._cover_clear_btn.set_sensitive(True)
+            self._cover_clear_btn.set_visible(True)
         if e.logo:
             self._logo_row.set_subtitle(GLib.markup_escape_text(Path(e.logo).name))
-            self._logo_clear_btn.set_sensitive(True)
+            self._logo_clear_btn.set_visible(True)
         if e.hide_title:
             self._hide_title_btn.set_active(True)
 
@@ -484,7 +484,7 @@ class EditAppDialog(Adw.Dialog):
         if response == Gtk.ResponseType.ACCEPT:
             self._icon_path = chooser.get_file().get_path()
             self._icon_row.set_subtitle(GLib.markup_escape_text(Path(self._icon_path).name))
-            self._icon_clear_btn.set_sensitive(True)
+            self._icon_clear_btn.set_visible(True)
 
     def _pick_cover(self, _btn) -> None:
         self._pick_image("Select Cover", False, self._on_cover_chosen)
@@ -493,7 +493,7 @@ class EditAppDialog(Adw.Dialog):
         if response == Gtk.ResponseType.ACCEPT:
             self._cover_path = chooser.get_file().get_path()
             self._cover_row.set_subtitle(GLib.markup_escape_text(Path(self._cover_path).name))
-            self._cover_clear_btn.set_sensitive(True)
+            self._cover_clear_btn.set_visible(True)
 
     def _pick_logo(self, _btn) -> None:
         self._pick_image("Select Logo (transparent PNG)", False, self._on_logo_chosen)
@@ -502,7 +502,7 @@ class EditAppDialog(Adw.Dialog):
         if response == Gtk.ResponseType.ACCEPT:
             self._logo_path = chooser.get_file().get_path()
             self._logo_row.set_subtitle(GLib.markup_escape_text(Path(self._logo_path).name))
-            self._logo_clear_btn.set_sensitive(True)
+            self._logo_clear_btn.set_visible(True)
             if not self._old_entry.logo and not self._hide_title_btn.get_active():
                 self._hide_title_btn.set_active(True)
 
@@ -568,17 +568,17 @@ class EditAppDialog(Adw.Dialog):
     def _on_icon_clear(self, _btn) -> None:
         self._icon_path = ""
         self._icon_row.set_subtitle("Will be removed")
-        self._icon_clear_btn.set_sensitive(False)
+        self._icon_clear_btn.set_visible(False)
 
     def _on_cover_clear(self, _btn) -> None:
         self._cover_path = ""
         self._cover_row.set_subtitle("Will be removed")
-        self._cover_clear_btn.set_sensitive(False)
+        self._cover_clear_btn.set_visible(False)
 
     def _on_logo_clear(self, _btn) -> None:
         self._logo_path = ""
         self._logo_row.set_subtitle("Will be removed")
-        self._logo_clear_btn.set_sensitive(False)
+        self._logo_clear_btn.set_visible(False)
 
     # ── Screenshot list helpers ───────────────────────────────────────────
 

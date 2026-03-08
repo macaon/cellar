@@ -480,6 +480,12 @@ class CatalogueEntriesDialog(Adw.Dialog):
                         log.warning("Could not download screenshot %s", ss_rel)
                 project.screenshot_paths = screenshot_paths
 
+                # Linux imports: pre-fill source_dir with the extracted prefix
+                # so the project is immediately publishable. User can still
+                # pick a different folder via "Choose…" if needed.
+                if project.project_type == "linux":
+                    project.source_dir = str(project.prefix_path)
+
                 save_project(project)
                 return project
 

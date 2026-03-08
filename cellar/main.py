@@ -161,9 +161,14 @@ class CellarApplication(Adw.Application):
 def _ensure_desktop_entry() -> None:
     """Create ~/.local/share/applications entry + user icon on first pip-install run.
 
-    Idempotent: does nothing if the .desktop file already exists.  Errors are
-    silenced so a permissions quirk can never prevent the app from launching.
+    Idempotent: does nothing if the .desktop file already exists.  Skipped
+    inside Flatpak — the manifest installs the desktop file and icons at
+    build time.  Errors are silenced so a permissions quirk can never
+    prevent the app from launching.
     """
+    if os.environ.get("FLATPAK_ID"):
+        return
+
     import shutil
 
     from cellar.utils.paths import icons_dir

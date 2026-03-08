@@ -536,8 +536,11 @@ class AddEditRepoDialog(Adw.Dialog):
 
         # SSH credentials group (shown only when URI scheme is ssh://)
         self._ssh_group = Adw.PreferencesGroup(
-            title="SSH Credentials",
-            description="Optional — leave blank to use key-based authentication.",
+            title="SFTP Credentials",
+            description=(
+                "Uses SFTP for file transfer. The path in the URI must be "
+                "the SFTP path, which may differ from the SSH shell path."
+            ),
         )
         page.add(self._ssh_group)
 

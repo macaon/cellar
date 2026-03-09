@@ -97,6 +97,17 @@ class CellarWindow(Adw.ApplicationWindow):
         self._category_btns: dict[str, Gtk.CheckButton] = {}
         self._active_categories: set[str] = set()
 
+        # Active-filter dot badge overlaid on the filter button icon.
+        _filter_icon = Gtk.Image.new_from_icon_name("funnel-symbolic")
+        self._filter_dot = Gtk.Box()
+        self._filter_dot.add_css_class("filter-active-dot")
+        self._filter_dot.set_halign(Gtk.Align.END)
+        self._filter_dot.set_valign(Gtk.Align.START)
+        self._filter_dot.set_visible(False)
+        _filter_overlay = Gtk.Overlay(child=_filter_icon)
+        _filter_overlay.add_overlay(self._filter_dot)
+        self.filter_button.set_child(_filter_overlay)
+
         # The first successfully loaded Repo — used to resolve asset URIs in
         # the browse grid and callbacks.  Updated on every catalogue reload.
         self._first_repo = None
@@ -176,7 +187,6 @@ class CellarWindow(Adw.ApplicationWindow):
         self._writable_repos = []
         self._category_btns = {}
         self._active_categories = set()
-        self.filter_button.remove_css_class("suggested-action")
 
         env_uri = os.environ.get("CELLAR_REPO", "")
         if env_uri:
@@ -222,6 +232,7 @@ class CellarWindow(Adw.ApplicationWindow):
         self._all_repos = list(manager)
         self.builder_page.set_visible(bool(self._writable_repos))
         self._package_builder.update_repos(self._writable_repos, all_repos=self._all_repos)
+        self._filter_dot.set_visible(False)
 
         if not list(manager):
             self._browse_explore.show_error(
@@ -334,10 +345,7 @@ class CellarWindow(Adw.ApplicationWindow):
         else:
             self._active_categories.discard(category)
         active = self._active_categories.copy()
-        if active:
-            self.filter_button.add_css_class("suggested-action")
-        else:
-            self.filter_button.remove_css_class("suggested-action")
+        self._filter_dot.set_visible(bool(active))
         self._browse_explore.set_active_categories(active)
         self._browse_installed.set_active_categories(active)
         self._browse_updates.set_active_categories(active)
@@ -346,7 +354,7 @@ class CellarWindow(Adw.ApplicationWindow):
         for btn in self._category_btns.values():
             btn.set_active(False)
         self._active_categories = set()
-        self.filter_button.remove_css_class("suggested-action")
+        self._filter_dot.set_visible(False)
         self._browse_explore.set_active_categories(set())
         self._browse_installed.set_active_categories(set())
         self._browse_updates.set_active_categories(set())
@@ -474,7 +482,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="io.github.cellar",
-            version="0.49.1",
+            version="0.49.2",
             comments="A GNOME storefront for Windows and Linux apps.",
             license_type=Gtk.License.GPL_3_0,
         )

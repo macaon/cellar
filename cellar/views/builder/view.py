@@ -181,15 +181,11 @@ class PackageBuilderView(Adw.Bin):
         )
         self._detail_stack.add_named(empty, "empty")
 
-        # Detail container — scroll (populated by _show_project())
-        detail_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        detail_box.set_vexpand(True)
+        # Detail container (populated by _show_project())
+        self._detail_bin = Adw.Bin()
+        self._detail_bin.set_vexpand(True)
 
-        self._detail_scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
-        self._detail_scroll.set_vexpand(True)
-        detail_box.append(self._detail_scroll)
-
-        self._detail_stack.add_named(detail_box, "detail")
+        self._detail_stack.add_named(self._detail_bin, "detail")
         self._detail_stack.set_visible_child_name("empty")
 
         content_toolbar.set_content(self._detail_stack)
@@ -318,9 +314,7 @@ class PackageBuilderView(Adw.Bin):
         self._refresh_detail_menu(project)
 
         page = Adw.PreferencesPage()
-        clamp = Adw.Clamp(maximum_size=700)
-        clamp.set_child(page)
-        self._detail_scroll.set_child(clamp)
+        self._detail_bin.set_child(page)
 
         # ── 1. Metadata section (App / Linux projects — first, to set title/slug) ──
         if project.project_type in ("app", "linux"):

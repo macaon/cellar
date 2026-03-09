@@ -5,6 +5,7 @@ from __future__ import annotations
 import html
 import logging
 import shutil
+import threading
 from pathlib import Path
 from typing import Callable
 
@@ -273,12 +274,15 @@ class CatalogueEntriesDialog(Adw.Dialog):
         root = self.get_root()
         self.close()
 
-        progress = ProgressDialog(label=f"Downloading {base_entry.name}\u2026")
+        cancel = threading.Event()
+        progress = ProgressDialog(label=f"Downloading {base_entry.name}\u2026",
+                                  cancel_event=cancel)
         progress.present(root)
 
         def _work():
             import tempfile
             from cellar.backend.installer import (  # noqa: PLC2701
+                InstallCancelled,
                 _build_source,
                 _find_bottle_dir,
                 _install_chunks,
@@ -289,77 +293,83 @@ class CatalogueEntriesDialog(Adw.Dialog):
             archive_uri = repo.resolve_asset_uri(base_entry.archive)
 
             from cellar.backend.config import install_data_dir
-            with tempfile.TemporaryDirectory(prefix="cellar-base-import-",
-                                             dir=install_data_dir()) as tmp_str:
-                tmp = Path(tmp_str)
-                extract_dir = tmp / "extracted"
-                extract_dir.mkdir()
+            try:
+                with tempfile.TemporaryDirectory(prefix="cellar-base-import-",
+                                                 dir=install_data_dir()) as tmp_str:
+                    tmp = Path(tmp_str)
+                    extract_dir = tmp / "extracted"
+                    extract_dir.mkdir()
 
-                if base_entry.archive_chunks:
-                    _install_chunks(
-                        archive_uri, base_entry.archive_chunks, extract_dir,
-                        strip_top_dir=True,
-                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                        stats_cb=lambda d, t, s: GLib.idle_add(
-                            progress.set_stats, fmt_stats(d, t, s)),
-                        token=repo.token,
-                        ssl_verify=repo.ssl_verify,
-                        ca_cert=repo.ca_cert,
+                    if base_entry.archive_chunks:
+                        _install_chunks(
+                            archive_uri, base_entry.archive_chunks, extract_dir,
+                            strip_top_dir=True,
+                            cancel_event=cancel,
+                            progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+                            stats_cb=lambda d, t, s: GLib.idle_add(
+                                progress.set_stats, fmt_stats(d, t, s)),
+                            token=repo.token,
+                            ssl_verify=repo.ssl_verify,
+                            ca_cert=repo.ca_cert,
+                        )
+                    else:
+                        chunks, total = _build_source(
+                            archive_uri,
+                            expected_size=base_entry.archive_size,
+                            token=repo.token,
+                            ssl_verify=repo.ssl_verify,
+                            ca_cert=repo.ca_cert,
+                        )
+                        _stream_and_extract(
+                            chunks, total,
+                            is_zst=archive_uri.endswith(".tar.zst"),
+                            dest=extract_dir,
+                            expected_crc32=base_entry.archive_crc32,
+                            cancel_event=cancel,
+                            progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+                            stats_cb=lambda d, t, s: GLib.idle_add(
+                                progress.set_stats, fmt_stats(d, t, s)),
+                            name_cb=None,
+                        )
+
+                    bottle_src = _find_bottle_dir(extract_dir)
+
+                    slug = slugify(base_entry.name)
+                    existing = {p.slug for p in load_projects()}
+                    base_slug, i = slug, 2
+                    while slug in existing:
+                        slug = f"{base_slug}-{i}"
+                        i += 1
+
+                    project = Project(
+                        name=base_entry.name,
+                        slug=slug,
+                        project_type="base",
+                        runner=base_entry.runner,
+                        initialized=True,
                     )
-                else:
-                    chunks, total = _build_source(
-                        archive_uri,
-                        expected_size=base_entry.archive_size,
-                        token=repo.token,
-                        ssl_verify=repo.ssl_verify,
-                        ca_cert=repo.ca_cert,
-                    )
-                    _stream_and_extract(
-                        chunks, total,
-                        is_zst=archive_uri.endswith(".tar.zst"),
-                        dest=extract_dir,
-                        expected_crc32=base_entry.archive_crc32,
-                        cancel_event=None,
-                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                        stats_cb=lambda d, t, s: GLib.idle_add(
-                            progress.set_stats, fmt_stats(d, t, s)),
-                        name_cb=None,
-                    )
 
-                bottle_src = _find_bottle_dir(extract_dir)
+                    GLib.idle_add(progress.set_label, "Copying content\u2026")
+                    GLib.idle_add(progress.set_fraction, 0.0)
+                    project.content_path.mkdir(parents=True, exist_ok=True)
+                    for src in bottle_src.rglob("*"):
+                        rel = src.relative_to(bottle_src)
+                        dst = project.content_path / rel
+                        if src.is_dir():
+                            dst.mkdir(parents=True, exist_ok=True)
+                        elif src.is_file():
+                            dst.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.copy2(src, dst)
 
-                slug = slugify(base_entry.name)
-                existing = {p.slug for p in load_projects()}
-                base_slug, i = slug, 2
-                while slug in existing:
-                    slug = f"{base_slug}-{i}"
-                    i += 1
-
-                project = Project(
-                    name=base_entry.name,
-                    slug=slug,
-                    project_type="base",
-                    runner=base_entry.runner,
-                    initialized=True,
-                )
-
-                GLib.idle_add(progress.set_label, "Copying content\u2026")
-                GLib.idle_add(progress.set_fraction, 0.0)
-                project.content_path.mkdir(parents=True, exist_ok=True)
-                for src in bottle_src.rglob("*"):
-                    rel = src.relative_to(bottle_src)
-                    dst = project.content_path / rel
-                    if src.is_dir():
-                        dst.mkdir(parents=True, exist_ok=True)
-                    elif src.is_file():
-                        dst.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(src, dst)
-
-                save_project(project)
-                return project
+                    save_project(project)
+                    return project
+            except InstallCancelled:
+                return None
 
         def _done(project) -> None:
             progress.force_close()
+            if project is None:
+                return
             self._on_imported(project)
 
         def _error(msg: str) -> None:
@@ -375,12 +385,15 @@ class CatalogueEntriesDialog(Adw.Dialog):
         root = self.get_root()
         self.close()
 
-        progress = ProgressDialog(label=f"Downloading {runner_item.name}\u2026")
+        cancel = threading.Event()
+        progress = ProgressDialog(label=f"Downloading {runner_item.name}\u2026",
+                                  cancel_event=cancel)
         progress.present(root)
 
         def _work():
             import tempfile
             from cellar.backend.installer import (  # noqa: PLC2701
+                InstallCancelled,
                 _build_source,
                 _install_chunks,
                 _stream_and_extract,
@@ -394,48 +407,52 @@ class CatalogueEntriesDialog(Adw.Dialog):
                 shutil.rmtree(dest)
 
             from cellar.backend.config import install_data_dir
-            with tempfile.TemporaryDirectory(prefix="cellar-runner-import-",
-                                             dir=install_data_dir()) as tmp_str:
-                tmp = Path(tmp_str)
-                extract_dir = tmp / "extracted"
-                extract_dir.mkdir()
+            try:
+                with tempfile.TemporaryDirectory(prefix="cellar-runner-import-",
+                                                 dir=install_data_dir()) as tmp_str:
+                    tmp = Path(tmp_str)
+                    extract_dir = tmp / "extracted"
+                    extract_dir.mkdir()
 
-                if runner_item.archive_chunks:
-                    _install_chunks(
-                        archive_uri, runner_item.archive_chunks, extract_dir,
-                        strip_top_dir=True,
-                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                        stats_cb=lambda d, t, s: GLib.idle_add(
-                            progress.set_stats, fmt_stats(d, t, s)),
-                        token=repo.token,
-                        ssl_verify=repo.ssl_verify,
-                        ca_cert=repo.ca_cert,
-                    )
-                else:
-                    chunks, total = _build_source(
-                        archive_uri,
-                        expected_size=runner_item.archive_size,
-                        token=repo.token,
-                        ssl_verify=repo.ssl_verify,
-                        ca_cert=repo.ca_cert,
-                    )
-                    _stream_and_extract(
-                        chunks, total,
-                        is_zst=archive_uri.endswith(".tar.zst"),
-                        dest=extract_dir,
-                        expected_crc32=runner_item.archive_crc32,
-                        cancel_event=None,
-                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                        stats_cb=lambda d, t, s: GLib.idle_add(
-                            progress.set_stats, fmt_stats(d, t, s)),
-                        name_cb=None,
-                    )
+                    if runner_item.archive_chunks:
+                        _install_chunks(
+                            archive_uri, runner_item.archive_chunks, extract_dir,
+                            strip_top_dir=True,
+                            cancel_event=cancel,
+                            progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+                            stats_cb=lambda d, t, s: GLib.idle_add(
+                                progress.set_stats, fmt_stats(d, t, s)),
+                            token=repo.token,
+                            ssl_verify=repo.ssl_verify,
+                            ca_cert=repo.ca_cert,
+                        )
+                    else:
+                        chunks, total = _build_source(
+                            archive_uri,
+                            expected_size=runner_item.archive_size,
+                            token=repo.token,
+                            ssl_verify=repo.ssl_verify,
+                            ca_cert=repo.ca_cert,
+                        )
+                        _stream_and_extract(
+                            chunks, total,
+                            is_zst=archive_uri.endswith(".tar.zst"),
+                            dest=extract_dir,
+                            expected_crc32=runner_item.archive_crc32,
+                            cancel_event=cancel,
+                            progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+                            stats_cb=lambda d, t, s: GLib.idle_add(
+                                progress.set_stats, fmt_stats(d, t, s)),
+                            name_cb=None,
+                        )
 
-                extracted = [p for p in extract_dir.iterdir() if p.is_dir()]
-                if not extracted:
-                    raise RuntimeError("Runner archive contained no directory")
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copytree(extracted[0], dest)
+                    extracted = [p for p in extract_dir.iterdir() if p.is_dir()]
+                    if not extracted:
+                        raise RuntimeError("Runner archive contained no directory")
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copytree(extracted[0], dest)
+            except InstallCancelled:
+                return None
 
         def _done(_result) -> None:
             progress.force_close()
@@ -453,12 +470,14 @@ class CatalogueEntriesDialog(Adw.Dialog):
         root = self.get_root()
         self.close()
 
-        progress = ProgressDialog(label="Downloading\u2026")
+        cancel = threading.Event()
+        progress = ProgressDialog(label="Downloading\u2026", cancel_event=cancel)
         progress.present(root)
 
         def _work():
             import tempfile
             from cellar.backend.installer import (
+                InstallCancelled,     # noqa: PLC2701
                 _build_source,        # noqa: PLC2701
                 _find_bottle_dir,     # noqa: PLC2701
                 _install_chunks,      # noqa: PLC2701
@@ -467,128 +486,134 @@ class CatalogueEntriesDialog(Adw.Dialog):
             archive_uri = repo.resolve_asset_uri(entry.archive)
 
             from cellar.backend.config import install_data_dir
-            with tempfile.TemporaryDirectory(prefix="cellar-import-",
-                                             dir=install_data_dir()) as tmp_str:
-                tmp = Path(tmp_str)
-                extract_dir = tmp / "extracted"
-                extract_dir.mkdir()
+            try:
+                with tempfile.TemporaryDirectory(prefix="cellar-import-",
+                                                 dir=install_data_dir()) as tmp_str:
+                    tmp = Path(tmp_str)
+                    extract_dir = tmp / "extracted"
+                    extract_dir.mkdir()
 
-                if entry.archive_chunks:
-                    _install_chunks(
-                        archive_uri, entry.archive_chunks, extract_dir,
-                        strip_top_dir=True,
-                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                        stats_cb=lambda d, t, s: GLib.idle_add(
-                            progress.set_stats, fmt_stats(d, t, s)),
-                        token=repo.token,
-                        ssl_verify=repo.ssl_verify,
-                        ca_cert=repo.ca_cert,
+                    if entry.archive_chunks:
+                        _install_chunks(
+                            archive_uri, entry.archive_chunks, extract_dir,
+                            strip_top_dir=True,
+                            cancel_event=cancel,
+                            progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+                            stats_cb=lambda d, t, s: GLib.idle_add(
+                                progress.set_stats, fmt_stats(d, t, s)),
+                            token=repo.token,
+                            ssl_verify=repo.ssl_verify,
+                            ca_cert=repo.ca_cert,
+                        )
+                    else:
+                        chunks, total = _build_source(
+                            archive_uri,
+                            expected_size=entry.archive_size,
+                            token=repo.token,
+                            ssl_verify=repo.ssl_verify,
+                            ca_cert=repo.ca_cert,
+                        )
+                        _stream_and_extract(
+                            chunks, total,
+                            is_zst=archive_uri.endswith(".tar.zst"),
+                            dest=extract_dir,
+                            expected_crc32=entry.archive_crc32,
+                            cancel_event=cancel,
+                            progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+                            stats_cb=lambda d, t, s: GLib.idle_add(
+                                progress.set_stats, fmt_stats(d, t, s)),
+                            name_cb=None,
+                        )
+
+                    bottle_src = _find_bottle_dir(extract_dir)
+
+                    from cellar.backend.packager import slugify
+                    slug = slugify(entry.id)
+                    existing = {p.slug for p in load_projects()}
+                    base_slug, i = slug, 2
+                    while slug in existing:
+                        slug = f"{base_slug}-{i}"
+                        i += 1
+
+                    project = Project(
+                        name=entry.name,
+                        slug=slug,
+                        project_type="app" if entry.platform == "windows" else "linux",
+                        runner=entry.base_image,
+                        entry_points=[dict(t) for t in entry.launch_targets],
+                        steam_appid=entry.steam_appid,
+                        initialized=True,
+                        origin_app_id=entry.id,
+                        # Catalogue metadata
+                        version=entry.version or "1.0",
+                        category=entry.category or "",
+                        developer=entry.developer or "",
+                        publisher=entry.publisher or "",
+                        release_year=entry.release_year,
+                        website=entry.website or "",
+                        genres=list(entry.genres) if entry.genres else [],
+                        summary=entry.summary or "",
+                        description=entry.description or "",
+                        hide_title=entry.hide_title,
                     )
-                else:
-                    chunks, total = _build_source(
-                        archive_uri,
-                        expected_size=entry.archive_size,
-                        token=repo.token,
-                        ssl_verify=repo.ssl_verify,
-                        ca_cert=repo.ca_cert,
-                    )
-                    _stream_and_extract(
-                        chunks, total,
-                        is_zst=archive_uri.endswith(".tar.zst"),
-                        dest=extract_dir,
-                        expected_crc32=entry.archive_crc32,
-                        cancel_event=None,
-                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                        stats_cb=lambda d, t, s: GLib.idle_add(
-                            progress.set_stats, fmt_stats(d, t, s)),
-                        name_cb=None,
-                    )
 
-                bottle_src = _find_bottle_dir(extract_dir)
+                    GLib.idle_add(progress.set_label, "Copying content\u2026")
+                    project.content_path.mkdir(parents=True, exist_ok=True)
+                    for src in bottle_src.rglob("*"):
+                        rel = src.relative_to(bottle_src)
+                        dst = project.content_path / rel
+                        if src.is_dir():
+                            dst.mkdir(parents=True, exist_ok=True)
+                        elif src.is_file():
+                            dst.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.copy2(src, dst)
 
-                from cellar.backend.packager import slugify
-                slug = slugify(entry.id)
-                existing = {p.slug for p in load_projects()}
-                base_slug, i = slug, 2
-                while slug in existing:
-                    slug = f"{base_slug}-{i}"
-                    i += 1
+                    # Download image assets from the repo into the project directory
+                    GLib.idle_add(progress.set_label, "Downloading images\u2026")
+                    project.project_dir.mkdir(parents=True, exist_ok=True)
 
-                project = Project(
-                    name=entry.name,
-                    slug=slug,
-                    project_type="app" if entry.platform == "windows" else "linux",
-                    runner=entry.base_image,
-                    entry_points=[dict(t) for t in entry.launch_targets],
-                    steam_appid=entry.steam_appid,
-                    initialized=True,
-                    origin_app_id=entry.id,
-                    # Catalogue metadata
-                    version=entry.version or "1.0",
-                    category=entry.category or "",
-                    developer=entry.developer or "",
-                    publisher=entry.publisher or "",
-                    release_year=entry.release_year,
-                    website=entry.website or "",
-                    genres=list(entry.genres) if entry.genres else [],
-                    summary=entry.summary or "",
-                    description=entry.description or "",
-                    hide_title=entry.hide_title,
-                )
+                    for slot, rel_path in [("icon", entry.icon), ("cover", entry.cover), ("logo", entry.logo)]:
+                        if not rel_path:
+                            continue
+                        try:
+                            local = repo.resolve_asset_uri(rel_path)
+                            if local and Path(local).is_file():
+                                ext = Path(local).suffix or Path(rel_path).suffix
+                                dest = project.project_dir / f"{slot}{ext}"
+                                shutil.copy2(local, dest)
+                                setattr(project, f"{slot}_path", str(dest))
+                        except Exception:
+                            log.warning("Could not download %s for import", slot)
 
-                GLib.idle_add(progress.set_label, "Copying content\u2026")
-                project.content_path.mkdir(parents=True, exist_ok=True)
-                for src in bottle_src.rglob("*"):
-                    rel = src.relative_to(bottle_src)
-                    dst = project.content_path / rel
-                    if src.is_dir():
-                        dst.mkdir(parents=True, exist_ok=True)
-                    elif src.is_file():
-                        dst.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(src, dst)
+                    # Download screenshots
+                    screenshot_paths: list[str] = []
+                    for idx, ss_rel in enumerate(entry.screenshots):
+                        try:
+                            local = repo.resolve_asset_uri(ss_rel)
+                            if local and Path(local).is_file():
+                                ext = Path(local).suffix or Path(ss_rel).suffix
+                                dest = project.project_dir / f"screenshot_{idx}{ext}"
+                                shutil.copy2(local, dest)
+                                screenshot_paths.append(str(dest))
+                        except Exception:
+                            log.warning("Could not download screenshot %s", ss_rel)
+                    project.screenshot_paths = screenshot_paths
 
-                # Download image assets from the repo into the project directory
-                GLib.idle_add(progress.set_label, "Downloading images\u2026")
-                project.project_dir.mkdir(parents=True, exist_ok=True)
+                    # Linux imports: pre-fill source_dir with the extracted prefix
+                    # so the project is immediately publishable. User can still
+                    # pick a different folder via "Choose…" if needed.
+                    if project.project_type == "linux":
+                        project.source_dir = str(project.content_path)
 
-                for slot, rel_path in [("icon", entry.icon), ("cover", entry.cover), ("logo", entry.logo)]:
-                    if not rel_path:
-                        continue
-                    try:
-                        local = repo.resolve_asset_uri(rel_path)
-                        if local and Path(local).is_file():
-                            ext = Path(local).suffix or Path(rel_path).suffix
-                            dest = project.project_dir / f"{slot}{ext}"
-                            shutil.copy2(local, dest)
-                            setattr(project, f"{slot}_path", str(dest))
-                    except Exception:
-                        log.warning("Could not download %s for import", slot)
-
-                # Download screenshots
-                screenshot_paths: list[str] = []
-                for idx, ss_rel in enumerate(entry.screenshots):
-                    try:
-                        local = repo.resolve_asset_uri(ss_rel)
-                        if local and Path(local).is_file():
-                            ext = Path(local).suffix or Path(ss_rel).suffix
-                            dest = project.project_dir / f"screenshot_{idx}{ext}"
-                            shutil.copy2(local, dest)
-                            screenshot_paths.append(str(dest))
-                    except Exception:
-                        log.warning("Could not download screenshot %s", ss_rel)
-                project.screenshot_paths = screenshot_paths
-
-                # Linux imports: pre-fill source_dir with the extracted prefix
-                # so the project is immediately publishable. User can still
-                # pick a different folder via "Choose…" if needed.
-                if project.project_type == "linux":
-                    project.source_dir = str(project.content_path)
-
-                save_project(project)
-                return project
+                    save_project(project)
+                    return project
+            except InstallCancelled:
+                return None
 
         def _done(project) -> None:
             progress.force_close()
+            if project is None:
+                return
             self._on_imported(project)
 
         def _error(msg: str) -> None:

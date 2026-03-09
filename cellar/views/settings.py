@@ -184,7 +184,17 @@ class SettingsDialog(Adw.PreferencesDialog):
                 self.add_toast(Adw.Toast(title="Invalid API key"))
             self._sgdb_status.set_visible(True)
 
-        run_in_background(_validate, on_done=_done)
+        def _error(_msg):
+            self._sgdb_spinner.set_visible(False)
+            self._sgdb_spinner.set_spinning(False)
+            self._sgdb_status.remove_css_class("success")
+            self._sgdb_status.remove_css_class("error")
+            self._sgdb_status.set_from_icon_name("dialog-error-symbolic")
+            self._sgdb_status.add_css_class("error")
+            self._sgdb_status.set_visible(True)
+            self.add_toast(Adw.Toast(title="Could not reach SteamGridDB"))
+
+        run_in_background(_validate, on_done=_done, on_error=_error)
         return GLib.SOURCE_REMOVE
 
     # ------------------------------------------------------------------

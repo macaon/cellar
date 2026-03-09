@@ -157,9 +157,8 @@ def _normalise(raw: dict) -> dict:
 def fetch_steam_images(appid: int, sgdb_key: str = "") -> dict:
     """Return download URLs for icon, cover, and logo for a Steam app.
 
-    *Cover* and *logo* use predictable Steam CDN URLs (no key needed).
-    *Icon* (.ico, up to 256×256) requires a SteamGridDB API key; without
-    one the ``icon`` value will be empty.
+    All three asset types are fetched from SteamGridDB when an API key is
+    provided.  Falls back to Steam CDN for cover/logo when no key is set.
 
     Returns ``{"icon": url, "cover": url, "logo": url}`` — any value may
     be empty if the asset is unavailable.
@@ -167,30 +166,24 @@ def fetch_steam_images(appid: int, sgdb_key: str = "") -> dict:
     result = {"icon": "", "cover": "", "logo": ""}
     session = make_session()
 
-    # Cover — Steam library capsule (600×900 vertical)
-    cover_url = f"{_STEAM_CDN}/{appid}/library_600x900.jpg"
-    try:
-        r = session.head(cover_url, timeout=10, allow_redirects=True)
-        if r.status_code == 200:
-            result["cover"] = cover_url
-    except Exception:
-        pass
-
-    # Logo — transparent PNG from Steam CDN
-    logo_url = f"{_STEAM_CDN}/{appid}/logo.png"
-    try:
-        r = session.head(logo_url, timeout=10, allow_redirects=True)
-        if r.status_code == 200:
-            result["logo"] = logo_url
-    except Exception:
-        pass
-
-    # Icon — SteamGridDB (official style, .ico preferred)
     if sgdb_key:
+        game_id = _sgdb_resolve_game(session, appid, sgdb_key)
+        if game_id:
+            result["icon"] = _sgdb_fetch_asset(session, game_id, "icons", sgdb_key)
+            result["cover"] = _sgdb_fetch_asset(session, game_id, "grids", sgdb_key,
+                                                 params={"dimensions": "600x900"})
+            result["logo"] = _sgdb_fetch_asset(session, game_id, "logos", sgdb_key)
+            return result
+
+    # Fallback: Steam CDN (no key needed, but many games lack these)
+    for slot, path in (("cover", "library_600x900.jpg"), ("logo", "logo.png")):
+        url = f"{_STEAM_CDN}/{appid}/{path}"
         try:
-            result["icon"] = _sgdb_fetch_icon(session, appid, sgdb_key)
-        except Exception as exc:
-            log.debug("SteamGridDB icon lookup failed: %s", exc)
+            r = session.head(url, timeout=10, allow_redirects=True)
+            if r.status_code == 200:
+                result[slot] = url
+        except Exception:
+            pass
 
     return result
 
@@ -211,39 +204,53 @@ def download_steam_image(url: str, dest: str, sgdb_key: str = "") -> str:
     return dest
 
 
-def _sgdb_fetch_icon(session, appid: int, sgdb_key: str) -> str:
-    """Look up the best .ico icon via SteamGridDB."""
+def _sgdb_resolve_game(session, appid: int, sgdb_key: str) -> int | None:
+    """Resolve a Steam appid to a SteamGridDB game ID."""
     headers = {"Authorization": f"Bearer {sgdb_key}"}
-
-    # Resolve Steam appid → SteamGridDB game ID
-    r = session.get(
-        f"{_SGDB_API}/games/steam/{appid}",
-        headers=headers, timeout=15,
-    )
+    try:
+        r = session.get(
+            f"{_SGDB_API}/games/steam/{appid}",
+            headers=headers, timeout=15,
+        )
+    except Exception as exc:
+        log.debug("SGDB game lookup request failed: %s", exc)
+        return None
     if r.status_code != 200:
         log.debug("SGDB game lookup failed: %s %s", r.status_code, r.text[:200])
-        return ""
+        return None
     game_id = r.json().get("data", {}).get("id")
     if not game_id:
         log.debug("SGDB game lookup returned no ID for appid %s", appid)
-        return ""
+    return game_id
 
-    # Fetch icons (any style)
-    r = session.get(
-        f"{_SGDB_API}/icons/game/{game_id}",
-        headers=headers,
-        timeout=15,
-    )
+
+def _sgdb_fetch_asset(
+    session, game_id: int, asset_type: str, sgdb_key: str,
+    *, params: dict | None = None,
+) -> str:
+    """Fetch the best URL for an asset type from SteamGridDB.
+
+    *asset_type* is one of ``"icons"``, ``"grids"``, ``"logos"``.
+    """
+    headers = {"Authorization": f"Bearer {sgdb_key}"}
+    try:
+        r = session.get(
+            f"{_SGDB_API}/{asset_type}/game/{game_id}",
+            headers=headers, params=params, timeout=15,
+        )
+    except Exception as exc:
+        log.debug("SGDB %s fetch failed: %s", asset_type, exc)
+        return ""
     if r.status_code != 200:
-        log.debug("SGDB icon fetch failed: %s %s", r.status_code, r.text[:200])
+        log.debug("SGDB %s fetch failed: %s %s", asset_type, r.status_code, r.text[:200])
         return ""
-
-    icons = r.json().get("data", [])
-    if not icons:
-        log.debug("SGDB returned no icons for game %s (appid %s)", game_id, appid)
+    items = r.json().get("data", [])
+    if not items:
+        log.debug("SGDB returned no %s for game %s", asset_type, game_id)
         return ""
-    # Prefer .ico files (multi-resolution), fall back to .png
-    ico_icons = [i for i in icons if i.get("mime") == "image/vnd.microsoft.icon"]
-    if ico_icons:
-        return ico_icons[0]["url"]
-    return icons[0].get("url", "")
+    # Icons: prefer .ico (multi-resolution)
+    if asset_type == "icons":
+        ico = [i for i in items if i.get("mime") == "image/vnd.microsoft.icon"]
+        if ico:
+            return ico[0]["url"]
+    return items[0].get("url", "")

@@ -52,7 +52,7 @@ from cellar.views.builder.progress import ProgressDialog
 log = logging.getLogger(__name__)
 
 class PackageBuilderView(Adw.Bin):
-    """Two-panel package builder: project list on the left, detail on the right."""
+    """Package builder: project list → detail page via stack navigation."""
 
     def __init__(
         self,
@@ -112,11 +112,15 @@ class PackageBuilderView(Adw.Bin):
     # ------------------------------------------------------------------
 
     def _build(self) -> None:
-        # ── Sidebar pane ──────────────────────────────────────────────────
-        sidebar_toolbar = Adw.ToolbarView()
-        sidebar_header = Adw.HeaderBar()
-        sidebar_header.set_show_start_title_buttons(False)
-        sidebar_header.set_show_end_title_buttons(False)
+        # ── Navigation view (stack: list → detail) ───────────────────────
+        self._nav_view = Adw.NavigationView()
+        self._nav_view.connect("popped", self._on_nav_popped)
+
+        # ── List page ────────────────────────────────────────────────────
+        list_toolbar = Adw.ToolbarView()
+        list_header = Adw.HeaderBar()
+        list_header.set_show_start_title_buttons(False)
+        list_header.set_show_end_title_buttons(False)
 
         # "+" menu button — consolidates Windows/Linux/Base creation
         new_menu = Gio.Menu()
@@ -128,83 +132,46 @@ class PackageBuilderView(Adw.Bin):
         new_btn.set_tooltip_text("New Package")
         new_btn.add_css_class("flat")
         new_btn.set_menu_model(new_menu)
-        sidebar_header.pack_end(new_btn)
+        list_header.pack_end(new_btn)
 
         import_btn = Gtk.Button(icon_name="open-book-symbolic")
         import_btn.set_tooltip_text("Catalogue entries\u2026")
         import_btn.add_css_class("flat")
         import_btn.connect("clicked", self._on_import_clicked)
-        sidebar_header.pack_end(import_btn)
+        list_header.pack_end(import_btn)
 
-        sidebar_toolbar.add_top_bar(sidebar_header)
+        list_toolbar.add_top_bar(list_header)
 
         # Project list
+        self._list_box = Gtk.ListBox()
+        self._list_box.set_selection_mode(Gtk.SelectionMode.NONE)
+        self._list_box.add_css_class("boxed-list")
+        self._list_box.connect("row-activated", self._on_row_activated)
+
+        # Wrap in clamp for proper centering
+        clamp = Adw.Clamp(maximum_size=600)
+        clamp.set_margin_top(24)
+        clamp.set_margin_bottom(24)
+        clamp.set_margin_start(12)
+        clamp.set_margin_end(12)
+        clamp.set_child(self._list_box)
+
         scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
         scroll.set_vexpand(True)
+        scroll.set_child(clamp)
+        list_toolbar.set_content(scroll)
 
-        self._list_box = Gtk.ListBox()
-        self._list_box.set_selection_mode(Gtk.SelectionMode.SINGLE)
-        self._list_box.add_css_class("navigation-sidebar")
-        self._list_box.connect("row-selected", self._on_row_selected)
-        scroll.set_child(self._list_box)
-        sidebar_toolbar.set_content(scroll)
+        self._list_page = Adw.NavigationPage(title="Packages", child=list_toolbar)
+        self._nav_view.add(self._list_page)
 
-        sidebar_page = Adw.NavigationPage(title="Packages", child=sidebar_toolbar)
-
-        # ── Content pane ──────────────────────────────────────────────────
-        content_toolbar = Adw.ToolbarView()
-        content_header = Adw.HeaderBar()
-        content_header.set_show_start_title_buttons(False)
-        content_header.set_show_end_title_buttons(False)
-
-        self._content_title = Adw.WindowTitle(title="", subtitle="")
-        content_header.set_title_widget(self._content_title)
-
-        # Gear menu
-        self._detail_gear_btn = Gtk.MenuButton(icon_name="view-more-symbolic")
-        self._detail_gear_btn.set_tooltip_text("Options")
-        self._detail_gear_btn.add_css_class("flat")
-        self._detail_gear_btn.set_visible(False)
-        content_header.pack_end(self._detail_gear_btn)
-
-        content_toolbar.add_top_bar(content_header)
-
-        # Detail stack
-        self._detail_stack = Gtk.Stack()
-        self._detail_stack.set_hexpand(True)
-        self._detail_stack.set_vexpand(True)
-
-        # Empty state
-        empty = Adw.StatusPage(
-            description="Create a new package or select one from the list.",
-            icon_name="package-x-generic-symbolic",
-        )
-        self._detail_stack.add_named(empty, "empty")
-
-        # Detail container (populated by _show_project())
-        self._detail_bin = Adw.Bin()
-        self._detail_bin.set_vexpand(True)
-
-        self._detail_stack.add_named(self._detail_bin, "detail")
-        self._detail_stack.set_visible_child_name("empty")
-
-        content_toolbar.set_content(self._detail_stack)
-        self._content_page = Adw.NavigationPage(title="", child=content_toolbar)
-
-        # ── Split view ────────────────────────────────────────────────────
-        self._split_view = Adw.NavigationSplitView()
-        self._split_view.set_sidebar(sidebar_page)
-        self._split_view.set_content(self._content_page)
-        self._split_view.set_min_sidebar_width(240)
-        self._split_view.set_max_sidebar_width(300)
-        self.set_child(self._split_view)
+        self.set_child(self._nav_view)
 
     # ------------------------------------------------------------------
     # Project list management
     # ------------------------------------------------------------------
 
     def _reload_projects(self) -> None:
-        """Reload project list from disk and refresh the sidebar."""
+        """Reload project list from disk and refresh the list page."""
         projects = load_projects()
         # Clear existing rows
         while True:
@@ -221,18 +188,14 @@ class PackageBuilderView(Adw.Bin):
 
         if not projects:
             self._project = None
-            self._detail_stack.set_visible_child_name("empty")
 
-    def _on_row_selected(self, _lb, row: Gtk.ListBoxRow | None) -> None:
-        if row is None:
-            self._project = None
-            self._content_title.set_title("")
-            self._content_title.set_subtitle("")
-            self._detail_gear_btn.set_visible(False)
-            self._detail_stack.set_visible_child_name("empty")
-            return
+    def _on_row_activated(self, _lb, row: Gtk.ListBoxRow) -> None:
         self._project = row.project  # type: ignore[attr-defined]
         self._show_project(self._project)
+
+    def _on_nav_popped(self, _nav, _page) -> None:
+        """User navigated back to the list page."""
+        self._project = None
 
     def _on_new_app_clicked(self, _btn) -> None:
         dialog = AppMetadataDialog(on_created=self._on_project_created)
@@ -262,10 +225,8 @@ class PackageBuilderView(Adw.Bin):
 
     def _on_project_imported(self, project: Project) -> None:
         self._reload_projects()
-        for i, row in enumerate(self._project_rows):
-            if row.project.slug == project.slug:
-                self._list_box.select_row(self._list_box.get_row_at_index(i))
-                break
+        self._project = project
+        self._show_project(project)
 
     def _on_delete_clicked(self, project: Project) -> None:
         name = project.name
@@ -286,35 +247,50 @@ class PackageBuilderView(Adw.Bin):
                 delete_project(slug)
                 self._project = None
                 self._reload_projects()
-                self._detail_stack.set_visible_child_name("empty")
+                self._nav_view.pop_to_page(self._list_page)
 
         dialog.connect("response", _on_response)
         dialog.present(self)
 
     def _on_project_created(self, project: Project) -> None:
         self._reload_projects()
-        # Select the newly created project
-        for i, row in enumerate(self._project_rows):
-            if row.project.slug == project.slug:
-                self._list_box.select_row(self._list_box.get_row_at_index(i))
-                break
+        self._project = project
+        self._show_project(project)
 
     # ------------------------------------------------------------------
     # Detail panel
     # ------------------------------------------------------------------
 
     def _show_project(self, project: Project, *, expand_sel: bool = False) -> None:
-        """Build and display the detail panel for *project*."""
-        # Update content header
+        """Build a detail page for *project* and push it onto the nav stack."""
         _type_labels = {"app": "Windows App", "linux": "Linux App", "base": "Base Image"}
-        self._content_title.set_title(project.name)
-        self._content_title.set_subtitle(_type_labels.get(project.project_type, ""))
-        self._content_page.set_title(project.name)
-        self._detail_gear_btn.set_visible(True)
+
+        # Build toolbar with header
+        toolbar = Adw.ToolbarView()
+        header = Adw.HeaderBar()
+        header.set_show_start_title_buttons(False)
+        header.set_show_end_title_buttons(False)
+
+        self._content_title = Adw.WindowTitle(
+            title=project.name,
+            subtitle=_type_labels.get(project.project_type, ""),
+        )
+        header.set_title_widget(self._content_title)
+
+        # Gear menu
+        self._detail_gear_btn = Gtk.MenuButton(icon_name="view-more-symbolic")
+        self._detail_gear_btn.set_tooltip_text("Options")
+        self._detail_gear_btn.add_css_class("flat")
         self._refresh_detail_menu(project)
+        header.pack_end(self._detail_gear_btn)
+
+        toolbar.add_top_bar(header)
 
         page = Adw.PreferencesPage()
-        self._detail_bin.set_child(page)
+        toolbar.set_content(page)
+
+        detail_page = Adw.NavigationPage(title=project.name, child=toolbar)
+        detail_page.set_tag("detail")
 
         # ── 1. Metadata section (App / Linux projects — first, to set title/slug) ──
         if project.project_type in ("app", "linux"):
@@ -668,7 +644,9 @@ class PackageBuilderView(Adw.Bin):
 
         page.add(pkg_group)
 
-        self._detail_stack.set_visible_child_name("detail")
+        # Pop any existing detail page, then push the new one
+        self._nav_view.pop_to_page(self._list_page)
+        self._nav_view.push(detail_page)
 
     def _refresh_detail_menu(self, project: Project) -> None:
         """Build/update the gear menu for the content header bar."""
@@ -1491,7 +1469,7 @@ class PackageBuilderView(Adw.Bin):
             delete_project(project.slug)
             self._project = None
             self._reload_projects()
-            self._detail_stack.set_visible_child_name("empty")
+            self._nav_view.pop_to_page(self._list_page)
             self._show_toast(f"Published '{project.name}' to {repo.name or repo.uri}.")
             if self._on_catalogue_changed:
                 self._on_catalogue_changed()
@@ -1644,7 +1622,7 @@ class PackageBuilderView(Adw.Bin):
             delete_project(project.slug)
             self._project = None
             self._reload_projects()
-            self._detail_stack.set_visible_child_name("empty")
+            self._nav_view.pop_to_page(self._list_page)
             self._show_toast(f"Update published for {project.name}.")
             if self._on_catalogue_changed:
                 self._on_catalogue_changed()
@@ -1778,7 +1756,7 @@ class PackageBuilderView(Adw.Bin):
             delete_project(project.slug)
             self._project = None
             self._reload_projects()
-            self._detail_stack.set_visible_child_name("empty")
+            self._nav_view.pop_to_page(self._list_page)
             self._show_toast(f"Base '{base_name}' published.")
             if self._on_catalogue_changed:
                 self._on_catalogue_changed()

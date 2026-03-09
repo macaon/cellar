@@ -359,23 +359,24 @@ class AppMetadataDialog(Adw.Dialog):
         picker.present(self.get_root())
 
     def _apply_steam(self, result: dict) -> None:
+        """Overwrite form fields from a Steam picker result."""
         if result.get("name") and isinstance(self._title_row, Adw.EntryRow):
             self._title_row.set_text(result["name"])
-        if result.get("developer") and not self._dev_row.get_text().strip():
+        if result.get("developer"):
             self._dev_row.set_text(result["developer"])
-        if result.get("publisher") and not self._pub_row.get_text().strip():
+        if result.get("publisher"):
             self._pub_row.set_text(result["publisher"])
-        if result.get("year") and not self._year_row.get_text().strip():
+        if result.get("year"):
             self._year_row.set_text(str(result["year"]))
-        if result.get("summary") and not self._summary_row.get_text().strip():
+        if result.get("summary"):
             self._summary_row.set_text(result["summary"])
-        if result.get("summary") and not self._desc_row.get_text().strip():
+        if result.get("summary"):
             self._desc_row.set_text(result["summary"])
-        if result.get("steam_appid") and not self._steam_row.get_text().strip():
+        if result.get("steam_appid"):
             self._steam_row.set_text(str(result["steam_appid"]))
-        if result.get("website") and not self._website_row.get_text().strip():
+        if result.get("website"):
             self._website_row.set_text(result["website"])
-        if result.get("genres") and not self._genres_row.get_text().strip():
+        if result.get("genres"):
             self._genres_row.set_text(", ".join(result["genres"]))
         if result.get("category") and result["category"] in self._cats:
             self._cat_row.set_selected(self._cats.index(result["category"]) + 1)

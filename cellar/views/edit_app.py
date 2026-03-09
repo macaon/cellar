@@ -591,29 +591,34 @@ class EditAppDialog(Adw.Dialog):
         picker.present(self)
 
     def _apply_steam_result(self, result: dict) -> None:
-        """Pre-fill empty form fields from a Steam result (keeps existing values)."""
-        if result.get("name") and not self._name_entry.get_text().strip():
+        """Overwrite form fields from a Steam picker result."""
+        if result.get("name"):
             self._name_entry.set_text(result["name"])
-        if result.get("developer") and not self._developer_entry.get_text().strip():
+        if result.get("developer"):
             self._developer_entry.set_text(result["developer"])
-        if result.get("publisher") and not self._publisher_entry.get_text().strip():
+        if result.get("publisher"):
             self._publisher_entry.set_text(result["publisher"])
-        if result.get("year") and not self._year_entry.get_text().strip():
+        if result.get("year"):
             self._year_entry.set_text(str(result["year"]))
-        if result.get("website") and not self._website_entry.get_text().strip():
+        if result.get("website"):
             self._website_entry.set_text(result["website"])
-        if result.get("genres") and not self._genres_entry.get_text().strip():
+        if result.get("genres"):
             genres = result["genres"]
             if isinstance(genres, list):
                 self._genres_entry.set_text(", ".join(genres))
             else:
                 self._genres_entry.set_text(str(genres))
-        if result.get("summary") and not self._summary_entry.get_text().strip():
+        if result.get("summary"):
             self._summary_entry.set_text(result["summary"])
         if result.get("description"):
             buf = self._desc_view.get_buffer()
-            if not buf.get_text(buf.get_start_iter(), buf.get_end_iter(), False).strip():
-                buf.set_text(result["description"])
+            buf.set_text(result["description"])
+        if result.get("steam_appid"):
+            self._steam_appid_entry.set_text(str(result["steam_appid"]))
+        if result.get("category") and result["category"] in self._categories:
+            self._category_row.set_selected(
+                self._categories.index(result["category"])
+            )
         if result.get("screenshots"):
             self._media.add_steam_screenshots(result["screenshots"])
 

@@ -281,34 +281,48 @@ class CatalogueEntriesDialog(Adw.Dialog):
             from cellar.backend.installer import (  # noqa: PLC2701
                 _build_source,
                 _find_bottle_dir,
+                _install_chunks,
                 _stream_and_extract,
             )
             from cellar.backend.packager import slugify
 
             archive_uri = repo.resolve_asset_uri(base_entry.archive)
-            chunks, total = _build_source(
-                archive_uri,
-                expected_size=base_entry.archive_size,
-                token=repo.token,
-                ssl_verify=repo.ssl_verify,
-                ca_cert=repo.ca_cert,
-            )
 
             with tempfile.TemporaryDirectory(prefix="cellar-base-import-") as tmp_str:
                 tmp = Path(tmp_str)
                 extract_dir = tmp / "extracted"
                 extract_dir.mkdir()
 
-                _stream_and_extract(
-                    chunks, total,
-                    is_zst=archive_uri.endswith(".tar.zst"),
-                    dest=extract_dir,
-                    expected_crc32=base_entry.archive_crc32,
-                    cancel_event=None,
-                    progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                    stats_cb=lambda d, t, s: GLib.idle_add(progress.set_stats, fmt_stats(d, t, s)),
-                    name_cb=None,
-                )
+                if base_entry.archive_chunks:
+                    _install_chunks(
+                        archive_uri, base_entry.archive_chunks, extract_dir,
+                        strip_top_dir=True,
+                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+                        stats_cb=lambda d, t, s: GLib.idle_add(
+                            progress.set_stats, fmt_stats(d, t, s)),
+                        token=repo.token,
+                        ssl_verify=repo.ssl_verify,
+                        ca_cert=repo.ca_cert,
+                    )
+                else:
+                    chunks, total = _build_source(
+                        archive_uri,
+                        expected_size=base_entry.archive_size,
+                        token=repo.token,
+                        ssl_verify=repo.ssl_verify,
+                        ca_cert=repo.ca_cert,
+                    )
+                    _stream_and_extract(
+                        chunks, total,
+                        is_zst=archive_uri.endswith(".tar.zst"),
+                        dest=extract_dir,
+                        expected_crc32=base_entry.archive_crc32,
+                        cancel_event=None,
+                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+                        stats_cb=lambda d, t, s: GLib.idle_add(
+                            progress.set_stats, fmt_stats(d, t, s)),
+                        name_cb=None,
+                    )
 
                 bottle_src = _find_bottle_dir(extract_dir)
 
@@ -366,18 +380,12 @@ class CatalogueEntriesDialog(Adw.Dialog):
             import tempfile
             from cellar.backend.installer import (  # noqa: PLC2701
                 _build_source,
+                _install_chunks,
                 _stream_and_extract,
             )
             from cellar.backend.umu import runners_dir
 
             archive_uri = repo.resolve_asset_uri(runner_item.archive)
-            chunks, total = _build_source(
-                archive_uri,
-                expected_size=runner_item.archive_size,
-                token=repo.token,
-                ssl_verify=repo.ssl_verify,
-                ca_cert=repo.ca_cert,
-            )
 
             dest = runners_dir() / runner_item.name
             if dest.exists():
@@ -388,16 +396,36 @@ class CatalogueEntriesDialog(Adw.Dialog):
                 extract_dir = tmp / "extracted"
                 extract_dir.mkdir()
 
-                _stream_and_extract(
-                    chunks, total,
-                    is_zst=archive_uri.endswith(".tar.zst"),
-                    dest=extract_dir,
-                    expected_crc32=runner_item.archive_crc32,
-                    cancel_event=None,
-                    progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                    stats_cb=lambda d, t, s: GLib.idle_add(progress.set_stats, fmt_stats(d, t, s)),
-                    name_cb=None,
-                )
+                if runner_item.archive_chunks:
+                    _install_chunks(
+                        archive_uri, runner_item.archive_chunks, extract_dir,
+                        strip_top_dir=True,
+                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+                        stats_cb=lambda d, t, s: GLib.idle_add(
+                            progress.set_stats, fmt_stats(d, t, s)),
+                        token=repo.token,
+                        ssl_verify=repo.ssl_verify,
+                        ca_cert=repo.ca_cert,
+                    )
+                else:
+                    chunks, total = _build_source(
+                        archive_uri,
+                        expected_size=runner_item.archive_size,
+                        token=repo.token,
+                        ssl_verify=repo.ssl_verify,
+                        ca_cert=repo.ca_cert,
+                    )
+                    _stream_and_extract(
+                        chunks, total,
+                        is_zst=archive_uri.endswith(".tar.zst"),
+                        dest=extract_dir,
+                        expected_crc32=runner_item.archive_crc32,
+                        cancel_event=None,
+                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+                        stats_cb=lambda d, t, s: GLib.idle_add(
+                            progress.set_stats, fmt_stats(d, t, s)),
+                        name_cb=None,
+                    )
 
                 extracted = [p for p in extract_dir.iterdir() if p.is_dir()]
                 if not extracted:
@@ -429,32 +457,46 @@ class CatalogueEntriesDialog(Adw.Dialog):
             from cellar.backend.installer import (
                 _build_source,        # noqa: PLC2701
                 _find_bottle_dir,     # noqa: PLC2701
+                _install_chunks,      # noqa: PLC2701
                 _stream_and_extract,  # noqa: PLC2701
             )
             archive_uri = repo.resolve_asset_uri(entry.archive)
-            chunks, total = _build_source(
-                archive_uri,
-                expected_size=entry.archive_size,
-                token=repo.token,
-                ssl_verify=repo.ssl_verify,
-                ca_cert=repo.ca_cert,
-            )
 
             with tempfile.TemporaryDirectory(prefix="cellar-import-") as tmp_str:
                 tmp = Path(tmp_str)
                 extract_dir = tmp / "extracted"
                 extract_dir.mkdir()
 
-                _stream_and_extract(
-                    chunks, total,
-                    is_zst=archive_uri.endswith(".tar.zst"),
-                    dest=extract_dir,
-                    expected_crc32=entry.archive_crc32,
-                    cancel_event=None,
-                    progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                    stats_cb=lambda d, t, s: GLib.idle_add(progress.set_stats, fmt_stats(d, t, s)),
-                    name_cb=None,
-                )
+                if entry.archive_chunks:
+                    _install_chunks(
+                        archive_uri, entry.archive_chunks, extract_dir,
+                        strip_top_dir=True,
+                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+                        stats_cb=lambda d, t, s: GLib.idle_add(
+                            progress.set_stats, fmt_stats(d, t, s)),
+                        token=repo.token,
+                        ssl_verify=repo.ssl_verify,
+                        ca_cert=repo.ca_cert,
+                    )
+                else:
+                    chunks, total = _build_source(
+                        archive_uri,
+                        expected_size=entry.archive_size,
+                        token=repo.token,
+                        ssl_verify=repo.ssl_verify,
+                        ca_cert=repo.ca_cert,
+                    )
+                    _stream_and_extract(
+                        chunks, total,
+                        is_zst=archive_uri.endswith(".tar.zst"),
+                        dest=extract_dir,
+                        expected_crc32=entry.archive_crc32,
+                        cancel_event=None,
+                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+                        stats_cb=lambda d, t, s: GLib.idle_add(
+                            progress.set_stats, fmt_stats(d, t, s)),
+                        name_cb=None,
+                    )
 
                 bottle_src = _find_bottle_dir(extract_dir)
 

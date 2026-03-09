@@ -77,7 +77,9 @@ def install_base(
     archive_path = Path(archive_path)
     dest = base_path(runner)
 
-    with tempfile.TemporaryDirectory(prefix="cellar-base-") as tmp_str:
+    from cellar.backend.config import install_data_dir  # noqa: PLC0415
+    with tempfile.TemporaryDirectory(prefix="cellar-base-",
+                                     dir=install_data_dir()) as tmp_str:
         tmp = Path(tmp_str)
         extract_dir = tmp / "extracted"
         extract_dir.mkdir()

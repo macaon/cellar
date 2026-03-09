@@ -288,7 +288,9 @@ class CatalogueEntriesDialog(Adw.Dialog):
 
             archive_uri = repo.resolve_asset_uri(base_entry.archive)
 
-            with tempfile.TemporaryDirectory(prefix="cellar-base-import-") as tmp_str:
+            from cellar.backend.config import install_data_dir
+            with tempfile.TemporaryDirectory(prefix="cellar-base-import-",
+                                             dir=install_data_dir()) as tmp_str:
                 tmp = Path(tmp_str)
                 extract_dir = tmp / "extracted"
                 extract_dir.mkdir()
@@ -391,7 +393,9 @@ class CatalogueEntriesDialog(Adw.Dialog):
             if dest.exists():
                 shutil.rmtree(dest)
 
-            with tempfile.TemporaryDirectory(prefix="cellar-runner-import-") as tmp_str:
+            from cellar.backend.config import install_data_dir
+            with tempfile.TemporaryDirectory(prefix="cellar-runner-import-",
+                                             dir=install_data_dir()) as tmp_str:
                 tmp = Path(tmp_str)
                 extract_dir = tmp / "extracted"
                 extract_dir.mkdir()
@@ -462,7 +466,9 @@ class CatalogueEntriesDialog(Adw.Dialog):
             )
             archive_uri = repo.resolve_asset_uri(entry.archive)
 
-            with tempfile.TemporaryDirectory(prefix="cellar-import-") as tmp_str:
+            from cellar.backend.config import install_data_dir
+            with tempfile.TemporaryDirectory(prefix="cellar-import-",
+                                             dir=install_data_dir()) as tmp_str:
                 tmp = Path(tmp_str)
                 extract_dir = tmp / "extracted"
                 extract_dir.mkdir()

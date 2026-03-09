@@ -290,7 +290,10 @@ def update_app_safe(
     # Stash lives in its own temp dir, outside the update work dir, so it
     # survives any exception thrown during download/extract/overlay.
     files_to_stash = modified_files + user_files
-    with tempfile.TemporaryDirectory(prefix="cellar-stash-") as stash_tmp_str:
+    from cellar.backend.config import install_data_dir  # noqa: PLC0415
+    _tmp_root = install_data_dir()
+    with tempfile.TemporaryDirectory(prefix="cellar-stash-",
+                                     dir=_tmp_root) as stash_tmp_str:
         stash_dir = Path(stash_tmp_str)
 
         if files_to_stash:
@@ -298,7 +301,8 @@ def update_app_safe(
                 phase_cb("Preserving user data\u2026")
             _stash_files(files_to_stash, prefix_path, stash_dir)
 
-        with tempfile.TemporaryDirectory(prefix="cellar-update-") as tmp_str:
+        with tempfile.TemporaryDirectory(prefix="cellar-update-",
+                                         dir=_tmp_root) as tmp_str:
             tmp = Path(tmp_str)
 
             # ── Phases 2-4: Stream, verify CRC32, extract (single pass) ──────

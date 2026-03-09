@@ -195,7 +195,9 @@ def _download_and_extract_runner(
         expected_hash = None
 
     # ── Download ──────────────────────────────────────────────────────────
-    tmp_fd, tmp_name = tempfile.mkstemp(suffix=".tar.gz")
+    from cellar.backend.config import install_data_dir  # noqa: PLC0415
+    _tmp_root = install_data_dir()
+    tmp_fd, tmp_name = tempfile.mkstemp(suffix=".tar.gz", dir=_tmp_root)
     tmp_path = Path(tmp_name)
     try:
         session = make_session()
@@ -239,7 +241,7 @@ def _download_and_extract_runner(
         phase_cb("Extracting\u2026")
         progress_cb(0.0)
         use_filter = sys.version_info >= (3, 12)
-        with tempfile.TemporaryDirectory() as extract_dir:
+        with tempfile.TemporaryDirectory(dir=_tmp_root) as extract_dir:
             archive_size = tmp_path.stat().st_size or 1
             with open(tmp_path, "rb") as raw:
                 with tarfile.open(fileobj=raw, mode="r:gz") as tar:

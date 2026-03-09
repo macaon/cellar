@@ -704,18 +704,16 @@ class DetailView(Gtk.Box):
             dev_lbl.set_halign(Gtk.Align.START)
             meta.append(dev_lbl)
 
-        # Right column: action buttons + update + repo button.
-        right = Gtk.Box(
-            orientation=Gtk.Orientation.VERTICAL,
+        # Right column: action buttons + repo source label.
+        # The repo widget must not influence the column width (switching to a
+        # longer repo name would shift the Install button).  We use a
+        # GtkOverlay: the action row is the measured child, the repo label
+        # sits below it as an overlay that clips to the allocated width.
+        action_row = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
             spacing=6,
-            valign=Gtk.Align.CENTER,
-            halign=Gtk.Align.END,
+            margin_bottom=24,  # reserve space below for the repo label overlay
         )
-        box.append(right)
-
-        # Action row: Install/Open + Gear + Remove.
-        action_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        right.append(action_row)
 
         self._install_btn = Gtk.Button()
         self._install_btn.connect("clicked", self._on_install_clicked)
@@ -735,7 +733,16 @@ class DetailView(Gtk.Box):
         self._gear_btn.set_visible(False)
         action_row.append(self._gear_btn)
 
-        right.append(self._make_repo_button())
+        repo_widget = self._make_repo_button()
+        repo_widget.set_halign(Gtk.Align.CENTER)
+        repo_widget.set_valign(Gtk.Align.END)
+
+        right = Gtk.Overlay(child=action_row)
+        right.add_overlay(repo_widget)
+        right.set_clip_overlay(repo_widget, True)
+        right.set_valign(Gtk.Align.CENTER)
+        right.set_halign(Gtk.Align.END)
+        box.append(right)
 
         self._update_install_button()
         self._setup_gear_actions()

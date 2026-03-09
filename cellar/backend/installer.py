@@ -524,7 +524,7 @@ def install_app(
     if not is_runtime_ready():
         if phase_cb:
             phase_cb("Initialising prefix\u2026")
-        init_prefix(bottle_dest, runner_name, steam_appid=entry.steam_appid)
+        init_prefix(bottle_dest, base_entry.runner, steam_appid=entry.steam_appid)
 
     if phase_cb:
         phase_cb("Done")

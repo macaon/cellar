@@ -219,7 +219,10 @@ def launch_app_monitored(
     """Launch *entry_point* like :func:`launch_app`, but capture stderr.
 
     Reads umu-run's stderr line-by-line, calling *line_cb* for each line.
-    Returns when stderr closes (the Wine process has spawned and detached).
+    Returns once the game appears to have started (detected by known umu-run
+    output patterns like ``fsync`` or ``Proton:``), or when stderr closes.
+    Wine keeps stderr open for the lifetime of the process, so we must not
+    wait for EOF.
     """
     import os
     import shlex
@@ -233,15 +236,21 @@ def launch_app_monitored(
         app_id, " ".join(cmd[:-1]),
         umu_env["WINEPREFIX"], umu_env["PROTONPATH"], umu_env["GAMEID"], entry_point,
     )
-    with subprocess.Popen(
+    # Markers that indicate umu setup is done and Wine is running.
+    _STARTED = ("fsync:", "esync:", "Proton:", "wine: configuration")
+    proc = subprocess.Popen(
         cmd, env=env, start_new_session=True,
         stderr=subprocess.PIPE, text=True, bufsize=1,
-    ) as proc:
-        assert proc.stderr is not None
-        for raw in proc.stderr:
-            line = raw.rstrip("\n")
-            if line and line_cb:
-                line_cb(line)
+    )
+    assert proc.stderr is not None
+    for raw in proc.stderr:
+        line = raw.rstrip("\n")
+        if line and line_cb:
+            line_cb(line)
+        if any(marker in line for marker in _STARTED):
+            break
+    # Detach — don't wait for process exit or read remaining stderr.
+    proc.stderr.close()
 
 
 def init_prefix(

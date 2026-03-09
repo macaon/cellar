@@ -1696,7 +1696,7 @@ class InstallProgressDialog(Adw.Dialog):
             GLib.source_remove(self._pulse_id)
             self._pulse_id = None
         self._phase_label.set_text(label)
-        if "Copying" in label or "Applying delta" in label or "Installing" in label:
+        if "Copying" in label or "Applying delta" in label or "Installing" in label or "Initialising" in label:
             # Indeterminate pulse for copytree / rsync delta / Linux copy
             self._progress_bar.set_fraction(0.0)
             self._progress_bar.set_show_text(False)

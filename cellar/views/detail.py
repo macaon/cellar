@@ -28,6 +28,57 @@ log = logging.getLogger(__name__)
 _ICON_SIZE = 96
 
 
+class _PassiveWidth(Gtk.Widget):
+    """Single-child wrapper that reports 0 natural width.
+
+    In a VBox the column width = max(child natural widths).  Wrapping a
+    widget in ``_PassiveWidth`` prevents it from widening the column while
+    still letting it use whatever width it is allocated.
+    """
+
+    __gtype_name__ = "CellarPassiveWidth"
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._child: Gtk.Widget | None = None
+
+    def set_child(self, child: Gtk.Widget | None) -> None:
+        if self._child is not None:
+            self._child.unparent()
+        self._child = child
+        if child is not None:
+            child.set_parent(self)
+
+    def do_measure(self, orientation, for_size):
+        child = self.get_first_child()
+        if child is None:
+            return 0, 0, -1, -1
+        c_min, c_nat, c_min_base, c_nat_base = child.measure(orientation, for_size)
+        if orientation == Gtk.Orientation.HORIZONTAL:
+            # Report 0 natural width — let parent size to other children.
+            return 0, 0, -1, -1
+        return c_min, c_nat, c_min_base, c_nat_base
+
+    def do_size_allocate(self, width: int, height: int, baseline: int) -> None:
+        child = self.get_first_child()
+        if child is not None:
+            child.allocate(width, height, baseline, None)
+
+    def do_snapshot(self, snapshot) -> None:
+        child = self.get_first_child()
+        if child is not None:
+            self.snapshot_child(child, snapshot)
+
+    def do_dispose(self) -> None:
+        self._child = None
+        child = self.get_first_child()
+        while child is not None:
+            nxt = child.get_next_sibling()
+            child.unparent()
+            child = nxt
+        super().do_dispose()
+
+
 def _html_to_pango(text: str) -> str:
     """Convert a limited HTML subset to Pango markup for display.
 
@@ -705,14 +756,9 @@ class DetailView(Gtk.Box):
             meta.append(dev_lbl)
 
         # Right column: action buttons + repo source label.
-        # The repo widget must not influence the column width (switching to a
-        # longer repo name would shift the Install button).  We use a
-        # GtkOverlay: the action row is the measured child, the repo label
-        # sits below it as an overlay that clips to the allocated width.
         action_row = Gtk.Box(
             orientation=Gtk.Orientation.HORIZONTAL,
             spacing=6,
-            margin_bottom=24,  # reserve space below for the repo label overlay
         )
 
         self._install_btn = Gtk.Button()
@@ -735,13 +781,16 @@ class DetailView(Gtk.Box):
 
         repo_widget = self._make_repo_button()
         repo_widget.set_halign(Gtk.Align.CENTER)
-        repo_widget.set_valign(Gtk.Align.END)
+        # Wrap in _PassiveWidth so the repo label can never widen the column
+        # beyond the action buttons' natural width.
+        passive = _PassiveWidth()
+        passive.set_child(repo_widget)
 
-        right = Gtk.Overlay(child=action_row)
-        right.add_overlay(repo_widget)
-        right.set_clip_overlay(repo_widget, True)
+        right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         right.set_valign(Gtk.Align.CENTER)
         right.set_halign(Gtk.Align.END)
+        right.append(action_row)
+        right.append(passive)
         box.append(right)
 
         self._update_install_button()

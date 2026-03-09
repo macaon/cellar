@@ -142,16 +142,18 @@ class PackageBuilderView(Adw.Bin):
 
         list_toolbar.add_top_bar(list_header)
 
-        # Project card grid
+        # Project card grid — matches browse view FlowBox settings
         self._flow_box = Gtk.FlowBox()
         self._flow_box.set_valign(Gtk.Align.START)
-        self._flow_box.set_homogeneous(True)
+        self._flow_box.set_halign(Gtk.Align.CENTER)
+        self._flow_box.set_homogeneous(False)
         self._flow_box.set_selection_mode(Gtk.SelectionMode.NONE)
-        self._flow_box.set_max_children_per_line(10)
-        self._flow_box.set_margin_top(24)
-        self._flow_box.set_margin_bottom(24)
-        self._flow_box.set_margin_start(24)
-        self._flow_box.set_margin_end(24)
+        self._flow_box.set_min_children_per_line(2)
+        self._flow_box.set_max_children_per_line(8)
+        self._flow_box.set_margin_top(18)
+        self._flow_box.set_margin_bottom(18)
+        self._flow_box.set_margin_start(18)
+        self._flow_box.set_margin_end(18)
         self._flow_box.connect("child-activated", self._on_card_activated)
 
         scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
@@ -1843,6 +1845,7 @@ class _ProjectCard(Gtk.FlowBoxChild):
     def __init__(self, project: Project) -> None:
         super().__init__()
         self.project = project
+        self.add_css_class("app-card-cell")
 
         self.set_margin_start(6)
         self.set_margin_end(6)
@@ -1852,6 +1855,7 @@ class _ProjectCard(Gtk.FlowBoxChild):
         card = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         card.add_css_class("card")
         card.add_css_class("activatable")
+        card.add_css_class("app-card")
         card.set_overflow(Gtk.Overflow.HIDDEN)
 
         # Left: type icon

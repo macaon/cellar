@@ -2,6 +2,7 @@ python_sources = files(
   '__init__.py',
   'catalogue_import.py',
   'dependencies.py',
+  'media_panel.py',
   'metadata.py',
   'pickers.py',
   'progress.py',

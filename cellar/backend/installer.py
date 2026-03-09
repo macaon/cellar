@@ -516,11 +516,18 @@ def install_app(
             shutil.rmtree(bottle_dest, ignore_errors=True)
             raise
 
-    if phase_cb:
-        phase_cb("Done")
-
     from cellar.backend.manifest import write_manifest  # noqa: PLC0415
     write_manifest(bottle_dest)
+
+    # Pre-download steamrt3 on first install so the first launch is instant.
+    from cellar.backend.umu import is_runtime_ready, init_prefix  # noqa: PLC0415
+    if not is_runtime_ready():
+        if phase_cb:
+            phase_cb("Initialising prefix\u2026")
+        init_prefix(bottle_dest, runner_name, steam_appid=entry.steam_appid)
+
+    if phase_cb:
+        phase_cb("Done")
 
     if install_cb:
         install_cb(1.0)

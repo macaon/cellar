@@ -111,6 +111,23 @@ def resolve_runner_path(runner_name: str) -> Path | None:
     return p if p.is_dir() else None
 
 
+def _umu_data_env() -> dict[str, str]:
+    """Return env vars to redirect umu's data storage into Cellar's data dir.
+
+    Sets ``UMU_FOLDERS_PATH`` so that umu stores steamrt3 and other runtime
+    files alongside Cellar's own data (e.g. inside the Flatpak data dir)
+    instead of the real ``~/.local/share/``.
+    """
+    from cellar.backend.config import data_dir  # noqa: PLC0415
+    return {"UMU_FOLDERS_PATH": str(data_dir().parent)}
+
+
+def is_runtime_ready() -> bool:
+    """Return True if umu's steamrt3 runtime is already downloaded."""
+    from cellar.backend.config import data_dir  # noqa: PLC0415
+    return (data_dir().parent / "umu" / "steamrt3").is_dir()
+
+
 def build_env(
     app_id: str,
     runner_name: str,
@@ -122,6 +139,7 @@ def build_env(
     gameid = f"umu-{steam_appid}" if steam_appid else "0"
     wineprefix = prefix_dir if prefix_dir is not None else prefixes_dir() / app_id
     return {
+        **_umu_data_env(),
         "WINEPREFIX": str(wineprefix),
         "PROTONPATH": str(runners_dir() / runner_name),
         "GAMEID": gameid,
@@ -188,6 +206,44 @@ def launch_app(
     subprocess.Popen(cmd, env=env, start_new_session=True)
 
 
+def launch_app_monitored(
+    app_id: str,
+    entry_point: str,
+    runner_name: str,
+    steam_appid: int | None,
+    *,
+    prefix_dir: Path | None = None,
+    launch_args: str = "",
+    line_cb: Callable[[str], None] | None = None,
+) -> None:
+    """Launch *entry_point* like :func:`launch_app`, but capture stderr.
+
+    Reads umu-run's stderr line-by-line, calling *line_cb* for each line.
+    Returns when stderr closes (the Wine process has spawned and detached).
+    """
+    import os
+    import shlex
+    umu_env = build_env(app_id, runner_name, steam_appid, prefix_dir=prefix_dir)
+    env = {**os.environ, **umu_env}
+    cmd = _umu_cmd(umu_env) + [entry_point]
+    if launch_args:
+        cmd += shlex.split(launch_args)
+    log.info(
+        "Launching app (monitored) %s: %s\n  WINEPREFIX=%s\n  PROTONPATH=%s\n  GAMEID=%s\n  EXE=%s",
+        app_id, " ".join(cmd[:-1]),
+        umu_env["WINEPREFIX"], umu_env["PROTONPATH"], umu_env["GAMEID"], entry_point,
+    )
+    with subprocess.Popen(
+        cmd, env=env, start_new_session=True,
+        stderr=subprocess.PIPE, text=True, bufsize=1,
+    ) as proc:
+        assert proc.stderr is not None
+        for raw in proc.stderr:
+            line = raw.rstrip("\n")
+            if line and line_cb:
+                line_cb(line)
+
+
 def init_prefix(
     prefix_path: Path,
     runner_name: str,
@@ -204,6 +260,7 @@ def init_prefix(
     import os
     gameid = f"umu-{steam_appid}" if steam_appid else "0"
     base_env: dict[str, str] = {
+        **_umu_data_env(),
         "WINEPREFIX": str(prefix_path),
         "PROTONPATH": str(runners_dir() / runner_name),
         "GAMEID": gameid,
@@ -248,6 +305,7 @@ def run_winetricks(
     """
     import os
     base_env: dict[str, str] = {
+        **_umu_data_env(),
         "WINEPREFIX": str(prefix_path),
         "PROTONPATH": str(runners_dir() / runner_name),
         "GAMEID": str(gameid) if gameid else "0",
@@ -318,6 +376,7 @@ def run_in_prefix(
     """
     import os
     base_env: dict[str, str] = {
+        **_umu_data_env(),
         "WINEPREFIX": str(prefix_path),
         "PROTONPATH": str(runners_dir() / runner_name),
         "GAMEID": str(gameid) if gameid else "0",

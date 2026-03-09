@@ -3,6 +3,13 @@
   "runtime": "org.gnome.Platform",
   "runtime-version": "49",
   "sdk": "org.gnome.Sdk",
+  "sdk-extensions": ["org.freedesktop.Sdk.Compat.i386"],
+  "add-extensions": {
+    "org.freedesktop.Platform.Compat.i386": {
+      "directory": "lib/i386-linux-gnu",
+      "version": "49"
+    }
+  },
   "command": "cellar",
   "finish-args": [
     "--share=network",
@@ -13,7 +20,6 @@
     "--filesystem=home",
     "--device=dri",
     "--allow=multiarch",
-    "--talk-name=org.freedesktop.Flatpak",
     "--talk-name=org.freedesktop.secrets"
   ],
   "build-options": {
@@ -215,6 +221,11 @@
           "sha256": "36502de766f3cc549ff85196a04fb5afdb4eb2a72c023f22fd25895df91fda2f"
         }
       ]
+    },
+    {
+      "name": "i386-compat",
+      "buildsystem": "simple",
+      "build-commands": ["mkdir -p /app/lib/i386-linux-gnu"]
     },
     {
       "name": "cellar",

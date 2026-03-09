@@ -327,19 +327,46 @@ class DetailView(Gtk.Box):
         if self._entry.platform == "linux":
             self._launch_linux_target(entry_path, entry_args)
             return
-        from cellar.backend.umu import launch_app
+        from cellar.backend.umu import launch_app_monitored  # noqa: PLC0415
+        from cellar.views.builder.progress import ProgressDialog  # noqa: PLC0415
         runner_name = self._resolved_runner
         if not runner_name:
             base_entry, _ = self._find_base_entry(self._entry.base_image)
             if base_entry:
                 runner_name = base_entry.runner
-        launch_app(
-            app_id=self._entry.id,
-            entry_point=entry_path,
-            runner_name=runner_name,
-            steam_appid=self._entry.steam_appid,
-            launch_args=entry_args,
-        )
+
+        progress = ProgressDialog(label="Launching\u2026")
+        progress.set_can_close(True)
+
+        def _on_line(line: str) -> None:
+            if "Downloading" in line:
+                label = "Downloading runtime\u2026"
+            elif "Verifying integrity" in line or "SHA256 is OK" in line:
+                label = "Verifying runtime\u2026"
+            elif "Setting up Unified Launcher" in line:
+                label = "Setting up\u2026"
+            elif "Using steamrt3" in line:
+                label = "Launching\u2026"
+            else:
+                return
+            GLib.idle_add(progress.set_label, label)
+
+        def _work() -> None:
+            try:
+                launch_app_monitored(
+                    app_id=self._entry.id,
+                    entry_point=entry_path,
+                    runner_name=runner_name,
+                    steam_appid=self._entry.steam_appid,
+                    launch_args=entry_args,
+                    line_cb=_on_line,
+                )
+            except Exception as exc:
+                log.warning("Launch failed: %s", exc)
+            GLib.idle_add(progress.force_close)
+
+        threading.Thread(target=_work, daemon=True).start()
+        progress.present(self.get_root())
 
     def _launch_linux_target(self, entry_path: str, entry_args: str) -> None:
         """Launch a native Linux app target."""

@@ -223,6 +223,11 @@ _XDG_DATA_HOME = Path(
 
 
 def main():
+    import signal
+
+    # Let Ctrl+C terminate cleanly instead of dumping a traceback.
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+
     _ensure_desktop_entry()
     app = CellarApplication()
     return app.run(sys.argv)

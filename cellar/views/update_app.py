@@ -46,7 +46,7 @@ class UpdateDialog(Adw.Dialog):
         base_archive_uri: str = "",
         token: str | None = None,
     ) -> None:
-        super().__init__(title=f"Update {entry.name}", content_width=440)
+        super().__init__(title=f"Update {entry.name}", content_width=440, content_height=470)
         self._entry = entry
         self._installed_record = installed_record
         self._prefix_path = prefix_path
@@ -89,13 +89,7 @@ class UpdateDialog(Adw.Dialog):
         self.set_child(toolbar_view)
 
     def _build_confirm_page(self) -> Gtk.Widget:
-        scroll = Gtk.ScrolledWindow(
-            hscrollbar_policy=Gtk.PolicyType.NEVER,
-            vscrollbar_policy=Gtk.PolicyType.AUTOMATIC,
-        )
-
         page = Adw.PreferencesPage()
-        scroll.set_child(page)
 
         # ── Version info ──────────────────────────────────────────────────
         ver_group = Adw.PreferencesGroup(title="Update")
@@ -136,7 +130,7 @@ class UpdateDialog(Adw.Dialog):
         warn_group.add(warn_row)
         page.add(warn_group)
 
-        return scroll
+        return page
 
     def _build_progress_page(self) -> Gtk.Widget:
         box, self._phase_label, self._progress_bar, self._cancel_body_btn = (

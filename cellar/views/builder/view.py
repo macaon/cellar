@@ -27,7 +27,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gio, GLib, Gtk
+from gi.repository import Adw, Gio, GLib, Gtk, Pango
 
 from cellar.backend.project import (
     Project,
@@ -66,7 +66,7 @@ class PackageBuilderView(Adw.Bin):
         self._all_repos: list = all_repos or []
         self._on_catalogue_changed = on_catalogue_changed
         self._project: Project | None = None
-        self._project_rows: list[_ProjectRow] = []
+        self._project_cards: list[_ProjectCard] = []
 
         self._setup_actions()
         self._build()
@@ -142,23 +142,21 @@ class PackageBuilderView(Adw.Bin):
 
         list_toolbar.add_top_bar(list_header)
 
-        # Project list
-        self._list_box = Gtk.ListBox()
-        self._list_box.set_selection_mode(Gtk.SelectionMode.NONE)
-        self._list_box.add_css_class("boxed-list")
-        self._list_box.connect("row-activated", self._on_row_activated)
-
-        # Wrap in clamp for proper centering
-        clamp = Adw.Clamp(maximum_size=600)
-        clamp.set_margin_top(24)
-        clamp.set_margin_bottom(24)
-        clamp.set_margin_start(12)
-        clamp.set_margin_end(12)
-        clamp.set_child(self._list_box)
+        # Project card grid
+        self._flow_box = Gtk.FlowBox()
+        self._flow_box.set_valign(Gtk.Align.START)
+        self._flow_box.set_homogeneous(True)
+        self._flow_box.set_selection_mode(Gtk.SelectionMode.NONE)
+        self._flow_box.set_max_children_per_line(10)
+        self._flow_box.set_margin_top(24)
+        self._flow_box.set_margin_bottom(24)
+        self._flow_box.set_margin_start(24)
+        self._flow_box.set_margin_end(24)
+        self._flow_box.connect("child-activated", self._on_card_activated)
 
         scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
         scroll.set_vexpand(True)
-        scroll.set_child(clamp)
+        scroll.set_child(self._flow_box)
         list_toolbar.set_content(scroll)
 
         self._list_page = Adw.NavigationPage(title="Packages", child=list_toolbar)
@@ -171,26 +169,26 @@ class PackageBuilderView(Adw.Bin):
     # ------------------------------------------------------------------
 
     def _reload_projects(self) -> None:
-        """Reload project list from disk and refresh the list page."""
+        """Reload project list from disk and refresh the card grid."""
         projects = load_projects()
-        # Clear existing rows
+        # Clear existing cards
         while True:
-            row = self._list_box.get_row_at_index(0)
-            if row is None:
+            child = self._flow_box.get_child_at_index(0)
+            if child is None:
                 break
-            self._list_box.remove(row)
-        self._project_rows = []
+            self._flow_box.remove(child)
+        self._project_cards: list[_ProjectCard] = []
 
-        for p in projects:
-            row = _ProjectRow(p)
-            self._list_box.append(row)
-            self._project_rows.append(row)
+        for p in sorted(projects, key=lambda x: x.name.lower()):
+            card = _ProjectCard(p)
+            self._project_cards.append(card)
+            self._flow_box.append(card)
 
         if not projects:
             self._project = None
 
-    def _on_row_activated(self, _lb, row: Gtk.ListBoxRow) -> None:
-        self._project = row.project  # type: ignore[attr-defined]
+    def _on_card_activated(self, _fb, child: Gtk.FlowBoxChild) -> None:
+        self._project = child.project  # type: ignore[attr-defined]
         self._show_project(self._project)
 
     def _on_nav_popped(self, _nav, _page) -> None:
@@ -311,9 +309,9 @@ class PackageBuilderView(Adw.Bin):
                     self._project.name = row.get_text()
                     save_project(self._project)
                     self._content_title.set_title(self._project.name)
-                    for r in self._project_rows:
+                    for r in self._project_cards:
                         if r.project.slug == self._project.slug:
-                            r._label.set_text(self._project.name)
+                            r._name_label.set_text(self._project.name)
                             break
 
             self._meta_name_row.connect("changed", _on_name_changed)
@@ -385,9 +383,9 @@ class PackageBuilderView(Adw.Bin):
                     self._project.name = row.get_text()
                     save_project(self._project)
                     self._content_title.set_title(self._project.name)
-                    for r in self._project_rows:
+                    for r in self._project_cards:
                         if r.project.slug == self._project.slug:
-                            r._label.set_text(self._project.name)
+                            r._name_label.set_text(self._project.name)
                             break
 
             self._base_name_row.connect("changed", _on_base_name_changed)
@@ -709,7 +707,7 @@ class PackageBuilderView(Adw.Bin):
             self._project.name = runner_name
             if hasattr(self, "_base_name_row"):
                 self._base_name_row.set_text(runner_name)
-        for r in self._project_rows:
+        for r in self._project_cards:
             if r.project is self._project:
                 r.refresh_label()
                 break
@@ -736,7 +734,7 @@ class PackageBuilderView(Adw.Bin):
                 project.runner = runner_name
                 if not project.name or project.name == "(no runner)":
                     project.name = runner_name
-                for r in self._project_rows:
+                for r in self._project_cards:
                     if r.project is project:
                         r.refresh_label()
                         break
@@ -772,7 +770,7 @@ class PackageBuilderView(Adw.Bin):
             if self._project.runner == runner_name:
                 self._project.runner = ""
                 self._project.name = "(no runner)"
-                for r in self._project_rows:
+                for r in self._project_cards:
                     if r.project is self._project:
                         r.refresh_label()
                         break
@@ -1826,33 +1824,70 @@ class PackageBuilderView(Adw.Bin):
 # Helper widgets
 # ---------------------------------------------------------------------------
 
-class _ProjectRow(Gtk.ListBoxRow):
-    """A row in the project list sidebar."""
+_CARD_WIDTH = 300
+_CARD_HEIGHT = 96
+_ICON_SIZE = 52
+_ICON_MARGIN = 22
+
+_TYPE_ICONS = {
+    "base": "package-x-generic-symbolic",
+    "linux": "penguin-alt-symbolic",
+    "app": "grid-large-symbolic",
+}
+_TYPE_LABELS = {"app": "Windows App", "linux": "Linux App", "base": "Base Image"}
+
+
+class _ProjectCard(Gtk.FlowBoxChild):
+    """A project card matching the browse view's AppCard layout."""
 
     def __init__(self, project: Project) -> None:
         super().__init__()
         self.project = project
 
-        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        box.set_margin_top(8)
-        box.set_margin_bottom(8)
-        box.set_margin_start(8)
-        box.set_margin_end(8)
+        self.set_margin_start(6)
+        self.set_margin_end(6)
+        self.set_margin_top(6)
+        self.set_margin_bottom(6)
 
-        _type_icons = {"base": "package-x-generic-symbolic", "linux": "penguin-alt-symbolic"}
-        badge = Gtk.Image.new_from_icon_name(_type_icons.get(project.project_type, "grid-large-symbolic"))
-        badge.add_css_class("dim-label")
-        badge.set_valign(Gtk.Align.CENTER)
-        box.append(badge)
+        card = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        card.add_css_class("card")
+        card.add_css_class("activatable")
+        card.set_overflow(Gtk.Overflow.HIDDEN)
 
-        self._label = Gtk.Label(label=project.name, xalign=0)
-        self._label.set_hexpand(True)
-        self._label.set_ellipsize(3)  # Pango.EllipsizeMode.END
-        box.append(self._label)
+        # Left: type icon
+        icon = Gtk.Image.new_from_icon_name(_TYPE_ICONS.get(project.project_type, "grid-large-symbolic"))
+        icon.set_pixel_size(_ICON_SIZE)
+        icon.set_halign(Gtk.Align.CENTER)
+        icon.set_valign(Gtk.Align.CENTER)
+        icon.set_margin_start(_ICON_MARGIN)
+        icon.add_css_class("dim-label")
+        card.append(icon)
 
-        self.set_child(box)
+        # Right: name + type subtitle
+        text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        text_box.set_valign(Gtk.Align.CENTER)
+        text_box.set_hexpand(True)
+        text_box.set_margin_start(_ICON_MARGIN)
+        text_box.set_margin_end(18)
+        card.append(text_box)
+
+        self._name_label = Gtk.Label(label=project.name)
+        self._name_label.add_css_class("heading")
+        self._name_label.set_halign(Gtk.Align.START)
+        self._name_label.set_ellipsize(Pango.EllipsizeMode.END)
+        text_box.append(self._name_label)
+
+        subtitle = Gtk.Label(label=_TYPE_LABELS.get(project.project_type, ""))
+        subtitle.add_css_class("dim-label")
+        subtitle.set_halign(Gtk.Align.START)
+        text_box.append(subtitle)
+
+        from cellar.views.browse import _FixedBox
+        fixed = _FixedBox(_CARD_WIDTH, _CARD_HEIGHT, clip=False)
+        fixed.set_child(card)
+        self.set_child(fixed)
 
     def refresh_label(self) -> None:
-        """Update the displayed name (called when runner/winver changes)."""
-        self._label.set_label(self.project.name)
+        """Update the displayed name."""
+        self._name_label.set_label(self.project.name)
 

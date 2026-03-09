@@ -13,7 +13,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk
 
 from cellar.backend.project import Project, save_project
-from cellar.views.browse import _FixedBox
+from cellar.views.builder.media_panel import MediaPanel
 
 log = logging.getLogger(__name__)
 
@@ -47,14 +47,6 @@ class AppMetadataDialog(Adw.Dialog):
         self._on_changed = on_changed
         # Snapshot for cancel/revert in edit mode
         self._snapshot: dict | None = project.to_dict() if project else None
-        # Temp image paths used in create mode until the project exists
-        self._tmp_icon: str = ""
-        self._tmp_cover: str = ""
-        self._tmp_logo: str = ""
-        self._tmp_screenshots: list[str] = []
-        self._tmp_steam_screenshots: list[dict] = []
-        self._tmp_selected_steam_urls: list[str] = []
-        self._chooser = None
 
         self._build_ui()
 
@@ -200,172 +192,28 @@ class AppMetadataDialog(Adw.Dialog):
         # ── Vertical separator ────────────────────────────────────────────
         hbox.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
 
-        # ── Right column: media ───────────────────────────────────────────
-        right_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        right_box.set_hexpand(True)
-        right_box.set_margin_top(16)
-        right_box.set_margin_bottom(16)
-        right_box.set_margin_start(16)
-        right_box.set_margin_end(16)
-        hbox.append(right_box)
+        # ── Right column: media (via shared MediaPanel) ───────────────────
+        self._media = MediaPanel(on_changed=self._on_screenshots_changed)
+        hbox.append(self._media)
 
-        # Image rows in a boxed-list
-        img_list = Gtk.ListBox()
-        img_list.add_css_class("boxed-list")
-        img_list.set_selection_mode(Gtk.SelectionMode.NONE)
-
-        self._icon_row, self._icon_clear_btn, self._icon_thumb, self._icon_thumb_wrap, self._icon_dl_btn = self._make_image_row(
-            "Icon", self._on_pick_icon, thumb_w=52, thumb_h=52, steam_slot="icon",
-        )
-        self._cover_row, self._cover_clear_btn, self._cover_thumb, self._cover_thumb_wrap, self._cover_dl_btn = self._make_image_row(
-            "Cover", self._on_pick_cover, thumb_w=52, thumb_h=70, steam_slot="cover",
-        )
-
-        self._hide_title_btn = Gtk.ToggleButton()
-        self._hide_title_btn.set_icon_name("eye-open-negative-filled-symbolic")
-        self._hide_title_btn.set_valign(Gtk.Align.CENTER)
-        self._hide_title_btn.set_visible(False)
-        self._hide_title_btn.set_tooltip_text("Hide title \u2014 logo contains the app name")
-        self._hide_title_btn.set_active(bool(p and p.hide_title))
-        self._hide_title_btn.connect("toggled", self._on_hide_title_toggled)
-        self._logo_row, self._logo_clear_btn, self._logo_thumb, self._logo_thumb_wrap, self._logo_dl_btn = self._make_image_row(
-            "Logo", self._on_pick_logo, extra_suffix=self._hide_title_btn, thumb_w=130, thumb_h=52,
-            steam_slot="logo",
-        )
-
-        self._steam_dl_btns = [b for b in (self._icon_dl_btn, self._cover_dl_btn, self._logo_dl_btn) if b]
+        # Wire steam appid changes to media panel
         self._steam_row.connect("changed", self._on_steam_appid_changed)
-        self._update_steam_dl_sensitivity()
+        self._on_steam_appid_changed(self._steam_row)
 
-        self._icon_clear_btn.connect("clicked", self._on_icon_clear)
-        self._cover_clear_btn.connect("clicked", self._on_cover_clear)
-        self._logo_clear_btn.connect("clicked", self._on_logo_clear)
-
-        # Prefill thumbnails in edit mode
-        if p and p.icon_path:
-            icon_display = self._convert_if_needed(p.icon_path)
-            self._icon_row.set_subtitle(GLib.markup_escape_text(Path(p.icon_path).name))
-            self._icon_clear_btn.set_visible(True)
-            self._icon_thumb.set_filename(icon_display)
-            self._icon_thumb_wrap.set_visible(True)
-        if p and p.cover_path:
-            cover_display = self._convert_if_needed(p.cover_path)
-            self._cover_row.set_subtitle(GLib.markup_escape_text(Path(p.cover_path).name))
-            self._cover_clear_btn.set_visible(True)
-            self._cover_thumb.set_filename(cover_display)
-            self._cover_thumb_wrap.set_visible(True)
-        if p and p.logo_path:
-            logo_display = self._convert_if_needed(p.logo_path)
-            self._logo_row.set_subtitle(GLib.markup_escape_text(Path(p.logo_path).name))
-            self._logo_clear_btn.set_visible(True)
-            self._logo_thumb.set_filename(logo_display)
-            self._logo_thumb_wrap.set_visible(True)
-            self._hide_title_btn.set_visible(True)
-        if p and p.hide_title:
-            self._hide_title_btn.set_icon_name("eye-not-looking-symbolic")
-
-        img_list.append(self._icon_row)
-        img_list.append(self._cover_row)
-        img_list.append(self._logo_row)
-        right_box.append(img_list)
-
-        # Screenshots section heading with Add button
-        ss_heading = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
-        ss_heading.set_margin_top(16)
-        ss_heading.set_margin_bottom(6)
-        ss_label = Gtk.Label(label="Screenshots")
-        ss_label.add_css_class("heading")
-        ss_label.set_margin_start(4)
-        ss_heading.append(ss_label)
-        ss_spacer = Gtk.Box()
-        ss_spacer.set_hexpand(True)
-        ss_heading.append(ss_spacer)
-        ss_add_btn = Gtk.Button(label="Add…")
-        ss_add_btn.connect("clicked", lambda _: self._screenshot_grid.open_file_chooser())
-        ss_heading.append(ss_add_btn)
-        right_box.append(ss_heading)
-
-        ss_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        ss_box.add_css_class("card")
-        ss_box.set_vexpand(True)
-
-        from cellar.views.screenshot_grid import ScreenshotGridWidget
-        self._screenshot_grid = ScreenshotGridWidget(
-            on_changed=self._on_screenshots_changed,
-            scrolled=False,
-            vexpand=True,
-        )
-        self._screenshot_grid.set_local_items(list(p.screenshot_paths) if p else [])
-        if p and p.steam_screenshots:
-            self._screenshot_grid.add_steam(p.steam_screenshots, notify=False)
-            if p.selected_steam_urls:
-                self._screenshot_grid.select_steam_by_urls(set(p.selected_steam_urls))
-        ss_box.append(self._screenshot_grid)
-        right_box.append(ss_box)
-
-        # Fetch Steam screenshots if steam_appid is set (deduplicates automatically)
-        if p and p.steam_appid:
-            self._fetch_steam_screenshots(p.steam_appid)
+        # Prefill media panel in edit mode
+        if p:
+            self._media.set_images(
+                p.icon_path or "", p.cover_path or "", p.logo_path or "",
+                bool(p.hide_title),
+            )
+            self._media.set_screenshots_local(list(p.screenshot_paths))
+            if p.steam_screenshots:
+                self._media.add_steam_screenshots(p.steam_screenshots)
+                if p.selected_steam_urls:
+                    self._media.select_steam_by_urls(set(p.selected_steam_urls))
 
         toolbar.set_content(scroll)
         self.set_child(toolbar)
-
-    def _make_image_row(
-        self, label: str, handler, extra_suffix=None, thumb_w: int = 64, thumb_h: int = 64,
-        steam_slot: str = "",
-    ) -> tuple[Adw.ActionRow, Gtk.Button, Gtk.Picture, _FixedBox, Gtk.Button | None]:
-        row = Adw.ActionRow(title=label)
-        row.set_subtitle("Not set")
-
-        thumb = Gtk.Picture()
-        thumb.set_content_fit(Gtk.ContentFit.CONTAIN)
-        thumb.add_css_class("image-row-thumb")
-
-        thumb_wrap = _FixedBox(thumb_w, thumb_h)
-        thumb_wrap.set_halign(Gtk.Align.CENTER)
-        thumb_wrap.set_valign(Gtk.Align.CENTER)
-        thumb_wrap.set_visible(False)
-        thumb_wrap.set_child(thumb)
-        row.add_prefix(thumb_wrap)
-
-        clear_btn = Gtk.Button(icon_name="user-trash-symbolic", tooltip_text="Remove image")
-        clear_btn.add_css_class("flat")
-        clear_btn.set_valign(Gtk.Align.CENTER)
-        clear_btn.set_visible(False)
-        row.add_suffix(clear_btn)
-
-        if extra_suffix is not None:
-            row.add_suffix(extra_suffix)
-
-        dl_btn = None
-        if steam_slot:
-            from cellar.backend.config import load_sgdb_key
-            dl_btn = Gtk.Button(
-                icon_name="folder-download-symbolic",
-                tooltip_text="Download from Steam",
-            )
-            dl_btn.add_css_class("flat")
-            dl_btn.set_valign(Gtk.Align.CENTER)
-            dl_btn.connect("clicked", lambda _b: self._on_steam_image_download(steam_slot))
-            dl_btn.set_visible(bool(load_sgdb_key()))
-            dl_btn.set_sensitive(False)
-            row.add_suffix(dl_btn)
-
-        change_btn = Gtk.Button(icon_name="folder-open-symbolic", tooltip_text="Browse\u2026")
-        change_btn.add_css_class("flat")
-        change_btn.set_valign(Gtk.Align.CENTER)
-        change_btn.connect("clicked", handler)
-        row.add_suffix(change_btn)
-
-        return row, clear_btn, thumb, thumb_wrap, dl_btn
-
-    def _on_steam_appid_changed(self, _row) -> None:
-        self._update_steam_dl_sensitivity()
-
-    def _update_steam_dl_sensitivity(self) -> None:
-        has_appid = self._steam_row.get_text().strip().isdigit()
-        for btn in self._steam_dl_btns:
-            btn.set_sensitive(has_appid)
 
     # ── Helpers ───────────────────────────────────────────────────────────
 
@@ -397,83 +245,68 @@ class AppMetadataDialog(Adw.Dialog):
             shutil.copy2(src, dest)
         return str(dest)
 
-    def _collect_from_widgets(self) -> dict:
-        """Read current values from all widgets and return as a dict of project attrs."""
-        cat_idx = self._cat_row.get_selected()
-        year_txt = self._year_row.get_text().strip()
-        steam_txt = self._steam_row.get_text().strip()
-        genres_txt = self._genres_row.get_text().strip()
-
-        vals: dict = {
-            "version": self._version_row.get_text().strip() or "1.0",
-            "category": self._cats[cat_idx - 1] if cat_idx > 0 else "",
-            "developer": self._dev_row.get_text().strip(),
-            "publisher": self._pub_row.get_text().strip(),
-            "release_year": None,
-            "steam_appid": int(steam_txt) if steam_txt.isdigit() else None,
-            "website": self._website_row.get_text().strip(),
-            "genres": [g.strip() for g in genres_txt.split(",") if g.strip()] if genres_txt else [],
-            "summary": self._summary_row.get_text().strip(),
-            "description": self._desc_row.get_text().strip(),
-            "hide_title": self._hide_title_btn.get_active(),
-        }
-        try:
-            vals["release_year"] = int(year_txt) if year_txt else None
-        except ValueError:
-            pass
-
-        if isinstance(self._title_row, Adw.EntryRow):
-            vals["name"] = self._title_row.get_text().strip()
-
-        # Image paths — use tmp_ in create mode, direct path in edit mode
-        vals["icon_path"] = self._tmp_icon
-        vals["cover_path"] = self._tmp_cover
-        vals["logo_path"] = self._tmp_logo
-
-        return vals
-
     def _on_done_clicked(self, _btn) -> None:
         """Persist all widget values to the project and close."""
         if not self._project:
             self.close()
             return
 
-        vals = self._collect_from_widgets()
-        for attr, value in vals.items():
-            if attr in ("icon_path", "cover_path", "logo_path"):
-                # Image paths handled below
-                continue
-            setattr(self._project, attr, value)
+        p = self._project
+        cat_idx = self._cat_row.get_selected()
+        year_txt = self._year_row.get_text().strip()
+        steam_txt = self._steam_row.get_text().strip()
+        genres_txt = self._genres_row.get_text().strip()
 
-        # Image paths — only update if user picked a new file (non-empty tmp_)
-        if self._tmp_icon:
-            self._project.icon_path = self._import_image_to_project(self._project, self._tmp_icon, "icon")
-        elif self._tmp_icon == "" and self._icon_row.get_subtitle() == "Not set":
-            self._project.icon_path = ""
+        if isinstance(self._title_row, Adw.EntryRow):
+            p.name = self._title_row.get_text().strip()
+        p.version = self._version_row.get_text().strip() or "1.0"
+        p.category = self._cats[cat_idx - 1] if cat_idx > 0 else ""
+        p.developer = self._dev_row.get_text().strip()
+        p.publisher = self._pub_row.get_text().strip()
+        try:
+            p.release_year = int(year_txt) if year_txt else None
+        except ValueError:
+            pass
+        p.steam_appid = int(steam_txt) if steam_txt.isdigit() else None
+        p.website = self._website_row.get_text().strip()
+        p.genres = [g.strip() for g in genres_txt.split(",") if g.strip()] if genres_txt else []
+        p.summary = self._summary_row.get_text().strip()
+        p.description = self._desc_row.get_text().strip()
+        p.hide_title = self._media.get_hide_title()
 
-        if self._tmp_cover:
-            self._project.cover_path = self._import_image_to_project(self._project, self._tmp_cover, "cover")
-        elif self._tmp_cover == "" and self._cover_row.get_subtitle() == "Not set":
-            self._project.cover_path = ""
+        # Image paths — only update if user picked a new file
+        icon = self._media.get_icon_path()
+        if icon:
+            p.icon_path = self._import_image_to_project(p, icon, "icon")
+        elif self._media.icon_changed:
+            p.icon_path = ""
 
-        if self._tmp_logo:
-            self._project.logo_path = self._import_image_to_project(self._project, self._tmp_logo, "logo")
-        elif self._tmp_logo == "" and self._logo_row.get_subtitle() == "Not set":
-            self._project.logo_path = ""
+        cover = self._media.get_cover_path()
+        if cover:
+            p.cover_path = self._import_image_to_project(p, cover, "cover")
+        elif self._media.cover_changed:
+            p.cover_path = ""
+
+        logo = self._media.get_logo_path()
+        if logo:
+            p.logo_path = self._import_image_to_project(p, logo, "logo")
+        elif self._media.logo_changed:
+            p.logo_path = ""
 
         # Screenshots
-        items = self._screenshot_grid.get_items()
-        self._project.screenshot_paths = [i.local_path for i in items if i.local_path]
-        all_steam = self._screenshot_grid.get_all_steam_items()
-        self._project.steam_screenshots = [
+        grid = self._media.screenshot_grid
+        items = grid.get_items()
+        p.screenshot_paths = [i.local_path for i in items if i.local_path]
+        all_steam = grid.get_all_steam_items()
+        p.steam_screenshots = [
             {"full": i.full_url, "thumbnail": i.thumb_url or ""}
             for i in all_steam if i.full_url
         ]
-        self._project.selected_steam_urls = [
+        p.selected_steam_urls = [
             i.full_url for i in items if i.is_steam and i.full_url
         ]
 
-        save_project(self._project)
+        save_project(p)
         if self._on_changed:
             self._on_changed()
         self.close()
@@ -481,8 +314,6 @@ class AppMetadataDialog(Adw.Dialog):
     def _on_cancel_clicked(self, _btn) -> None:
         """Discard changes and close. The project on disk is unchanged."""
         if self._project and self._snapshot:
-            # Restore the in-memory project to its original state so the
-            # caller's reference reflects the on-disk version.
             restored = Project.from_dict(self._snapshot)
             for attr in (
                 "name", "version", "category", "developer", "publisher",
@@ -494,26 +325,6 @@ class AppMetadataDialog(Adw.Dialog):
                 setattr(self._project, attr, getattr(restored, attr))
         self.close()
 
-    def _pick_image(self, title: str, multi: bool, callback) -> None:
-        chooser = Gtk.FileChooserNative(
-            title=title,
-            transient_for=self.get_root(),
-            action=Gtk.FileChooserAction.OPEN,
-            select_multiple=multi,
-        )
-        img_filter = Gtk.FileFilter()
-        img_filter.set_name("Images (PNG, JPG, ICO, BMP, SVG)")
-        img_filter.add_mime_type("image/png")
-        img_filter.add_mime_type("image/jpeg")
-        img_filter.add_mime_type("image/x-icon")
-        img_filter.add_mime_type("image/vnd.microsoft.icon")
-        img_filter.add_mime_type("image/bmp")
-        img_filter.add_mime_type("image/svg+xml")
-        chooser.add_filter(img_filter)
-        chooser.connect("response", callback, chooser)
-        chooser.show()
-        self._chooser = chooser
-
     # ── Signal handlers ───────────────────────────────────────────────────
 
     def _on_title_changed(self, row) -> None:
@@ -524,41 +335,17 @@ class AppMetadataDialog(Adw.Dialog):
             self._slug_row.set_subtitle(slug)
             self._create_btn.set_sensitive(bool(title))
 
+    def _on_steam_appid_changed(self, _row) -> None:
+        steam_txt = self._steam_row.get_text().strip()
+        appid = int(steam_txt) if steam_txt.isdigit() else None
+        self._media.set_steam_appid(appid)
+
     def _on_screenshots_changed(self) -> None:
-        """Called by the grid whenever the screenshot list changes.
+        """Called by the media panel whenever the screenshot list changes.
 
-        In create mode, stash into tmp fields. In edit mode, no-op —
-        values are read from the grid on Done.
+        In create mode, no-op — values are read from the grid on Create.
         """
-        if not self._project:
-            items = self._screenshot_grid.get_items()
-            self._tmp_screenshots = [i.local_path for i in items if i.local_path]
-            all_steam = self._screenshot_grid.get_all_steam_items()
-            self._tmp_steam_screenshots = [
-                {"full": i.full_url, "thumbnail": i.thumb_url or ""}
-                for i in all_steam if i.full_url
-            ]
-            self._tmp_selected_steam_urls = [
-                i.full_url for i in items if i.is_steam and i.full_url
-            ]
-
-    def _fetch_steam_screenshots(self, steam_appid: int) -> None:
-        """Fetch Steam screenshots in the background and add to the grid."""
-        from cellar.utils.async_work import run_in_background
-
-        def _work():
-            from cellar.backend.steam import fetch_details
-            try:
-                details = fetch_details(steam_appid)
-                return details.get("screenshots", [])
-            except Exception:
-                return []
-
-        def _done(screenshots):
-            if screenshots:
-                self._screenshot_grid.add_steam(screenshots)
-
-        run_in_background(_work, on_done=_done)
+        pass
 
     def _on_steam_lookup(self, _btn) -> None:
         from cellar.views.steam_picker import SteamPickerDialog
@@ -593,139 +380,7 @@ class AppMetadataDialog(Adw.Dialog):
         if result.get("category") and result["category"] in self._cats:
             self._cat_row.set_selected(self._cats.index(result["category"]) + 1)
         if result.get("screenshots"):
-            self._screenshot_grid.add_steam(result["screenshots"])
-
-    def _on_pick_icon(self, _btn) -> None:
-        self._pick_image("Select Icon", False, self._on_icon_chosen)
-
-    def _on_icon_clear(self, _btn) -> None:
-        self._icon_row.set_subtitle("Not set")
-        self._icon_clear_btn.set_visible(False)
-        self._icon_thumb.set_paintable(None)
-        self._icon_thumb_wrap.set_visible(False)
-        self._tmp_icon = ""
-
-    def _on_cover_clear(self, _btn) -> None:
-        self._cover_row.set_subtitle("Not set")
-        self._cover_clear_btn.set_visible(False)
-        self._cover_thumb.set_paintable(None)
-        self._cover_thumb_wrap.set_visible(False)
-        self._tmp_cover = ""
-
-    def _on_logo_clear(self, _btn) -> None:
-        self._logo_row.set_subtitle("Not set")
-        self._logo_clear_btn.set_visible(False)
-        self._logo_thumb.set_paintable(None)
-        self._logo_thumb_wrap.set_visible(False)
-        self._hide_title_btn.set_visible(False)
-        self._tmp_logo = ""
-
-    @staticmethod
-    def _convert_if_needed(path: str) -> str:
-        """Convert ICO/BMP to a temp PNG so GTK can display it."""
-        ext = Path(path).suffix.lower()
-        if ext not in (".ico", ".bmp"):
-            return path
-        import tempfile
-        from cellar.utils.images import Image
-        with Image.open(path) as img:
-            tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
-            img.convert("RGBA").save(tmp.name, format="PNG")
-            return tmp.name
-
-    def _on_icon_chosen(self, _c, response, chooser) -> None:
-        if response == Gtk.ResponseType.ACCEPT:
-            path = self._convert_if_needed(chooser.get_file().get_path())
-            self._icon_row.set_subtitle(GLib.markup_escape_text(Path(path).name))
-            self._icon_clear_btn.set_visible(True)
-            self._icon_thumb.set_filename(path)
-            self._icon_thumb_wrap.set_visible(True)
-            self._tmp_icon = path
-
-    def _on_pick_cover(self, _btn) -> None:
-        self._pick_image("Select Cover", False, self._on_cover_chosen)
-
-    def _on_cover_chosen(self, _c, response, chooser) -> None:
-        if response == Gtk.ResponseType.ACCEPT:
-            path = self._convert_if_needed(chooser.get_file().get_path())
-            self._cover_row.set_subtitle(GLib.markup_escape_text(Path(path).name))
-            self._cover_clear_btn.set_visible(True)
-            self._cover_thumb.set_filename(path)
-            self._cover_thumb_wrap.set_visible(True)
-            self._tmp_cover = path
-
-    def _on_pick_logo(self, _btn) -> None:
-        self._pick_image("Select Logo (transparent PNG)", False, self._on_logo_chosen)
-
-    def _on_logo_chosen(self, _c, response, chooser) -> None:
-        if response == Gtk.ResponseType.ACCEPT:
-            path = self._convert_if_needed(chooser.get_file().get_path())
-            self._logo_row.set_subtitle(GLib.markup_escape_text(Path(path).name))
-            self._logo_clear_btn.set_visible(True)
-            self._logo_thumb.set_filename(path)
-            self._logo_thumb_wrap.set_visible(True)
-            self._hide_title_btn.set_visible(True)
-            if not self._hide_title_btn.get_active():
-                self._hide_title_btn.set_active(True)
-            self._tmp_logo = path
-
-    def _on_hide_title_toggled(self, btn: Gtk.ToggleButton) -> None:
-        if btn.get_active():
-            btn.set_icon_name("eye-not-looking-symbolic")
-        else:
-            btn.set_icon_name("eye-open-negative-filled-symbolic")
-
-    def _on_steam_image_download(self, slot: str) -> None:
-        """Download an icon, cover, or logo from Steam for the given slot."""
-        steam_txt = self._steam_row.get_text().strip()
-        if not steam_txt.isdigit():
-            return
-        appid = int(steam_txt)
-
-        from cellar.backend.config import load_sgdb_key
-        from cellar.backend.steam import fetch_steam_images, download_steam_image
-        from cellar.utils.async_work import run_in_background
-
-        sgdb_key = load_sgdb_key()
-
-        def _work():
-            urls = fetch_steam_images(appid, sgdb_key)
-            url = urls.get(slot, "")
-            if not url:
-                return None
-            import tempfile
-            ext = ".ico" if url.endswith(".ico") else Path(url).suffix or ".png"
-            dest = tempfile.NamedTemporaryFile(suffix=ext, delete=False).name
-            download_steam_image(url, dest, sgdb_key)
-            return dest
-
-        def _done(path):
-            if not path:
-                return
-            display = self._convert_if_needed(path)
-            if slot == "icon":
-                self._icon_row.set_subtitle(GLib.markup_escape_text(Path(path).name))
-                self._icon_clear_btn.set_visible(True)
-                self._icon_thumb.set_filename(display)
-                self._icon_thumb_wrap.set_visible(True)
-                self._tmp_icon = path
-            elif slot == "cover":
-                self._cover_row.set_subtitle(GLib.markup_escape_text(Path(path).name))
-                self._cover_clear_btn.set_visible(True)
-                self._cover_thumb.set_filename(display)
-                self._cover_thumb_wrap.set_visible(True)
-                self._tmp_cover = path
-            elif slot == "logo":
-                self._logo_row.set_subtitle(GLib.markup_escape_text(Path(path).name))
-                self._logo_clear_btn.set_visible(True)
-                self._logo_thumb.set_filename(display)
-                self._logo_thumb_wrap.set_visible(True)
-                self._hide_title_btn.set_visible(True)
-                if not self._hide_title_btn.get_active():
-                    self._hide_title_btn.set_active(True)
-                self._tmp_logo = path
-
-        run_in_background(_work, on_done=_done)
+            self._media.add_steam_screenshots(result["screenshots"])
 
     def _on_create_clicked(self, _btn) -> None:
         from cellar.backend.project import create_project
@@ -757,23 +412,29 @@ class AppMetadataDialog(Adw.Dialog):
         project.website = self._website_row.get_text().strip()
         genres_txt = self._genres_row.get_text().strip()
         project.genres = [g.strip() for g in genres_txt.split(",") if g.strip()] if genres_txt else []
-        if self._tmp_icon:
-            project.icon_path = self._import_image_to_project(project, self._tmp_icon, "icon")
-        if self._tmp_cover:
-            project.cover_path = self._import_image_to_project(project, self._tmp_cover, "cover")
-        if self._tmp_logo:
-            project.logo_path = self._import_image_to_project(project, self._tmp_logo, "logo")
-        project.hide_title = self._hide_title_btn.get_active()
-        local_ss = [i.local_path for i in self._screenshot_grid.get_items() if i.local_path]
+
+        icon = self._media.get_icon_path()
+        if icon:
+            project.icon_path = self._import_image_to_project(project, icon, "icon")
+        cover = self._media.get_cover_path()
+        if cover:
+            project.cover_path = self._import_image_to_project(project, cover, "cover")
+        logo = self._media.get_logo_path()
+        if logo:
+            project.logo_path = self._import_image_to_project(project, logo, "logo")
+        project.hide_title = self._media.get_hide_title()
+
+        grid = self._media.screenshot_grid
+        local_ss = [i.local_path for i in grid.get_items() if i.local_path]
         if local_ss:
             project.screenshot_paths = local_ss
-        all_steam = self._screenshot_grid.get_all_steam_items()
+        all_steam = grid.get_all_steam_items()
         project.steam_screenshots = [
             {"full": i.full_url, "thumbnail": i.thumb_url or ""}
             for i in all_steam if i.full_url
         ]
         project.selected_steam_urls = [
-            i.full_url for i in self._screenshot_grid.get_items()
+            i.full_url for i in grid.get_items()
             if i.is_steam and i.full_url
         ]
         save_project(project)

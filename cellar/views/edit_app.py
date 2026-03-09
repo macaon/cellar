@@ -27,7 +27,7 @@ import logging
 
 from cellar.utils.async_work import run_in_background
 from cellar.utils.progress import fmt_stats as _fmt_stats
-from cellar.views.browse import _FixedBox
+from cellar.views.builder.media_panel import MediaPanel
 from cellar.views.widgets import make_progress_page
 
 log = logging.getLogger(__name__)
@@ -54,12 +54,6 @@ class EditAppDialog(Adw.Dialog):
         self._on_done = on_done
         self._on_deleted = on_deleted
         self._cancel_event = threading.Event()
-
-        # Image selections
-        # None = keep existing; "" = clear from catalogue; str = replace with new file
-        self._icon_path: str | None = None
-        self._cover_path: str | None = None
-        self._logo_path: str | None = None
 
         # Raw (unescaped) entry point value
         self._entry_point: str = ""
@@ -243,7 +237,7 @@ class EditAppDialog(Adw.Dialog):
         bullet_btn.add_css_class("flat")
         bullet_btn.set_tooltip_text("Bullet list (<li>item</li>)")
         bullet_btn.connect("clicked", lambda _: self._desc_fmt_bullet())
-        hr_btn = Gtk.Button(label="—")
+        hr_btn = Gtk.Button(label="\u2014")
         hr_btn.add_css_class("flat")
         hr_btn.set_tooltip_text("Horizontal rule (<hr>)")
         hr_btn.connect("clicked", lambda _: self._desc_fmt_hr())
@@ -287,7 +281,7 @@ class EditAppDialog(Adw.Dialog):
         ep_browse_btn.set_valign(Gtk.Align.CENTER)
         ep_browse_btn.set_sensitive(self._locally_installed)
         ep_browse_btn.set_tooltip_text(
-            "Browse for executable…" if self._locally_installed
+            "Browse for executable\u2026" if self._locally_installed
             else "Not installed locally"
         )
         ep_browse_btn.connect("clicked", self._on_browse_entry_point)
@@ -307,7 +301,7 @@ class EditAppDialog(Adw.Dialog):
         # Danger Zone
         danger_group = Adw.PreferencesGroup(title="Danger Zone")
 
-        delete_btn = Gtk.Button(label="Delete Entry…")
+        delete_btn = Gtk.Button(label="Delete Entry\u2026")
         delete_btn.add_css_class("destructive-action")
         delete_btn.set_halign(Gtk.Align.START)
         delete_btn.set_margin_top(6)
@@ -320,130 +314,14 @@ class EditAppDialog(Adw.Dialog):
         # ── Vertical separator ────────────────────────────────────────────
         hbox.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
 
-        # ── Right column: media ───────────────────────────────────────────
-        right_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        right_box.set_hexpand(True)
-        right_box.set_margin_top(16)
-        right_box.set_margin_bottom(16)
-        right_box.set_margin_start(16)
-        right_box.set_margin_end(16)
-        hbox.append(right_box)
+        # ── Right column: media (via shared MediaPanel) ───────────────────
+        self._media = MediaPanel(on_changed=self._on_screenshots_changed)
+        hbox.append(self._media)
 
-        # Image rows in a boxed-list
-        img_list = Gtk.ListBox()
-        img_list.add_css_class("boxed-list")
-        img_list.set_selection_mode(Gtk.SelectionMode.NONE)
-
-        self._icon_row, self._icon_clear_btn, self._icon_thumb, self._icon_thumb_wrap, self._icon_dl_btn = self._make_image_row(
-            "Icon", self._pick_icon, thumb_w=52, thumb_h=52, steam_slot="icon",
-        )
-        self._cover_row, self._cover_clear_btn, self._cover_thumb, self._cover_thumb_wrap, self._cover_dl_btn = self._make_image_row(
-            "Cover", self._pick_cover, thumb_w=52, thumb_h=70, steam_slot="cover",
-        )
-
-        self._hide_title_btn = Gtk.ToggleButton()
-        self._hide_title_btn.set_icon_name("eye-open-negative-filled-symbolic")
-        self._hide_title_btn.set_valign(Gtk.Align.CENTER)
-        self._hide_title_btn.set_visible(False)
-        self._hide_title_btn.set_tooltip_text("Hide title — logo contains the app name")
-        self._hide_title_btn.connect("toggled", self._on_hide_title_toggled)
-        self._logo_row, self._logo_clear_btn, self._logo_thumb, self._logo_thumb_wrap, self._logo_dl_btn = self._make_image_row(
-            "Logo", self._pick_logo, extra_suffix=self._hide_title_btn, thumb_w=130, thumb_h=52,
-            steam_slot="logo",
-        )
-
-        self._steam_dl_btns = [b for b in (self._icon_dl_btn, self._cover_dl_btn, self._logo_dl_btn) if b]
+        # Wire steam appid changes to media panel
         self._steam_appid_entry.connect("changed", self._on_steam_appid_changed)
-        self._update_steam_dl_sensitivity()
-
-        self._icon_clear_btn.connect("clicked", self._on_icon_clear)
-        self._cover_clear_btn.connect("clicked", self._on_cover_clear)
-        self._logo_clear_btn.connect("clicked", self._on_logo_clear)
-
-        img_list.append(self._icon_row)
-        img_list.append(self._cover_row)
-        img_list.append(self._logo_row)
-        right_box.append(img_list)
-
-        # Screenshots section heading with Add button
-        ss_heading = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
-        ss_heading.set_margin_top(16)
-        ss_heading.set_margin_bottom(6)
-        ss_label = Gtk.Label(label="Screenshots")
-        ss_label.add_css_class("heading")
-        ss_label.set_margin_start(4)
-        ss_heading.append(ss_label)
-        ss_spacer = Gtk.Box()
-        ss_spacer.set_hexpand(True)
-        ss_heading.append(ss_spacer)
-        ss_add_btn = Gtk.Button(label="Add…")
-        ss_add_btn.connect("clicked", lambda _: self._screenshot_grid.open_file_chooser())
-        ss_heading.append(ss_add_btn)
-        right_box.append(ss_heading)
-
-        ss_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        ss_box.add_css_class("card")
-        ss_box.set_vexpand(True)
-
-        from cellar.views.screenshot_grid import ScreenshotGridWidget
-        self._screenshot_grid = ScreenshotGridWidget(
-            on_changed=self._on_screenshots_changed,
-            scrolled=False,
-            vexpand=True,
-        )
-        ss_box.append(self._screenshot_grid)
-        right_box.append(ss_box)
 
         return scroll
-
-    def _make_image_row(
-        self, label: str, handler, extra_suffix=None, thumb_w: int = 64, thumb_h: int = 64,
-        steam_slot: str = "",
-    ) -> tuple[Adw.ActionRow, Gtk.Button, Gtk.Picture, _FixedBox, Gtk.Button | None]:
-        row = Adw.ActionRow(title=label)
-        row.set_subtitle("No image set")
-
-        thumb = Gtk.Picture()
-        thumb.set_content_fit(Gtk.ContentFit.CONTAIN)
-        thumb.add_css_class("image-row-thumb")
-
-        thumb_wrap = _FixedBox(thumb_w, thumb_h)
-        thumb_wrap.set_halign(Gtk.Align.CENTER)
-        thumb_wrap.set_valign(Gtk.Align.CENTER)
-        thumb_wrap.set_visible(False)
-        thumb_wrap.set_child(thumb)
-        row.add_prefix(thumb_wrap)
-
-        clear_btn = Gtk.Button(icon_name="user-trash-symbolic", tooltip_text="Remove image")
-        clear_btn.add_css_class("flat")
-        clear_btn.set_valign(Gtk.Align.CENTER)
-        clear_btn.set_visible(False)
-        row.add_suffix(clear_btn)
-
-        if extra_suffix is not None:
-            row.add_suffix(extra_suffix)
-
-        dl_btn = None
-        if steam_slot:
-            from cellar.backend.config import load_sgdb_key
-            dl_btn = Gtk.Button(
-                icon_name="folder-download-symbolic",
-                tooltip_text="Download from Steam",
-            )
-            dl_btn.add_css_class("flat")
-            dl_btn.set_valign(Gtk.Align.CENTER)
-            dl_btn.connect("clicked", lambda _b: self._on_steam_image_download(steam_slot))
-            dl_btn.set_visible(bool(load_sgdb_key()))
-            dl_btn.set_sensitive(False)
-            row.add_suffix(dl_btn)
-
-        change_btn = Gtk.Button(icon_name="folder-open-symbolic", tooltip_text="Browse…")
-        change_btn.add_css_class("flat")
-        change_btn.set_valign(Gtk.Align.CENTER)
-        change_btn.connect("clicked", handler)
-        row.add_suffix(change_btn)
-
-        return row, clear_btn, thumb, thumb_wrap, dl_btn
 
     def _build_progress(self) -> Gtk.Widget:
         box, self._progress_label, self._progress_bar, self._cancel_progress_btn = (
@@ -452,12 +330,9 @@ class EditAppDialog(Adw.Dialog):
         return box
 
     def _on_steam_appid_changed(self, _row) -> None:
-        self._update_steam_dl_sensitivity()
-
-    def _update_steam_dl_sensitivity(self) -> None:
-        has_appid = self._steam_appid_entry.get_text().strip().isdigit()
-        for btn in self._steam_dl_btns:
-            btn.set_sensitive(has_appid)
+        steam_txt = self._steam_appid_entry.get_text().strip()
+        appid = int(steam_txt) if steam_txt.isdigit() else None
+        self._media.set_steam_appid(appid)
 
     def _build_spinner(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
@@ -471,7 +346,7 @@ class EditAppDialog(Adw.Dialog):
         spinner.set_size_request(32, 32)
         spinner.set_halign(Gtk.Align.CENTER)
 
-        self._spinner_label = Gtk.Label(label="Deleting entry…")
+        self._spinner_label = Gtk.Label(label="Deleting entry\u2026")
         self._spinner_label.add_css_class("dim-label")
 
         self._cancel_spinner_btn = Gtk.Button(label="Cancel")
@@ -520,22 +395,10 @@ class EditAppDialog(Adw.Dialog):
             self._entry_point_entry.set_subtitle("Not set")
         self._launch_args_entry.set_text(e.launch_args or "")
 
-        # Single images — subtitle from filename (sync), thumbnail via resolve (async for SMB)
-        if e.icon:
-            self._icon_row.set_subtitle(GLib.markup_escape_text(Path(e.icon).name))
-            self._icon_clear_btn.set_visible(True)
-        if e.cover:
-            self._cover_row.set_subtitle(GLib.markup_escape_text(Path(e.cover).name))
-            self._cover_clear_btn.set_visible(True)
-        if e.logo:
-            self._logo_row.set_subtitle(GLib.markup_escape_text(Path(e.logo).name))
-            self._logo_clear_btn.set_visible(True)
-            self._hide_title_btn.set_visible(True)
-        if e.hide_title:
-            self._hide_title_btn.set_active(True)
+        # Media panel — set subtitles first (sync), then load thumbnails async
+        self._media.set_image_subtitles(e.icon, e.cover, e.logo, bool(e.hide_title))
 
         # Load image assets — peek cache first (no I/O), resolve missing ones in background.
-        # For local repos, peek returns "" but resolve_asset_uri returns the path directly.
         import os as _os
         peek = self._repo.peek_asset_cache
 
@@ -544,16 +407,11 @@ class EditAppDialog(Adw.Dialog):
             return p if (p and _os.path.isfile(p)) else None
 
         # Single images: apply cached thumbnails synchronously
-        for key, rel, thumb, wrap in [
-            ("icon",  e.icon,  self._icon_thumb,  self._icon_thumb_wrap),
-            ("cover", e.cover, self._cover_thumb, self._cover_thumb_wrap),
-            ("logo",  e.logo,  self._logo_thumb,  self._logo_thumb_wrap),
-        ]:
+        for key, rel in [("icon", e.icon), ("cover", e.cover), ("logo", e.logo)]:
             if rel:
                 cached = _peek_or_none(rel)
                 if cached:
-                    thumb.set_filename(cached)
-                    wrap.set_visible(True)
+                    self._media.set_thumbnail(key, cached)
 
         # Screenshots: build list from cache; collect missing rels for background fetch
         _ss_rels = list(e.screenshots)
@@ -568,7 +426,7 @@ class EditAppDialog(Adw.Dialog):
 
         if _ss_cached:
             _ss_source_urls = [e.screenshot_sources.get(r) for r in _ss_rels if _peek_or_none(r)]
-            self._screenshot_grid.set_local_items(_ss_cached, _ss_source_urls)
+            self._media.set_screenshots_local(_ss_cached, _ss_source_urls)
 
         # Resolve anything not already cached (and single images that weren't cached)
         _uncached_single = {
@@ -596,42 +454,20 @@ class EditAppDialog(Adw.Dialog):
 
             def _on_missing_resolved(res):
                 singles, extra_ss = res
-                if "icon" in singles:
-                    self._icon_thumb.set_filename(singles["icon"])
-                    self._icon_thumb_wrap.set_visible(True)
-                if "cover" in singles:
-                    self._cover_thumb.set_filename(singles["cover"])
-                    self._cover_thumb_wrap.set_visible(True)
-                if "logo" in singles:
-                    self._logo_thumb.set_filename(singles["logo"])
-                    self._logo_thumb_wrap.set_visible(True)
+                for key, path in singles.items():
+                    self._media.set_thumbnail(key, path)
                 if extra_ss:
-                    # Merge newly resolved screenshots into the grid
-                    # Re-build full list preserving original order
                     merged = list(_ss_cached)
                     for _idx, path in extra_ss:
                         merged.append(path)
-                    merged_rels = _ss_rels  # same length and order as merged paths
+                    merged_rels = _ss_rels
                     merged_sources = [e.screenshot_sources.get(r) for r in merged_rels]
-                    self._screenshot_grid.set_local_items(merged, merged_sources)
+                    self._media.set_screenshots_local(merged, merged_sources)
 
             run_in_background(_resolve_missing, on_done=_on_missing_resolved)
 
         # Steam screenshot suggestions — fetch if steam_appid is set
-        if e.steam_appid:
-            def _fetch_steam_ss():
-                from cellar.backend.steam import fetch_details, SteamError
-                try:
-                    details = fetch_details(e.steam_appid)
-                    return details.get("screenshots", [])
-                except Exception:
-                    return []
-
-            def _on_steam_ss(screenshots):
-                if screenshots:
-                    self._screenshot_grid.add_steam(screenshots)
-
-            run_in_background(_fetch_steam_ss, on_done=_on_steam_ss)
+        # (handled by set_steam_appid on the media panel via _on_steam_appid_changed)
 
         strategy = e.update_strategy or "safe"
         if strategy in _STRATEGIES:
@@ -685,144 +521,10 @@ class EditAppDialog(Adw.Dialog):
         buf.insert(it, "<hr>\n")
         buf.end_user_action()
 
-    # ── Image pickers ─────────────────────────────────────────────────────
-
-    def _pick_image(self, title: str, multi: bool, callback) -> None:
-        chooser = Gtk.FileChooserNative(
-            title=title,
-            transient_for=self.get_root(),
-            action=Gtk.FileChooserAction.OPEN,
-            select_multiple=multi,
-        )
-        img_filter = Gtk.FileFilter()
-        img_filter.set_name("Images (PNG, JPG, ICO, BMP, SVG)")
-        img_filter.add_mime_type("image/png")
-        img_filter.add_mime_type("image/jpeg")
-        img_filter.add_mime_type("image/x-icon")
-        img_filter.add_mime_type("image/vnd.microsoft.icon")
-        img_filter.add_mime_type("image/bmp")
-        img_filter.add_mime_type("image/svg+xml")
-        chooser.add_filter(img_filter)
-        chooser.connect("response", callback, chooser)
-        chooser.show()
-
-    def _pick_icon(self, _btn) -> None:
-        self._pick_image("Select Icon", False, self._on_icon_chosen)
-
-    def _on_icon_chosen(self, _chooser, response, chooser) -> None:
-        if response == Gtk.ResponseType.ACCEPT:
-            self._icon_path = chooser.get_file().get_path()
-            self._icon_row.set_subtitle(GLib.markup_escape_text(Path(self._icon_path).name))
-            self._icon_clear_btn.set_visible(True)
-            self._icon_thumb.set_filename(self._icon_path)
-            self._icon_thumb_wrap.set_visible(True)
-
-    def _pick_cover(self, _btn) -> None:
-        self._pick_image("Select Cover", False, self._on_cover_chosen)
-
-    def _on_cover_chosen(self, _chooser, response, chooser) -> None:
-        if response == Gtk.ResponseType.ACCEPT:
-            self._cover_path = chooser.get_file().get_path()
-            self._cover_row.set_subtitle(GLib.markup_escape_text(Path(self._cover_path).name))
-            self._cover_clear_btn.set_visible(True)
-            self._cover_thumb.set_filename(self._cover_path)
-            self._cover_thumb_wrap.set_visible(True)
-
-    def _pick_logo(self, _btn) -> None:
-        self._pick_image("Select Logo (transparent PNG)", False, self._on_logo_chosen)
-
-    def _on_logo_chosen(self, _chooser, response, chooser) -> None:
-        if response == Gtk.ResponseType.ACCEPT:
-            self._logo_path = chooser.get_file().get_path()
-            self._logo_row.set_subtitle(GLib.markup_escape_text(Path(self._logo_path).name))
-            self._logo_clear_btn.set_visible(True)
-            self._logo_thumb.set_filename(self._logo_path)
-            self._logo_thumb_wrap.set_visible(True)
-            self._hide_title_btn.set_visible(True)
-            if not self._old_entry.logo and not self._hide_title_btn.get_active():
-                self._hide_title_btn.set_active(True)
+    # ── Screenshots changed ───────────────────────────────────────────────
 
     def _on_screenshots_changed(self) -> None:
         self._screenshots_dirty = True
-
-    # ── Hide-title toggle ─────────────────────────────────────────────────
-
-    def _on_hide_title_toggled(self, btn) -> None:
-        if btn.get_active():
-            btn.set_icon_name("eye-not-looking-symbolic")
-        else:
-            btn.set_icon_name("eye-open-negative-filled-symbolic")
-
-    def _on_steam_image_download(self, slot: str) -> None:
-        """Download an icon, cover, or logo from Steam for the given slot."""
-        steam_txt = self._steam_appid_entry.get_text().strip()
-        if not steam_txt.isdigit():
-            return
-        appid = int(steam_txt)
-
-        from cellar.backend.config import load_sgdb_key
-        from cellar.backend.steam import fetch_steam_images, download_steam_image
-
-        sgdb_key = load_sgdb_key()
-
-        def _work():
-            urls = fetch_steam_images(appid, sgdb_key)
-            url = urls.get(slot, "")
-            if not url:
-                return None
-            import tempfile
-            ext = ".ico" if url.endswith(".ico") else Path(url).suffix or ".png"
-            dest = tempfile.NamedTemporaryFile(suffix=ext, delete=False).name
-            download_steam_image(url, dest, sgdb_key)
-            return dest
-
-        def _convert_for_display(path: str) -> str:
-            """Convert ICO/BMP to a temp PNG for GTK display."""
-            ext = Path(path).suffix.lower()
-            if ext not in (".ico", ".bmp"):
-                return path
-            import tempfile
-            from cellar.utils.images import Image
-            with Image.open(path) as img:
-                tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
-                img.convert("RGBA").save(tmp.name, format="PNG")
-                return tmp.name
-
-        def _done(path):
-            if not path:
-                return
-            display = _convert_for_display(path)
-            if slot == "icon":
-                self._icon_path = path
-                self._icon_row.set_subtitle(GLib.markup_escape_text(Path(path).name))
-                self._icon_clear_btn.set_visible(True)
-                self._icon_thumb.set_filename(display)
-                self._icon_thumb_wrap.set_visible(True)
-            elif slot == "cover":
-                self._cover_path = path
-                self._cover_row.set_subtitle(GLib.markup_escape_text(Path(path).name))
-                self._cover_clear_btn.set_visible(True)
-                self._cover_thumb.set_filename(display)
-                self._cover_thumb_wrap.set_visible(True)
-            elif slot == "logo":
-                self._logo_path = path
-                self._logo_row.set_subtitle(GLib.markup_escape_text(Path(path).name))
-                self._logo_clear_btn.set_visible(True)
-                self._logo_thumb.set_filename(display)
-                self._logo_thumb_wrap.set_visible(True)
-                self._hide_title_btn.set_visible(True)
-                if not self._old_entry.logo and not self._hide_title_btn.get_active():
-                    self._hide_title_btn.set_active(True)
-
-        run_in_background(_work, on_done=_done)
-
-    def _build_launch_targets(self, entry_point: str, launch_args: str) -> tuple[dict, ...]:
-        """Build launch_targets tuple, preserving secondary targets from the old entry."""
-        old = list(self._old_entry.launch_targets)
-        primary = {"name": old[0].get("name", "Main") if old else "Main", "path": entry_point}
-        if launch_args:
-            primary["args"] = launch_args
-        return tuple([primary] + old[1:])
 
     # ── Entry point browser ───────────────────────────────────────────────
 
@@ -879,30 +581,6 @@ class EditAppDialog(Adw.Dialog):
         self._entry_point = formatted
         self._entry_point_entry.set_subtitle(GLib.markup_escape_text(formatted))
 
-    # ── Image clear handlers ──────────────────────────────────────────────
-
-    def _on_icon_clear(self, _btn) -> None:
-        self._icon_path = ""
-        self._icon_row.set_subtitle("Will be removed")
-        self._icon_clear_btn.set_visible(False)
-        self._icon_thumb.set_paintable(None)
-        self._icon_thumb_wrap.set_visible(False)
-
-    def _on_cover_clear(self, _btn) -> None:
-        self._cover_path = ""
-        self._cover_row.set_subtitle("Will be removed")
-        self._cover_clear_btn.set_visible(False)
-        self._cover_thumb.set_paintable(None)
-        self._cover_thumb_wrap.set_visible(False)
-
-    def _on_logo_clear(self, _btn) -> None:
-        self._logo_path = ""
-        self._logo_row.set_subtitle("Will be removed")
-        self._logo_clear_btn.set_visible(False)
-        self._logo_thumb.set_paintable(None)
-        self._logo_thumb_wrap.set_visible(False)
-        self._hide_title_btn.set_visible(False)
-
     # ── Steam lookup ──────────────────────────────────────────────────────
 
     def _on_steam_lookup(self, _btn) -> None:
@@ -937,7 +615,7 @@ class EditAppDialog(Adw.Dialog):
             if not buf.get_text(buf.get_start_iter(), buf.get_end_iter(), False).strip():
                 buf.set_text(result["description"])
         if result.get("screenshots"):
-            self._screenshot_grid.add_steam(result["screenshots"])
+            self._media.add_steam_screenshots(result["screenshots"])
 
     # ── Save flow ─────────────────────────────────────────────────────────
 
@@ -968,36 +646,38 @@ class EditAppDialog(Adw.Dialog):
         entry_point = self._entry_point
         launch_args = self._launch_args_entry.get_text().strip()
 
-        # Single images: None=keep existing, ""=clear, str=new file
-        if self._icon_path is None:
+        # Single images via media panel: None=keep existing, ""=clear, str=new file
+        icon_path = self._media.get_icon_path() if self._media.icon_changed else None
+        cover_path = self._media.get_cover_path() if self._media.cover_changed else None
+        logo_path = self._media.get_logo_path() if self._media.logo_changed else None
+
+        if icon_path is None:
             icon_rel = e.icon
-        elif self._icon_path == "":
+        elif icon_path == "":
             icon_rel = ""
         else:
-            ext = ".png" if Path(self._icon_path).suffix.lower() in (".ico", ".bmp") else Path(self._icon_path).suffix
+            ext = ".png" if Path(icon_path).suffix.lower() in (".ico", ".bmp") else Path(icon_path).suffix
             icon_rel = f"apps/{app_id}/icon{ext}"
 
-        if self._cover_path is None:
+        if cover_path is None:
             cover_rel = e.cover
-        elif self._cover_path == "":
+        elif cover_path == "":
             cover_rel = ""
         else:
-            cover_rel = f"apps/{app_id}/cover{Path(self._cover_path).suffix}"
+            cover_rel = f"apps/{app_id}/cover{Path(cover_path).suffix}"
 
-        if self._logo_path is None:
+        if logo_path is None:
             logo_rel = e.logo
-        elif self._logo_path == "":
+        elif logo_path == "":
             logo_rel = ""
         else:
             logo_rel = f"apps/{app_id}/logo.png"
 
         # Screenshots resolved in the background thread (may need Steam downloads).
-        # Use existing rels as placeholder; thread replaces when dirty.
         screenshot_rels = e.screenshots
-        _grid_items = self._screenshot_grid.get_items() if self._screenshots_dirty else None
-        # Local items the user unchecked — their repo files get deleted after save.
+        _grid_items = self._media.screenshot_grid.get_items() if self._screenshots_dirty else None
         _excluded_locals = (
-            self._screenshot_grid.get_excluded_local_items()
+            self._media.screenshot_grid.get_excluded_local_items()
             if self._screenshots_dirty else []
         )
 
@@ -1016,7 +696,7 @@ class EditAppDialog(Adw.Dialog):
             icon=icon_rel,
             cover=cover_rel,
             logo=logo_rel,
-            hide_title=self._hide_title_btn.get_active(),
+            hide_title=self._media.get_hide_title(),
             screenshots=screenshot_rels,
             website=website,
             genres=genres,
@@ -1035,9 +715,9 @@ class EditAppDialog(Adw.Dialog):
         )
 
         images = {
-            "icon": self._icon_path,      # None / "" / path
-            "cover": self._cover_path,
-            "logo": self._logo_path,
+            "icon": icon_path,      # None / "" / path
+            "cover": cover_path,
+            "logo": logo_path,
             "screenshots": None,          # filled in thread when dirty
         }
 
@@ -1075,12 +755,10 @@ class EditAppDialog(Adw.Dialog):
             _run_entry = new_entry  # local alias; replaced below when screenshots are dirty
 
             if _grid_items is not None:
-                # Resolve screenshots: download any Steam-pending items first.
                 log.debug("edit save: %d grid item(s) to process", len(_grid_items))
                 _phase("Downloading screenshots\u2026")
                 dl_dir = Path(_tmp.mkdtemp(prefix="cellar_ss_"))
                 final_paths: list[str] = []
-                # source_url per final_path: None for locally-added files, URL for Steam downloads
                 final_sources: list[str | None] = []
                 from cellar.utils.http import make_session as _make_session
                 _session = _make_session()
@@ -1088,7 +766,6 @@ class EditAppDialog(Adw.Dialog):
                     if _item.local_path:
                         log.debug("  item local_path=%r", _item.local_path)
                         final_paths.append(_item.local_path)
-                        # source_url is pre-populated from e.screenshot_sources during prefill
                         final_sources.append(_item.source_url)
                     elif _item.full_url:
                         _fname = _item.full_url.split("/")[-1].split("?")[0] or "screenshot.jpg"
@@ -1110,7 +787,6 @@ class EditAppDialog(Adw.Dialog):
                     for i, p in enumerate(final_paths)
                 )
                 log.debug("edit save: ss_rels=%s", ss_rels)
-                # Build sparse sources dict: only entries that have a URL
                 ss_sources = {
                     rel: src
                     for rel, src in zip(ss_rels, final_sources)
@@ -1135,13 +811,11 @@ class EditAppDialog(Adw.Dialog):
                     cancel_event=self._cancel_event,
                 )
                 log.debug("edit save: update_in_repo done")
-                # Delete repo screenshot files the user unchecked.
                 if _excluded_locals:
                     new_rels_set = set(_run_entry.screenshots)
                     for _excl in _excluded_locals:
                         if not _excl.local_path:
                             continue
-                        # Match against old entry's screenshot relative paths
                         for old_rel in e.screenshots:
                             if str(repo_root / old_rel) == _excl.local_path:
                                 if old_rel not in new_rels_set:
@@ -1151,9 +825,6 @@ class EditAppDialog(Adw.Dialog):
                                     except Exception:
                                         pass
                                 break
-                # Evict cached copies of any changed screenshots so the
-                # detail view re-fetches the new files instead of showing
-                # the old ones from cache.
                 if _grid_items is not None:
                     _all_ss_rels = set(e.screenshots) | set(_run_entry.screenshots)
                     log.debug("edit save: evicting cache for %s", sorted(_all_ss_rels))
@@ -1168,9 +839,17 @@ class EditAppDialog(Adw.Dialog):
 
         threading.Thread(target=_run, daemon=True).start()
 
+    def _build_launch_targets(self, entry_point: str, launch_args: str) -> tuple[dict, ...]:
+        """Build launch_targets tuple, preserving secondary targets from the old entry."""
+        old = list(self._old_entry.launch_targets)
+        primary = {"name": old[0].get("name", "Main") if old else "Main", "path": entry_point}
+        if launch_args:
+            primary["args"] = launch_args
+        return tuple([primary] + old[1:])
+
     def _on_cancel_progress_clicked(self, _btn) -> None:
         self._cancel_event.set()
-        self._progress_label.set_text("Cancelling…")
+        self._progress_label.set_text("Cancelling\u2026")
         self._cancel_progress_btn.set_sensitive(False)
 
     def _on_save_done(self) -> None:
@@ -1200,7 +879,7 @@ class EditAppDialog(Adw.Dialog):
             ),
         )
         alert.add_response("cancel", "Cancel")
-        alert.add_response("move", "Move Archive…")
+        alert.add_response("move", "Move Archive\u2026")
         alert.add_response("delete", "Delete Archive")
         alert.set_response_appearance("move", Adw.ResponseAppearance.SUGGESTED)
         alert.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
@@ -1215,7 +894,7 @@ class EditAppDialog(Adw.Dialog):
             self._do_delete(move_to=None)
         elif response == "move":
             chooser = Gtk.FileChooserNative(
-                title="Move Archive To…",
+                title="Move Archive To\u2026",
                 transient_for=self.get_root(),
                 action=Gtk.FileChooserAction.SELECT_FOLDER,
             )
@@ -1231,7 +910,7 @@ class EditAppDialog(Adw.Dialog):
     def _do_delete(self, *, move_to: str | None) -> None:
         self._cancel_event.clear()
         self._stack.set_visible_child_name("spinner")
-        self._spinner_label.set_text("Deleting entry…")
+        self._spinner_label.set_text("Deleting entry\u2026")
 
         repo_root = self._repo.writable_path()
 
@@ -1255,7 +934,7 @@ class EditAppDialog(Adw.Dialog):
 
     def _on_cancel_spinner_clicked(self, _btn) -> None:
         self._cancel_event.set()
-        self._spinner_label.set_text("Cancelling…")
+        self._spinner_label.set_text("Cancelling\u2026")
         self._cancel_spinner_btn.set_sensitive(False)
 
     def _on_delete_done(self) -> None:

@@ -51,7 +51,7 @@ from cellar.views.builder.progress import ProgressDialog
 
 log = logging.getLogger(__name__)
 
-class PackageBuilderView(Gtk.Box):
+class PackageBuilderView(Adw.Bin):
     """Two-panel package builder: project list on the left, detail on the right."""
 
     def __init__(
@@ -61,13 +61,14 @@ class PackageBuilderView(Gtk.Box):
         all_repos: list | None = None,
         on_catalogue_changed: Callable | None = None,
     ) -> None:
-        super().__init__(orientation=Gtk.Orientation.HORIZONTAL)
+        super().__init__()
         self._writable_repos: list = writable_repos or []
         self._all_repos: list = all_repos or []
         self._on_catalogue_changed = on_catalogue_changed
         self._project: Project | None = None
         self._project_rows: list[_ProjectRow] = []
 
+        self._setup_actions()
         self._build()
         self._reload_projects()
 
@@ -81,58 +82,61 @@ class PackageBuilderView(Gtk.Box):
             self._all_repos = all_repos
 
     # ------------------------------------------------------------------
+    # Actions
+    # ------------------------------------------------------------------
+
+    def _setup_actions(self) -> None:
+        """Register Gio actions for the builder view."""
+        ag = Gio.SimpleActionGroup()
+
+        new_win = Gio.SimpleAction.new("new-windows", None)
+        new_win.connect("activate", lambda *_: self._on_new_app_clicked(None))
+        ag.add_action(new_win)
+
+        new_linux = Gio.SimpleAction.new("new-linux", None)
+        new_linux.connect("activate", lambda *_: self._on_new_linux_clicked(None))
+        ag.add_action(new_linux)
+
+        new_base = Gio.SimpleAction.new("new-base", None)
+        new_base.connect("activate", lambda *_: self._on_new_base_clicked(None))
+        ag.add_action(new_base)
+
+        delete_act = Gio.SimpleAction.new("delete", None)
+        delete_act.connect("activate", lambda *_: self._on_delete_clicked(self._project) if self._project else None)
+        ag.add_action(delete_act)
+
+        self.insert_action_group("builder", ag)
+
+    # ------------------------------------------------------------------
     # UI construction
     # ------------------------------------------------------------------
 
     def _build(self) -> None:
-        # ── Left sidebar ──────────────────────────────────────────────────
-        sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        sidebar.set_size_request(260, -1)
-        sidebar.add_css_class("sidebar")
+        # ── Sidebar pane ──────────────────────────────────────────────────
+        sidebar_toolbar = Adw.ToolbarView()
+        sidebar_header = Adw.HeaderBar()
+        sidebar_header.set_show_start_title_buttons(False)
+        sidebar_header.set_show_end_title_buttons(False)
 
-        # Sidebar header
-        header = Adw.HeaderBar()
-        header.set_show_start_title_buttons(False)
-        header.set_show_end_title_buttons(False)
-        header.set_title_widget(Gtk.Label())  # no centred title — label is at start
+        # "+" menu button — consolidates Windows/Linux/Base creation
+        new_menu = Gio.Menu()
+        new_menu.append("Windows Package", "builder.new-windows")
+        new_menu.append("Linux Package", "builder.new-linux")
+        new_menu.append("Base Image", "builder.new-base")
 
-        title_label = Gtk.Label(label="Packages")
-        title_label.add_css_class("heading")
-        title_label.set_margin_start(8)
-        header.pack_start(title_label)
-
-        btn_box = Gtk.Box(spacing=4)
-        btn_box.set_margin_start(4)
-        btn_box.set_margin_end(4)
-
-        new_app_btn = Gtk.Button(icon_name="grid-large-symbolic")
-        new_app_btn.set_tooltip_text("New Windows package")
-        new_app_btn.add_css_class("flat")
-        new_app_btn.connect("clicked", self._on_new_app_clicked)
-
-        new_linux_btn = Gtk.Button(icon_name="penguin-alt-symbolic")
-        new_linux_btn.set_tooltip_text("New Linux package")
-        new_linux_btn.add_css_class("flat")
-        new_linux_btn.connect("clicked", self._on_new_linux_clicked)
-
-        new_base_btn = Gtk.Button(icon_name="package-x-generic-symbolic")
-        new_base_btn.set_tooltip_text("New Base package")
-        new_base_btn.add_css_class("flat")
-        new_base_btn.connect("clicked", self._on_new_base_clicked)
+        new_btn = Gtk.MenuButton(icon_name="list-add-symbolic")
+        new_btn.set_tooltip_text("New Package")
+        new_btn.add_css_class("flat")
+        new_btn.set_menu_model(new_menu)
+        sidebar_header.pack_end(new_btn)
 
         import_btn = Gtk.Button(icon_name="open-book-symbolic")
-        import_btn.set_tooltip_text("Catalogue entries…")
+        import_btn.set_tooltip_text("Catalogue entries\u2026")
         import_btn.add_css_class("flat")
         import_btn.connect("clicked", self._on_import_clicked)
+        sidebar_header.pack_end(import_btn)
 
-        btn_box.append(new_app_btn)
-        btn_box.append(new_linux_btn)
-        btn_box.append(new_base_btn)
-        btn_box.append(import_btn)
-        header.pack_end(btn_box)
-
-        sidebar.append(header)
-        sidebar.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
+        sidebar_toolbar.add_top_bar(sidebar_header)
 
         # Project list
         scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
@@ -143,12 +147,29 @@ class PackageBuilderView(Gtk.Box):
         self._list_box.add_css_class("navigation-sidebar")
         self._list_box.connect("row-selected", self._on_row_selected)
         scroll.set_child(self._list_box)
-        sidebar.append(scroll)
+        sidebar_toolbar.set_content(scroll)
 
-        self.append(sidebar)
-        self.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
+        sidebar_page = Adw.NavigationPage(title="Packages", child=sidebar_toolbar)
 
-        # ── Right panel ───────────────────────────────────────────────────
+        # ── Content pane ──────────────────────────────────────────────────
+        content_toolbar = Adw.ToolbarView()
+        content_header = Adw.HeaderBar()
+        content_header.set_show_start_title_buttons(False)
+        content_header.set_show_end_title_buttons(False)
+
+        self._content_title = Adw.WindowTitle(title="", subtitle="")
+        content_header.set_title_widget(self._content_title)
+
+        # Gear menu
+        self._detail_gear_btn = Gtk.MenuButton(icon_name="view-more-symbolic")
+        self._detail_gear_btn.set_tooltip_text("Options")
+        self._detail_gear_btn.add_css_class("flat")
+        self._detail_gear_btn.set_visible(False)
+        content_header.pack_end(self._detail_gear_btn)
+
+        content_toolbar.add_top_bar(content_header)
+
+        # Detail stack
         self._detail_stack = Gtk.Stack()
         self._detail_stack.set_hexpand(True)
         self._detail_stack.set_vexpand(True)
@@ -169,9 +190,18 @@ class PackageBuilderView(Gtk.Box):
         detail_box.append(self._detail_scroll)
 
         self._detail_stack.add_named(detail_box, "detail")
-
         self._detail_stack.set_visible_child_name("empty")
-        self.append(self._detail_stack)
+
+        content_toolbar.set_content(self._detail_stack)
+        self._content_page = Adw.NavigationPage(title="", child=content_toolbar)
+
+        # ── Split view ────────────────────────────────────────────────────
+        self._split_view = Adw.NavigationSplitView()
+        self._split_view.set_sidebar(sidebar_page)
+        self._split_view.set_content(self._content_page)
+        self._split_view.set_min_sidebar_width(240)
+        self._split_view.set_max_sidebar_width(300)
+        self.set_child(self._split_view)
 
     # ------------------------------------------------------------------
     # Project list management
@@ -189,7 +219,7 @@ class PackageBuilderView(Gtk.Box):
         self._project_rows = []
 
         for p in projects:
-            row = _ProjectRow(p, on_delete=self._on_delete_clicked)
+            row = _ProjectRow(p)
             self._list_box.append(row)
             self._project_rows.append(row)
 
@@ -200,6 +230,9 @@ class PackageBuilderView(Gtk.Box):
     def _on_row_selected(self, _lb, row: Gtk.ListBoxRow | None) -> None:
         if row is None:
             self._project = None
+            self._content_title.set_title("")
+            self._content_title.set_subtitle("")
+            self._detail_gear_btn.set_visible(False)
             self._detail_stack.set_visible_child_name("empty")
             return
         self._project = row.project  # type: ignore[attr-defined]
@@ -276,6 +309,14 @@ class PackageBuilderView(Gtk.Box):
 
     def _show_project(self, project: Project, *, expand_sel: bool = False) -> None:
         """Build and display the detail panel for *project*."""
+        # Update content header
+        _type_labels = {"app": "Windows App", "linux": "Linux App", "base": "Base Image"}
+        self._content_title.set_title(project.name)
+        self._content_title.set_subtitle(_type_labels.get(project.project_type, ""))
+        self._content_page.set_title(project.name)
+        self._detail_gear_btn.set_visible(True)
+        self._refresh_detail_menu(project)
+
         page = Adw.PreferencesPage()
         clamp = Adw.Clamp(maximum_size=700)
         clamp.set_child(page)
@@ -299,6 +340,7 @@ class PackageBuilderView(Gtk.Box):
                 if self._project:
                     self._project.name = row.get_text()
                     save_project(self._project)
+                    self._content_title.set_title(self._project.name)
                     for r in self._project_rows:
                         if r.project.slug == self._project.slug:
                             r._label.set_text(self._project.name)
@@ -372,6 +414,7 @@ class PackageBuilderView(Gtk.Box):
                 if self._project:
                     self._project.name = row.get_text()
                     save_project(self._project)
+                    self._content_title.set_title(self._project.name)
                     for r in self._project_rows:
                         if r.project.slug == self._project.slug:
                             r._label.set_text(self._project.name)
@@ -632,6 +675,14 @@ class PackageBuilderView(Gtk.Box):
         page.add(pkg_group)
 
         self._detail_stack.set_visible_child_name("detail")
+
+    def _refresh_detail_menu(self, project: Project) -> None:
+        """Build/update the gear menu for the content header bar."""
+        danger_section = Gio.Menu()
+        danger_section.append("Delete Project\u2026", "builder.delete")
+        menu = Gio.Menu()
+        menu.append_section(None, danger_section)
+        self._detail_gear_btn.set_menu_model(menu)
 
     # ------------------------------------------------------------------
     # Signal handlers — runners (base projects)
@@ -1806,36 +1857,26 @@ class PackageBuilderView(Gtk.Box):
 class _ProjectRow(Gtk.ListBoxRow):
     """A row in the project list sidebar."""
 
-    def __init__(self, project: Project, on_delete: Callable[[Project], None]) -> None:
+    def __init__(self, project: Project) -> None:
         super().__init__()
         self.project = project
 
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         box.set_margin_top(8)
         box.set_margin_bottom(8)
         box.set_margin_start(8)
-
-        top = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-
-        self._label = Gtk.Label(label=project.name, xalign=0)
-        self._label.set_hexpand(True)
-        self._label.set_ellipsize(3)  # Pango.EllipsizeMode.END
-        top.append(self._label)
+        box.set_margin_end(8)
 
         _type_icons = {"base": "package-x-generic-symbolic", "linux": "penguin-alt-symbolic"}
         badge = Gtk.Image.new_from_icon_name(_type_icons.get(project.project_type, "grid-large-symbolic"))
         badge.add_css_class("dim-label")
         badge.set_valign(Gtk.Align.CENTER)
-        top.append(badge)
+        box.append(badge)
 
-        del_btn = Gtk.Button(icon_name="user-trash-symbolic", tooltip_text="Delete package")
-        del_btn.add_css_class("flat")
-        del_btn.add_css_class("destructive-action")
-        del_btn.set_valign(Gtk.Align.CENTER)
-        del_btn.connect("clicked", lambda _b: on_delete(self.project))
-        top.append(del_btn)
-
-        box.append(top)
+        self._label = Gtk.Label(label=project.name, xalign=0)
+        self._label.set_hexpand(True)
+        self._label.set_ellipsize(3)  # Pango.EllipsizeMode.END
+        box.append(self._label)
 
         self.set_child(box)
 

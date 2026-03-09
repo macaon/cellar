@@ -446,7 +446,7 @@ def install_app(
 
     # ── Steps 1-3: Stream, verify CRC32, extract (single pass) ─────────
     if phase_cb:
-        phase_cb("Downloading & extracting\u2026")
+        phase_cb("Downloading & extracting package\u2026")
     if download_cb:
         download_cb(0.0)
     if install_cb:
@@ -562,7 +562,7 @@ def install_linux_app(
 
     # ── Steps 1-3: Stream, verify CRC32, extract directly ──────────────
     if phase_cb:
-        phase_cb("Downloading & extracting\u2026")
+        phase_cb("Downloading & extracting package\u2026")
     if download_cb:
         download_cb(0.0)
     if install_cb:

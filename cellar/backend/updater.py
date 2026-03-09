@@ -303,7 +303,7 @@ def update_app_safe(
 
             # ── Phases 2-4: Stream, verify CRC32, extract (single pass) ──────
             if phase_cb:
-                phase_cb("Downloading & extracting\u2026")
+                phase_cb("Downloading & extracting package\u2026")
             if progress_cb:
                 progress_cb(dl_lo)
             try:

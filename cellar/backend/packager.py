@@ -169,7 +169,14 @@ class _ChunkWriter:
         p = self._chunk_path(self._chunk_index)
         p.parent.mkdir(parents=True, exist_ok=True)
         self._fp = p.open("wb")
-        self._crc_writer = _CRCWriter(self._fp, bytes_cb=self._bytes_cb)
+        # Wrap bytes_cb so the UI sees a running total across all chunks
+        # rather than resetting to zero each time a new chunk starts.
+        if self._bytes_cb:
+            prior = self._total_written
+            cb = lambda n, _p=prior, _b=self._bytes_cb: _b(_p + n)
+        else:
+            cb = None
+        self._crc_writer = _CRCWriter(self._fp, bytes_cb=cb)
 
     def _finalize_current(self) -> None:
         """Record metadata for the current chunk and close its file."""

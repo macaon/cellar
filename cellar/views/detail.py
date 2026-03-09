@@ -755,6 +755,8 @@ class DetailView(Gtk.Box):
         )
         self._source_label.add_css_class("dim-label")
         self._source_label.add_css_class("caption")
+        self._source_label.set_ellipsize(Pango.EllipsizeMode.END)
+        self._source_label.set_max_width_chars(18)
 
         if len(self._source_repos) <= 1:
             # Single source — just show the name, no interaction needed.

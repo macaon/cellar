@@ -1,6 +1,7 @@
-"""Steam Store API client (no authentication required).
+"""Steam Store API client and SteamGridDB asset fetcher.
 
-Provides game search and full metadata lookup via the public Steam Store API.
+Provides game search and full metadata lookup via the public Steam Store API,
+plus high-res icon/cover/logo downloads via the SteamGridDB API (optional key).
 """
 
 from __future__ import annotations
@@ -15,6 +16,9 @@ log = logging.getLogger(__name__)
 
 _STORE_SEARCH = "https://store.steampowered.com/api/storesearch/"
 _APP_DETAILS = "https://store.steampowered.com/api/appdetails"
+
+_STEAM_CDN = "https://cdn.akamai.steamstatic.com/steam/apps"
+_SGDB_API = "https://www.steamgriddb.com/api/v2"
 
 _GENRE_TO_CATEGORY: dict[str, str] = {
     "Action": "Games",
@@ -144,3 +148,99 @@ def _normalise(raw: dict) -> dict:
             if s.get("path_thumbnail") and s.get("path_full")
         ],
     }
+
+
+# ---------------------------------------------------------------------------
+# Steam image asset fetcher (CDN + SteamGridDB)
+# ---------------------------------------------------------------------------
+
+def fetch_steam_images(appid: int, sgdb_key: str = "") -> dict:
+    """Return download URLs for icon, cover, and logo for a Steam app.
+
+    *Cover* and *logo* use predictable Steam CDN URLs (no key needed).
+    *Icon* (.ico, up to 256×256) requires a SteamGridDB API key; without
+    one the ``icon`` value will be empty.
+
+    Returns ``{"icon": url, "cover": url, "logo": url}`` — any value may
+    be empty if the asset is unavailable.
+    """
+    result = {"icon": "", "cover": "", "logo": ""}
+    session = make_session()
+
+    # Cover — Steam library capsule (600×900 vertical)
+    cover_url = f"{_STEAM_CDN}/{appid}/library_600x900.jpg"
+    try:
+        r = session.head(cover_url, timeout=10, allow_redirects=True)
+        if r.status_code == 200:
+            result["cover"] = cover_url
+    except Exception:
+        pass
+
+    # Logo — transparent PNG from Steam CDN
+    logo_url = f"{_STEAM_CDN}/{appid}/logo.png"
+    try:
+        r = session.head(logo_url, timeout=10, allow_redirects=True)
+        if r.status_code == 200:
+            result["logo"] = logo_url
+    except Exception:
+        pass
+
+    # Icon — SteamGridDB (official style, .ico preferred)
+    if sgdb_key:
+        try:
+            result["icon"] = _sgdb_fetch_icon(session, appid, sgdb_key)
+        except Exception as exc:
+            log.debug("SteamGridDB icon lookup failed: %s", exc)
+
+    return result
+
+
+def download_steam_image(url: str, dest: str, sgdb_key: str = "") -> str:
+    """Download an image URL to *dest* path.  Returns the path on success."""
+    session = make_session()
+    headers = {}
+    if sgdb_key and "steamgriddb.com" in url:
+        headers["Authorization"] = f"Bearer {sgdb_key}"
+    resp = session.get(url, headers=headers, timeout=30, stream=True)
+    resp.raise_for_status()
+    from pathlib import Path
+    Path(dest).parent.mkdir(parents=True, exist_ok=True)
+    with open(dest, "wb") as f:
+        for chunk in resp.iter_content(8192):
+            f.write(chunk)
+    return dest
+
+
+def _sgdb_fetch_icon(session, appid: int, sgdb_key: str) -> str:
+    """Look up the best official .ico icon via SteamGridDB."""
+    headers = {"Authorization": f"Bearer {sgdb_key}"}
+
+    # Resolve Steam appid → SteamGridDB game ID
+    r = session.get(
+        f"{_SGDB_API}/games/steam/{appid}",
+        headers=headers, timeout=15,
+    )
+    if r.status_code != 200:
+        return ""
+    game_id = r.json().get("data", {}).get("id")
+    if not game_id:
+        return ""
+
+    # Fetch official-style icons
+    r = session.get(
+        f"{_SGDB_API}/icons/game/{game_id}",
+        headers=headers,
+        params={"styles": "official"},
+        timeout=15,
+    )
+    if r.status_code != 200:
+        return ""
+
+    icons = r.json().get("data", [])
+    # Prefer .ico files (multi-resolution), fall back to .png
+    ico_icons = [i for i in icons if i.get("mime") == "image/vnd.microsoft.icon"]
+    if ico_icons:
+        return ico_icons[0]["url"]
+    if icons:
+        return icons[0].get("url", "")
+    return ""

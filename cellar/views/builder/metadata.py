@@ -215,10 +215,10 @@ class AppMetadataDialog(Adw.Dialog):
         img_list.set_selection_mode(Gtk.SelectionMode.NONE)
 
         self._icon_row, self._icon_clear_btn, self._icon_thumb, self._icon_thumb_wrap = self._make_image_row(
-            "Icon", self._on_pick_icon, thumb_w=52, thumb_h=52
+            "Icon", self._on_pick_icon, thumb_w=52, thumb_h=52, steam_slot="icon",
         )
         self._cover_row, self._cover_clear_btn, self._cover_thumb, self._cover_thumb_wrap = self._make_image_row(
-            "Cover", self._on_pick_cover, thumb_w=52, thumb_h=70
+            "Cover", self._on_pick_cover, thumb_w=52, thumb_h=70, steam_slot="cover",
         )
 
         self._hide_title_btn = Gtk.ToggleButton()
@@ -229,7 +229,8 @@ class AppMetadataDialog(Adw.Dialog):
         self._hide_title_btn.set_active(bool(p and p.hide_title))
         self._hide_title_btn.connect("toggled", self._on_hide_title_toggled)
         self._logo_row, self._logo_clear_btn, self._logo_thumb, self._logo_thumb_wrap = self._make_image_row(
-            "Logo", self._on_pick_logo, extra_suffix=self._hide_title_btn, thumb_w=130, thumb_h=52
+            "Logo", self._on_pick_logo, extra_suffix=self._hide_title_btn, thumb_w=130, thumb_h=52,
+            steam_slot="logo",
         )
 
         self._icon_clear_btn.connect("clicked", self._on_icon_clear)
@@ -306,7 +307,8 @@ class AppMetadataDialog(Adw.Dialog):
         self.set_child(toolbar)
 
     def _make_image_row(
-        self, label: str, handler, extra_suffix=None, thumb_w: int = 64, thumb_h: int = 64
+        self, label: str, handler, extra_suffix=None, thumb_w: int = 64, thumb_h: int = 64,
+        steam_slot: str = "",
     ) -> tuple[Adw.ActionRow, Gtk.Button, Gtk.Picture, _FixedBox]:
         row = Adw.ActionRow(title=label)
         row.set_subtitle("Not set")
@@ -330,6 +332,16 @@ class AppMetadataDialog(Adw.Dialog):
 
         if extra_suffix is not None:
             row.add_suffix(extra_suffix)
+
+        if steam_slot:
+            dl_btn = Gtk.Button(
+                icon_name="folder-download-symbolic",
+                tooltip_text="Download from Steam",
+            )
+            dl_btn.add_css_class("flat")
+            dl_btn.set_valign(Gtk.Align.CENTER)
+            dl_btn.connect("clicked", lambda _b: self._on_steam_image_download(steam_slot))
+            row.add_suffix(dl_btn)
 
         change_btn = Gtk.Button(icon_name="folder-open-symbolic", tooltip_text="Browse\u2026")
         change_btn.add_css_class("flat")
@@ -646,6 +658,58 @@ class AppMetadataDialog(Adw.Dialog):
             btn.set_icon_name("eye-not-looking-symbolic")
         else:
             btn.set_icon_name("eye-open-negative-filled-symbolic")
+
+    def _on_steam_image_download(self, slot: str) -> None:
+        """Download an icon, cover, or logo from Steam for the given slot."""
+        steam_txt = self._steam_row.get_text().strip()
+        if not steam_txt.isdigit():
+            return
+        appid = int(steam_txt)
+
+        from cellar.backend.config import load_sgdb_key
+        from cellar.backend.steam import fetch_steam_images, download_steam_image
+        from cellar.utils.async_work import run_in_background
+
+        sgdb_key = load_sgdb_key()
+
+        def _work():
+            urls = fetch_steam_images(appid, sgdb_key)
+            url = urls.get(slot, "")
+            if not url:
+                return None
+            import tempfile
+            ext = ".ico" if url.endswith(".ico") else Path(url).suffix or ".png"
+            dest = tempfile.NamedTemporaryFile(suffix=ext, delete=False).name
+            download_steam_image(url, dest, sgdb_key)
+            return dest
+
+        def _done(path):
+            if not path:
+                return
+            display = self._convert_if_needed(path)
+            if slot == "icon":
+                self._icon_row.set_subtitle(GLib.markup_escape_text(Path(path).name))
+                self._icon_clear_btn.set_visible(True)
+                self._icon_thumb.set_filename(display)
+                self._icon_thumb_wrap.set_visible(True)
+                self._tmp_icon = path
+            elif slot == "cover":
+                self._cover_row.set_subtitle(GLib.markup_escape_text(Path(path).name))
+                self._cover_clear_btn.set_visible(True)
+                self._cover_thumb.set_filename(display)
+                self._cover_thumb_wrap.set_visible(True)
+                self._tmp_cover = path
+            elif slot == "logo":
+                self._logo_row.set_subtitle(GLib.markup_escape_text(Path(path).name))
+                self._logo_clear_btn.set_visible(True)
+                self._logo_thumb.set_filename(display)
+                self._logo_thumb_wrap.set_visible(True)
+                self._hide_title_btn.set_visible(True)
+                if not self._hide_title_btn.get_active():
+                    self._hide_title_btn.set_active(True)
+                self._tmp_logo = path
+
+        run_in_background(_work, on_done=_done)
 
     def _on_create_clicked(self, _btn) -> None:
         from cellar.backend.project import create_project

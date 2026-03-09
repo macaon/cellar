@@ -310,3 +310,35 @@ clear_smb_password = clear_password
 save_ssh_password = save_password
 load_ssh_password = load_password
 clear_ssh_password = clear_password
+
+
+# ---------------------------------------------------------------------------
+# SteamGridDB API key
+# ---------------------------------------------------------------------------
+
+def load_sgdb_key() -> str:
+    """Return the stored SteamGridDB API key, or empty string."""
+    pw = _libsecret_load(_LIBSECRET_SERVICE, "steamgriddb")
+    if pw:
+        return pw
+    return _load().get("sgdb_key", "")
+
+
+def save_sgdb_key(key: str) -> None:
+    """Persist (or clear) the SteamGridDB API key."""
+    if key:
+        if _libsecret_store(_LIBSECRET_SERVICE, "steamgriddb", key):
+            # Stored in keyring — remove any plaintext fallback
+            cfg = _load()
+            cfg.pop("sgdb_key", None)
+            _save(cfg)
+            return
+        # Fallback to config.json
+        cfg = _load()
+        cfg["sgdb_key"] = key
+        _save(cfg)
+    else:
+        _libsecret_clear(_LIBSECRET_SERVICE, "steamgriddb")
+        cfg = _load()
+        cfg.pop("sgdb_key", None)
+        _save(cfg)

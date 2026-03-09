@@ -70,6 +70,9 @@ class SettingsDialog(Adw.PreferencesDialog):
         gen_row.add_suffix(gen_btn)
         access_group.add(gen_row)
 
+        # ── Group: SteamGridDB ─────────────────────────────────────────
+        self._build_sgdb_group(page)
+
         # ── Group: Install Location ───────────────────────────────────────
         self._build_install_location_group(page)
 
@@ -77,6 +80,31 @@ class SettingsDialog(Adw.PreferencesDialog):
         self._build_umu_group(page)
 
         self._rebuild_repo_rows()
+
+    # ------------------------------------------------------------------
+    # SteamGridDB
+    # ------------------------------------------------------------------
+
+    def _build_sgdb_group(self, page: Adw.PreferencesPage) -> None:
+        from cellar.backend.config import load_sgdb_key
+
+        group = Adw.PreferencesGroup(
+            title="SteamGridDB",
+            description=(
+                "API key for downloading high-res icons from SteamGridDB. "
+                "Get a free key at steamgriddb.com/profile/preferences/api."
+            ),
+        )
+        page.add(group)
+
+        self._sgdb_row = Adw.PasswordEntryRow(title="API Key")
+        self._sgdb_row.set_text(load_sgdb_key())
+        self._sgdb_row.connect("changed", self._on_sgdb_key_changed)
+        group.add(self._sgdb_row)
+
+    def _on_sgdb_key_changed(self, row) -> None:
+        from cellar.backend.config import save_sgdb_key
+        save_sgdb_key(row.get_text().strip())
 
     # ------------------------------------------------------------------
     # Install location

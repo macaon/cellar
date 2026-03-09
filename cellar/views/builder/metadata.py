@@ -214,10 +214,10 @@ class AppMetadataDialog(Adw.Dialog):
         img_list.add_css_class("boxed-list")
         img_list.set_selection_mode(Gtk.SelectionMode.NONE)
 
-        self._icon_row, self._icon_clear_btn, self._icon_thumb, self._icon_thumb_wrap = self._make_image_row(
+        self._icon_row, self._icon_clear_btn, self._icon_thumb, self._icon_thumb_wrap, self._icon_dl_btn = self._make_image_row(
             "Icon", self._on_pick_icon, thumb_w=52, thumb_h=52, steam_slot="icon",
         )
-        self._cover_row, self._cover_clear_btn, self._cover_thumb, self._cover_thumb_wrap = self._make_image_row(
+        self._cover_row, self._cover_clear_btn, self._cover_thumb, self._cover_thumb_wrap, self._cover_dl_btn = self._make_image_row(
             "Cover", self._on_pick_cover, thumb_w=52, thumb_h=70, steam_slot="cover",
         )
 
@@ -228,10 +228,14 @@ class AppMetadataDialog(Adw.Dialog):
         self._hide_title_btn.set_tooltip_text("Hide title \u2014 logo contains the app name")
         self._hide_title_btn.set_active(bool(p and p.hide_title))
         self._hide_title_btn.connect("toggled", self._on_hide_title_toggled)
-        self._logo_row, self._logo_clear_btn, self._logo_thumb, self._logo_thumb_wrap = self._make_image_row(
+        self._logo_row, self._logo_clear_btn, self._logo_thumb, self._logo_thumb_wrap, self._logo_dl_btn = self._make_image_row(
             "Logo", self._on_pick_logo, extra_suffix=self._hide_title_btn, thumb_w=130, thumb_h=52,
             steam_slot="logo",
         )
+
+        self._steam_dl_btns = [b for b in (self._icon_dl_btn, self._cover_dl_btn, self._logo_dl_btn) if b]
+        self._steam_row.connect("changed", self._on_steam_appid_changed)
+        self._update_steam_dl_sensitivity()
 
         self._icon_clear_btn.connect("clicked", self._on_icon_clear)
         self._cover_clear_btn.connect("clicked", self._on_cover_clear)
@@ -309,7 +313,7 @@ class AppMetadataDialog(Adw.Dialog):
     def _make_image_row(
         self, label: str, handler, extra_suffix=None, thumb_w: int = 64, thumb_h: int = 64,
         steam_slot: str = "",
-    ) -> tuple[Adw.ActionRow, Gtk.Button, Gtk.Picture, _FixedBox]:
+    ) -> tuple[Adw.ActionRow, Gtk.Button, Gtk.Picture, _FixedBox, Gtk.Button | None]:
         row = Adw.ActionRow(title=label)
         row.set_subtitle("Not set")
 
@@ -333,7 +337,9 @@ class AppMetadataDialog(Adw.Dialog):
         if extra_suffix is not None:
             row.add_suffix(extra_suffix)
 
+        dl_btn = None
         if steam_slot:
+            from cellar.backend.config import load_sgdb_key
             dl_btn = Gtk.Button(
                 icon_name="folder-download-symbolic",
                 tooltip_text="Download from Steam",
@@ -341,6 +347,8 @@ class AppMetadataDialog(Adw.Dialog):
             dl_btn.add_css_class("flat")
             dl_btn.set_valign(Gtk.Align.CENTER)
             dl_btn.connect("clicked", lambda _b: self._on_steam_image_download(steam_slot))
+            dl_btn.set_visible(bool(load_sgdb_key()))
+            dl_btn.set_sensitive(False)
             row.add_suffix(dl_btn)
 
         change_btn = Gtk.Button(icon_name="folder-open-symbolic", tooltip_text="Browse\u2026")
@@ -349,7 +357,15 @@ class AppMetadataDialog(Adw.Dialog):
         change_btn.connect("clicked", handler)
         row.add_suffix(change_btn)
 
-        return row, clear_btn, thumb, thumb_wrap
+        return row, clear_btn, thumb, thumb_wrap, dl_btn
+
+    def _on_steam_appid_changed(self, _row) -> None:
+        self._update_steam_dl_sensitivity()
+
+    def _update_steam_dl_sensitivity(self) -> None:
+        has_appid = self._steam_row.get_text().strip().isdigit()
+        for btn in self._steam_dl_btns:
+            btn.set_sensitive(has_appid)
 
     # ── Helpers ───────────────────────────────────────────────────────────
 

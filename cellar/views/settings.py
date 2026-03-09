@@ -99,12 +99,68 @@ class SettingsDialog(Adw.PreferencesDialog):
 
         self._sgdb_row = Adw.PasswordEntryRow(title="API Key")
         self._sgdb_row.set_text(load_sgdb_key())
-        self._sgdb_row.connect("changed", self._on_sgdb_key_changed)
         group.add(self._sgdb_row)
 
-    def _on_sgdb_key_changed(self, row) -> None:
-        from cellar.backend.config import save_sgdb_key
-        save_sgdb_key(row.get_text().strip())
+        self._sgdb_save_btn = Gtk.Button(icon_name="emblem-ok-symbolic", tooltip_text="Validate & Save")
+        self._sgdb_save_btn.add_css_class("flat")
+        self._sgdb_save_btn.set_valign(Gtk.Align.CENTER)
+        self._sgdb_save_btn.connect("clicked", self._on_sgdb_save_clicked)
+        self._sgdb_row.add_suffix(self._sgdb_save_btn)
+
+        self._sgdb_saved = load_sgdb_key()
+        self._sgdb_row.connect("changed", self._on_sgdb_key_edited)
+        self._update_sgdb_save_btn()
+
+    def _on_sgdb_key_edited(self, _row) -> None:
+        self._update_sgdb_save_btn()
+
+    def _update_sgdb_save_btn(self) -> None:
+        current = self._sgdb_row.get_text().strip()
+        changed = current != self._sgdb_saved
+        self._sgdb_save_btn.set_sensitive(changed)
+        if not changed and self._sgdb_saved:
+            self._sgdb_save_btn.set_icon_name("emblem-ok-symbolic")
+        else:
+            self._sgdb_save_btn.set_icon_name("emblem-ok-symbolic")
+
+    def _on_sgdb_save_clicked(self, _btn) -> None:
+        key = self._sgdb_row.get_text().strip()
+        if not key:
+            from cellar.backend.config import save_sgdb_key
+            save_sgdb_key("")
+            self._sgdb_saved = ""
+            self._update_sgdb_save_btn()
+            self.add_toast(Adw.Toast(title="API key cleared"))
+            return
+
+        self._sgdb_save_btn.set_sensitive(False)
+        self._sgdb_save_btn.set_icon_name("content-loading-symbolic")
+
+        from cellar.utils.async_work import run_in_background
+
+        def _validate():
+            from cellar.utils.http import get_session
+            s = get_session()
+            r = s.get(
+                "https://www.steamgriddb.com/api/v2/grids/steam/220",
+                headers={"Authorization": f"Bearer {key}"},
+                timeout=10,
+            )
+            return r.status_code == 200
+
+        def _done(valid):
+            if valid:
+                from cellar.backend.config import save_sgdb_key
+                save_sgdb_key(key)
+                self._sgdb_saved = key
+                self._sgdb_save_btn.set_icon_name("emblem-ok-symbolic")
+                self.add_toast(Adw.Toast(title="API key saved"))
+            else:
+                self._sgdb_save_btn.set_icon_name("dialog-error-symbolic")
+                self.add_toast(Adw.Toast(title="Invalid API key"))
+            self._update_sgdb_save_btn()
+
+        run_in_background(_validate, on_done=_done)
 
     # ------------------------------------------------------------------
     # Install location

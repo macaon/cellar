@@ -259,6 +259,10 @@ class MediaPanel(Gtk.Box):
     def add_steam_screenshots(self, screenshots: list[dict]) -> None:
         self._screenshot_grid.add_steam(screenshots)
 
+    def replace_steam_screenshots(self, screenshots: list[dict]) -> None:
+        self._screenshot_grid.clear_steam()
+        self._screenshot_grid.add_steam(screenshots)
+
     def select_steam_by_urls(self, urls: set[str]) -> None:
         self._screenshot_grid.select_steam_by_urls(urls)
 
@@ -426,6 +430,7 @@ class MediaPanel(Gtk.Box):
                 return []
 
         def _done(screenshots):
+            self._screenshot_grid.clear_steam()
             if screenshots:
                 self._screenshot_grid.add_steam(screenshots)
 

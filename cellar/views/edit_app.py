@@ -620,7 +620,7 @@ class EditAppDialog(Adw.Dialog):
                 self._categories.index(result["category"])
             )
         if result.get("screenshots"):
-            self._media.add_steam_screenshots(result["screenshots"])
+            self._media.replace_steam_screenshots(result["screenshots"])
 
     # ── Save flow ─────────────────────────────────────────────────────────
 

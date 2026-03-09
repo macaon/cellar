@@ -381,7 +381,7 @@ class AppMetadataDialog(Adw.Dialog):
         if result.get("category") and result["category"] in self._cats:
             self._cat_row.set_selected(self._cats.index(result["category"]) + 1)
         if result.get("screenshots"):
-            self._media.add_steam_screenshots(result["screenshots"])
+            self._media.replace_steam_screenshots(result["screenshots"])
 
     def _on_create_clicked(self, _btn) -> None:
         from cellar.backend.project import create_project

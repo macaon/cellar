@@ -339,7 +339,7 @@ class ScreenshotGridWidget(Gtk.Box):
         check_wrap = Gtk.Box()
         check_wrap.set_halign(Gtk.Align.END)
         check_wrap.set_valign(Gtk.Align.START)
-        check_icon = Gtk.Image.new_from_icon_name("checkmark-symbolic")
+        check_icon = Gtk.Image.new_from_icon_name("object-select-symbolic")
         check_icon.add_css_class("ss-check-badge")
         check_icon.set_visible(selected)
         fbc._ss_check = check_icon

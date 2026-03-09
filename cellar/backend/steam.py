@@ -199,7 +199,7 @@ def download_steam_image(url: str, dest: str, sgdb_key: str = "") -> str:
     """Download an image URL to *dest* path.  Returns the path on success."""
     session = make_session()
     headers = {}
-    if sgdb_key and "steamgriddb.com" in url:
+    if sgdb_key and _SGDB_API in url:
         headers["Authorization"] = f"Bearer {sgdb_key}"
     resp = session.get(url, headers=headers, timeout=30, stream=True)
     resp.raise_for_status()
@@ -212,7 +212,7 @@ def download_steam_image(url: str, dest: str, sgdb_key: str = "") -> str:
 
 
 def _sgdb_fetch_icon(session, appid: int, sgdb_key: str) -> str:
-    """Look up the best official .ico icon via SteamGridDB."""
+    """Look up the best .ico icon via SteamGridDB."""
     headers = {"Authorization": f"Bearer {sgdb_key}"}
 
     # Resolve Steam appid → SteamGridDB game ID
@@ -221,26 +221,29 @@ def _sgdb_fetch_icon(session, appid: int, sgdb_key: str) -> str:
         headers=headers, timeout=15,
     )
     if r.status_code != 200:
+        log.debug("SGDB game lookup failed: %s %s", r.status_code, r.text[:200])
         return ""
     game_id = r.json().get("data", {}).get("id")
     if not game_id:
+        log.debug("SGDB game lookup returned no ID for appid %s", appid)
         return ""
 
-    # Fetch official-style icons
+    # Fetch icons (any style)
     r = session.get(
         f"{_SGDB_API}/icons/game/{game_id}",
         headers=headers,
-        params={"styles": "official"},
         timeout=15,
     )
     if r.status_code != 200:
+        log.debug("SGDB icon fetch failed: %s %s", r.status_code, r.text[:200])
         return ""
 
     icons = r.json().get("data", [])
+    if not icons:
+        log.debug("SGDB returned no icons for game %s (appid %s)", game_id, appid)
+        return ""
     # Prefer .ico files (multi-resolution), fall back to .png
     ico_icons = [i for i in icons if i.get("mime") == "image/vnd.microsoft.icon"]
     if ico_icons:
         return ico_icons[0]["url"]
-    if icons:
-        return icons[0].get("url", "")
-    return ""
+    return icons[0].get("url", "")

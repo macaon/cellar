@@ -67,6 +67,7 @@ class PackageBuilderView(Adw.Bin):
         self._on_catalogue_changed = on_catalogue_changed
         self._project: Project | None = None
         self._project_cards: list[_ProjectCard] = []
+        self._replacing_detail = False
 
         self._setup_actions()
         self._build()
@@ -195,7 +196,8 @@ class PackageBuilderView(Adw.Bin):
 
     def _on_nav_popped(self, _nav, _page) -> None:
         """User navigated back to the list page."""
-        self._project = None
+        if not self._replacing_detail:
+            self._project = None
 
     def _on_new_app_clicked(self, _btn) -> None:
         dialog = AppMetadataDialog(on_created=self._on_project_created)
@@ -644,8 +646,11 @@ class PackageBuilderView(Adw.Bin):
 
         page.add(pkg_group)
 
-        # Pop any existing detail page, then push the new one
+        # Pop any existing detail page, then push the new one.
+        # Guard against _on_nav_popped clearing self._project during the swap.
+        self._replacing_detail = True
         self._nav_view.pop_to_page(self._list_page)
+        self._replacing_detail = False
         self._nav_view.push(detail_page)
 
     def _refresh_detail_menu(self, project: Project) -> None:
@@ -1033,7 +1038,8 @@ class PackageBuilderView(Adw.Bin):
         if self._project is None:
             return
         if not self._project.runner:
-            self._show_toast("Select a runner before adding dependencies.")
+            what = "a base image" if self._project.project_type == "app" else "a runner"
+            self._show_toast(f"Select {what} before adding dependencies.")
             return
         dialog = DependencyPickerDialog(
             project=self._project,
@@ -1048,7 +1054,9 @@ class PackageBuilderView(Adw.Bin):
 
     def _on_run_installer_clicked(self, _btn) -> None:
         if self._project is None or not self._project.runner:
-            self._show_toast("Select a runner before running an installer.")
+            if self._project:
+                what = "a base image" if self._project.project_type == "app" else "a runner"
+                self._show_toast(f"Select {what} before running an installer.")
             return
         project = self._project
         chooser = Gtk.FileChooserNative(
@@ -1131,7 +1139,9 @@ class PackageBuilderView(Adw.Bin):
 
     def _on_winecfg_clicked(self, _btn) -> None:
         if self._project is None or not self._project.runner:
-            self._show_toast("Select a runner first.")
+            if self._project:
+                what = "a base image" if self._project.project_type == "app" else "a runner"
+                self._show_toast(f"Select {what} first.")
             return
         from cellar.backend.umu import launch_app
         launch_app(
@@ -1241,7 +1251,8 @@ class PackageBuilderView(Adw.Bin):
             subprocess.Popen(cmd, start_new_session=True)
             return
         if not project.runner:
-            self._show_toast("Select a runner before test launching.")
+            what = "a base image" if project.project_type == "app" else "a runner"
+            self._show_toast(f"Select {what} before test launching.")
             return
         from cellar.backend.umu import launch_app
         launch_app(
@@ -1264,7 +1275,8 @@ class PackageBuilderView(Adw.Bin):
             self._show_toast("Choose a source folder before publishing.")
             return
         if project.project_type != "linux" and not project.runner:
-            self._show_toast("Select a runner before publishing.")
+            what = "a base image" if project.project_type == "app" else "a runner"
+            self._show_toast(f"Select {what} before publishing.")
             return
         if not project.category:
             self._show_toast("Set a category in Metadata before publishing.")
@@ -1499,7 +1511,8 @@ class PackageBuilderView(Adw.Bin):
             self._show_toast("Choose a source folder before publishing.")
             return
         if project.project_type != "linux" and not project.runner:
-            self._show_toast("Select a runner before publishing.")
+            what = "a base image" if project.project_type == "app" else "a runner"
+            self._show_toast(f"Select {what} before publishing.")
             return
         if not self._writable_repos:
             self._show_toast("No writable repository configured.")
@@ -1785,7 +1798,8 @@ class PackageBuilderView(Adw.Bin):
     ) -> None:
         """Run *exe* in *project*'s prefix on a background thread with a progress dialog."""
         if not project.runner:
-            self._show_toast("Select a runner first.")
+            what = "a base image" if project.project_type == "app" else "a runner"
+            self._show_toast(f"Select {what} first.")
             return
 
         project.content_path.mkdir(parents=True, exist_ok=True)

@@ -224,7 +224,6 @@ class DetailView(Gtk.Box):
             btn.add_css_class("suggested-action")
             btn.set_sensitive(True)
             btn.set_tooltip_text("")
-            self._remove_btn.set_visible(True)
             self._update_indicator.set_visible(self._has_update)
             self._update_indicator.set_tooltip_text(
                 "Update available — see Options menu" if self._has_update else ""
@@ -234,7 +233,6 @@ class DetailView(Gtk.Box):
             btn.add_css_class("suggested-action")
             btn.set_sensitive(True)
             btn.set_tooltip_text("")
-            self._remove_btn.set_visible(False)
             self._update_indicator.set_visible(False)
         self._gear_btn.set_visible(self._is_installed)
         if self._is_installed:
@@ -244,7 +242,35 @@ class DetailView(Gtk.Box):
         if self._is_installed:
             self._on_open_clicked()
             return
+        if len(self._source_repos) > 1:
+            self._pick_source_then_install()
+            return
         self._proceed_to_install()
+
+    def _pick_source_then_install(self) -> None:
+        """Show a dialog to choose the source repo, then proceed to install."""
+        dialog = Adw.AlertDialog(
+            heading="Choose Source",
+            body="This app is available from multiple repositories.",
+        )
+        for idx, repo in enumerate(self._source_repos):
+            dialog.add_response(str(idx), repo.name)
+        dialog.set_default_response("0")
+        dialog.set_close_response("close")
+        dialog.add_response("close", "Cancel")
+
+        def _on_response(_dlg, response):
+            if response == "close":
+                return
+            idx = int(response)
+            repo = self._source_repos[idx]
+            self._resolve = repo.resolve_asset_uri
+            self._token = repo.token
+            self._ssh_identity = repo.ssh_identity
+            self._proceed_to_install()
+
+        dialog.connect("response", _on_response)
+        dialog.present(self.get_root())
 
     def _proceed_to_install(self) -> None:
         archive_uri = self._resolve(self._entry.archive) if self._entry.archive else ""
@@ -506,25 +532,36 @@ class DetailView(Gtk.Box):
         manage_act.connect("activate", self._on_manage_shortcuts)
         ag.add_action(manage_act)
 
+        uninstall_act = Gio.SimpleAction.new("uninstall", None)
+        uninstall_act.connect("activate", lambda *_: self._on_remove_clicked())
+        ag.add_action(uninstall_act)
+
         self.insert_action_group("detail", ag)
         self._refresh_gear_menu()
 
     def _refresh_gear_menu(self) -> None:
         from cellar.utils.desktop import has_desktop_entry
 
-        menu = Gio.Menu()
+        main_section = Gio.Menu()
         if self._has_update:
-            menu.append("Update", "detail.update")
+            main_section.append("Update", "detail.update")
 
         targets = self._entry.launch_targets
         if len(targets) > 1:
-            menu.append("Desktop Shortcuts\u2026", "detail.manage-shortcuts")
+            main_section.append("Desktop Shortcuts\u2026", "detail.manage-shortcuts")
         elif has_desktop_entry(self._entry.id):
-            menu.append("Remove Desktop Shortcut", "detail.remove-shortcut")
+            main_section.append("Remove Desktop Shortcut", "detail.remove-shortcut")
         else:
-            menu.append("Create Desktop Shortcut", "detail.create-shortcut")
+            main_section.append("Create Desktop Shortcut", "detail.create-shortcut")
 
-        menu.append("Open Install Folder", "detail.open-folder")
+        main_section.append("Open Install Folder", "detail.open-folder")
+
+        danger_section = Gio.Menu()
+        danger_section.append("Uninstall\u2026", "detail.uninstall")
+
+        menu = Gio.Menu()
+        menu.append_section(None, main_section)
+        menu.append_section(None, danger_section)
         self._gear_btn.set_menu_model(menu)
 
     def _on_open_folder_action(self, _action, _param) -> None:
@@ -696,21 +733,16 @@ class DetailView(Gtk.Box):
             dev_lbl.set_halign(Gtk.Align.START)
             meta.append(dev_lbl)
 
-        # Right column: action buttons + update + repo button.
-        right = Gtk.Box(
-            orientation=Gtk.Orientation.VERTICAL,
+        # Right column: action buttons.
+        action_row = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
             spacing=6,
             valign=Gtk.Align.CENTER,
             halign=Gtk.Align.END,
         )
-        box.append(right)
-
-        # Action row: Install/Open + Gear + Remove.
-        action_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        right.append(action_row)
+        box.append(action_row)
 
         self._install_btn = Gtk.Button()
-        self._install_btn.set_size_request(105, 34)
         self._install_btn.connect("clicked", self._on_install_clicked)
         # Inner box: warning icon (update indicator) + label.
         _btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4,
@@ -724,111 +756,14 @@ class DetailView(Gtk.Box):
         action_row.append(self._install_btn)
 
         self._gear_btn = Gtk.MenuButton(icon_name="emblem-system-symbolic")
-        self._gear_btn.set_size_request(34, 34)
         self._gear_btn.set_tooltip_text("Options")
         self._gear_btn.set_visible(False)
         action_row.append(self._gear_btn)
-
-        self._remove_btn = Gtk.Button(icon_name="user-trash-symbolic")
-        self._remove_btn.set_size_request(34, 34)
-        self._remove_btn.add_css_class("destructive-action")
-        self._remove_btn.set_tooltip_text("Uninstall")
-        self._remove_btn.connect("clicked", lambda _b: self._on_remove_clicked())
-        self._remove_btn.set_visible(False)
-        action_row.append(self._remove_btn)
-
-        right.append(self._make_repo_button())
 
         self._update_install_button()
         self._setup_gear_actions()
 
         return box
-
-    def _make_repo_button(self) -> Gtk.Widget:
-        """Return a flat MenuButton showing the current source repo.
-
-        Single repo: popover shows name (heading) + URI (dim-label).
-        Multiple repos: popover shows radio buttons for source selection.
-        Always shown (even with a single repo), so the user knows the source.
-        """
-        first = self._source_repos[0] if self._source_repos else None
-
-        self._source_label = Gtk.Label(
-            label=first.name if first else "No source",
-        )
-        self._source_label.add_css_class("dim-label")
-        attrs = Pango.AttrList()
-        attrs.insert(Pango.attr_weight_new(Pango.Weight.NORMAL))
-        self._source_label.set_attributes(attrs)
-
-        btn_box = Gtk.Box(
-            orientation=Gtk.Orientation.HORIZONTAL,
-            spacing=4,
-            halign=Gtk.Align.CENTER,
-        )
-        btn_box.append(self._source_label)
-        btn_box.append(Gtk.Image.new_from_icon_name("pan-down-symbolic"))
-
-        if len(self._source_repos) <= 1:
-            # Single-repo popover: show name + URI info.
-            pop_box = Gtk.Box(
-                orientation=Gtk.Orientation.VERTICAL,
-                spacing=4,
-                margin_top=12,
-                margin_bottom=12,
-                margin_start=12,
-                margin_end=12,
-            )
-            if first:
-                name_lbl = Gtk.Label(label=first.name)
-                name_lbl.add_css_class("heading")
-                name_lbl.set_xalign(0)
-                pop_box.append(name_lbl)
-
-                uri_lbl = Gtk.Label(label=getattr(first, "uri", ""))
-                uri_lbl.add_css_class("dim-label")
-                uri_lbl.set_xalign(0)
-                uri_lbl.set_wrap(True)
-                pop_box.append(uri_lbl)
-        else:
-            # Multi-repo popover: radio buttons for source selection.
-            pop_box = Gtk.Box(
-                orientation=Gtk.Orientation.VERTICAL,
-                spacing=2,
-                margin_top=6,
-                margin_bottom=6,
-                margin_start=6,
-                margin_end=6,
-            )
-            radio_group: Gtk.CheckButton | None = None
-            for idx, repo in enumerate(self._source_repos):
-                radio = Gtk.CheckButton(label=repo.name)
-                if radio_group is None:
-                    radio_group = radio
-                    radio.set_active(True)
-                else:
-                    radio.set_group(radio_group)
-                radio.connect("toggled", self._on_source_radio_toggled, idx)
-                pop_box.append(radio)
-
-        popover = Gtk.Popover()
-        popover.set_child(pop_box)
-        self._source_popover = popover
-
-        menu_btn = Gtk.MenuButton(popover=popover)
-        menu_btn.set_child(btn_box)
-        menu_btn.add_css_class("flat")
-        return menu_btn
-
-    def _on_source_radio_toggled(self, radio: Gtk.CheckButton, idx: int) -> None:
-        if not radio.get_active():
-            return
-        repo = self._source_repos[idx]
-        self._resolve = repo.resolve_asset_uri
-        self._token = repo.token
-        self._ssh_identity = repo.ssh_identity
-        self._source_label.set_label(repo.name)
-        self._source_popover.popdown()
 
     def _make_description(self) -> Gtk.Widget:
         e = self._entry

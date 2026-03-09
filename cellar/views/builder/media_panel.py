@@ -446,12 +446,14 @@ class MediaPanel(Gtk.Box):
 
         sgdb_key = load_sgdb_key()
 
-        # Show spinner on the download button
+        # Replace button content with a spinner (keep sensitive so it animates)
         dl_btn = self._dl_btn_for_slot(slot)
         if dl_btn:
+            if getattr(dl_btn, "_downloading", False):
+                return  # already in progress
+            dl_btn._downloading = True
             spinner = Gtk.Spinner(spinning=True)
             dl_btn.set_child(spinner)
-            dl_btn.set_sensitive(False)
 
         def _work():
             urls = fetch_steam_images(appid, sgdb_key)
@@ -466,9 +468,9 @@ class MediaPanel(Gtk.Box):
 
         def _restore_btn():
             if dl_btn:
+                dl_btn._downloading = False
                 dl_btn.set_child(None)
                 dl_btn.set_icon_name("folder-download-symbolic")
-                dl_btn.set_sensitive(True)
 
         def _done(path):
             _restore_btn()

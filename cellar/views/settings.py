@@ -103,7 +103,7 @@ class SettingsDialog(Adw.PreferencesDialog):
         self._sgdb_row.add_suffix(self._sgdb_spinner)
 
         self._sgdb_status = Gtk.Image(visible=bool(self._sgdb_saved))
-        self._sgdb_status.set_from_icon_name("emblem-ok-symbolic")
+        self._sgdb_status.set_from_icon_name("object-select-symbolic")
         if self._sgdb_saved:
             self._sgdb_status.add_css_class("success")
         self._sgdb_status.set_valign(Gtk.Align.CENTER)
@@ -175,7 +175,7 @@ class SettingsDialog(Adw.PreferencesDialog):
                 from cellar.backend.config import save_sgdb_key
                 save_sgdb_key(key)
                 self._sgdb_saved = key
-                self._sgdb_status.set_from_icon_name("emblem-ok-symbolic")
+                self._sgdb_status.set_from_icon_name("object-select-symbolic")
                 self._sgdb_status.add_css_class("success")
                 self.add_toast(Adw.Toast(title="API key saved"))
             else:

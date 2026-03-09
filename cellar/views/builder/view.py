@@ -86,6 +86,43 @@ class PackageBuilderView(Adw.Bin):
     # Actions
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _find_scrolled_window(widget: Gtk.Widget) -> Gtk.ScrolledWindow | None:
+        """Walk the widget tree to find the first GtkScrolledWindow child."""
+        if isinstance(widget, Gtk.ScrolledWindow):
+            return widget
+        child = widget.get_first_child()
+        while child is not None:
+            result = PackageBuilderView._find_scrolled_window(child)
+            if result is not None:
+                return result
+            child = child.get_next_sibling()
+        return None
+
+    def _get_detail_scroll_position(self) -> float:
+        """Get current scroll position of the detail page, or 0.0."""
+        visible = self._nav_view.get_visible_page()
+        if visible is not None and visible.get_tag() == "detail":
+            sw = self._find_scrolled_window(visible)
+            if sw is not None:
+                return sw.get_vadjustment().get_value()
+        return 0.0
+
+    def _restore_scroll_position(self, pos: float) -> None:
+        """Restore scroll position on the current detail page after it's laid out."""
+        if pos <= 0.0:
+            return
+        visible = self._nav_view.get_visible_page()
+        if visible is None:
+            return
+        sw = self._find_scrolled_window(visible)
+        if sw is not None:
+            def _apply(*_args):
+                sw.get_vadjustment().set_value(pos)
+                return False  # run once
+            # Defer until after layout so upper bound is correct
+            GLib.idle_add(_apply)
+
     def _setup_actions(self) -> None:
         """Register Gio actions for the builder view."""
         ag = Gio.SimpleActionGroup()
@@ -647,11 +684,14 @@ class PackageBuilderView(Adw.Bin):
         page.add(pkg_group)
 
         # Pop any existing detail page, then push the new one.
+        # Save scroll position so refreshes don't jump to top.
+        saved_scroll = self._get_detail_scroll_position()
         # Guard against _on_nav_popped clearing self._project during the swap.
         self._replacing_detail = True
         self._nav_view.pop_to_page(self._list_page)
         self._replacing_detail = False
         self._nav_view.push(detail_page)
+        self._restore_scroll_position(saved_scroll)
 
     def _refresh_detail_menu(self, project: Project) -> None:
         """Build/update the gear menu for the content header bar."""

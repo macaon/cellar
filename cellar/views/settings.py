@@ -54,21 +54,15 @@ class SettingsDialog(Adw.PreferencesDialog):
 
         # ── Group: Repositories ───────────────────────────────────────────
         self._repo_group = Adw.PreferencesGroup(title="Repositories")
-        page.add(self._repo_group)
-
-        # ── Group: Access Control ─────────────────────────────────────────
-        access_group = Adw.PreferencesGroup(title="Access Control")
-        page.add(access_group)
-
-        gen_row = Adw.ActionRow(
-            title="Generate access token",
-            subtitle="Creates a random token to use in your web server config",
+        add_btn = Gtk.Button(
+            icon_name="list-add-symbolic",
+            valign=Gtk.Align.CENTER,
+            tooltip_text="Add Repository",
         )
-        gen_btn = Gtk.Button(label="Generate", valign=Gtk.Align.CENTER)
-        gen_btn.add_css_class("suggested-action")
-        gen_btn.connect("clicked", self._on_generate_token)
-        gen_row.add_suffix(gen_btn)
-        access_group.add(gen_row)
+        add_btn.add_css_class("flat")
+        add_btn.connect("clicked", self._on_add_clicked)
+        self._repo_group.set_header_suffix(add_btn)
+        page.add(self._repo_group)
 
         # ── Group: SteamGridDB ─────────────────────────────────────────
         self._build_sgdb_group(page)
@@ -98,43 +92,59 @@ class SettingsDialog(Adw.PreferencesDialog):
         page.add(group)
 
         self._sgdb_row = Adw.PasswordEntryRow(title="API Key")
-        self._sgdb_row.set_text(load_sgdb_key())
+        self._sgdb_saved = load_sgdb_key()
+        self._sgdb_row.set_text(self._sgdb_saved)
         group.add(self._sgdb_row)
 
-        self._sgdb_save_btn = Gtk.Button(icon_name="emblem-ok-symbolic", tooltip_text="Validate & Save")
-        self._sgdb_save_btn.add_css_class("flat")
-        self._sgdb_save_btn.set_valign(Gtk.Align.CENTER)
-        self._sgdb_save_btn.connect("clicked", self._on_sgdb_save_clicked)
-        self._sgdb_row.add_suffix(self._sgdb_save_btn)
+        # Status indicator — spinner while validating, icon for result
+        self._sgdb_spinner = Gtk.Spinner(visible=False)
+        self._sgdb_spinner.set_valign(Gtk.Align.CENTER)
+        self._sgdb_spinner.set_size_request(16, 16)
+        self._sgdb_row.add_suffix(self._sgdb_spinner)
 
-        self._sgdb_saved = load_sgdb_key()
+        self._sgdb_status = Gtk.Image(visible=bool(self._sgdb_saved))
+        self._sgdb_status.set_from_icon_name("emblem-ok-symbolic")
+        if self._sgdb_saved:
+            self._sgdb_status.add_css_class("success")
+        self._sgdb_status.set_valign(Gtk.Align.CENTER)
+        self._sgdb_row.add_suffix(self._sgdb_status)
+
+        self._sgdb_debounce_id = 0
         self._sgdb_row.connect("changed", self._on_sgdb_key_edited)
-        self._update_sgdb_save_btn()
 
     def _on_sgdb_key_edited(self, _row) -> None:
-        self._update_sgdb_save_btn()
+        if self._sgdb_debounce_id:
+            GLib.source_remove(self._sgdb_debounce_id)
+            self._sgdb_debounce_id = 0
 
-    def _update_sgdb_save_btn(self) -> None:
-        current = self._sgdb_row.get_text().strip()
-        changed = current != self._sgdb_saved
-        self._sgdb_save_btn.set_sensitive(changed)
-        if not changed and self._sgdb_saved:
-            self._sgdb_save_btn.set_icon_name("emblem-ok-symbolic")
-        else:
-            self._sgdb_save_btn.set_icon_name("emblem-ok-symbolic")
-
-    def _on_sgdb_save_clicked(self, _btn) -> None:
         key = self._sgdb_row.get_text().strip()
+
+        # Empty → immediately clear
         if not key:
             from cellar.backend.config import save_sgdb_key
             save_sgdb_key("")
             self._sgdb_saved = ""
-            self._update_sgdb_save_btn()
-            self.add_toast(Adw.Toast(title="API key cleared"))
+            self._sgdb_spinner.set_visible(False)
+            self._sgdb_spinner.set_spinning(False)
+            self._sgdb_status.set_visible(False)
             return
 
-        self._sgdb_save_btn.set_sensitive(False)
-        self._sgdb_save_btn.set_icon_name("content-loading-symbolic")
+        # No change from saved value
+        if key == self._sgdb_saved:
+            return
+
+        self._sgdb_debounce_id = GLib.timeout_add(500, self._validate_sgdb_key)
+
+    def _validate_sgdb_key(self) -> int:
+        self._sgdb_debounce_id = 0
+        key = self._sgdb_row.get_text().strip()
+        if not key or key == self._sgdb_saved:
+            return GLib.SOURCE_REMOVE
+
+        # Show spinner
+        self._sgdb_status.set_visible(False)
+        self._sgdb_spinner.set_visible(True)
+        self._sgdb_spinner.set_spinning(True)
 
         from cellar.utils.async_work import run_in_background
 
@@ -149,18 +159,33 @@ class SettingsDialog(Adw.PreferencesDialog):
             return r.status_code == 200
 
         def _done(valid):
+            self._sgdb_spinner.set_visible(False)
+            self._sgdb_spinner.set_spinning(False)
+
+            # Guard against stale callback
+            current = self._sgdb_row.get_text().strip()
+            if current != key:
+                return
+
+            # Remove old CSS classes
+            self._sgdb_status.remove_css_class("success")
+            self._sgdb_status.remove_css_class("error")
+
             if valid:
                 from cellar.backend.config import save_sgdb_key
                 save_sgdb_key(key)
                 self._sgdb_saved = key
-                self._sgdb_save_btn.set_icon_name("emblem-ok-symbolic")
+                self._sgdb_status.set_from_icon_name("emblem-ok-symbolic")
+                self._sgdb_status.add_css_class("success")
                 self.add_toast(Adw.Toast(title="API key saved"))
             else:
-                self._sgdb_save_btn.set_icon_name("dialog-error-symbolic")
+                self._sgdb_status.set_from_icon_name("dialog-error-symbolic")
+                self._sgdb_status.add_css_class("error")
                 self.add_toast(Adw.Toast(title="Invalid API key"))
-            self._update_sgdb_save_btn()
+            self._sgdb_status.set_visible(True)
 
         run_in_background(_validate, on_done=_done)
+        return GLib.SOURCE_REMOVE
 
     # ------------------------------------------------------------------
     # Install location
@@ -184,13 +209,21 @@ class SettingsDialog(Adw.PreferencesDialog):
             subtitle=str(install_data_dir()),
         )
 
-        browse_btn = Gtk.Button(label="Browse\u2026")
-        browse_btn.set_valign(Gtk.Align.CENTER)
+        browse_btn = Gtk.Button(
+            icon_name="folder-open-symbolic",
+            valign=Gtk.Align.CENTER,
+            has_frame=False,
+            tooltip_text="Choose install location",
+        )
         browse_btn.connect("clicked", self._on_install_location_browse)
         self._install_location_row.add_suffix(browse_btn)
 
-        reset_btn = Gtk.Button(label="Reset")
-        reset_btn.set_valign(Gtk.Align.CENTER)
+        reset_btn = Gtk.Button(
+            icon_name="edit-undo-symbolic",
+            valign=Gtk.Align.CENTER,
+            has_frame=False,
+            tooltip_text="Reset to default location",
+        )
         reset_btn.connect("clicked", self._on_install_location_reset)
         self._install_location_row.add_suffix(reset_btn)
 
@@ -272,35 +305,67 @@ class SettingsDialog(Adw.PreferencesDialog):
     # ------------------------------------------------------------------
 
     def _build_umu_group(self, page: Adw.PreferencesPage) -> None:
-        from cellar.backend.config import load_umu_path, save_umu_path
+        from cellar.backend.config import load_umu_path
         from cellar.backend.umu import detect_umu
+
+        detected = detect_umu(None) or ""
+        desc = "Path to umu-run binary. Leave empty to auto-detect."
+        if detected:
+            desc = f"Path to umu-run binary. Leave empty to auto-detect (found: {detected})."
 
         umu_group = Adw.PreferencesGroup(
             title="umu-launcher",
-            description="Path to umu-run binary. Leave empty to auto-detect.",
+            description=desc,
         )
         page.add(umu_group)
 
-        detected = detect_umu(None) or ""
-        hint = f"e.g. {detected}" if detected else "leave empty to auto-detect"
-        self._umu_path_row = Adw.EntryRow(title=f"umu-run path ({hint})")
+        self._umu_path_row = Adw.EntryRow(title="umu-run path")
         current = load_umu_path() or ""
         if current:
             self._umu_path_row.set_text(current)
         umu_group.add(self._umu_path_row)
 
-        save_row = Adw.ActionRow(title="Save umu-run path")
-        save_btn = Gtk.Button(label="Save")
-        save_btn.add_css_class("suggested-action")
-        save_btn.set_valign(Gtk.Align.CENTER)
-        save_btn.connect("clicked", self._on_umu_save_clicked)
-        save_row.add_suffix(save_btn)
-        umu_group.add(save_row)
+        # Clear button — visible only when field has text
+        self._umu_clear_btn = Gtk.Button(
+            icon_name="edit-clear-symbolic",
+            valign=Gtk.Align.CENTER,
+            has_frame=False,
+            tooltip_text="Clear override",
+            visible=bool(current),
+        )
+        self._umu_clear_btn.connect("clicked", self._on_umu_clear)
+        self._umu_path_row.add_suffix(self._umu_clear_btn)
 
-    def _on_umu_save_clicked(self, _btn) -> None:
+        # Auto-save on Enter
+        self._umu_path_row.connect("apply", self._on_umu_apply)
+        self._umu_path_row.connect("changed", self._on_umu_changed)
+
+        # Auto-save on focus-out via the delegate
+        delegate = self._umu_path_row.get_delegate()
+        if delegate:
+            delegate.connect("notify::has-focus", self._on_umu_focus_changed)
+
+    def _on_umu_apply(self, _row) -> None:
         from cellar.backend.config import save_umu_path
         path = self._umu_path_row.get_text().strip() or None
         save_umu_path(path)
+        self.add_toast(Adw.Toast(title="umu-run path saved"))
+
+    def _on_umu_changed(self, _row) -> None:
+        has_text = bool(self._umu_path_row.get_text().strip())
+        self._umu_clear_btn.set_visible(has_text)
+
+    def _on_umu_focus_changed(self, delegate, _pspec) -> None:
+        if not delegate.has_focus():
+            from cellar.backend.config import save_umu_path
+            path = self._umu_path_row.get_text().strip() or None
+            save_umu_path(path)
+
+    def _on_umu_clear(self, _btn) -> None:
+        from cellar.backend.config import save_umu_path
+        self._umu_path_row.set_text("")
+        save_umu_path(None)
+        self.add_toast(Adw.Toast(title="umu-run path cleared"))
 
     # ------------------------------------------------------------------
     # Repo list management
@@ -316,16 +381,6 @@ class SettingsDialog(Adw.PreferencesDialog):
             row = self._make_repo_row(repo_cfg)
             self._repo_rows.append(row)
             self._repo_group.add(row)
-
-        # "Add Repository" row always appears last — same style as Access Control.
-        add_row = Adw.ActionRow(title="Add Repository")
-        add_btn = Gtk.Button(label="Add", valign=Gtk.Align.CENTER)
-        add_btn.add_css_class("suggested-action")
-        add_btn.connect("clicked", self._on_add_clicked)
-        add_row.add_suffix(add_btn)
-        add_row.set_activatable_widget(add_btn)
-        self._repo_rows.append(add_row)
-        self._repo_group.add(add_row)
 
     def _make_repo_row(self, repo_cfg: dict) -> Adw.ActionRow:
         name = repo_cfg.get("name") or ""
@@ -450,42 +505,6 @@ class SettingsDialog(Adw.PreferencesDialog):
         if self._on_repos_changed:
             self._on_repos_changed()
 
-    # ------------------------------------------------------------------
-    # Access Control
-    # ------------------------------------------------------------------
-
-    def _on_generate_token(self, _btn: Gtk.Button) -> None:
-        """Generate a token and display it in a dialog for copying."""
-        import secrets
-        token = secrets.token_hex(32)
-        label = Gtk.Label(
-            label=token,
-            wrap=True,
-            wrap_mode=2,        # WORD_CHAR
-            selectable=True,
-            xalign=0,
-            css_classes=["monospace"],
-            margin_top=8,
-        )
-        dialog = Adw.AlertDialog(
-            heading="Generated Token",
-            body=(
-                "Add this token to your web server configuration, then share "
-                "it with anyone who should have access to your repository."
-            ),
-            extra_child=label,
-        )
-        dialog.add_response("copy", "Copy to Clipboard")
-        dialog.add_response("ok", "Done")
-        dialog.set_default_response("copy")
-        dialog.set_response_appearance("copy", Adw.ResponseAppearance.SUGGESTED)
-        dialog.connect("response", lambda _d, r: self.get_clipboard().set(token) if r == "copy" else None)
-        dialog.present(self)
-
-    def _alert(self, heading: str, body: str) -> None:
-        dialog = Adw.AlertDialog(heading=heading, body=body)
-        dialog.add_response("ok", "OK")
-        dialog.present(self)
 
 
 # ---------------------------------------------------------------------------

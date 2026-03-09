@@ -113,13 +113,156 @@ class _CRCWriter:
     def write(self, data: bytes) -> int:
         n = self._fp.write(data)
         self.crc = zlib.crc32(data[:n], self.crc)
+        self._total_written += n
         if self._bytes_cb:
-            self._total_written += n
             now = time.monotonic()
             if now - self._last_cb >= 0.5:
                 self._last_cb = now
                 self._bytes_cb(self._total_written)
         return n
+
+
+#: Target size for each independent chunk archive (1 GB).
+CHUNK_SIZE = 1 * 1024 * 1024 * 1024
+
+
+class _ChunkWriter:
+    """Splits compressed output into independent chunk files with per-chunk CRC32.
+
+    Each chunk is named ``{dest_path}.001``, ``.002``, etc.  The caller
+    is responsible for closing and reopening the zstd compressor and tarfile
+    around calls to :meth:`rotate` so that every chunk is a self-contained
+    ``.tar.zst`` archive.
+
+    Works with :class:`pathlib.Path`, :class:`~cellar.utils.smb.SmbPath`,
+    and :class:`~cellar.utils.ssh.SshPath`.
+    """
+
+    __slots__ = (
+        "_dest_path", "_chunk_size", "_bytes_cb",
+        "_chunk_index", "_fp", "_crc_writer",
+        "_chunks", "_total_crc", "_total_written",
+    )
+
+    def __init__(self, dest_path, *, chunk_size: int = CHUNK_SIZE,
+                 bytes_cb: Callable[[int], None] | None = None):
+        self._dest_path = dest_path
+        self._chunk_size = chunk_size
+        self._bytes_cb = bytes_cb
+        self._chunk_index = 0
+        self._fp = None
+        self._crc_writer: _CRCWriter | None = None
+        self._chunks: list[dict] = []
+        self._total_crc = 0
+        self._total_written = 0
+        self._open_next()
+
+    # -- internal helpers --------------------------------------------------
+
+    def _chunk_path(self, index: int):
+        """Return the path for chunk *index* (1-based)."""
+        name = f"{self._dest_path.name}.{index:03d}"
+        return self._dest_path.parent / name
+
+    def _open_next(self) -> None:
+        self._chunk_index += 1
+        p = self._chunk_path(self._chunk_index)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        self._fp = p.open("wb")
+        self._crc_writer = _CRCWriter(self._fp, bytes_cb=self._bytes_cb)
+
+    def _finalize_current(self) -> None:
+        """Record metadata for the current chunk and close its file."""
+        if self._crc_writer is None:
+            return
+        size = self._crc_writer._total_written
+        crc = self._crc_writer.crc
+        self._chunks.append({
+            "size": size,
+            "crc32": format(crc & 0xFFFFFFFF, "08x"),
+        })
+        self._total_crc = zlib.crc32(b"", self._total_crc)  # placeholder — see write()
+        self._total_written += size
+        self._fp.close()
+        self._fp = None
+        self._crc_writer = None
+
+    # -- public API --------------------------------------------------------
+
+    def write(self, data: bytes) -> int:
+        """Write *data* to the current chunk, accumulating CRC32."""
+        n = self._crc_writer.write(data)
+        # Accumulate a total CRC across all chunks for archive_crc32 compat.
+        # We can't use the per-chunk CRC values for this because CRC32 is
+        # not simply composable.  Instead, feed every byte into a running
+        # total maintained separately.
+        self._total_crc = zlib.crc32(data[:n], self._total_crc)
+        return n
+
+    def should_rotate(self) -> bool:
+        """Return ``True`` when the current chunk has reached the size limit."""
+        return self._crc_writer._total_written >= self._chunk_size
+
+    def rotate(self) -> None:
+        """Finalise the current chunk and open the next one.
+
+        The caller **must** close the zstd compressor and tarfile before
+        calling this, and reopen them afterwards with the new writer.
+        """
+        self._finalize_current()
+        self._open_next()
+
+    def close(self) -> None:
+        """Finalise the last chunk."""
+        self._finalize_current()
+
+    @property
+    def chunks(self) -> list[dict]:
+        return list(self._chunks)
+
+    @property
+    def total_written(self) -> int:
+        """Total compressed bytes across all finalised chunks."""
+        if self._crc_writer:
+            return self._total_written + self._crc_writer._total_written
+        return self._total_written
+
+    @property
+    def total_crc_hex(self) -> str:
+        return format(self._total_crc & 0xFFFFFFFF, "08x")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+
+    # -- current writer (for zstd stream_writer wrapping) ------------------
+
+    @property
+    def current_writer(self) -> _CRCWriter:
+        """The :class:`_CRCWriter` for the chunk currently being written."""
+        return self._crc_writer
+
+
+def _cleanup_chunks(dest_path) -> None:
+    """Remove all ``.NNN`` chunk files for *dest_path*."""
+    parent = dest_path.parent
+    base = dest_path.name
+    try:
+        children = parent.iterdir() if hasattr(parent, "iterdir") else parent.glob("*")
+    except (OSError, Exception):
+        return
+    for p in children:
+        name = p.name if hasattr(p, "name") else str(p).rsplit("/", 1)[-1]
+        if name.startswith(base + ".") and name.rsplit(".", 1)[-1].isdigit():
+            try:
+                p.unlink(missing_ok=True)
+            except (OSError, TypeError):
+                try:
+                    p.unlink()
+                except OSError:
+                    pass
 
 
 def compress_prefix_zst(
@@ -131,17 +274,20 @@ def compress_prefix_zst(
     stats_cb: Callable[[int, int, float], None] | None = None,
     file_cb: Callable[[str], None] | None = None,
     bytes_cb: Callable[[int], None] | None = None,
-) -> tuple[int, str]:
+) -> tuple[int, str, tuple[dict, ...]]:
     """Archive *prefix_path* as a Cellar-native ``prefix/``-rooted ``.tar.zst``.
 
-    The top-level directory in the archive is always ``prefix/`` regardless of
-    the actual directory name.  Symlinks under ``drive_c/users/`` (home-dir
-    pointers) are stripped — umu/Proton recreates them on first launch.
+    The archive is split into ~1 GB independently extractable chunks named
+    ``{dest_path}.001``, ``.002``, etc.  Each chunk is a self-contained
+    ``.tar.zst`` so the installer can download, extract, and delete one
+    chunk at a time.
 
-    *stats_cb*, when provided, is called as ``stats_cb(done_files, total_files,
-    speed_bps)`` on each file so the UI can show file-count / throughput text.
+    The top-level directory in every chunk is always ``prefix/`` regardless
+    of the actual directory name.  Symlinks under ``drive_c/users/``
+    (home-dir pointers) are stripped — umu/Proton recreates them on first
+    launch.
 
-    Returns ``(size_bytes, crc32_hex)``.
+    Returns ``(total_size_bytes, total_crc32_hex, chunk_metadata)``.
     """
     import zstandard as zstd  # noqa: PLC0415
 
@@ -164,7 +310,6 @@ def compress_prefix_zst(
     def _filter(ti: tarfile.TarInfo) -> tarfile.TarInfo | None:
         if cancel_event and cancel_event.is_set():
             raise CancelledError("Cancelled")
-        # Strip symlinks under drive_c/users/ (per-user home dir pointers)
         if (ti.issym() or ti.islnk()) and "drive_c/users/" in ti.name:
             return None
         if ti.isfile():
@@ -181,21 +326,51 @@ def compress_prefix_zst(
         return ti
 
     cctx = zstd.ZstdCompressor(level=3)
+    cw = _ChunkWriter(dest_path, bytes_cb=bytes_cb)
     try:
-        with dest_path.open("wb") as out_f:
-            crc_writer = _CRCWriter(out_f, bytes_cb=bytes_cb)
-            with cctx.stream_writer(crc_writer, closefd=False) as compressor:
-                with tarfile.open(fileobj=compressor, mode="w|") as tf:
-                    tf.add(str(prefix_path), arcname="prefix", recursive=True, filter=_filter)
-            crc32_hex = format(crc_writer.crc & 0xFFFFFFFF, "08x")
+        compressor = cctx.stream_writer(cw, closefd=False)
+        tf = tarfile.open(fileobj=compressor, mode="w|")
+
+        for dirpath, dirnames, filenames in os.walk(prefix_path):
+            if cancel_event and cancel_event.is_set():
+                raise CancelledError("Cancelled")
+            rel = os.path.relpath(dirpath, prefix_path)
+            arcname = "prefix" if rel == "." else f"prefix/{rel}"
+
+            # Add directory entry itself
+            tf.add(dirpath, arcname=arcname, recursive=False, filter=_filter)
+
+            # Add directory symlinks (os.walk lists them but won't descend)
+            for d in sorted(dirnames):
+                full = os.path.join(dirpath, d)
+                if os.path.islink(full):
+                    tf.add(full, arcname=f"{arcname}/{d}", recursive=False,
+                           filter=_filter)
+
+            # Add files
+            for fn in sorted(filenames):
+                full = os.path.join(dirpath, fn)
+                tf.add(full, arcname=f"{arcname}/{fn}", recursive=False,
+                       filter=_filter)
+
+                if cw.should_rotate():
+                    tf.close()
+                    compressor.close()
+                    cw.rotate()
+                    compressor = cctx.stream_writer(cw, closefd=False)
+                    tf = tarfile.open(fileobj=compressor, mode="w|")
+
+        tf.close()
+        compressor.close()
+        cw.close()
     except CancelledError:
-        dest_path.unlink(missing_ok=True)
+        _cleanup_chunks(dest_path)
         raise
     except (tarfile.TarError, OSError) as exc:
-        dest_path.unlink(missing_ok=True)
+        _cleanup_chunks(dest_path)
         raise RuntimeError(f"Failed to compress prefix: {exc}") from exc
 
-    return dest_path.stat().st_size, crc32_hex
+    return cw.total_written, cw.total_crc_hex, tuple(cw.chunks)
 
 
 def compress_runner_zst(
@@ -206,13 +381,14 @@ def compress_runner_zst(
     progress_cb: Callable[[float], None] | None = None,
     file_cb: Callable[[str], None] | None = None,
     bytes_cb: Callable[[int], None] | None = None,
-) -> tuple[int, str]:
+) -> tuple[int, str, tuple[dict, ...]]:
     """Archive a runner directory as a ``.tar.zst``.
 
-    The top-level directory in the archive matches ``runner_dir.name``
+    The archive is split into ~1 GB independently extractable chunks.
+    The top-level directory in every chunk matches ``runner_dir.name``
     (e.g. ``GE-Proton10-32/``).  No symlink stripping is performed.
 
-    Returns ``(size_bytes, crc32_hex)``.
+    Returns ``(total_size_bytes, total_crc32_hex, chunk_metadata)``.
     """
     import zstandard as zstd  # noqa: PLC0415
 
@@ -220,6 +396,7 @@ def compress_runner_zst(
 
     total_files = sum(1 for _ in runner_dir.rglob("*") if _.is_file())
     done = [0]
+    top = runner_dir.name
 
     def _filter(ti: tarfile.TarInfo) -> tarfile.TarInfo | None:
         if cancel_event and cancel_event.is_set():
@@ -233,22 +410,48 @@ def compress_runner_zst(
         return ti
 
     cctx = zstd.ZstdCompressor(level=3)
+    cw = _ChunkWriter(dest_path, bytes_cb=bytes_cb)
     try:
-        with dest_path.open("wb") as out_f:
-            crc_writer = _CRCWriter(out_f, bytes_cb=bytes_cb)
-            with cctx.stream_writer(crc_writer, closefd=False) as compressor:
-                with tarfile.open(fileobj=compressor, mode="w|") as tf:
-                    tf.add(str(runner_dir), arcname=runner_dir.name,
-                           recursive=True, filter=_filter)
-            crc32_hex = format(crc_writer.crc & 0xFFFFFFFF, "08x")
+        compressor = cctx.stream_writer(cw, closefd=False)
+        tf = tarfile.open(fileobj=compressor, mode="w|")
+
+        for dirpath, dirnames, filenames in os.walk(runner_dir):
+            if cancel_event and cancel_event.is_set():
+                raise CancelledError("Cancelled")
+            rel = os.path.relpath(dirpath, runner_dir)
+            arcname = top if rel == "." else f"{top}/{rel}"
+
+            tf.add(dirpath, arcname=arcname, recursive=False, filter=_filter)
+
+            for d in sorted(dirnames):
+                full = os.path.join(dirpath, d)
+                if os.path.islink(full):
+                    tf.add(full, arcname=f"{arcname}/{d}", recursive=False,
+                           filter=_filter)
+
+            for fn in sorted(filenames):
+                full = os.path.join(dirpath, fn)
+                tf.add(full, arcname=f"{arcname}/{fn}", recursive=False,
+                       filter=_filter)
+
+                if cw.should_rotate():
+                    tf.close()
+                    compressor.close()
+                    cw.rotate()
+                    compressor = cctx.stream_writer(cw, closefd=False)
+                    tf = tarfile.open(fileobj=compressor, mode="w|")
+
+        tf.close()
+        compressor.close()
+        cw.close()
     except CancelledError:
-        dest_path.unlink(missing_ok=True)
+        _cleanup_chunks(dest_path)
         raise
     except (tarfile.TarError, OSError) as exc:
-        dest_path.unlink(missing_ok=True)
+        _cleanup_chunks(dest_path)
         raise RuntimeError(f"Failed to compress runner: {exc}") from exc
 
-    return dest_path.stat().st_size, crc32_hex
+    return cw.total_written, cw.total_crc_hex, tuple(cw.chunks)
 
 
 def compress_prefix_delta_zst(
@@ -262,26 +465,20 @@ def compress_prefix_delta_zst(
     stats_cb: Callable[[int, int, float], None] | None = None,
     file_cb: Callable[[str], None] | None = None,
     bytes_cb: Callable[[int], None] | None = None,
-) -> tuple[int, str]:
+) -> tuple[int, str, tuple[dict, ...]]:
     """Create a delta ``.tar.zst`` from *prefix_path* relative to *base_dir*.
 
+    The archive is split into ~1 GB independently extractable chunks.
     Works directly on the prefix directory — no intermediate full archive.
     Files identical to *base_dir* (same relative path, same BLAKE2b-128 hash)
-    are excluded.  A ``.cellar_delete`` manifest lists base files absent from
-    the prefix so the installer can remove them after seeding.
+    are excluded.  A ``.cellar_delete`` manifest is included in the last chunk
+    listing base files absent from the prefix.
 
     Symlinks under ``drive_c/users/`` are stripped (same as the full archive).
     The archive is ``prefix/``-rooted, compatible with :func:`compress_prefix_zst`
     and the installer's :func:`~cellar.backend.installer._overlay_delta`.
 
-    Progress reports 0 → 1.0 independently for each phase (scan then pack).
-    The caller receives a ``phase_cb`` notification at each transition and
-    should reset the progress bar accordingly.
-
-    *stats_cb* is called as ``stats_cb(done_files, total_files, speed_bps)``
-    during the pack phase.
-
-    Returns ``(compressed_archive_bytes, crc32_hex)``.
+    Returns ``(total_size_bytes, total_crc32_hex, chunk_metadata)``.
     """
     import hashlib
     import io
@@ -348,7 +545,7 @@ def compress_prefix_delta_zst(
         and not (prefix_path / p.relative_to(base_dir)).exists()
     )
 
-    # ── Phase 2: Pack delta files into archive ───────────────────────────────
+    # ── Phase 2: Pack delta files into chunked archive ───────────────────────
     if phase_cb:
         phase_cb("Compressing and uploading\u2026")
 
@@ -359,39 +556,50 @@ def compress_prefix_delta_zst(
     start = time.monotonic()
 
     cctx = zstd.ZstdCompressor(level=3)
+    cw = _ChunkWriter(dest_path, bytes_cb=bytes_cb)
     try:
-        with dest_path.open("wb") as out_f:
-            crc_writer = _CRCWriter(out_f, bytes_cb=bytes_cb)
-            with cctx.stream_writer(crc_writer, closefd=False) as compressor:
-                with tarfile.open(fileobj=compressor, mode="w|") as tf:
-                    for src, rel in sorted(delta_files, key=lambda t: t[1]):
-                        _chk()
-                        if file_cb:
-                            file_cb(src.name)
-                        tf.add(str(src), arcname=f"prefix/{rel}", recursive=False)
-                        done[0] += 1
-                        done_bytes[0] += src.stat().st_size
-                        if progress_cb and total_pack:
-                            progress_cb(done[0] / total_pack)
-                        if stats_cb:
-                            elapsed = time.monotonic() - start
-                            speed = done_bytes[0] / elapsed if elapsed > 0.1 else 0.0
-                            stats_cb(done[0], total_pack, speed)
-                    # Delete manifest
-                    if delete_paths:
-                        manifest = "\n".join(delete_paths).encode()
-                        ti = tarfile.TarInfo(name="prefix/.cellar_delete")
-                        ti.size = len(manifest)
-                        tf.addfile(ti, io.BytesIO(manifest))
-            crc32_hex = format(crc_writer.crc & 0xFFFFFFFF, "08x")
+        compressor = cctx.stream_writer(cw, closefd=False)
+        tf = tarfile.open(fileobj=compressor, mode="w|")
+
+        for src, rel in sorted(delta_files, key=lambda t: t[1]):
+            _chk()
+            if file_cb:
+                file_cb(src.name)
+            tf.add(str(src), arcname=f"prefix/{rel}", recursive=False)
+            done[0] += 1
+            done_bytes[0] += src.stat().st_size
+            if progress_cb and total_pack:
+                progress_cb(done[0] / total_pack)
+            if stats_cb:
+                elapsed = time.monotonic() - start
+                speed = done_bytes[0] / elapsed if elapsed > 0.1 else 0.0
+                stats_cb(done[0], total_pack, speed)
+
+            if cw.should_rotate():
+                tf.close()
+                compressor.close()
+                cw.rotate()
+                compressor = cctx.stream_writer(cw, closefd=False)
+                tf = tarfile.open(fileobj=compressor, mode="w|")
+
+        # Delete manifest goes in the last chunk
+        if delete_paths:
+            manifest = "\n".join(delete_paths).encode()
+            ti = tarfile.TarInfo(name="prefix/.cellar_delete")
+            ti.size = len(manifest)
+            tf.addfile(ti, io.BytesIO(manifest))
+
+        tf.close()
+        compressor.close()
+        cw.close()
     except CancelledError:
-        dest_path.unlink(missing_ok=True)
+        _cleanup_chunks(dest_path)
         raise
     except (tarfile.TarError, OSError) as exc:
-        dest_path.unlink(missing_ok=True)
+        _cleanup_chunks(dest_path)
         raise RuntimeError(f"Failed to create delta archive: {exc}") from exc
 
-    return dest_path.stat().st_size, crc32_hex
+    return cw.total_written, cw.total_crc_hex, tuple(cw.chunks)
 
 
 # ---------------------------------------------------------------------------
@@ -575,10 +783,14 @@ def update_in_repo(
 
         new_entry = replace(new_entry, archive_crc32=format(crc & 0xFFFFFFFF, "08x"))
 
-        # Remove the old archive file if its path changed
-        old_archive = repo_root / old_entry.archive
-        if old_archive != archive_dest and old_archive.exists():
-            old_archive.unlink(missing_ok=True)
+        # Remove old archive files (single file or chunks)
+        if old_entry.archive:
+            if old_entry.archive_chunks:
+                _cleanup_chunks(repo_root / old_entry.archive)
+            else:
+                old_archive = repo_root / old_entry.archive
+                if old_archive != archive_dest and old_archive.exists():
+                    old_archive.unlink(missing_ok=True)
 
     # ── Single images (icon, cover, logo) ────────────────────────────────
     for key in ("icon", "cover", "logo"):
@@ -717,6 +929,7 @@ def upsert_runner(
     archive_path: str,
     archive_crc32: str = "",
     archive_size: int = 0,
+    archive_chunks: tuple[dict, ...] = (),
 ) -> None:
     """Add or replace a runner entry in the ``runners`` section of ``catalogue.json``.
 
@@ -739,6 +952,8 @@ def upsert_runner(
         runners[name]["archive_size"] = archive_size
     if archive_crc32:
         runners[name]["archive_crc32"] = archive_crc32
+    if archive_chunks:
+        runners[name]["archive_chunks"] = [dict(c) for c in archive_chunks]
     _write_catalogue(cat_path, apps, categories, runners, bases, category_icons)
 
 
@@ -749,6 +964,7 @@ def upsert_base(
     archive_path: str,
     archive_crc32: str = "",
     archive_size: int = 0,
+    archive_chunks: tuple[dict, ...] = (),
 ) -> None:
     """Add or replace a base image entry in ``catalogue.json``.
 
@@ -776,6 +992,8 @@ def upsert_base(
         bases[name]["archive_size"] = archive_size
     if archive_crc32:
         bases[name]["archive_crc32"] = archive_crc32
+    if archive_chunks:
+        bases[name]["archive_chunks"] = [dict(c) for c in archive_chunks]
     _write_catalogue(cat_path, apps, categories, runners, bases, category_icons)
 
 
@@ -798,10 +1016,13 @@ def remove_base(repo_root: Path, name: str) -> None:
 
     entry = bases.pop(name, None)
     if entry and entry.get("archive"):
-        try:
-            (repo_root / entry["archive"]).unlink(missing_ok=True)
-        except OSError:
-            pass
+        if entry.get("archive_chunks"):
+            _cleanup_chunks(repo_root / entry["archive"])
+        else:
+            try:
+                (repo_root / entry["archive"]).unlink(missing_ok=True)
+            except OSError:
+                pass
 
     _write_catalogue(cat_path, apps, categories, runners, bases if bases else None, category_icons)
 
@@ -828,10 +1049,13 @@ def remove_runner(repo_root: Path, runner_name: str) -> None:
 
     entry = runners.pop(runner_name, None)
     if entry and entry.get("archive"):
-        try:
-            (repo_root / entry["archive"]).unlink(missing_ok=True)
-        except OSError:
-            pass
+        if entry.get("archive_chunks"):
+            _cleanup_chunks(repo_root / entry["archive"])
+        else:
+            try:
+                (repo_root / entry["archive"]).unlink(missing_ok=True)
+            except OSError:
+                pass
 
     _write_catalogue(cat_path, apps, categories, runners if runners else None, bases, category_icons)
 

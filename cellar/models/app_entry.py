@@ -11,6 +11,14 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 
+def chunk_filename(archive: str, index: int) -> str:
+    """Return the chunk filename for 1-based *index*.
+
+    >>> chunk_filename("apps/foo/foo.tar.zst", 1)
+    'apps/foo/foo.tar.zst.001'
+    """
+    return f"{archive}.{index:03d}"
+
 
 @dataclass(frozen=True, slots=True)
 class RunnerEntry:
@@ -24,6 +32,7 @@ class RunnerEntry:
     archive: str        # repo-relative path, e.g. "runners/GE-Proton10-32.tar.zst"
     archive_size: int = 0
     archive_crc32: str = ""
+    archive_chunks: tuple[dict, ...] = ()
 
     @classmethod
     def from_dict(cls, name: str, data: dict) -> "RunnerEntry":
@@ -32,6 +41,7 @@ class RunnerEntry:
             archive=data.get("archive", ""),
             archive_size=int(data.get("archive_size", 0)),
             archive_crc32=data.get("archive_crc32", ""),
+            archive_chunks=tuple(data.get("archive_chunks", [])),
         )
 
     def to_dict(self) -> dict:
@@ -40,6 +50,8 @@ class RunnerEntry:
             d["archive_size"] = self.archive_size
         if self.archive_crc32:
             d["archive_crc32"] = self.archive_crc32
+        if self.archive_chunks:
+            d["archive_chunks"] = [dict(c) for c in self.archive_chunks]
         return d
 
 
@@ -59,6 +71,7 @@ class BaseEntry:
     archive: str        # repo-relative path to the base archive
     archive_size: int = 0
     archive_crc32: str = ""
+    archive_chunks: tuple[dict, ...] = ()
 
     @classmethod
     def from_dict(cls, name: str, data: dict) -> "BaseEntry":
@@ -68,6 +81,7 @@ class BaseEntry:
             archive=data.get("archive", ""),
             archive_size=int(data.get("archive_size", 0)),
             archive_crc32=data.get("archive_crc32", ""),
+            archive_chunks=tuple(data.get("archive_chunks", [])),
         )
 
     def to_dict(self) -> dict:
@@ -76,6 +90,8 @@ class BaseEntry:
             d["archive_size"] = self.archive_size
         if self.archive_crc32:
             d["archive_crc32"] = self.archive_crc32
+        if self.archive_chunks:
+            d["archive_chunks"] = [dict(c) for c in self.archive_chunks]
         return d
 
 
@@ -131,6 +147,7 @@ class AppEntry:
     archive: str = ""
     archive_size: int = 0
     archive_crc32: str = ""
+    archive_chunks: tuple[dict, ...] = ()
     install_size_estimate: int = 0
     update_strategy: Literal["safe", "full"] = "safe"
     # Delta packaging — when set, this archive is a delta against the named
@@ -198,6 +215,7 @@ class AppEntry:
             archive=data.get("archive", ""),
             archive_size=int(data.get("archive_size", 0)),
             archive_crc32=data.get("archive_crc32", ""),
+            archive_chunks=tuple(data.get("archive_chunks", [])),
             install_size_estimate=int(data.get("install_size_estimate", 0)),
             update_strategy=strategy,
             base_image=data.get("base_image", ""),
@@ -245,6 +263,8 @@ class AppEntry:
         if self.archive_size:
             d["archive_size"] = self.archive_size
         _opt_str(d, "archive_crc32", self.archive_crc32)
+        if self.archive_chunks:
+            d["archive_chunks"] = [dict(c) for c in self.archive_chunks]
         if self.install_size_estimate:
             d["install_size_estimate"] = self.install_size_estimate
         d["update_strategy"] = self.update_strategy

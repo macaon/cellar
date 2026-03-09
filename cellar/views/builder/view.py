@@ -1455,7 +1455,7 @@ class PackageBuilderView(Adw.Bin):
 
             try:
                 if project.project_type == "linux":
-                    size, crc32 = compress_prefix_zst(
+                    size, crc32, chunks = compress_prefix_zst(
                         _src_path,
                         archive_dest,
                         cancel_event=cancel_event,
@@ -1469,7 +1469,7 @@ class PackageBuilderView(Adw.Bin):
                     _use_delta = is_base_installed(project.runner)
                     if _use_delta:
                         _reset_phase("Scanning files\u2026")
-                        size, crc32 = compress_prefix_delta_zst(
+                        size, crc32, chunks = compress_prefix_delta_zst(
                             _src_path,
                             base_path(project.runner),
                             archive_dest,
@@ -1481,7 +1481,7 @@ class PackageBuilderView(Adw.Bin):
                         )
                         base_image = project.runner
                     else:
-                        size, crc32 = compress_prefix_zst(
+                        size, crc32, chunks = compress_prefix_zst(
                             project.content_path,
                             archive_dest,
                             cancel_event=cancel_event,
@@ -1491,9 +1491,10 @@ class PackageBuilderView(Adw.Bin):
                         )
                         base_image = ""
             except CancelledError:
-                # Clean up the partial archive from the repo.
+                # Clean up partial chunk files from the repo.
+                from cellar.backend.packager import _cleanup_chunks
                 try:
-                    archive_dest.unlink(missing_ok=True)
+                    _cleanup_chunks(archive_dest)
                 except Exception:
                     pass
                 raise
@@ -1505,6 +1506,7 @@ class PackageBuilderView(Adw.Bin):
                 entry,
                 archive_crc32=crc32,
                 archive_size=size,
+                archive_chunks=chunks,
                 base_image=base_image,
             )
             import_to_repo(
@@ -1609,7 +1611,7 @@ class PackageBuilderView(Adw.Bin):
 
             try:
                 if project.project_type == "linux":
-                    size, crc32 = compress_prefix_zst(
+                    size, crc32, chunks = compress_prefix_zst(
                         _src_path,
                         archive_dest,
                         cancel_event=cancel_event,
@@ -1623,7 +1625,7 @@ class PackageBuilderView(Adw.Bin):
                     _use_delta = is_base_installed(project.runner)
                     if _use_delta:
                         _reset_phase("Scanning files\u2026")
-                        size, crc32 = compress_prefix_delta_zst(
+                        size, crc32, chunks = compress_prefix_delta_zst(
                             project.content_path,
                             base_path(project.runner),
                             archive_dest,
@@ -1635,7 +1637,7 @@ class PackageBuilderView(Adw.Bin):
                         )
                         base_image = project.runner
                     else:
-                        size, crc32 = compress_prefix_zst(
+                        size, crc32, chunks = compress_prefix_zst(
                             project.content_path,
                             archive_dest,
                             cancel_event=cancel_event,
@@ -1645,8 +1647,9 @@ class PackageBuilderView(Adw.Bin):
                         )
                         base_image = old_entry.base_image  # preserve existing delta setting
             except CancelledError:
+                from cellar.backend.packager import _cleanup_chunks
                 try:
-                    archive_dest.unlink(missing_ok=True)
+                    _cleanup_chunks(archive_dest)
                 except Exception:
                     pass
                 raise
@@ -1658,6 +1661,7 @@ class PackageBuilderView(Adw.Bin):
                 old_entry,
                 archive_crc32=crc32,
                 archive_size=size,
+                archive_chunks=chunks,
                 base_image=base_image,
                 launch_targets=tuple(project.entry_points),
             )
@@ -1752,7 +1756,7 @@ class PackageBuilderView(Adw.Bin):
                 GLib.idle_add(progress.set_label, "Compressing and uploading runner\u2026")
                 GLib.idle_add(progress.set_fraction, 0.0)
                 _partial_files.append(runner_archive_dest)
-                runner_size, runner_crc32 = compress_runner_zst(
+                runner_size, runner_crc32, runner_chunks = compress_runner_zst(
                     runner_src,
                     runner_archive_dest,
                     cancel_event=cancel_event,
@@ -1769,7 +1773,7 @@ class PackageBuilderView(Adw.Bin):
                 archive_dest.parent.mkdir(parents=True, exist_ok=True)
 
                 _partial_files.append(archive_dest)
-                size, crc32 = compress_prefix_zst(
+                size, crc32, base_chunks = compress_prefix_zst(
                     project.content_path,
                     archive_dest,
                     cancel_event=cancel_event,
@@ -1778,9 +1782,10 @@ class PackageBuilderView(Adw.Bin):
                     bytes_cb=_bytes_cb,
                 )
             except CancelledError:
+                from cellar.backend.packager import _cleanup_chunks
                 for f in _partial_files:
                     try:
-                        f.unlink(missing_ok=True)
+                        _cleanup_chunks(f)
                     except Exception:
                         pass
                 raise
@@ -1790,9 +1795,11 @@ class PackageBuilderView(Adw.Bin):
             GLib.idle_add(progress.start_pulse)
             upsert_runner(
                 repo_root, runner, runner_archive_rel, runner_crc32, runner_size,
+                runner_chunks,
             )
             upsert_base(
                 repo_root, base_name, runner, archive_dest_rel, crc32, size,
+                base_chunks,
             )
 
             GLib.idle_add(progress.set_label, "Installing base locally\u2026")

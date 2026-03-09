@@ -18,7 +18,7 @@ from cellar.backend.repo import (
     _LocalFetcher,
     _SshFetcher,
 )
-from cellar.models.app_entry import AppEntry, BuiltWith
+from cellar.models.app_entry import AppEntry
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

@@ -355,6 +355,142 @@ def _stream_and_extract(
 
 
 # ---------------------------------------------------------------------------
+# Chunked archive helpers
+# ---------------------------------------------------------------------------
+
+def _install_chunks(
+    archive_uri: str,
+    archive_chunks: tuple[dict, ...],
+    dest: Path,
+    *,
+    strip_top_dir: bool = False,
+    cancel_event: threading.Event | None = None,
+    progress_cb: Callable[[float], None] | None = None,
+    stats_cb: Callable[[int, int, float], None] | None = None,
+    name_cb: Callable[[str], None] | None = None,
+    token: str | None = None,
+    ssl_verify: bool = True,
+    ca_cert: str | None = None,
+    ssh_identity: str | None = None,
+) -> None:
+    """Download, verify, extract, and delete chunks one at a time.
+
+    Each chunk is an independently extractable ``.tar.zst`` archive.
+    Peak temporary disk usage is one chunk (~1 GB) plus the already-
+    extracted files.
+
+    Progress is reported cumulatively: chunk *i* of *N* reports
+    ``(i-1)/N + fraction/N`` so the overall bar advances smoothly.
+    """
+    from cellar.backend.config import install_data_dir  # noqa: PLC0415
+    from cellar.models.app_entry import chunk_filename  # noqa: PLC0415
+
+    n = len(archive_chunks)
+    total_size = sum(c["size"] for c in archive_chunks)
+    cumulative = 0
+
+    for i, chunk_meta in enumerate(archive_chunks, 1):
+        _check_cancel(cancel_event)
+        chunk_uri = chunk_filename(archive_uri, i)
+
+        # Download chunk to a temp file on the same filesystem as dest
+        # so that we can clean up easily.
+        tmp_dir = install_data_dir()
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        tmp = tmp_dir / f".cellar-chunk-{i:03d}.tmp"
+
+        try:
+            # ── Download ──────────────────────────────────────────────
+            source, sz = _build_source(
+                chunk_uri,
+                expected_size=chunk_meta["size"],
+                token=token,
+                ssl_verify=ssl_verify,
+                ca_cert=ca_cert,
+                ssh_identity=ssh_identity,
+            )
+
+            def _wrap_progress(frac: float, _base=cumulative, _chunk_sz=chunk_meta["size"],
+                               _total=total_size) -> None:
+                if progress_cb and _total > 0:
+                    progress_cb((_base + frac * _chunk_sz) / _total)
+
+            def _wrap_stats(received: int, total_bytes: int, speed: float,
+                            _base=cumulative, _total=total_size) -> None:
+                if stats_cb and _total > 0:
+                    stats_cb(_base + received, _total, speed)
+
+            _stream_to_file(source, tmp, chunk_meta["size"], chunk_meta.get("crc32", ""),
+                            cancel_event, _wrap_progress, _wrap_stats)
+
+            # ── Extract ───────────────────────────────────────────────
+            _stream_and_extract(
+                _file_chunks(tmp), chunk_meta["size"],
+                is_zst=True,
+                dest=dest,
+                expected_crc32="",  # already verified during download
+                cancel_event=cancel_event,
+                progress_cb=None,
+                stats_cb=None,
+                name_cb=name_cb,
+                strip_top_dir=strip_top_dir,
+            )
+        finally:
+            # Always clean up the chunk temp file
+            tmp.unlink(missing_ok=True)
+
+        cumulative += chunk_meta["size"]
+
+    if progress_cb:
+        progress_cb(1.0)
+
+
+def _stream_to_file(
+    source: Iterator[bytes],
+    dest: Path,
+    expected_size: int,
+    expected_crc32: str,
+    cancel_event: threading.Event | None,
+    progress_cb: Callable[[float], None] | None,
+    stats_cb: Callable[[int, int, float], None] | None,
+) -> None:
+    """Stream *source* to *dest*, verify CRC32, report progress."""
+    crc = 0
+    received = 0
+    start = time.monotonic()
+    try:
+        with open(dest, "wb") as f:
+            for chunk in source:
+                if cancel_event and cancel_event.is_set():
+                    raise InstallCancelled("Cancelled during chunk download")
+                f.write(chunk)
+                crc = zlib.crc32(chunk, crc)
+                received += len(chunk)
+                elapsed = time.monotonic() - start
+                speed = received / elapsed if elapsed > 0.1 else 0.0
+                if stats_cb:
+                    stats_cb(received, expected_size, speed)
+                if progress_cb and expected_size > 0:
+                    progress_cb(min(received / expected_size, 1.0))
+    except InstallCancelled:
+        dest.unlink(missing_ok=True)
+        raise
+    except OSError as exc:
+        dest.unlink(missing_ok=True)
+        raise InstallError(f"Failed to write chunk: {exc}") from exc
+
+    if expected_crc32:
+        actual = format(crc & 0xFFFFFFFF, "08x")
+        if actual != expected_crc32:
+            dest.unlink(missing_ok=True)
+            raise InstallError(
+                f"CRC32 mismatch on chunk — archive may be corrupt.\n"
+                f"  expected: {expected_crc32}\n"
+                f"  actual:   {actual}"
+            )
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -444,7 +580,7 @@ def install_app(
             ssh_identity=ssh_identity,
         )
 
-    # ── Steps 1-3: Stream, verify CRC32, extract (single pass) ─────────
+    # ── Steps 1-3: Stream, verify CRC32, extract ────────────────────────
     if phase_cb:
         phase_cb("Downloading & extracting package\u2026")
     if download_cb:
@@ -453,14 +589,8 @@ def install_app(
         install_cb(0.0)
     _check_cancel(cancel_event)
 
-    chunks, total = _build_source(
-        archive_uri,
-        expected_size=entry.archive_size,
-        token=token,
-        ssl_verify=ssl_verify,
-        ca_cert=ca_cert,
-        ssh_identity=ssh_identity,
-    )
+    _transport_kw = dict(token=token, ssl_verify=ssl_verify, ca_cert=ca_cert,
+                         ssh_identity=ssh_identity)
 
     if entry.base_image:
         # Delta path: extract to a temp dir on the same filesystem, then
@@ -470,16 +600,26 @@ def install_app(
         ) as tmp_str:
             delta_dir = Path(tmp_str) / "delta"
             delta_dir.mkdir()
-            _stream_and_extract(
-                chunks, total,
-                is_zst=archive_uri.endswith(".tar.zst"),
-                dest=delta_dir,
-                expected_crc32=entry.archive_crc32,
-                cancel_event=cancel_event,
-                progress_cb=download_cb,
-                stats_cb=download_stats_cb,
-                name_cb=extract_name_cb,
-            )
+            if entry.archive_chunks:
+                _install_chunks(
+                    archive_uri, entry.archive_chunks, delta_dir,
+                    cancel_event=cancel_event,
+                    progress_cb=download_cb, stats_cb=download_stats_cb,
+                    name_cb=extract_name_cb, **_transport_kw,
+                )
+            else:
+                chunks, total = _build_source(
+                    archive_uri, expected_size=entry.archive_size, **_transport_kw)
+                _stream_and_extract(
+                    chunks, total,
+                    is_zst=archive_uri.endswith(".tar.zst"),
+                    dest=delta_dir,
+                    expected_crc32=entry.archive_crc32,
+                    cancel_event=cancel_event,
+                    progress_cb=download_cb,
+                    stats_cb=download_stats_cb,
+                    name_cb=extract_name_cb,
+                )
             delta_src = _find_bottle_dir(delta_dir)
 
             from cellar.backend.base_store import base_path  # noqa: PLC0415
@@ -493,14 +633,30 @@ def install_app(
             except Exception:
                 shutil.rmtree(bottle_dest, ignore_errors=True)
                 raise
-    else:
-        # Full archive path: stream directly into the final prefix directory.
-        # strip_top_dir removes the single top-level "prefix/" component so
-        # drive_c/, dosdevices/, etc. land directly under bottle_dest.
+    elif entry.archive_chunks:
+        # Chunked full archive: download, extract, and delete each chunk.
         if phase_cb:
             phase_cb("Installing\u2026")
         bottle_dest.mkdir(parents=True, exist_ok=True)
         try:
+            _install_chunks(
+                archive_uri, entry.archive_chunks, bottle_dest,
+                strip_top_dir=True,
+                cancel_event=cancel_event,
+                progress_cb=download_cb, stats_cb=download_stats_cb,
+                name_cb=extract_name_cb, **_transport_kw,
+            )
+        except Exception:
+            shutil.rmtree(bottle_dest, ignore_errors=True)
+            raise
+    else:
+        # Legacy single-file full archive.
+        if phase_cb:
+            phase_cb("Installing\u2026")
+        bottle_dest.mkdir(parents=True, exist_ok=True)
+        try:
+            chunks, total = _build_source(
+                archive_uri, expected_size=entry.archive_size, **_transport_kw)
             _stream_and_extract(
                 chunks, total,
                 is_zst=archive_uri.endswith(".tar.zst"),
@@ -576,30 +732,35 @@ def install_linux_app(
         install_cb(0.0)
     _check_cancel(cancel_event)
 
-    chunks, total = _build_source(
-        archive_uri,
-        expected_size=entry.archive_size,
-        token=token,
-        ssl_verify=ssl_verify,
-        ca_cert=ca_cert,
-        ssh_identity=ssh_identity,
-    )
+    _transport_kw = dict(token=token, ssl_verify=ssl_verify, ca_cert=ca_cert,
+                         ssh_identity=ssh_identity)
 
     # Stream directly into the final install directory, stripping the single
     # top-level directory from the archive.
     install_dest.mkdir(parents=True, exist_ok=True)
     try:
-        _stream_and_extract(
-            chunks, total,
-            is_zst=archive_uri.endswith(".tar.zst"),
-            dest=install_dest,
-            expected_crc32=entry.archive_crc32,
-            cancel_event=cancel_event,
-            progress_cb=download_cb,
-            stats_cb=download_stats_cb,
-            name_cb=extract_name_cb,
-            strip_top_dir=True,
-        )
+        if entry.archive_chunks:
+            _install_chunks(
+                archive_uri, entry.archive_chunks, install_dest,
+                strip_top_dir=True,
+                cancel_event=cancel_event,
+                progress_cb=download_cb, stats_cb=download_stats_cb,
+                name_cb=extract_name_cb, **_transport_kw,
+            )
+        else:
+            chunks, total = _build_source(
+                archive_uri, expected_size=entry.archive_size, **_transport_kw)
+            _stream_and_extract(
+                chunks, total,
+                is_zst=archive_uri.endswith(".tar.zst"),
+                dest=install_dest,
+                expected_crc32=entry.archive_crc32,
+                cancel_event=cancel_event,
+                progress_cb=download_cb,
+                stats_cb=download_stats_cb,
+                name_cb=extract_name_cb,
+                strip_top_dir=True,
+            )
     except Exception:
         shutil.rmtree(install_dest, ignore_errors=True)
         raise
@@ -826,28 +987,35 @@ def _ensure_base_installed(
     expected_size = base_entry.archive_size if base_entry else 0
     expected_crc32 = (base_entry.archive_crc32 if base_entry else "") or ""
 
+    _transport_kw = dict(token=token, ssl_verify=ssl_verify, ca_cert=ca_cert,
+                         ssh_identity=ssh_identity)
+    archive_chunks = base_entry.archive_chunks if base_entry else ()
+
     dest = base_path(runner)
     dest.mkdir(parents=True, exist_ok=True)
     try:
-        chunks, total = _build_source(
-            base_archive_uri,
-            expected_size=expected_size,
-            token=token,
-            ssl_verify=ssl_verify,
-            ca_cert=ca_cert,
-            ssh_identity=ssh_identity,
-        )
-        _stream_and_extract(
-            chunks, total,
-            is_zst=base_archive_uri.endswith(".tar.zst"),
-            dest=dest,
-            expected_crc32=expected_crc32,
-            cancel_event=cancel_event,
-            progress_cb=download_cb,
-            stats_cb=download_stats_cb,
-            name_cb=None,
-            strip_top_dir=True,
-        )
+        if archive_chunks:
+            _install_chunks(
+                base_archive_uri, archive_chunks, dest,
+                strip_top_dir=True,
+                cancel_event=cancel_event,
+                progress_cb=download_cb, stats_cb=download_stats_cb,
+                **_transport_kw,
+            )
+        else:
+            chunks, total = _build_source(
+                base_archive_uri, expected_size=expected_size, **_transport_kw)
+            _stream_and_extract(
+                chunks, total,
+                is_zst=base_archive_uri.endswith(".tar.zst"),
+                dest=dest,
+                expected_crc32=expected_crc32,
+                cancel_event=cancel_event,
+                progress_cb=download_cb,
+                stats_cb=download_stats_cb,
+                name_cb=None,
+                strip_top_dir=True,
+            )
     except Exception:
         shutil.rmtree(dest, ignore_errors=True)
         raise
@@ -897,29 +1065,35 @@ def _ensure_runner_installed(
 
     expected_size = runner_entry.archive_size if runner_entry else 0
     expected_crc32 = (runner_entry.archive_crc32 if runner_entry else "") or ""
+    _transport_kw = dict(token=token, ssl_verify=ssl_verify, ca_cert=ca_cert,
+                         ssh_identity=ssh_identity)
+    archive_chunks = runner_entry.archive_chunks if runner_entry else ()
 
     dest = runners_dir() / runner_name
     dest.mkdir(parents=True, exist_ok=True)
     try:
-        chunks, total = _build_source(
-            runner_archive_uri,
-            expected_size=expected_size,
-            token=token,
-            ssl_verify=ssl_verify,
-            ca_cert=ca_cert,
-            ssh_identity=ssh_identity,
-        )
-        _stream_and_extract(
-            chunks, total,
-            is_zst=runner_archive_uri.endswith(".tar.zst"),
-            dest=dest,
-            expected_crc32=expected_crc32,
-            cancel_event=cancel_event,
-            progress_cb=download_cb,
-            stats_cb=download_stats_cb,
-            name_cb=None,
-            strip_top_dir=True,
-        )
+        if archive_chunks:
+            _install_chunks(
+                runner_archive_uri, archive_chunks, dest,
+                strip_top_dir=True,
+                cancel_event=cancel_event,
+                progress_cb=download_cb, stats_cb=download_stats_cb,
+                **_transport_kw,
+            )
+        else:
+            chunks, total = _build_source(
+                runner_archive_uri, expected_size=expected_size, **_transport_kw)
+            _stream_and_extract(
+                chunks, total,
+                is_zst=runner_archive_uri.endswith(".tar.zst"),
+                dest=dest,
+                expected_crc32=expected_crc32,
+                cancel_event=cancel_event,
+                progress_cb=download_cb,
+                stats_cb=download_stats_cb,
+                name_cb=None,
+                strip_top_dir=True,
+            )
     except Exception:
         shutil.rmtree(dest, ignore_errors=True)
         raise

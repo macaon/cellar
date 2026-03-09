@@ -432,6 +432,9 @@ class MediaPanel(Gtk.Box):
     # Steam image download
     # ------------------------------------------------------------------
 
+    def _dl_btn_for_slot(self, slot: str) -> Gtk.Button | None:
+        return {"icon": self._icon_dl_btn, "cover": self._cover_dl_btn, "logo": self._logo_dl_btn}.get(slot)
+
     def _on_steam_image_download(self, slot: str) -> None:
         appid = getattr(self, "_steam_appid", None)
         if not appid:
@@ -442,6 +445,13 @@ class MediaPanel(Gtk.Box):
         from cellar.utils.async_work import run_in_background
 
         sgdb_key = load_sgdb_key()
+
+        # Show spinner on the download button
+        dl_btn = self._dl_btn_for_slot(slot)
+        if dl_btn:
+            spinner = Gtk.Spinner(spinning=True)
+            dl_btn.set_child(spinner)
+            dl_btn.set_sensitive(False)
 
         def _work():
             urls = fetch_steam_images(appid, sgdb_key)
@@ -454,7 +464,14 @@ class MediaPanel(Gtk.Box):
             download_steam_image(url, dest, sgdb_key)
             return dest
 
+        def _restore_btn():
+            if dl_btn:
+                dl_btn.set_child(None)
+                dl_btn.set_icon_name("folder-download-symbolic")
+                dl_btn.set_sensitive(True)
+
         def _done(path):
+            _restore_btn()
             if not path:
                 return
             display = self._convert_if_needed(path)

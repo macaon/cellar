@@ -5,6 +5,9 @@ on:
     types: [published]
   workflow_dispatch:  # allow manual runs for testing the workflow
 
+permissions:
+  contents: write
+
 jobs:
   flatpak:
     name: Build Flatpak bundle

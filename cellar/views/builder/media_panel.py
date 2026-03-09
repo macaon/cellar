@@ -224,6 +224,9 @@ class MediaPanel(Gtk.Box):
         self._orig_icon = icon_rel
         self._orig_cover = cover_rel
         self._orig_logo = logo_rel
+        self._icon_path = icon_rel
+        self._cover_path = cover_rel
+        self._logo_path = logo_rel
         if icon_rel:
             self._icon_row.set_subtitle(GLib.markup_escape_text(Path(icon_rel).name))
             self._icon_clear_btn.set_visible(True)

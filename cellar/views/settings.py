@@ -149,8 +149,8 @@ class SettingsDialog(Adw.PreferencesDialog):
         from cellar.utils.async_work import run_in_background
 
         def _validate():
-            from cellar.utils.http import get_session
-            s = get_session()
+            from cellar.utils.http import make_session
+            s = make_session()
             r = s.get(
                 "https://www.steamgriddb.com/api/v2/grids/steam/220",
                 headers={"Authorization": f"Bearer {key}"},

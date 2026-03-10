@@ -327,7 +327,7 @@ class EditAppDialog(Adw.Dialog):
 
         self._cancel_spinner_btn = Gtk.Button(label="Cancel")
         self._cancel_spinner_btn.set_halign(Gtk.Align.CENTER)
-        self._cancel_spinner_btn.connect("clicked", self._on_cancel_spinner_clicked)
+        self._cancel_spinner_btn.connect("clicked", self._on_cancel_progress_clicked)
 
         box.append(spinner)
         box.append(self._spinner_label)

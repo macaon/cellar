@@ -236,7 +236,7 @@ class RunnerPickerDialog(Adw.Dialog):
         target_dir = runners_dir() / rel["tag"]
         parent_win = self.get_root()
         dlg = InstallRunnerDialog(
-            runner_name=rel["name"],
+            runner_name=rel["tag"],
             url=rel["url"],
             checksum=rel.get("checksum", ""),
             target_dir=target_dir,

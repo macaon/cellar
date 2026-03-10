@@ -234,7 +234,7 @@ class PackageBuilderView(Adw.Bin):
         for repo in self._writable_repos:
             try:
                 for entry in repo.fetch_catalogue():
-                    if entry.archive and entry.id not in imported_ids:
+                    if entry.id not in imported_ids:
                         results.append((entry, repo, "app"))
             except Exception as exc:
                 log.warning("Could not fetch catalogue from %s: %s", repo.uri, exc)

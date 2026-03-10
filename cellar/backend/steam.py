@@ -169,10 +169,14 @@ def fetch_steam_images(appid: int, sgdb_key: str = "") -> dict:
     if sgdb_key:
         game_id = _sgdb_resolve_game(session, appid, sgdb_key)
         if game_id:
-            result["icon"] = _sgdb_fetch_asset(session, game_id, "icons", sgdb_key)
-            result["cover"] = _sgdb_fetch_asset(session, game_id, "grids", sgdb_key,
-                                                 params={"dimensions": "600x900"})
-            result["logo"] = _sgdb_fetch_asset(session, game_id, "logos", sgdb_key)
+            official = {"types": "official"}
+            result["icon"] = _sgdb_fetch_asset(
+                session, game_id, "icons", sgdb_key, params=official)
+            result["cover"] = _sgdb_fetch_asset(
+                session, game_id, "grids", sgdb_key,
+                params={**official, "dimensions": "600x900"})
+            result["logo"] = _sgdb_fetch_asset(
+                session, game_id, "logos", sgdb_key, params=official)
             return result
 
     # Fallback: Steam CDN (no key needed, but many games lack these)

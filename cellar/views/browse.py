@@ -275,7 +275,7 @@ class BrowseView(Gtk.Box):
 
         # Status / empty-state page.
         self._status = Adw.StatusPage()
-        self._status.set_icon_name("system-software-install-symbolic")
+        self._status.set_icon_name("package-x-generic-symbolic")
         self._stack.add_named(self._status, "status")
 
         # Start on the status page until a catalogue is loaded.

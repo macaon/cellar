@@ -168,9 +168,11 @@ class DetailView(Gtk.Box):
             loading = Gtk.Box(
                 orientation=Gtk.Orientation.VERTICAL, spacing=12,
                 halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER,
-                vexpand=True,
+                vexpand=True, hexpand=True,
             )
-            loading.append(Gtk.Spinner(spinning=True, width_request=128, height_request=128))
+            spinner = Adw.Spinner()
+            spinner.set_size_request(64, 64)
+            loading.append(spinner)
             lbl = Gtk.Label(label="Loading App Details")
             lbl.add_css_class("dim-label")
             loading.append(lbl)

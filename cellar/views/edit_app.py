@@ -655,10 +655,10 @@ class EditAppDialog(Adw.Dialog):
             if self._screenshots_dirty else []
         )
 
-        from cellar.models.app_entry import AppEntry
+        from dataclasses import replace as _dc_replace
 
-        new_entry = AppEntry(
-            id=app_id,
+        new_entry = _dc_replace(
+            e,
             name=name,
             version=version,
             category=category,
@@ -674,20 +674,9 @@ class EditAppDialog(Adw.Dialog):
             screenshots=screenshot_rels,
             website=website,
             genres=genres,
-            archive=e.archive,
-            archive_size=e.archive_size,
-            archive_crc32=e.archive_crc32,
-            archive_chunks=e.archive_chunks,
-            install_size_estimate=e.install_size_estimate,
             update_strategy=strategy,
-            base_image=e.base_image,
             launch_targets=tuple(self._launch_targets),
-            compatibility_notes=e.compatibility_notes,
-            changelog=e.changelog,
-            lock_runner=e.lock_runner,
             steam_appid=steam_appid,
-            platform=e.platform,
-            screenshot_sources=e.screenshot_sources,
         )
 
         images = {
@@ -707,8 +696,6 @@ class EditAppDialog(Adw.Dialog):
 
         def _run():
             import tempfile as _tmp
-
-            from dataclasses import replace as _dc_replace
 
             from cellar.backend.packager import (
                 CancelledError,

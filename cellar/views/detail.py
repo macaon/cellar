@@ -142,55 +142,88 @@ class DetailView(Gtk.Box):
         self._runner_sz: int = 0
         self._runner_installed: bool | None = None  # None = not yet resolved
         self._base_resolve_cbs: list[Callable] = []
+        self._metadata_loaded = not entry.is_partial
+        self._edit_btn: Gtk.Button | None = None
 
-        toolbar = Adw.ToolbarView()
-        self.append(toolbar)
-        self._build(toolbar)
+        self._toolbar = Adw.ToolbarView()
+        self.append(self._toolbar)
+        self._build(self._toolbar)
+
+        if entry.is_partial:
+            self._fetch_full_metadata()
 
     # ------------------------------------------------------------------
     # Layout construction
     # ------------------------------------------------------------------
 
     def _build(self, toolbar: Adw.ToolbarView) -> None:
-        e = self._entry
-
         # ── Header bar ────────────────────────────────────────────────────
-        header = Adw.HeaderBar()
-        header.set_title_widget(Gtk.Label())  # no centred title — mimics GNOME Software
+        self._header_bar = Adw.HeaderBar()
+        self._header_bar.set_title_widget(Gtk.Label())  # no centred title
+        toolbar.add_top_bar(self._header_bar)
+
+        if self._entry.is_partial:
+            # Show a spinner until full metadata is ready — avoids layout
+            # jumps from rendering partial data then swapping in the rest.
+            loading = Gtk.Box(
+                orientation=Gtk.Orientation.VERTICAL, spacing=12,
+                halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER,
+                vexpand=True,
+            )
+            loading.append(Gtk.Spinner(spinning=True, width_request=32, height_request=32))
+            lbl = Gtk.Label(label="Loading App Details")
+            lbl.add_css_class("dim-label")
+            loading.append(lbl)
+            toolbar.set_content(loading)
+        else:
+            self._build_content()
+
+    def _build_content(self) -> None:
+        """Build the full detail page (header + body).
+
+        Called immediately for non-partial entries, or after metadata fetch
+        completes for partial ones.
+        """
+        toolbar = self._toolbar
 
         if self._is_writable and self._on_edit:
             edit_btn = Gtk.Button(
                 icon_name="document-edit-symbolic",
                 tooltip_text="Edit catalogue entry",
             )
-            edit_btn.connect("clicked", lambda _b: self._on_edit(e))
-            header.pack_end(edit_btn)
-
-        toolbar.add_top_bar(header)
+            edit_btn.connect("clicked", lambda _b: self._on_edit(self._entry))
+            self._edit_btn = edit_btn
+            self._header_bar.pack_end(edit_btn)
 
         # ── Scrollable body ───────────────────────────────────────────────
         scroll = Gtk.ScrolledWindow(vexpand=True)
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         toolbar.set_content(scroll)
 
-        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        scroll.set_child(outer)
+        self._outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        scroll.set_child(self._outer)
 
         # App header (width-clamped).
         header_clamp = Adw.Clamp(maximum_size=860, tightening_threshold=600)
         header_clamp.set_child(self._make_app_header())
-        outer.append(header_clamp)
+        self._outer.append(header_clamp)
 
         # Separator between header and screenshots/content (always shown).
-        outer.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
+        self._outer.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
+
+        self._build_detail_body()
+
+    def _build_detail_body(self) -> None:
+        """Build the screenshots band, description, and info cards."""
+        e = self._entry
 
         # Screenshots band — full-width, flanked by a second separator.
         screenshots_widget = self._make_screenshots()
         if screenshots_widget:
-            outer.append(screenshots_widget)
+            self._outer.append(screenshots_widget)
             second_sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
             second_sep.set_visible(screenshots_widget.get_visible())
-            outer.append(second_sep)
+            self._outer.append(second_sep)
 
             def _on_screenshots_visible(widget, _pspec):
                 second_sep.set_visible(widget.get_visible())
@@ -200,7 +233,7 @@ class DetailView(Gtk.Box):
         # Content (width-clamped).
         content_clamp = Adw.Clamp(maximum_size=860, tightening_threshold=600)
         content_clamp.set_margin_bottom(32)
-        outer.append(content_clamp)
+        self._outer.append(content_clamp)
 
         content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=50)
         content_box.set_margin_top(18)
@@ -214,6 +247,59 @@ class DetailView(Gtk.Box):
         self._content_box = content_box
         self._info_cards = self._make_info_cards()
         content_box.append(self._info_cards)
+
+    # ------------------------------------------------------------------
+    # Lazy metadata loading
+    # ------------------------------------------------------------------
+
+    def _fetch_full_metadata(self) -> None:
+        """Fetch ``apps/<id>/metadata.json`` in a background thread."""
+        app_id = self._entry.id
+
+        def _work() -> AppEntry | None:
+            for repo in self._source_repos:
+                try:
+                    return repo.fetch_app_metadata(app_id)
+                except Exception as exc:
+                    log.debug("metadata fetch from %s failed: %s", repo.uri, exc)
+            return None
+
+        def _done(result: AppEntry | None) -> None:
+            if result is not None:
+                self._on_metadata_loaded(result)
+            else:
+                log.warning("Could not fetch metadata for %s from any repo", app_id)
+                # Build the view with partial data so the user can still
+                # see name/icon/category and attempt install (which fetches
+                # metadata on demand).
+                self._metadata_loaded = True
+                self._build_content()
+
+        run_in_background(_work, on_done=_done)
+
+    def _on_metadata_loaded(self, full_entry: AppEntry) -> None:
+        """Replace the partial entry with full metadata and build the view."""
+        self._entry = full_entry
+        self._metadata_loaded = True
+        self._build_content()
+
+    def _ensure_metadata(self) -> AppEntry:
+        """Return the full entry, fetching synchronously if still partial.
+
+        Called from the install thread when the user clicks Install before
+        the background metadata fetch completes.
+        """
+        if not self._entry.is_partial:
+            return self._entry
+        app_id = self._entry.id
+        for repo in self._source_repos:
+            try:
+                full = repo.fetch_app_metadata(app_id)
+                GLib.idle_add(self._on_metadata_loaded, full)
+                return full
+            except Exception:
+                continue
+        return self._entry
 
     # ------------------------------------------------------------------
     # Install helpers
@@ -293,10 +379,20 @@ class DetailView(Gtk.Box):
         dialog.present(self.get_root())
 
     def _proceed_to_install(self) -> None:
-        archive_uri = self._resolve(self._entry.archive) if self._entry.archive else ""
+        # Ensure full metadata is available (archive, launch_targets, etc.).
+        if self._entry.is_partial:
+            entry = self._ensure_metadata()
+            if entry.is_partial:
+                log.error("Cannot install %s: metadata unavailable", self._entry.id)
+                return
+        else:
+            entry = self._entry
+        # Update self._entry so _get_base_image and other helpers see full data.
+        self._entry = entry
+        archive_uri = self._resolve(entry.archive) if entry.archive else ""
 
         # Resolve base archive for delta installs.
-        base_image = self._get_base_image()
+        base_image = entry.base_image
         base_entry, base_archive_uri = self._find_base_entry(base_image) if base_image else (None, "")
 
         # Resolve runner archive (runner binary required by umu-launcher).
@@ -306,7 +402,7 @@ class DetailView(Gtk.Box):
         )
 
         dialog = InstallProgressDialog(
-            entry=self._entry,
+            entry=entry,
             archive_uri=archive_uri,
             on_success=self._on_install_success,
             token=self._token,
@@ -452,6 +548,12 @@ class DetailView(Gtk.Box):
         from cellar.views.update_app import UpdateDialog
         from cellar.backend.umu import native_dir, prefixes_dir
         from cellar.backend import database
+
+        if self._entry.is_partial:
+            self._entry = self._ensure_metadata()
+            if self._entry.is_partial:
+                log.error("Cannot update %s: metadata unavailable", self._entry.id)
+                return
 
         if self._entry.platform == "linux":
             prefix_path = native_dir() / self._entry.id

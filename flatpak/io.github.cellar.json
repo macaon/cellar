@@ -7,7 +7,7 @@
   "add-extensions": {
     "org.freedesktop.Platform.Compat.i386": {
       "directory": "lib/i386-linux-gnu",
-      "version": "49"
+      "version": "25.08"
     }
   },
   "command": "cellar",

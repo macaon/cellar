@@ -737,7 +737,7 @@ class DetailView(Gtk.Box):
         uninstall_act.connect("activate", lambda *_: self._on_remove_clicked())
         ag.add_action(uninstall_act)
 
-        self.insert_action_group("detail", ag)
+        self._gear_btn.insert_action_group("detail", ag)
         self._refresh_gear_menu()
 
     def _refresh_gear_menu(self) -> None:

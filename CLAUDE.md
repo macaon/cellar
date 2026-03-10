@@ -23,9 +23,19 @@ The project is called **Cellar**.
 
 ---
 
-## Repo / catalogue format
+## Repo / catalogue format (v2)
 
-`repo/catalogue.json` is the single source of truth. App assets live under `repo/apps/<id>/` (icon, cover, screenshots, archive). Delta base archives under `repo/bases/`.
+Catalogue v2 splits data into a **slim index** (`catalogue.json`) and **per-app metadata** (`apps/<id>/metadata.json`).
+
+- `catalogue.json` — contains only the fields needed for the browse grid and update detection (id, name, version, category, summary, icon, cover, platform, archive_crc32, base_image). Runners, bases, categories, and category_icons also live here.
+- `apps/<id>/metadata.json` — contains the full `AppEntry` (all fields, self-contained). Fetched on demand when the detail view opens.
+- `INDEX_FIELDS` in `app_entry.py` defines which fields go in the index.
+- `AppEntry.is_partial` returns `True` for index-only entries (no `archive` field).
+- `Repo.fetch_app_metadata(app_id)` fetches and caches per-app metadata.
+- The packager writes both files via `_upsert_catalogue()`.
+- `regenerate_catalogue(repo_root)` rebuilds the index from all metadata files.
+
+App assets live under `repo/apps/<id>/` (icon, cover, screenshots, archive, metadata.json). Delta base archives under `repo/bases/`.
 
 ### Supported URI schemes
 
@@ -36,7 +46,7 @@ The project is called **Cellar**.
 | `sftp://[user@]host[:port]/path` | Yes | Pure-Python via `paramiko`; key auth via agent, `~/.ssh/config`, or `ssh_identity=` |
 | `smb://` | Yes | Via `smbprotocol` (pure Python, no GVFS) |
 
-HTTP(S) image assets are downloaded to a per-session temp cache (`Repo._fetch_to_cache`) — GdkPixbuf can't pass auth headers. Archives return URLs (installer handles auth). Bearer token stored per-repo in `config.json`, sent as `Authorization: Bearer <token>`.
+HTTP(S) image assets are downloaded to a persistent cache (`Repo._fetch_to_cache`) — GdkPixbuf can't pass auth headers. Per-app metadata is cached to `~/.cache/cellar/metadata/<hash>/`. Archives return URLs (installer handles auth). Bearer token stored per-repo in `config.json`, sent as `Authorization: Bearer <token>`.
 
 ---
 
@@ -133,7 +143,7 @@ cellar/
         catalogue_import.py  # Import existing catalogue entries into projects
         progress.py     # Build/install progress tracking
     backend/
-      repo.py           # Catalogue fetch + transport fetchers (_Local, _Http, _Ssh, _Smb)
+      repo.py           # Catalogue index fetch + per-app metadata fetch + transport fetchers
       packager.py       # import_to_repo / update_in_repo / remove_from_repo
       installer.py      # Download→verify→extract→import pipeline
       updater.py        # Safe rsync overlay + backup prefix

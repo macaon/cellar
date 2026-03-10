@@ -214,12 +214,14 @@ class PackageBuilderView(Adw.Bin):
 
         # Add catalogue entry cards from writable repos
         imported_ids = {p.origin_app_id for p in projects if p.origin_app_id}
-        catalogue_entries = self._fetch_writable_catalogue_entries(imported_ids)
+        catalogue_entries, used_bases = self._fetch_writable_catalogue_entries(imported_ids)
         for entry, repo, kind in catalogue_entries:
+            has_dependants = kind == "base" and entry.name in used_bases
             card = _CatalogueCard(
                 entry, repo, kind,
                 on_download=self._on_catalogue_download,
                 on_delete=self._on_catalogue_delete,
+                has_dependants=has_dependants,
             )
             self._flow_box.append(card)
 
@@ -228,14 +230,22 @@ class PackageBuilderView(Adw.Bin):
 
     def _fetch_writable_catalogue_entries(
         self, imported_ids: set[str],
-    ) -> list[tuple]:
-        """Return catalogue entries from writable repos not already imported."""
+    ) -> tuple[list[tuple], set[str]]:
+        """Return catalogue entries from writable repos not already imported.
+
+        Also returns the set of base names referenced by at least one app
+        (via ``base_image`` in the slim index), so callers can prevent
+        deletion of bases that still have dependants.
+        """
         results: list[tuple] = []
+        used_bases: set[str] = set()
         for repo in self._writable_repos:
             try:
                 for entry in repo.fetch_catalogue():
                     if entry.id not in imported_ids:
                         results.append((entry, repo, "app"))
+                    if entry.base_image:
+                        used_bases.add(entry.base_image)
             except Exception as exc:
                 log.warning("Could not fetch catalogue from %s: %s", repo.uri, exc)
             try:
@@ -245,7 +255,7 @@ class PackageBuilderView(Adw.Bin):
             except Exception as exc:
                 log.warning("Could not fetch bases from %s: %s", repo.uri, exc)
         results.sort(key=lambda t: t[0].name.lower())
-        return results
+        return results, used_bases
 
     def _on_card_activated(self, _fb, child: Gtk.FlowBoxChild) -> None:
         if isinstance(child, _ProjectCard):
@@ -2461,6 +2471,7 @@ class _CatalogueCard(Gtk.FlowBoxChild):
         *,
         on_download: Callable,
         on_delete: Callable,
+        has_dependants: bool = False,
     ) -> None:
         super().__init__()
         self.entry = entry
@@ -2527,8 +2538,12 @@ class _CatalogueCard(Gtk.FlowBoxChild):
 
         del_btn = Gtk.Button(icon_name="user-trash-symbolic")
         del_btn.add_css_class("flat")
-        del_btn.set_tooltip_text("Remove from repository")
-        del_btn.connect("clicked", lambda _: on_delete(self))
+        if has_dependants:
+            del_btn.set_sensitive(False)
+            del_btn.set_tooltip_text("Base has apps that depend on it")
+        else:
+            del_btn.set_tooltip_text("Remove from repository")
+            del_btn.connect("clicked", lambda _: on_delete(self))
         btn_box.append(del_btn)
 
         # Dim icon + text but keep action buttons fully opaque

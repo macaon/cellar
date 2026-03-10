@@ -2,13 +2,27 @@
 
 A single ``AppEntry`` carries everything the client needs — browse grid
 data, detail view metadata, and installer configuration — in one object.
-The ``catalogue.json`` at the repo root is the sole source of truth.
+
+Catalogue v2 splits storage into two tiers:
+
+* **Index** — ``catalogue.json`` carries only the fields needed for the
+  browse grid and update detection (see :data:`INDEX_FIELDS`).
+* **Full metadata** — ``apps/<id>/metadata.json`` contains the complete
+  ``AppEntry``.  Loaded on demand when the detail view opens.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Literal
+
+
+# Fields included in the slim catalogue.json index (v2).  Everything else
+# lives only in the per-app ``apps/<id>/metadata.json``.
+INDEX_FIELDS: tuple[str, ...] = (
+    "id", "name", "version", "category", "summary",
+    "icon", "cover", "platform", "archive_crc32", "base_image",
+)
 
 
 def chunk_filename(archive: str, index: int) -> str:
@@ -174,6 +188,16 @@ class AppEntry:
     # ------------------------------------------------------------------
 
     @property
+    def is_partial(self) -> bool:
+        """``True`` when this entry contains only index-level data.
+
+        An index-only entry has no ``archive`` path — the full metadata
+        (including archive, launch targets, screenshots, …) must be
+        fetched from ``apps/<id>/metadata.json``.
+        """
+        return not self.archive
+
+    @property
     def entry_point(self) -> str:
         return self.launch_targets[0]["path"] if self.launch_targets else ""
 
@@ -227,8 +251,37 @@ class AppEntry:
             lock_runner=bool(data.get("lock_runner", False)),
         )
 
+    def to_index_dict(self) -> dict:
+        """Serialise only the index fields for the slim ``catalogue.json``.
+
+        Returns a dict containing only the fields in :data:`INDEX_FIELDS`.
+        Empty strings are omitted (except ``id``, ``name``, ``version``,
+        ``category`` which are always present).
+        """
+        d: dict = {
+            "id": self.id,
+            "name": self.name,
+            "version": self.version,
+            "category": self.category,
+        }
+        _opt_str(d, "summary", self.summary)
+        _opt_str(d, "icon", self.icon)
+        _opt_str(d, "cover", self.cover)
+        d["platform"] = self.platform
+        _opt_str(d, "archive_crc32", self.archive_crc32)
+        _opt_str(d, "base_image", self.base_image)
+        return d
+
+    def to_metadata_dict(self) -> dict:
+        """Serialise the full entry for ``apps/<id>/metadata.json``.
+
+        Alias for :meth:`to_dict` — the metadata file is self-contained,
+        including all index fields.
+        """
+        return self.to_dict()
+
     def to_dict(self) -> dict:
-        """Serialise to a ``catalogue.json``-compatible dict.
+        """Serialise to a full ``catalogue.json``-compatible dict.
 
         Empty strings, empty collections, and ``None`` values are omitted
         to keep the JSON readable.

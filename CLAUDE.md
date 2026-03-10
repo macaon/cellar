@@ -27,7 +27,7 @@ The project is called **Cellar**.
 
 Catalogue v2 splits data into a **slim index** (`catalogue.json`) and **per-app metadata** (`apps/<id>/metadata.json`).
 
-- `catalogue.json` — contains only the fields needed for the browse grid and update detection (id, name, version, category, summary, icon, cover, platform, archive_crc32, base_image). Runners, bases, categories, and category_icons also live here.
+- `catalogue.json` — contains only the fields needed for the browse grid and update detection (id, name, category, summary, icon, cover, platform, archive_crc32, base_image). Runners, bases, categories, and category_icons also live here.
 - `apps/<id>/metadata.json` — contains the full `AppEntry` (all fields, self-contained). Fetched on demand when the detail view opens.
 - `INDEX_FIELDS` in `app_entry.py` defines which fields go in the index.
 - `AppEntry.is_partial` returns `True` for index-only entries (no `archive` field).

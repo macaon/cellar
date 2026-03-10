@@ -20,7 +20,7 @@ from typing import Literal
 # Fields included in the slim catalogue.json index (v2).  Everything else
 # lives only in the per-app ``apps/<id>/metadata.json``.
 INDEX_FIELDS: tuple[str, ...] = (
-    "id", "name", "version", "category", "summary",
+    "id", "name", "category", "summary",
     "icon", "cover", "platform", "archive_crc32", "base_image",
 )
 
@@ -218,7 +218,7 @@ class AppEntry:
         return cls(
             id=data["id"],
             name=data["name"],
-            version=data["version"],
+            version=data.get("version", ""),
             category=data["category"],
             summary=data.get("summary", ""),
             description=data.get("description", ""),
@@ -255,13 +255,12 @@ class AppEntry:
         """Serialise only the index fields for the slim ``catalogue.json``.
 
         Returns a dict containing only the fields in :data:`INDEX_FIELDS`.
-        Empty strings are omitted (except ``id``, ``name``, ``version``,
-        ``category`` which are always present).
+        Empty strings are omitted (except ``id``, ``name``, ``category``
+        which are always present).
         """
         d: dict = {
             "id": self.id,
             "name": self.name,
-            "version": self.version,
             "category": self.category,
         }
         _opt_str(d, "summary", self.summary)

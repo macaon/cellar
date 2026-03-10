@@ -316,6 +316,7 @@ def update_app_safe(
                     InstallError,
                     _build_source,
                     _find_bottle_dir,
+                    _install_chunks,
                     _stream_and_extract,
                 )
             except ImportError as exc:
@@ -324,21 +325,32 @@ def update_app_safe(
             extract_dir = tmp / "extracted"
             extract_dir.mkdir()
             try:
-                chunks, total = _build_source(
-                    archive_uri,
-                    expected_size=entry.archive_size,
-                    token=token,
-                )
-                _stream_and_extract(
-                    chunks, total,
-                    is_zst=archive_uri.endswith(".tar.zst"),
-                    dest=extract_dir,
-                    expected_crc32=entry.archive_crc32,
-                    cancel_event=cancel_event,
-                    progress_cb=_sub(dl_lo, ext_hi),
-                    stats_cb=stats_cb,
-                    name_cb=None,
-                )
+                if entry.archive_chunks:
+                    _install_chunks(
+                        archive_uri,
+                        entry.archive_chunks,
+                        extract_dir,
+                        cancel_event=cancel_event,
+                        progress_cb=_sub(dl_lo, ext_hi),
+                        stats_cb=stats_cb,
+                        token=token,
+                    )
+                else:
+                    chunks, total = _build_source(
+                        archive_uri,
+                        expected_size=entry.archive_size,
+                        token=token,
+                    )
+                    _stream_and_extract(
+                        chunks, total,
+                        is_zst=archive_uri.endswith(".tar.zst"),
+                        dest=extract_dir,
+                        expected_crc32=entry.archive_crc32,
+                        cancel_event=cancel_event,
+                        progress_cb=_sub(dl_lo, ext_hi),
+                        stats_cb=stats_cb,
+                        name_cb=None,
+                    )
                 bottle_src = _find_bottle_dir(extract_dir)
             except InstallCancelled:
                 raise UpdateCancelled

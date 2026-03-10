@@ -541,7 +541,7 @@ class Repo:
                 log.warning(
                     "Skipping malformed catalogue entry %r: %s", item.get("id"), exc
                 )
-        log.info("Loaded %d entries from %s", len(entries), self.uri)
+        log.debug("Loaded %d entries from %s", len(entries), self.uri)
         # Garbage-collect stale cached images after a successful online fetch.
         if not self._is_offline and self._cache_dir is not None:
             try:

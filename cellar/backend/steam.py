@@ -160,8 +160,8 @@ def fetch_steam_images(appid: int, sgdb_key: str = "") -> dict:
     """Return download URLs for icon, cover, and logo for a Steam app.
 
     When an SGDB API key is provided the game's ``platformdata`` is used to
-    construct original Steam CDN URLs (steamstatic).  Falls back to SGDB
-    community assets, then to a blind Steam CDN HEAD check.
+    construct original Steam CDN URLs (steamstatic).  Only official Steam
+    assets are returned — empty string for any slot without one.
 
     Returns ``{"icon": url, "cover": url, "logo": url}`` — any value may
     be empty if the asset is unavailable.
@@ -170,34 +170,12 @@ def fetch_steam_images(appid: int, sgdb_key: str = "") -> dict:
     session = make_session()
 
     if sgdb_key:
-        game_id, platform_meta = _sgdb_resolve_game(session, appid, sgdb_key)
-        # Primary: build URLs from Steam platform metadata
+        _game_id, platform_meta = _sgdb_resolve_game(session, appid, sgdb_key)
         if platform_meta:
-            result = _steam_cdn_urls(appid, platform_meta)
-        # Fallback: SGDB community assets for any missing slots
-        if game_id:
-            if not result["icon"]:
-                result["icon"] = _sgdb_fetch_asset(
-                    session, game_id, "icons", sgdb_key,
-                    params={"styles": "official"})
-            if not result["icon"]:
-                result["icon"] = _sgdb_fetch_asset(
-                    session, game_id, "icons", sgdb_key)
-            if not result["cover"]:
-                result["cover"] = _sgdb_fetch_asset(
-                    session, game_id, "grids", sgdb_key,
-                    params={"dimensions": "600x900"})
-            if not result["logo"]:
-                result["logo"] = _sgdb_fetch_asset(
-                    session, game_id, "logos", sgdb_key,
-                    params={"styles": "official"})
-        if result["icon"] or result["cover"] or result["logo"]:
-            return result
+            return _steam_cdn_urls(appid, platform_meta)
 
-    # Last resort: blind Steam CDN HEAD check (no key needed)
+    # Fallback: blind Steam CDN HEAD check (no key needed)
     for slot, path in (("cover", "library_600x900.jpg"), ("logo", "logo.png")):
-        if result[slot]:
-            continue
         url = f"{_STEAM_CDN}/{appid}/{path}"
         try:
             r = session.head(url, timeout=10, allow_redirects=True)
@@ -300,33 +278,3 @@ def _first_lang_value(d: dict) -> str:
     return d.get("english") or d.get("en") or next(iter(d.values()), "")
 
 
-def _sgdb_fetch_asset(
-    session, game_id: int, asset_type: str, sgdb_key: str,
-    *, params: dict | None = None,
-) -> str:
-    """Fetch the best URL for an asset type from SteamGridDB.
-
-    *asset_type* is one of ``"icons"``, ``"grids"``, ``"logos"``.
-    """
-    headers = {"Authorization": f"Bearer {sgdb_key}"}
-    try:
-        r = session.get(
-            f"{_SGDB_API}/{asset_type}/game/{game_id}",
-            headers=headers, params=params, timeout=15,
-        )
-    except Exception as exc:
-        log.debug("SGDB %s fetch failed: %s", asset_type, exc)
-        return ""
-    if r.status_code != 200:
-        log.debug("SGDB %s fetch failed: %s %s", asset_type, r.status_code, r.text[:200])
-        return ""
-    items = r.json().get("data", [])
-    if not items:
-        log.debug("SGDB returned no %s for game %s", asset_type, game_id)
-        return ""
-    # Icons: prefer .ico (multi-resolution)
-    if asset_type == "icons":
-        ico = [i for i in items if i.get("mime") == "image/vnd.microsoft.icon"]
-        if ico:
-            return ico[0]["url"]
-    return items[0].get("url", "")

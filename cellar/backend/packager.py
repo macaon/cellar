@@ -999,7 +999,12 @@ def _upsert_catalogue(repo_root: Path, entry) -> None:
     else:
         apps = []
     apps = [a for a in apps if a.get("id") != entry.id]
-    apps.append(entry.to_dict())
+    apps.append(entry.to_index_dict())
+    # Write full per-app metadata
+    meta_dir = repo_root / "apps" / entry.id
+    meta_dir.mkdir(parents=True, exist_ok=True)
+    meta_path = meta_dir / "metadata.json"
+    meta_path.write_text(json.dumps(entry.to_metadata_dict(), indent=2, ensure_ascii=False))
     # Auto-register custom category into the top-level categories list
     category = entry.category if hasattr(entry, "category") else ""
     if category and category not in BASE_CATEGORIES:

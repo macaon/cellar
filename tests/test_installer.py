@@ -191,7 +191,7 @@ def test_install_app_progress_reported(tmp_path):
 def test_install_app_unsupported_scheme_raises(tmp_path):
     entry = _entry()
     with _patch_prefixes_dir(tmp_path):
-        with pytest.raises(ins.InstallError, match="not yet supported"):
+        with pytest.raises(ins.InstallError, match="not supported"):
             ins.install_app(entry, "ssh://host/path/archive.tar.gz")
 
 

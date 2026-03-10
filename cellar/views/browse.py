@@ -83,6 +83,23 @@ class _FixedBox(Gtk.Widget):
         super().do_dispose()
 
 
+def _dispose_subtree(widget: Gtk.Widget) -> None:
+    """Recursively unparent all descendants of *widget*.
+
+    PyGObject does not reliably call ``do_dispose`` on custom widgets
+    when they become orphaned, so GTK may warn about children still
+    being present at finalization time.  Walking the subtree explicitly
+    ensures every child is unparented before the top-level widget is
+    detached.
+    """
+    child = widget.get_first_child()
+    while child is not None:
+        nxt = child.get_next_sibling()
+        _dispose_subtree(child)
+        child.unparent()
+        child = nxt
+
+
 # ---------------------------------------------------------------------------
 # AppCard
 # ---------------------------------------------------------------------------
@@ -202,6 +219,12 @@ class AppCard(Gtk.FlowBoxChild):
         self.set_child(fixed)
 
     def do_dispose(self) -> None:
+        # Explicitly tear down the _FixedBox subtree — PyGObject does not
+        # reliably call do_dispose on orphaned custom widgets, which causes
+        # "Finalizing CellarFixedBox but it still has children" warnings.
+        child = self.get_first_child()
+        if child is not None:
+            _dispose_subtree(child)
         self.set_child(None)
         super().do_dispose()
 

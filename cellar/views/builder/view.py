@@ -2399,6 +2399,14 @@ class _NewProjectCard(Gtk.FlowBoxChild):
         fixed.set_child(card)
         self.set_child(fixed)
 
+    def do_dispose(self) -> None:
+        from cellar.views.browse import _dispose_subtree
+        child = self.get_first_child()
+        if child is not None:
+            _dispose_subtree(child)
+        self.set_child(None)
+        super().do_dispose()
+
 
 class _ProjectCard(Gtk.FlowBoxChild):
     """A project card matching the browse view's AppCard layout."""
@@ -2454,6 +2462,14 @@ class _ProjectCard(Gtk.FlowBoxChild):
         fixed = _FixedBox(_CARD_WIDTH, _CARD_HEIGHT, clip=False)
         fixed.set_child(card)
         self.set_child(fixed)
+
+    def do_dispose(self) -> None:
+        from cellar.views.browse import _dispose_subtree
+        child = self.get_first_child()
+        if child is not None:
+            _dispose_subtree(child)
+        self.set_child(None)
+        super().do_dispose()
 
     def refresh_label(self) -> None:
         """Update the displayed name."""
@@ -2554,4 +2570,12 @@ class _CatalogueCard(Gtk.FlowBoxChild):
         fixed = _FixedBox(_CARD_WIDTH, _CARD_HEIGHT, clip=False)
         fixed.set_child(card)
         self.set_child(fixed)
+
+    def do_dispose(self) -> None:
+        from cellar.views.browse import _dispose_subtree
+        child = self.get_first_child()
+        if child is not None:
+            _dispose_subtree(child)
+        self.set_child(None)
+        super().do_dispose()
 

@@ -1818,6 +1818,7 @@ class PackageBuilderView(Adw.Bin):
             archive_dest = repo_root / entry.archive
             archive_dest.parent.mkdir(parents=True, exist_ok=True)
 
+            _reset_phase("Compressing and uploading\u2026")
             try:
                 if project.project_type == "linux":
                     size, crc32, chunks = compress_prefix_zst(

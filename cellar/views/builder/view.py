@@ -248,11 +248,11 @@ class PackageBuilderView(Adw.Bin):
         return results
 
     def _on_card_activated(self, _fb, child: Gtk.FlowBoxChild) -> None:
-        if not hasattr(child, "project"):
+        if isinstance(child, _ProjectCard):
+            self._project = child.project
+            self._show_project(self._project)
+        elif isinstance(child, _NewProjectCard):
             self._on_new_project_clicked(None)
-            return
-        self._project = child.project  # type: ignore[attr-defined]
-        self._show_project(self._project)
 
     def _on_nav_popped(self, _nav, _page) -> None:
         """User navigated back to the list page."""

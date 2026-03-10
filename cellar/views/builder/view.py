@@ -262,22 +262,15 @@ class PackageBuilderView(Adw.Bin):
     def _on_new_project_clicked(self, _btn) -> None:
         """Open the guided New Project chooser dialog."""
         dialog = _NewProjectDialog(
-            repos=self._all_repos,
-            on_windows=self._on_new_windows_with_base,
+            on_windows=self._on_new_windows,
             on_linux=lambda: self._on_new_linux_clicked(None),
             on_base=lambda: self._on_new_base_clicked(None),
         )
         dialog.present(self)
 
-    def _on_new_windows_with_base(self, base_name: str) -> None:
-        """Create a new Windows project with the chosen base image."""
-        def _on_created(project: Project) -> None:
-            # Set the selected base on the project before showing detail
-            project.runner = base_name
-            save_project(project)
-            self._on_project_created(project)
-
-        dialog = AppMetadataDialog(on_created=_on_created)
+    def _on_new_windows(self) -> None:
+        """Create a new Windows project — base image is selected in detail view."""
+        dialog = AppMetadataDialog(on_created=self._on_project_created)
         dialog.present(self)
 
     def _on_new_linux_clicked(self, _btn) -> None:
@@ -2266,29 +2259,24 @@ class _NewProjectDialog(Adw.Dialog):
     def __init__(
         self,
         *,
-        repos: list,
-        on_windows: Callable[[str], None],
+        on_windows: Callable[[], None],
         on_linux: Callable[[], None],
         on_base: Callable[[], None],
     ) -> None:
         super().__init__(title="New Project", content_width=400, content_height=340)
-        self._repos = repos
         self._on_windows = on_windows
         self._on_linux = on_linux
         self._on_base = on_base
 
-        self._stack = Adw.ViewStack()
-
-        # ── Page 1: platform chooser ────────────────────────────────────
-        chooser_toolbar = Adw.ToolbarView()
-        chooser_header = Adw.HeaderBar()
-        chooser_header.set_show_end_title_buttons(False)
+        toolbar = Adw.ToolbarView()
+        header = Adw.HeaderBar()
+        header.set_show_end_title_buttons(False)
         cancel_btn = Gtk.Button(label="Cancel")
         cancel_btn.connect("clicked", lambda _: self.close())
-        chooser_header.pack_start(cancel_btn)
-        chooser_toolbar.add_top_bar(chooser_header)
+        header.pack_start(cancel_btn)
+        toolbar.add_top_bar(header)
 
-        chooser_page = Adw.PreferencesPage()
+        page = Adw.PreferencesPage()
         group = Adw.PreferencesGroup()
         group.set_description(
             "Choose the type of package to create."
@@ -2336,49 +2324,15 @@ class _NewProjectDialog(Adw.Dialog):
         base_row.connect("activated", self._on_base_activated)
         group.add(base_row)
 
-        chooser_page.add(group)
-        chooser_toolbar.set_content(chooser_page)
-        self._stack.add_titled(chooser_toolbar, "chooser", "New Project")
-
-        # ── Page 2: base selection (Windows path) ───────────────────────
-        base_toolbar = Adw.ToolbarView()
-        base_header = Adw.HeaderBar()
-        base_header.set_show_end_title_buttons(False)
-        back_btn = Gtk.Button(icon_name="go-previous-symbolic")
-        back_btn.connect("clicked", self._on_back_to_chooser)
-        base_header.pack_start(back_btn)
-
-        self._next_btn = Gtk.Button(label="Next")
-        self._next_btn.add_css_class("suggested-action")
-        self._next_btn.set_sensitive(False)
-        self._next_btn.connect("clicked", self._on_next_clicked)
-        base_header.pack_end(self._next_btn)
-
-        base_toolbar.add_top_bar(base_header)
-
-        self._base_page = Adw.PreferencesPage()
-        self._base_group = Adw.PreferencesGroup(
-            title="Base Image",
-            description=(
-                "Windows packages are built on top of a base image that "
-                "provides the Wine runtime. Select one to continue."
-            ),
-        )
-        self._base_page.add(self._base_group)
-        base_toolbar.set_content(self._base_page)
-        self._stack.add_titled(base_toolbar, "base", "Select Base")
-
-        self.set_child(self._stack)
-
-        # State
-        self._installed_bases: list[str] = []
-        self._selected_base: str = ""
+        page.add(group)
+        toolbar.set_content(page)
+        self.set_child(toolbar)
 
     # ── Platform row handlers ───────────────────────────────────────────
 
     def _on_windows_activated(self, _row) -> None:
-        self._populate_base_list()
-        self._stack.set_visible_child_name("base")
+        self.close()
+        self._on_windows()
 
     def _on_linux_activated(self, _row) -> None:
         self.close()
@@ -2387,102 +2341,6 @@ class _NewProjectDialog(Adw.Dialog):
     def _on_base_activated(self, _row) -> None:
         self.close()
         self._on_base()
-
-    # ── Base selection page ─────────────────────────────────────────────
-
-    def _populate_base_list(self) -> None:
-        """Populate base image list from repos (installed only)."""
-        from cellar.backend.base_store import is_base_installed
-
-        # Clear old rows
-        while True:
-            child = self._base_group.get_first_child()
-            # PreferencesGroup wraps children in a listbox; walk to find ActionRows
-            if child is None:
-                break
-            # The group header/description are not ActionRows — skip them
-            row = child.get_first_child() if not isinstance(child, Adw.ActionRow) else child
-            # Simpler: just rebuild the group
-            break
-        # Rebuild: remove old group, create new one
-        self._base_page.remove(self._base_group)
-        self._base_group = Adw.PreferencesGroup(
-            title="Base Image",
-            description=(
-                "Windows packages are built on top of a base image that "
-                "provides the Wine runtime. Select one to continue."
-            ),
-        )
-        self._base_page.add(self._base_group)
-
-        seen: set[str] = set()
-        self._installed_bases = []
-        for repo in self._repos:
-            for name in getattr(repo, "_bases", {}):
-                if name not in seen and is_base_installed(name):
-                    seen.add(name)
-                    self._installed_bases.append(name)
-        self._installed_bases.sort()
-
-        if self._installed_bases:
-            first_check: Gtk.CheckButton | None = None
-            for base_name in self._installed_bases:
-                row = Adw.ActionRow(title=base_name)
-                check = Gtk.CheckButton()
-                check.set_valign(Gtk.Align.CENTER)
-                if first_check is None:
-                    first_check = check
-                    check.set_active(True)
-                    self._selected_base = base_name
-                    self._next_btn.set_sensitive(True)
-                else:
-                    check.set_group(first_check)
-                check.connect("toggled", self._on_base_radio_toggled, base_name)
-                row.add_prefix(check)
-                row.set_activatable_widget(check)
-                self._base_group.add(row)
-        else:
-            # No bases — guide user to create one first
-            status_row = Adw.ActionRow(
-                title="No base images available",
-                subtitle=(
-                    "A base image must be created and published before "
-                    "you can build a Windows package."
-                ),
-            )
-            status_row.add_prefix(
-                Gtk.Image.new_from_icon_name("dialog-warning-symbolic")
-            )
-            self._base_group.add(status_row)
-
-            create_btn = Gtk.Button(label="Create Base Package\u2026")
-            create_btn.add_css_class("suggested-action")
-            create_btn.set_halign(Gtk.Align.CENTER)
-            create_btn.set_margin_top(12)
-            create_btn.connect("clicked", self._on_create_base_clicked)
-            self._base_group.add(create_btn)
-
-            self._next_btn.set_sensitive(False)
-            self._selected_base = ""
-
-    def _on_base_radio_toggled(
-        self, check: Gtk.CheckButton, base_name: str
-    ) -> None:
-        if check.get_active():
-            self._selected_base = base_name
-            self._next_btn.set_sensitive(True)
-
-    def _on_create_base_clicked(self, _btn) -> None:
-        self.close()
-        self._on_base()
-
-    def _on_next_clicked(self, _btn) -> None:
-        base = self._selected_base
-        self.close()
-        self._on_windows(base)
-
-    def _on_back_to_chooser(self, _btn) -> None:
-        self._stack.set_visible_child_name("chooser")
 
 
 class _NewProjectCard(Gtk.FlowBoxChild):

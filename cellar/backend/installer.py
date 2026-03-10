@@ -358,6 +358,75 @@ def _stream_and_extract(
 # Chunked archive helpers
 # ---------------------------------------------------------------------------
 
+def _preflight_check_chunks(
+    archive_uri: str,
+    n_chunks: int,
+    *,
+    token: str | None = None,
+    ssl_verify: bool = True,
+    ca_cert: str | None = None,
+    ssh_identity: str | None = None,
+) -> None:
+    """Verify that all chunk files exist before starting a download.
+
+    Raises ``InstallError`` listing any missing chunks.  For HTTP(S) repos
+    this uses HEAD requests; for local/SMB/SSH it uses stat-like checks.
+    """
+    from cellar.models.app_entry import chunk_filename  # noqa: PLC0415
+
+    parsed = urlparse(archive_uri)
+    scheme = parsed.scheme.lower()
+    missing: list[str] = []
+
+    for i in range(1, n_chunks + 1):
+        uri = chunk_filename(archive_uri, i)
+        try:
+            if scheme in ("", "file"):
+                p = Path(parsed.path if scheme == "file" else uri)
+                if not p.exists():
+                    missing.append(uri)
+            elif scheme in ("http", "https"):
+                session = make_session(
+                    token=token, ssl_verify=ssl_verify, ca_cert=ca_cert,
+                )
+                resp = session.head(uri, timeout=DEFAULT_TIMEOUT)
+                if resp.status_code >= 400:
+                    missing.append(uri)
+            elif scheme == "smb":
+                import smbclient  # type: ignore[import]
+                from cellar.utils.smb import smb_uri_to_unc
+                unc = smb_uri_to_unc(uri)
+                try:
+                    smbclient.stat(unc)
+                except Exception:
+                    missing.append(uri)
+            elif scheme == "sftp":
+                from cellar.utils.ssh import _get_sftp, _return_sftp
+                host = parsed.hostname or ""
+                port = parsed.port or 22
+                user = parsed.username or None
+                sftp = _get_sftp(host, port, user, ssh_identity)
+                try:
+                    chunk_path = urlparse(uri).path
+                    sftp.stat(chunk_path)
+                except FileNotFoundError:
+                    missing.append(uri)
+                finally:
+                    _return_sftp(host, port, user, ssh_identity, sftp)
+        except Exception:
+            # If the check itself fails, skip preflight rather than
+            # blocking the install — the download will fail with a
+            # more specific error anyway.
+            return
+
+    if missing:
+        names = ", ".join(Path(m).name for m in missing)
+        raise InstallError(
+            f"Missing archive chunks on server: {names}. "
+            f"The repository may be incomplete or corrupted."
+        )
+
+
 def _install_chunks(
     archive_uri: str,
     archive_chunks: tuple[dict, ...],
@@ -386,6 +455,14 @@ def _install_chunks(
     from cellar.models.app_entry import chunk_filename  # noqa: PLC0415
 
     n = len(archive_chunks)
+
+    # Verify all chunks exist before downloading anything.
+    _preflight_check_chunks(
+        archive_uri, n,
+        token=token, ssl_verify=ssl_verify,
+        ca_cert=ca_cert, ssh_identity=ssh_identity,
+    )
+
     total_size = sum(c["size"] for c in archive_chunks)
     cumulative = 0
 

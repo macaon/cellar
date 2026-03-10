@@ -21,7 +21,8 @@
     "--filesystem=home",
     "--device=dri",
     "--allow=multiarch",
-    "--talk-name=org.freedesktop.secrets"
+    "--talk-name=org.freedesktop.secrets",
+    "--talk-name=org.freedesktop.Flatpak"
   ],
   "build-options": {
     "env": {

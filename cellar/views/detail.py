@@ -570,12 +570,14 @@ class DetailView(Gtk.Box):
         import subprocess as _sp
         if not entry_path:
             return
-        from cellar.backend.umu import native_dir
+        from cellar.backend.umu import native_dir, is_cellar_sandboxed
         import shlex as _shlex
         exe = native_dir() / self._entry.id / entry_path
         cmd = [str(exe)]
         if entry_args:
             cmd += _shlex.split(entry_args)
+        if is_cellar_sandboxed():
+            cmd = ["flatpak-spawn", "--host"] + cmd
         _sp.Popen(cmd, cwd=str(exe.parent), start_new_session=True)
 
     def _on_remove_clicked(self) -> None:

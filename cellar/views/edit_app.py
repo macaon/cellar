@@ -764,8 +764,8 @@ class EditAppDialog(Adw.Dialog):
                 # Placeholder screenshot rels — packager will replace with
                 # content-hashed names and return the final entry.
                 ss_rels = tuple(
-                    f"apps/{app_id}/screenshots/ss_placeholder{Path(p).suffix}"
-                    for p in final_paths
+                    f"apps/{app_id}/screenshots/ss_placeholder_{i:03d}{Path(p).suffix}"
+                    for i, p in enumerate(final_paths)
                 )
                 # Build screenshot_sources keyed by placeholder paths so the
                 # packager can remap them to the final hashed paths.

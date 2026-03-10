@@ -357,12 +357,6 @@ class EditAppDialog(Adw.Dialog):
         if e.steam_appid is not None:
             self._steam_appid_entry.set_text(str(e.steam_appid))
 
-        if e.platform == "linux":
-            self._entry_point_entry.set_title("Launch Target")
-            self._entry_point_entry.set_tooltip_text(
-                "Executable path within the app directory, e.g. \u201cbin/mygame\u201d"
-            )
-
         for t in e.launch_targets:
             self._add_target_row_ui(dict(t))
 

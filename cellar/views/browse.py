@@ -376,6 +376,7 @@ class BrowseView(Gtk.Box):
 
     def _clear(self) -> None:
         while (child := self._flow_box.get_first_child()) is not None:
+            _dispose_subtree(child)
             self._flow_box.remove(child)
         self._cards.clear()
         self._active_categories = set()

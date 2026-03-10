@@ -12,17 +12,18 @@ Supported URI schemes
 HTTP(S) repos are always read-only — the client cannot initialise or modify
 them.  All other transports support write operations.
 
-catalogue.json format
----------------------
-The repo root must contain a ``catalogue.json`` in the following shape::
+catalogue.json format (v2)
+--------------------------
+The repo root contains a slim ``catalogue.json`` index::
 
     {
-      "cellar_version": 1,
+      "cellar_version": 2,
       "generated_at": "<ISO-8601 timestamp>",
-      "apps": [ { ...AppEntry fields... }, ... ]
+      "apps": [ { ...index fields only... }, ... ]
     }
 
-A bare JSON array is also accepted for backwards compatibility.
+Full per-app metadata lives in ``apps/<id>/metadata.json``.
+See :data:`~cellar.models.app_entry.INDEX_FIELDS` for what's in the index.
 """
 
 from __future__ import annotations
@@ -41,7 +42,8 @@ from cellar.utils.http import DEFAULT_TIMEOUT, make_session
 
 log = logging.getLogger(__name__)
 
-CATALOGUE_VERSION = 1
+CATALOGUE_VERSION = 2
+_METADATA_CACHE_ROOT = Path.home() / ".cache" / "cellar" / "metadata"
 
 def _is_file_not_found(err: str) -> bool:
     """Return True if the error indicates a missing file, not a connection issue."""
@@ -576,6 +578,67 @@ class Repo:
                 return entry
         raise RepoError(f"App {app_id!r} not found in catalogue at {self.uri}")
 
+    def fetch_app_metadata(self, app_id: str) -> AppEntry:
+        """Fetch the full metadata for a single app from ``apps/<id>/metadata.json``.
+
+        For remote repos, the result is cached to
+        ``~/.cache/cellar/metadata/<hash>/<app_id>.json`` and the cache is
+        used as a fallback when the repo is offline.
+
+        The returned :class:`AppEntry` has ``category_icon`` injected the
+        same way :meth:`fetch_catalogue` does.
+        """
+        import dataclasses
+        from cellar.backend.packager import BASE_CATEGORY_ICONS
+
+        rel_path = f"apps/{app_id}/metadata.json"
+        cache_path = self._metadata_cache_path(app_id)
+
+        try:
+            if self._fetcher is None:
+                raise RepoError(f"Repo {self.uri} is not reachable")
+            raw = self._fetch_json(rel_path)
+            # Update cache on success
+            if cache_path is not None:
+                try:
+                    cache_path.parent.mkdir(parents=True, exist_ok=True)
+                    cache_path.write_text(
+                        json.dumps(raw, ensure_ascii=False), encoding="utf-8"
+                    )
+                except OSError as exc:
+                    log.warning("Could not cache metadata for %s: %s", app_id, exc)
+        except RepoError:
+            if cache_path is not None and cache_path.exists():
+                log.warning(
+                    "Could not fetch metadata for %s from %s; using cache",
+                    app_id, self.uri,
+                )
+                try:
+                    raw = json.loads(cache_path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    raise
+            else:
+                raise
+
+        entry = AppEntry.from_dict(raw)
+
+        # Inject category icon
+        try:
+            cat_icons = self.fetch_category_icons()
+        except RepoError:
+            cat_icons = BASE_CATEGORY_ICONS
+        icon = cat_icons.get(entry.category, "")
+        if icon:
+            entry = dataclasses.replace(entry, category_icon=icon)
+        return entry
+
+    def _metadata_cache_path(self, app_id: str) -> Path | None:
+        """Return the cache file path for per-app metadata, or ``None`` for local repos."""
+        if self._fetcher is not None and isinstance(self._fetcher, _LocalFetcher):
+            return None
+        key = hashlib.sha256(self.uri.encode()).hexdigest()[:16]
+        return _METADATA_CACHE_ROOT / key / f"{app_id}.json"
+
     def resolve_asset_uri(self, repo_relative: str) -> str:
         """Return a URI/path string for a repo-relative asset (icon, screenshot…).
 
@@ -678,13 +741,18 @@ class Repo:
     def gc_asset_cache(self, entries) -> int:
         """Remove cached image files no longer referenced by *entries*.
 
+        Also removes stale per-app metadata cache entries for app IDs
+        that are no longer in the catalogue.
+
         Returns the number of files removed.  No-op for local repos or when
         the cache directory has not been initialised.
         """
         if self._cache_dir is None:
             return 0
         referenced: set[str] = set()
+        app_ids: set[str] = set()
         for e in entries:
+            app_ids.add(e.id)
             for attr in ("icon", "cover", "logo", "category_icon"):
                 val = getattr(e, attr, "")
                 if val:
@@ -692,6 +760,11 @@ class Repo:
             for ss in getattr(e, "screenshots", ()):
                 if ss:
                     referenced.add(ss)
+        # Check whether we have full metadata (with screenshots) or only
+        # partial index entries.  Partial entries lack screenshot paths, so
+        # we must not GC files under apps/<id>/ subdirs — they may still be
+        # valid cached screenshots that would be immediately re-downloaded.
+        have_full = any(not getattr(e, "is_partial", False) for e in entries)
         # Walk the cache directory and remove unreferenced image files.
         removed = 0
         for cached in self._cache_dir.rglob("*"):
@@ -700,9 +773,23 @@ class Repo:
             if cached.suffix.lower() not in _IMAGE_EXTENSIONS:
                 continue
             rel = str(cached.relative_to(self._cache_dir))
-            if rel not in referenced:
-                cached.unlink(missing_ok=True)
-                removed += 1
+            if rel in referenced:
+                continue
+            # With only partial entries, skip files inside app asset dirs
+            # (screenshots) — we don't know which are still referenced.
+            if not have_full and rel.startswith("apps/"):
+                continue
+            cached.unlink(missing_ok=True)
+            removed += 1
+        # GC stale metadata cache entries.
+        meta_cache = self._metadata_cache_path("")
+        if meta_cache is not None:
+            meta_dir = meta_cache.parent
+            if meta_dir.is_dir():
+                for cached in meta_dir.iterdir():
+                    if cached.suffix == ".json" and cached.stem not in app_ids:
+                        cached.unlink(missing_ok=True)
+                        removed += 1
         if removed:
             log.info("Asset cache GC: removed %d stale file(s) for %s", removed, self.uri)
         return removed

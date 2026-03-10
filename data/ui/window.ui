@@ -63,54 +63,65 @@
                 <property name="content">
                   <object class="AdwToastOverlay" id="toast_overlay">
                     <property name="child">
-                      <object class="AdwViewStack" id="view_stack">
+                      <object class="GtkBox">
+                        <property name="orientation">vertical</property>
                         <child>
-                          <object class="AdwViewStackPage">
-                            <property name="name">explore</property>
-                            <property name="title" translatable="yes">Explore</property>
-                            <property name="icon-name">software-explore-symbolic</property>
-                            <property name="child">
-                              <object class="GtkBox" id="explore_box">
-                                <property name="orientation">vertical</property>
-                              </object>
-                            </property>
+                          <object class="AdwBanner" id="offline_banner">
+                            <property name="revealed">false</property>
                           </object>
                         </child>
                         <child>
-                          <object class="AdwViewStackPage">
-                            <property name="name">installed</property>
-                            <property name="title" translatable="yes">Installed</property>
-                            <property name="icon-name">software-installed-symbolic</property>
-                            <property name="child">
-                              <object class="GtkBox" id="installed_box">
-                                <property name="orientation">vertical</property>
+                          <object class="AdwViewStack" id="view_stack">
+                            <property name="vexpand">true</property>
+                            <child>
+                              <object class="AdwViewStackPage">
+                                <property name="name">explore</property>
+                                <property name="title" translatable="yes">Explore</property>
+                                <property name="icon-name">software-explore-symbolic</property>
+                                <property name="child">
+                                  <object class="GtkBox" id="explore_box">
+                                    <property name="orientation">vertical</property>
+                                  </object>
+                                </property>
                               </object>
-                            </property>
-                          </object>
-                        </child>
-                        <child>
-                          <object class="AdwViewStackPage" id="updates_page">
-                            <property name="name">updates</property>
-                            <property name="title" translatable="yes">Updates</property>
-                            <property name="icon-name">software-updates-symbolic</property>
-                            <property name="child">
-                              <object class="GtkBox" id="updates_box">
-                                <property name="orientation">vertical</property>
+                            </child>
+                            <child>
+                              <object class="AdwViewStackPage">
+                                <property name="name">installed</property>
+                                <property name="title" translatable="yes">Installed</property>
+                                <property name="icon-name">software-installed-symbolic</property>
+                                <property name="child">
+                                  <object class="GtkBox" id="installed_box">
+                                    <property name="orientation">vertical</property>
+                                  </object>
+                                </property>
                               </object>
-                            </property>
-                          </object>
-                        </child>
-                        <child>
-                          <object class="AdwViewStackPage" id="builder_page">
-                            <property name="name">builder</property>
-                            <property name="title" translatable="yes">Builder</property>
-                            <property name="icon-name">build-configure-symbolic</property>
-                            <property name="visible">false</property>
-                            <property name="child">
-                              <object class="GtkBox" id="builder_box">
-                                <property name="orientation">vertical</property>
+                            </child>
+                            <child>
+                              <object class="AdwViewStackPage" id="updates_page">
+                                <property name="name">updates</property>
+                                <property name="title" translatable="yes">Updates</property>
+                                <property name="icon-name">software-updates-symbolic</property>
+                                <property name="child">
+                                  <object class="GtkBox" id="updates_box">
+                                    <property name="orientation">vertical</property>
+                                  </object>
+                                </property>
                               </object>
-                            </property>
+                            </child>
+                            <child>
+                              <object class="AdwViewStackPage" id="builder_page">
+                                <property name="name">builder</property>
+                                <property name="title" translatable="yes">Builder</property>
+                                <property name="icon-name">build-configure-symbolic</property>
+                                <property name="visible">false</property>
+                                <property name="child">
+                                  <object class="GtkBox" id="builder_box">
+                                    <property name="orientation">vertical</property>
+                                  </object>
+                                </property>
+                              </object>
+                            </child>
                           </object>
                         </child>
                       </object>

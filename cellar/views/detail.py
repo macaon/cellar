@@ -105,11 +105,15 @@ class DetailView(Gtk.Box):
         on_install_done: Callable | None = None,
         on_remove_done: Callable | None = None,
         on_update_done: Callable | None = None,
+        is_offline: bool = False,
     ) -> None:
         super().__init__()
         self._entry = entry
         self._source_repos = source_repos or []
-        _first = self._source_repos[0] if self._source_repos else None
+        self._is_offline = is_offline
+        # Prefer an online repo for asset resolution; fall back to first repo.
+        _online = next((r for r in self._source_repos if not r.is_offline), None)
+        _first = _online or (self._source_repos[0] if self._source_repos else None)
         self._resolve = _first.resolve_asset_uri if _first else (lambda rel: rel)
         self._peek = _first.peek_asset_cache if _first else (lambda _: "")
         self._token = _first.token if _first else None
@@ -224,10 +228,15 @@ class DetailView(Gtk.Box):
             btn.add_css_class("suggested-action")
             btn.set_sensitive(True)
             btn.set_tooltip_text("")
-            self._update_indicator.set_visible(self._has_update)
+            self._update_indicator.set_visible(self._has_update and not self._is_offline)
             self._update_indicator.set_tooltip_text(
-                "Update available — see Options menu" if self._has_update else ""
+                "Update available — see Options menu" if (self._has_update and not self._is_offline) else ""
             )
+        elif self._is_offline:
+            self._install_btn_label.set_label("Unavailable")
+            btn.set_sensitive(False)
+            btn.set_tooltip_text("Repository is offline")
+            self._update_indicator.set_visible(False)
         else:
             self._install_btn_label.set_label("Install")
             btn.add_css_class("suggested-action")
@@ -249,13 +258,24 @@ class DetailView(Gtk.Box):
 
     def _pick_source_then_install(self) -> None:
         """Show a dialog to choose the source repo, then proceed to install."""
+        online_repos = [(i, r) for i, r in enumerate(self._source_repos) if not r.is_offline]
+        if not online_repos:
+            return
+        if len(online_repos) == 1:
+            _, repo = online_repos[0]
+            self._resolve = repo.resolve_asset_uri
+            self._token = repo.token
+            self._ssh_identity = repo.ssh_identity
+            self._proceed_to_install()
+            return
+
         dialog = Adw.AlertDialog(
             heading="Choose Source",
             body="This app is available from multiple repositories.",
         )
-        for idx, repo in enumerate(self._source_repos):
+        for idx, repo in online_repos:
             dialog.add_response(str(idx), repo.name)
-        dialog.set_default_response("0")
+        dialog.set_default_response(str(online_repos[0][0]))
         dialog.set_close_response("close")
         dialog.add_response("close", "Cancel")
 
@@ -543,7 +563,7 @@ class DetailView(Gtk.Box):
         from cellar.utils.desktop import has_desktop_entry
 
         main_section = Gio.Menu()
-        if self._has_update:
+        if self._has_update and not self._is_offline:
             main_section.append("Update", "detail.update")
 
         targets = self._entry.launch_targets

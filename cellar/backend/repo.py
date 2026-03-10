@@ -347,17 +347,29 @@ class Repo:
         self._cache_dir: Path | None = None
         self._runners: dict[str, RunnerEntry] = {}
         self._bases: dict[str, BaseEntry] = {}
-        self._fetcher: _Fetcher = _make_fetcher(
-            uri,
-            ssh_identity=ssh_identity,
-            ssh_username=ssh_username,
-            ssh_password=ssh_password,
-            ssl_verify=ssl_verify,
-            ca_cert=ca_cert,
-            token=token,
-            smb_username=smb_username,
-            smb_password=smb_password,
-        )
+        self._is_offline: bool = False
+        # Only catch constructor errors for remote transports that have a
+        # catalogue cache (SMB, SSH).  Local repos and unsupported schemes
+        # must still raise immediately.
+        _cacheable_scheme = urlparse(uri).scheme.lower() in ("smb", "sftp", "http", "https")
+        try:
+            self._fetcher: _Fetcher | None = _make_fetcher(
+                uri,
+                ssh_identity=ssh_identity,
+                ssh_username=ssh_username,
+                ssh_password=ssh_password,
+                ssl_verify=ssl_verify,
+                ca_cert=ca_cert,
+                token=token,
+                smb_username=smb_username,
+                smb_password=smb_password,
+            )
+        except RepoError:
+            if not _cacheable_scheme:
+                raise
+            log.warning("Could not connect to %s — will use cache if available", uri)
+            self._fetcher = None
+            self._is_offline = True
 
     @property
     def token(self) -> str | None:
@@ -384,8 +396,15 @@ class Repo:
     # ------------------------------------------------------------------
 
     @property
+    def is_offline(self) -> bool:
+        """``True`` when the last ``fetch_catalogue()`` fell back to a cached copy."""
+        return self._is_offline
+
+    @property
     def is_writable(self) -> bool:
-        """``False`` for HTTP(S) repos; ``True`` for all other transports."""
+        """``False`` for HTTP(S) repos or when offline; ``True`` otherwise."""
+        if self._is_offline:
+            return False
         return urlparse(self.uri).scheme.lower() not in ("http", "https")
 
     # ------------------------------------------------------------------
@@ -394,7 +413,7 @@ class Repo:
 
     def _catalogue_cache_path(self) -> Path | None:
         """Return the local cache path for this repo's catalogue.json, or None for local repos."""
-        if isinstance(self._fetcher, _LocalFetcher):
+        if self._fetcher is not None and isinstance(self._fetcher, _LocalFetcher):
             return None
         key = hashlib.sha256(self.uri.encode()).hexdigest()[:16]
         return _CATALOGUE_CACHE_ROOT / key / "catalogue.json"
@@ -414,7 +433,10 @@ class Repo:
 
         cache_path = self._catalogue_cache_path()
         try:
+            if self._fetcher is None:
+                raise RepoError(f"Repo {self.uri} is not reachable")
             raw = self._fetch_json("catalogue.json")
+            self._is_offline = False
             if cache_path is not None:
                 try:
                     cache_path.parent.mkdir(parents=True, exist_ok=True)
@@ -426,6 +448,7 @@ class Repo:
                 log.warning(
                     "Could not fetch catalogue from %s (%s); using cached copy", self.uri, exc
                 )
+                self._is_offline = True
                 try:
                     raw = json.loads(cache_path.read_text(encoding="utf-8"))
                 except (OSError, json.JSONDecodeError) as cache_exc:
@@ -503,7 +526,12 @@ class Repo:
         to a persistent cache directory and the local path is returned so that
         Pillow and ``os.path.isfile()`` work correctly.  Archives are returned
         as-is so the installer's own download code handles them.
+
+        When the repo is offline (fetcher unavailable), returns cached assets
+        if available; empty string otherwise.
         """
+        if self._fetcher is None:
+            return self.peek_asset_cache(repo_relative)
         if (
             repo_relative
             and not isinstance(self._fetcher, _LocalFetcher)
@@ -520,7 +548,7 @@ class Repo:
         entire cache directory is wiped so stale images are never served.
         Local repos are excluded (files are already on disk).
         """
-        if isinstance(self._fetcher, _LocalFetcher):
+        if self._fetcher is not None and isinstance(self._fetcher, _LocalFetcher):
             return
         key = hashlib.sha256(self.uri.encode()).hexdigest()[:16]
         cache_dir = _ASSET_CACHE_ROOT / key
@@ -582,7 +610,7 @@ class Repo:
         """
         if not repo_relative:
             return ""
-        if isinstance(self._fetcher, _LocalFetcher):
+        if self._fetcher is not None and isinstance(self._fetcher, _LocalFetcher):
             return self._fetcher.resolve_uri(repo_relative)
         if Path(repo_relative).suffix.lower() not in _IMAGE_EXTENSIONS:
             return ""
@@ -596,7 +624,7 @@ class Repo:
 
         No-op for local repos or when the file is not currently cached.
         """
-        if isinstance(self._fetcher, _LocalFetcher) or not repo_relative:
+        if (self._fetcher is not None and isinstance(self._fetcher, _LocalFetcher)) or not repo_relative:
             return
         if self._cache_dir is None:
             return
@@ -651,7 +679,7 @@ class Repo:
 
         Raises :exc:`RepoError` for non-local repos (HTTP, SSH, SMB).
         """
-        if not isinstance(self._fetcher, _LocalFetcher):
+        if self._fetcher is None or not isinstance(self._fetcher, _LocalFetcher):
             raise RepoError("local_path() is only available for local repos")
         return self._fetcher._root / rel_path.lstrip("/")
 
@@ -672,6 +700,9 @@ class Repo:
 
         Raises :exc:`RepoError` for HTTP repos (read-only).
         """
+        if self._fetcher is None:
+            raise RepoError(f"Repo {self.uri} is offline — write operations unavailable")
+
         if isinstance(self._fetcher, _LocalFetcher):
             return self._fetcher._root / rel_path.lstrip("/")
 
@@ -706,6 +737,8 @@ class Repo:
     # ------------------------------------------------------------------
 
     def _fetch_json(self, rel_path: str) -> dict | list:
+        if self._fetcher is None:
+            raise RepoError(f"Repo {self.uri} is not reachable")
         data = self._fetcher.fetch_bytes(rel_path)
         try:
             return json.loads(data)

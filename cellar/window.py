@@ -89,6 +89,7 @@ class CellarWindow(Adw.ApplicationWindow):
     builder_box: Gtk.Box = Gtk.Template.Child()
     builder_page: Adw.ViewStackPage = Gtk.Template.Child()
     view_stack: Adw.ViewStack = Gtk.Template.Child()
+    offline_banner: Adw.Banner = Gtk.Template.Child()
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
@@ -116,6 +117,8 @@ class CellarWindow(Adw.ApplicationWindow):
         # Maps entry.id → list of Repo objects that carry the entry, for the
         # source selector shown in the detail view.
         self._entry_repos: dict = {}
+        # Entry IDs that are only reachable via offline repos.
+        self._offline_entry_ids: set[str] = set()
 
         self.search_bar.set_key_capture_widget(self)
         self.search_button.connect("toggled", self._on_search_toggled)
@@ -261,26 +264,55 @@ class CellarWindow(Adw.ApplicationWindow):
                 log.warning("Failed to fetch from %s: %s", repo.uri, exc)
         entries = list(all_entries.values())
 
+        # Determine offline repos and show/hide the banner.
+        offline_repos = [r for r in manager if r.is_offline]
+        if offline_repos:
+            names = ", ".join(r.name for r in offline_repos)
+            noun = "Repository" if len(offline_repos) == 1 else "Repositories"
+            self.offline_banner.set_title(f"{noun} offline — showing installed apps only: {names}")
+            self.offline_banner.set_revealed(True)
+        else:
+            self.offline_banner.set_revealed(False)
+
+        # Track entries reachable only via offline repos.
+        self._offline_entry_ids = {
+            e.id for e in entries
+            if all(r.is_offline for r in self._entry_repos.get(e.id, []))
+        }
+
         try:
             if entries:
-                resolver = self._first_repo.resolve_asset_uri if self._first_repo else None
+                # Prefer an online repo for asset resolution.
+                online_repo = next((r for r in manager if not r.is_offline), None)
+                resolver_repo = online_repo or self._first_repo
+                resolver = resolver_repo.resolve_asset_uri if resolver_repo else None
 
-                installed_entries = []
-                update_entries = []
+                installed_records: dict[str, dict] = {}
                 for e in entries:
                     rec = _reconcile_installed_record(e)
-                    if rec is None:
-                        continue
-                    installed_entries.append(e)
-                    if bool(e.archive) and _has_update(rec, e):
-                        update_entries.append(e)
+                    if rec is not None:
+                        installed_records[e.id] = rec
 
-                installed_ids = {e.id for e in installed_entries}
-                self._browse_explore.load_entries(entries, resolve_asset=resolver, installed_ids=installed_ids)
+                installed_entries = [e for e in entries if e.id in installed_records]
+                # Updates only for entries reachable online (can actually download).
+                update_entries = [
+                    e for e in installed_entries
+                    if bool(e.archive) and _has_update(installed_records[e.id], e)
+                    and e.id not in self._offline_entry_ids
+                ]
+
+                # Explore: show all reachable entries + installed-from-offline entries.
+                explore_entries = [
+                    e for e in entries
+                    if e.id not in self._offline_entry_ids or e.id in installed_records
+                ]
+
+                installed_ids = set(installed_records.keys())
+                self._browse_explore.load_entries(explore_entries, resolve_asset=resolver, installed_ids=installed_ids)
                 self._browse_installed.load_entries(installed_entries, resolve_asset=resolver, installed_ids=installed_ids)
                 self._browse_updates.load_entries(update_entries, resolve_asset=resolver, installed_ids=installed_ids)
                 self.updates_page.set_badge_number(len(update_entries))
-                self._rebuild_filter_popover(entries)
+                self._rebuild_filter_popover(explore_entries)
             else:
                 self._browse_explore.show_error(
                     "Empty Catalogue",
@@ -369,7 +401,9 @@ class CellarWindow(Adw.ApplicationWindow):
         source_repos = self._entry_repos.get(entry.id, [])
         if not source_repos and self._first_repo:
             source_repos = [self._first_repo]
-        can_write = self._first_repo is not None and self._first_repo.is_writable
+        is_offline = entry.id in self._offline_entry_ids
+        # Editable only if a writable AND online repo carries this entry.
+        can_write = any(r.is_writable for r in source_repos) and not is_offline
 
         rec = _reconcile_installed_record(entry)
         is_installed = rec is not None
@@ -411,6 +445,7 @@ class CellarWindow(Adw.ApplicationWindow):
                         on_install_done=_on_install_done,
                         on_remove_done=_on_remove_done,
                         on_update_done=_on_update_done,
+                        is_offline=is_offline,
                     )
                     current_page.set_child(new_detail)
                     current_page.set_title(updated_entry.name)
@@ -464,6 +499,7 @@ class CellarWindow(Adw.ApplicationWindow):
             on_install_done=_on_install_done,
             on_remove_done=_on_remove_done,
             on_update_done=_on_update_done,
+            is_offline=is_offline,
         )
         page = Adw.NavigationPage(title=entry.name, child=detail)
         self.nav_view.push(page)

@@ -145,6 +145,7 @@ def test_http_repo_is_not_writable():
     repo.uri = "http://example.com/repo"
     repo.name = "test"
     repo._fetcher = _HttpFetcher("http://example.com/repo")
+    repo._is_offline = False
     assert repo.is_writable is False
 
 
@@ -153,6 +154,7 @@ def test_https_repo_is_not_writable():
     repo.uri = "https://example.com/repo"
     repo.name = "test"
     repo._fetcher = _HttpFetcher("https://example.com/repo")
+    repo._is_offline = False
     assert repo.is_writable is False
 
 

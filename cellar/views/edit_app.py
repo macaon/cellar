@@ -500,7 +500,7 @@ class EditAppDialog(Adw.Dialog):
         if e.platform == "linux":
             from cellar.backend.database import get_installed
             rec = get_installed(e.id)
-            install_path = Path(rec["install_path"]) if rec and rec.get("install_path") else Path.home()
+            install_path = Path(rec["install_path"]) / e.id if rec and rec.get("install_path") else Path.home()
             browse_root = install_path
             title = "Select Executable"
         else:

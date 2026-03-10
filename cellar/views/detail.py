@@ -170,7 +170,7 @@ class DetailView(Gtk.Box):
                 halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER,
                 vexpand=True,
             )
-            loading.append(Gtk.Spinner(spinning=True, width_request=32, height_request=32))
+            loading.append(Gtk.Spinner(spinning=True, width_request=128, height_request=128))
             lbl = Gtk.Label(label="Loading App Details")
             lbl.add_css_class("dim-label")
             loading.append(lbl)
@@ -278,10 +278,63 @@ class DetailView(Gtk.Box):
         run_in_background(_work, on_done=_done)
 
     def _on_metadata_loaded(self, full_entry: AppEntry) -> None:
-        """Replace the partial entry with full metadata and build the view."""
+        """Replace the partial entry with full metadata, pre-resolve assets,
+        then build the view so nothing reflows after it appears."""
         self._entry = full_entry
         self._metadata_loaded = True
-        self._build_content()
+        self._prefetch_then_build()
+
+    def _prefetch_then_build(self) -> None:
+        """Pre-resolve assets in the background, then build the view.
+
+        Downloads icon/logo/screenshots and resolves base-image metadata
+        while the spinner is still showing so the view appears fully
+        populated with no reflow.
+        """
+        e = self._entry
+
+        def _work():
+            # Pre-cache icon, logo, and screenshots so _make_icon / _make_logo
+            # and _make_screenshots hit the fast (synchronous) path.
+            for rel in filter(None, [e.icon, e.logo, e.cover]):
+                try:
+                    self._resolve(rel)
+                except Exception:
+                    pass
+            for s in (e.screenshots or []):
+                try:
+                    self._resolve(s)
+                except Exception:
+                    pass
+
+            # Resolve base image / runner info so _make_info_cards has
+            # real data instead of "…" placeholders.
+            base_image = e.base_image
+            if base_image:
+                from cellar.backend.base_store import is_base_installed
+                from cellar.backend.umu import resolve_runner_path
+                installed = is_base_installed(base_image)
+                base_entry, _ = self._find_base_entry(base_image)
+                base_sz = base_entry.archive_size if base_entry else 0
+                runner = base_entry.runner if base_entry else ""
+                runner_installed = bool(resolve_runner_path(runner)) if runner else True
+                runner_entry, _ = self._find_runner_entry(runner) if runner else (None, "")
+                runner_sz = runner_entry.archive_size if runner_entry else 0
+                return installed, base_sz, runner, runner_installed, runner_sz
+            return None
+
+        def _done(result) -> None:
+            if result is not None:
+                installed, base_sz, runner, runner_installed, runner_sz = result
+                self._base_installed = installed
+                self._base_sz = base_sz
+                self._runner_installed = runner_installed
+                self._runner_sz = runner_sz
+                if runner:
+                    self._resolved_runner = runner
+            self._build_content()
+
+        run_in_background(_work, on_done=_done)
 
     def _ensure_metadata(self) -> AppEntry:
         """Return the full entry, fetching synchronously if still partial.
@@ -1177,8 +1230,15 @@ class DetailView(Gtk.Box):
                 _add(_simple_card("drive-harddisk-symbolic", _fmt_bytes(stored_size), "Install size")[0])
         else:
             if e.archive_size > 0:
+                # Use pre-resolved total when available.
+                dl_total = e.archive_size
+                if self._base_installed is not None:
+                    if not self._base_installed:
+                        dl_total += self._base_sz
+                    if not self._runner_installed:
+                        dl_total += self._runner_sz
                 dl_card, dl_val_lbl = _simple_card(
-                    "folder-download-symbolic", _fmt_bytes(e.archive_size), "Download",
+                    "folder-download-symbolic", _fmt_bytes(dl_total), "Download",
                 )
                 _make_interactive(dl_card, self._show_download_dialog)
                 _add(dl_card)
@@ -1294,6 +1354,31 @@ class DetailView(Gtk.Box):
         base_image = self._get_base_image()
         if not base_image:
             return
+
+        # Already resolved (e.g. by _prefetch_then_build) — apply immediately.
+        if self._base_installed is not None:
+            if val_lbl is not None:
+                app_size = self._entry.archive_size
+                total = app_size
+                if not self._base_installed:
+                    total += self._base_sz
+                if not self._runner_installed:
+                    total += self._runner_sz
+                if total != app_size:
+                    val_lbl.set_label(_fmt_bytes(total))
+            if not self._base_installed and self._base_warning_icon:
+                self._base_warning_icon.set_visible(True)
+                self._base_warning_icon.set_tooltip_text(
+                    f"Base image \u201c{base_image}\u201d is not installed"
+                )
+            if self._resolved_runner and self._runner_label:
+                self._runner_label.set_label(self._resolved_runner)
+            for cb in self._base_resolve_cbs:
+                cb(self._base_installed, self._base_sz,
+                   self._runner_installed, self._runner_sz)
+            self._base_resolve_cbs.clear()
+            return
+
         app_size = self._entry.archive_size
 
         def _work():

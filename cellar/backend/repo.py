@@ -30,7 +30,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import shutil
 from pathlib import Path
 from typing import Iterator, Protocol, runtime_checkable
 from urllib.parse import urlparse
@@ -43,6 +42,14 @@ from cellar.utils.http import DEFAULT_TIMEOUT, make_session
 log = logging.getLogger(__name__)
 
 CATALOGUE_VERSION = 1
+
+def _is_file_not_found(err: str) -> bool:
+    """Return True if the error indicates a missing file, not a connection issue."""
+    low = err.lower()
+    return any(kw in low for kw in (
+        "no such file", "not found", "does not exist",
+        "object name not found", "object path not found",
+    ))
 _ASSET_CACHE_ROOT = Path.home() / ".cache" / "cellar" / "assets"
 _CATALOGUE_CACHE_ROOT = Path.home() / ".cache" / "cellar" / "catalogues"
 
@@ -348,6 +355,7 @@ class Repo:
         self._runners: dict[str, RunnerEntry] = {}
         self._bases: dict[str, BaseEntry] = {}
         self._is_offline: bool = False
+        self._catalogue_missing: bool = False
         # Only catch constructor errors for remote transports that have a
         # catalogue cache (SMB, SSH).  Local repos and unsupported schemes
         # must still raise immediately.
@@ -401,6 +409,11 @@ class Repo:
         return self._is_offline
 
     @property
+    def is_catalogue_missing(self) -> bool:
+        """``True`` when the remote is reachable but ``catalogue.json`` doesn't exist."""
+        return self._catalogue_missing
+
+    @property
     def is_writable(self) -> bool:
         """``False`` for HTTP(S) repos or when offline; ``True`` otherwise."""
         if self._is_offline:
@@ -418,7 +431,25 @@ class Repo:
         key = hashlib.sha256(self.uri.encode()).hexdigest()[:16]
         return _CATALOGUE_CACHE_ROOT / key / "catalogue.json"
 
-    def fetch_catalogue(self) -> list[AppEntry]:
+    @staticmethod
+    def clear_catalogue_cache(uri: str) -> None:
+        """Remove any cached catalogue for *uri* so the next fetch hits the remote."""
+        import shutil
+        key = hashlib.sha256(uri.encode()).hexdigest()[:16]
+        cache_dir = _CATALOGUE_CACHE_ROOT / key
+        if cache_dir.exists():
+            shutil.rmtree(cache_dir, ignore_errors=True)
+
+    @staticmethod
+    def clear_asset_cache(uri: str) -> None:
+        """Remove cached image assets for *uri*."""
+        import shutil
+        key = hashlib.sha256(uri.encode()).hexdigest()[:16]
+        cache_dir = _ASSET_CACHE_ROOT / key
+        if cache_dir.exists():
+            shutil.rmtree(cache_dir, ignore_errors=True)
+
+    def fetch_catalogue(self, *, use_cache: bool = True) -> list[AppEntry]:
         """Load and parse ``catalogue.json``, returning all entries.
 
         Accepts both the current wrapper format
@@ -426,7 +457,9 @@ class Repo:
         Category icons from ``category_icons`` are injected into each entry.
 
         On network/transport failure, falls back to a locally cached copy of
-        the catalogue written on the last successful fetch.
+        the catalogue written on the last successful fetch.  Pass
+        *use_cache=False* to skip the fallback (e.g. when validating a newly
+        added repo) so the real remote error propagates.
         """
         import dataclasses
         from cellar.backend.packager import BASE_CATEGORY_ICONS
@@ -437,6 +470,7 @@ class Repo:
                 raise RepoError(f"Repo {self.uri} is not reachable")
             raw = self._fetch_json("catalogue.json")
             self._is_offline = False
+            self._catalogue_missing = False
             if cache_path is not None:
                 try:
                     cache_path.parent.mkdir(parents=True, exist_ok=True)
@@ -444,11 +478,28 @@ class Repo:
                 except OSError as exc:
                     log.warning("Could not write catalogue cache for %s: %s", self.uri, exc)
         except RepoError as exc:
-            if cache_path is not None and cache_path.exists():
+            catalogue_missing = _is_file_not_found(str(exc))
+            if use_cache and cache_path is not None and cache_path.exists():
+                self._is_offline = True
+                self._catalogue_missing = catalogue_missing
+                if catalogue_missing:
+                    # Server reachable but catalogue.json gone — only keep
+                    # cache if there are locally installed apps from this repo.
+                    from cellar.backend import database as _db
+                    has_installed = any(
+                        r.get("repo_source") == self.uri
+                        for r in _db.get_all_installed()
+                    )
+                    if not has_installed:
+                        log.info(
+                            "Catalogue missing on %s with no installed apps; clearing stale cache",
+                            self.uri,
+                        )
+                        cache_path.unlink(missing_ok=True)
+                        raise
                 log.warning(
                     "Could not fetch catalogue from %s (%s); using cached copy", self.uri, exc
                 )
-                self._is_offline = True
                 try:
                     raw = json.loads(cache_path.read_text(encoding="utf-8"))
                 except (OSError, json.JSONDecodeError) as cache_exc:
@@ -463,7 +514,7 @@ class Repo:
             items = raw
         elif isinstance(raw, dict):
             items = raw.get("apps", [])
-            self._init_asset_cache(raw.get("generated_at"))
+            self._init_asset_cache()
             self._runners = {
                 name: RunnerEntry.from_dict(name, data)
                 for name, data in raw.get("runners", {}).items()
@@ -489,6 +540,12 @@ class Repo:
                     "Skipping malformed catalogue entry %r: %s", item.get("id"), exc
                 )
         log.info("Loaded %d entries from %s", len(entries), self.uri)
+        # Garbage-collect stale cached images after a successful online fetch.
+        if not self._is_offline and self._cache_dir is not None:
+            try:
+                self.gc_asset_cache(entries)
+            except Exception as exc:
+                log.warning("Asset cache GC failed for %s: %s", self.uri, exc)
         return entries
 
     def fetch_runners(self) -> dict[str, RunnerEntry]:
@@ -540,32 +597,19 @@ class Repo:
             return self._fetch_to_cache(repo_relative)
         return self._fetcher.resolve_uri(repo_relative)
 
-    def _init_asset_cache(self, generated_at: str | None = None) -> None:
+    def _init_asset_cache(self) -> None:
         """Set up the persistent asset cache directory for this repo.
 
         Uses ``~/.cache/cellar/assets/<sha256-prefix>/`` keyed on the repo URI.
-        If *generated_at* has changed since the cache was last written, the
-        entire cache directory is wiped so stale images are never served.
-        Local repos are excluded (files are already on disk).
+        Image filenames are content-hashed, so the cache is never bulk-wiped;
+        stale files are removed by :meth:`gc_asset_cache` after a successful
+        catalogue fetch.  Local repos are excluded (files are already on disk).
         """
         if self._fetcher is not None and isinstance(self._fetcher, _LocalFetcher):
             return
         key = hashlib.sha256(self.uri.encode()).hexdigest()[:16]
         cache_dir = _ASSET_CACHE_ROOT / key
-        sentinel = cache_dir / ".generated_at"
-        if generated_at and cache_dir.exists():
-            try:
-                if sentinel.read_text().strip() != generated_at.strip():
-                    shutil.rmtree(cache_dir, ignore_errors=True)
-                    log.info("Asset cache invalidated for %s (catalogue updated)", self.uri)
-            except OSError:
-                pass
         cache_dir.mkdir(parents=True, exist_ok=True)
-        if generated_at:
-            try:
-                sentinel.write_text(generated_at)
-            except OSError:
-                pass
         self._cache_dir = cache_dir
 
     def _fetch_to_cache(self, rel_path: str) -> str:
@@ -630,6 +674,38 @@ class Repo:
             return
         dest = self._cache_dir.joinpath(*repo_relative.lstrip("/").split("/"))
         dest.unlink(missing_ok=True)
+
+    def gc_asset_cache(self, entries) -> int:
+        """Remove cached image files no longer referenced by *entries*.
+
+        Returns the number of files removed.  No-op for local repos or when
+        the cache directory has not been initialised.
+        """
+        if self._cache_dir is None:
+            return 0
+        referenced: set[str] = set()
+        for e in entries:
+            for attr in ("icon", "cover", "logo", "category_icon"):
+                val = getattr(e, attr, "")
+                if val:
+                    referenced.add(val)
+            for ss in getattr(e, "screenshots", ()):
+                if ss:
+                    referenced.add(ss)
+        # Walk the cache directory and remove unreferenced image files.
+        removed = 0
+        for cached in self._cache_dir.rglob("*"):
+            if not cached.is_file():
+                continue
+            if cached.suffix.lower() not in _IMAGE_EXTENSIONS:
+                continue
+            rel = str(cached.relative_to(self._cache_dir))
+            if rel not in referenced:
+                cached.unlink(missing_ok=True)
+                removed += 1
+        if removed:
+            log.info("Asset cache GC: removed %d stale file(s) for %s", removed, self.uri)
+        return removed
 
     def fetch_categories(self) -> list[str]:
         """Return the ordered category list for this repo.

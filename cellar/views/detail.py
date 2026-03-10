@@ -515,9 +515,33 @@ class DetailView(Gtk.Box):
             else:
                 log.warning("Prefix %s not found on disk; cleaning up DB only", candidate)
 
+        # Capture runner and repo_source before clearing the record.
+        removed_runner = self._installed_record.get("runner") if self._installed_record else None
+        removed_repo = self._installed_record.get("repo_source") if self._installed_record else None
+
         database.remove_installed(self._entry.id)
         from cellar.utils.desktop import remove_desktop_entry
         remove_desktop_entry(self._entry.id)
+
+        # Clean up orphaned runner, base image, and stale repo caches.
+        if removed_runner or removed_repo:
+            remaining = database.get_all_installed()
+
+            if removed_runner and not any(r.get("runner") == removed_runner for r in remaining):
+                from cellar.backend import runners as _runners, base_store
+                try:
+                    _runners.remove_runner(removed_runner)
+                    base_store.remove_base(removed_runner)
+                    log.info("Cleaned up orphaned runner and base: %s", removed_runner)
+                except Exception as exc:
+                    log.warning("Failed to clean up runner/base %s: %s", removed_runner, exc)
+
+            if removed_repo and not any(r.get("repo_source") == removed_repo for r in remaining):
+                from cellar.backend.repo import Repo
+                Repo.clear_catalogue_cache(removed_repo)
+                Repo.clear_asset_cache(removed_repo)
+                log.info("Cleared stale caches for repo %s", removed_repo)
+
         self._is_installed = False
         self._installed_record = None
         self._update_install_button()

@@ -45,14 +45,12 @@ class EditAppDialog(Adw.Dialog):
         entry,          # AppEntry
         repo,           # cellar.backend.repo.Repo
         on_done,        # callable() — called after a successful save
-        on_deleted,     # callable() — called after a successful delete
     ) -> None:
         super().__init__(title="Edit Catalogue Entry", content_width=1100, content_height=680)
 
         self._old_entry = entry
         self._repo = repo
         self._on_done = on_done
-        self._on_deleted = on_deleted
         self._cancel_event = threading.Event()
 
         # Raw (unescaped) entry point value
@@ -288,19 +286,6 @@ class EditAppDialog(Adw.Dialog):
         launch_group.add(add_target_row)
 
         page.append(launch_group)
-
-        # Danger Zone
-        danger_group = Adw.PreferencesGroup(title="Danger Zone")
-
-        delete_btn = Gtk.Button(label="Delete Entry\u2026")
-        delete_btn.add_css_class("destructive-action")
-        delete_btn.set_halign(Gtk.Align.START)
-        delete_btn.set_margin_top(6)
-        delete_btn.set_margin_bottom(6)
-        delete_btn.connect("clicked", self._on_delete_clicked)
-        danger_group.add(delete_btn)
-
-        page.append(danger_group)
 
         # ── Vertical separator ────────────────────────────────────────────
         hbox.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
@@ -727,6 +712,8 @@ class EditAppDialog(Adw.Dialog):
         def _run():
             import tempfile as _tmp
 
+            from dataclasses import replace as _dc_replace
+
             from cellar.backend.packager import (
                 CancelledError,
                 update_in_repo,
@@ -748,6 +735,7 @@ class EditAppDialog(Adw.Dialog):
                 GLib.idle_add(self._progress_bar.set_fraction, fraction)
 
             _run_entry = new_entry  # local alias; replaced below when screenshots are dirty
+            _final_sources: list[str | None] = []
 
             if _grid_items is not None:
                 log.debug("edit save: %d grid item(s) to process", len(_grid_items))
@@ -777,25 +765,29 @@ class EditAppDialog(Adw.Dialog):
                             log.warning("Screenshot download failed: %s", _exc)
                 log.debug("edit save: final_paths=%s", final_paths)
                 images["screenshots"] = final_paths
+                # Placeholder screenshot rels — packager will replace with
+                # content-hashed names and return the final entry.
                 ss_rels = tuple(
-                    f"apps/{app_id}/screenshots/{i + 1:02d}{Path(p).suffix}"
-                    for i, p in enumerate(final_paths)
+                    f"apps/{app_id}/screenshots/ss_placeholder{Path(p).suffix}"
+                    for p in final_paths
                 )
-                log.debug("edit save: ss_rels=%s", ss_rels)
+                # Build screenshot_sources keyed by placeholder paths so the
+                # packager can remap them to the final hashed paths.
                 ss_sources = {
                     rel: src
                     for rel, src in zip(ss_rels, final_sources)
                     if src
                 }
-                log.debug("edit save: ss_sources=%s", ss_sources)
-                from dataclasses import replace as _dc_replace
-                _run_entry = _dc_replace(new_entry, screenshots=ss_rels, screenshot_sources=ss_sources)
+                log.debug("edit save: ss_rels (placeholder)=%s", ss_rels)
+                _run_entry = _dc_replace(new_entry, screenshots=ss_rels,
+                                         screenshot_sources=ss_sources)
+                _final_sources = final_sources
                 self._saved_entry = _run_entry
             else:
                 log.debug("edit save: screenshots not dirty, keeping existing rels=%s", e.screenshots)
 
             try:
-                update_in_repo(
+                _final_entry = update_in_repo(
                     repo_root,
                     e,
                     _run_entry,
@@ -805,9 +797,12 @@ class EditAppDialog(Adw.Dialog):
                     stats_cb=_stats,
                     cancel_event=self._cancel_event,
                 )
+                if _final_entry is not None:
+                    self._saved_entry = _final_entry
                 log.debug("edit save: update_in_repo done")
+                _saved = self._saved_entry
                 if _excluded_locals:
-                    new_rels_set = set(_run_entry.screenshots)
+                    new_rels_set = set(_saved.screenshots)
                     for _excl in _excluded_locals:
                         if not _excl.local_path:
                             continue
@@ -821,9 +816,8 @@ class EditAppDialog(Adw.Dialog):
                                         pass
                                 break
                 if _grid_items is not None:
-                    _all_ss_rels = set(e.screenshots) | set(_run_entry.screenshots)
-                    log.debug("edit save: evicting cache for %s", sorted(_all_ss_rels))
-                    for _rel in _all_ss_rels:
+                    # Evict old screenshot cache entries (old paths no longer valid)
+                    for _rel in e.screenshots:
                         self._repo.evict_asset_cache(_rel)
                 log.debug("edit save: saved_entry.screenshots=%s", self._saved_entry.screenshots)
                 GLib.idle_add(self._on_save_done)
@@ -955,89 +949,3 @@ class EditAppDialog(Adw.Dialog):
         alert.add_response("ok", "OK")
         alert.present(self)
 
-    # ── Delete flow ───────────────────────────────────────────────────────
-
-    def _on_delete_clicked(self, _btn) -> None:
-        alert = Adw.AlertDialog(
-            heading=f'Delete "{self._old_entry.name}"?',
-            body=(
-                "The archive file must be removed from or moved out of the repository. "
-                "This cannot be undone."
-            ),
-        )
-        alert.add_response("cancel", "Cancel")
-        alert.add_response("move", "Move Archive\u2026")
-        alert.add_response("delete", "Delete Archive")
-        alert.set_response_appearance("move", Adw.ResponseAppearance.SUGGESTED)
-        alert.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
-        alert.set_default_response("cancel")
-        alert.connect("response", self._on_delete_response)
-        alert.present(self)
-
-    def _on_delete_response(self, _alert, response: str) -> None:
-        if response == "cancel":
-            return
-        elif response == "delete":
-            self._do_delete(move_to=None)
-        elif response == "move":
-            chooser = Gtk.FileChooserNative(
-                title="Move Archive To\u2026",
-                transient_for=self.get_root(),
-                action=Gtk.FileChooserAction.SELECT_FOLDER,
-            )
-            chooser.connect("response", self._on_move_folder_chosen, chooser)
-            chooser.show()
-
-    def _on_move_folder_chosen(self, _chooser, response, chooser) -> None:
-        if response != Gtk.ResponseType.ACCEPT:
-            return
-        folder = chooser.get_file().get_path()
-        self._do_delete(move_to=folder)
-
-    def _do_delete(self, *, move_to: str | None) -> None:
-        self._cancel_event.clear()
-        self._stack.set_visible_child_name("spinner")
-        self._spinner_label.set_text("Deleting entry\u2026")
-
-        repo_root = self._repo.writable_path()
-
-        def _run():
-            from cellar.backend.packager import CancelledError, remove_from_repo
-
-            try:
-                remove_from_repo(
-                    repo_root,
-                    self._old_entry,
-                    move_archive_to=move_to,
-                    cancel_event=self._cancel_event,
-                )
-                GLib.idle_add(self._on_delete_done)
-            except CancelledError:
-                GLib.idle_add(self._on_delete_cancelled)
-            except Exception as exc:  # noqa: BLE001
-                GLib.idle_add(self._on_delete_error, str(exc))
-
-        threading.Thread(target=_run, daemon=True).start()
-
-    def _on_cancel_spinner_clicked(self, _btn) -> None:
-        self._cancel_event.set()
-        self._spinner_label.set_text("Cancelling\u2026")
-        self._cancel_spinner_btn.set_sensitive(False)
-
-    def _on_delete_done(self) -> None:
-        root = self.get_root()
-        if hasattr(root, "_show_toast"):
-            root._show_toast("Entry deleted")
-        self.close()
-        self._on_deleted()
-
-    def _on_delete_cancelled(self) -> None:
-        self._stack.set_visible_child_name("form")
-        self._cancel_spinner_btn.set_sensitive(True)
-
-    def _on_delete_error(self, message: str) -> None:
-        self._stack.set_visible_child_name("form")
-        self._cancel_spinner_btn.set_sensitive(True)
-        alert = Adw.AlertDialog(heading="Delete Failed", body=message)
-        alert.add_response("ok", "OK")
-        alert.present(self)

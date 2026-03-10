@@ -7,6 +7,7 @@ BMP-encoded frames) out of the box — no hand-rolled struct parsing needed.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import shutil
 from io import BytesIO
@@ -25,6 +26,11 @@ _IMAGE_MAX_SIZE: dict[str, tuple[int, int]] = {
 }
 
 _JPEG_QUALITY = 85
+
+
+def content_hash(path: str | Path, length: int = 8) -> str:
+    """Return a truncated SHA-256 hex digest of the file at *path*."""
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()[:length]
 
 
 # ---------------------------------------------------------------------------

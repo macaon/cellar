@@ -21,7 +21,54 @@ from pathlib import Path
 from threading import Event
 from typing import Callable
 
+from cellar.utils.images import content_hash as _content_hash
 from cellar.utils.images import optimize_image as _optimize_image
+
+
+import tempfile
+
+
+def _output_ext(src: str, role: str) -> str:
+    """Predict the output file extension that :func:`optimize_image` will produce."""
+    ext = Path(src).suffix.lower()
+    if ext in (".ico", ".bmp"):
+        return ".png"
+    if role == "logo":
+        return ".png"
+    # optimize_image downscales large covers/screenshots to JPEG, but only if
+    # they exceed max dims — we can't know without opening the image.  Use the
+    # source extension; the hash ensures correctness regardless.
+    return ext or ".png"
+
+
+def _optimize_and_hash(src: str, dest_dir, slot: str, role: str) -> str:
+    """Optimise *src*, hash the result, and write to *dest_dir* with a
+    content-hashed filename like ``icon_a1b2c3d4.png``.
+
+    Returns the hashed filename (just the name, not a full path).
+
+    *dest_dir* may be a :class:`pathlib.Path` or a remote path object (SmbPath /
+    SshPath) that supports ``.mkdir()`` and ``/`` operator.
+    """
+    ext = _output_ext(src, role)
+    with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tf:
+        tmp = Path(tf.name)
+    try:
+        _optimize_image(src, tmp, role)
+        # optimize_image may have written with a different extension then
+        # renamed back — the content at *tmp* is authoritative.
+        h = _content_hash(tmp)
+        hashed_name = f"{slot}_{h}{ext}"
+        dest = dest_dir / hashed_name
+        if isinstance(dest_dir, Path):
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(tmp, dest)
+        else:
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(tmp.read_bytes())
+        return hashed_name
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def _rmtree(path, ignore_errors: bool = False) -> None:
@@ -679,7 +726,7 @@ def import_to_repo(
     stats_cb: Callable[[int, int, float], None] | None = None,
     cancel_event=None,          # threading.Event — checked during archive copy
     archive_in_place: bool = False,
-) -> None:
+):
     """Copy archive + images into *repo_root* and update ``catalogue.json``.
 
     *images* is a dict with optional keys:
@@ -738,19 +785,29 @@ def import_to_repo(
 
         entry = replace(entry, archive_crc32=format(crc & 0xFFFFFFFF, "08x"))
 
-    # ── Single images (icon, cover, logo) ────────────────────────────────
+    # ── Single images (icon, cover, logo) — content-hashed names ────────
     for key in ("icon", "cover", "logo"):
         src = images.get(key)
-        if src and getattr(entry, key):
-            dest = repo_root / getattr(entry, key)
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            _optimize_image(src, dest, key)
+        if src:
+            hashed = _optimize_and_hash(src, app_dir, key, key)
+            entry = replace(entry, **{key: f"apps/{entry.id}/{hashed}"})
 
-    # ── Screenshots ───────────────────────────────────────────────────────
+    # ── Screenshots — content-hashed names ────────────────────────────────
     ss_dir = app_dir / "screenshots"
-    for i, src in enumerate(images.get("screenshots", []), 1):
-        ss_dir.mkdir(exist_ok=True)
-        _optimize_image(src, ss_dir / f"{i:02d}{Path(src).suffix}", "screenshot")
+    ss_rels: list[str] = []
+    for src in images.get("screenshots", []):
+        hashed = _optimize_and_hash(src, ss_dir, "ss", "screenshot")
+        ss_rels.append(f"apps/{entry.id}/screenshots/{hashed}")
+    if ss_rels:
+        # Rebuild screenshot_sources with the new hashed paths.
+        old_sources = entry.screenshot_sources or {}
+        old_ss = entry.screenshots or ()
+        new_sources: dict[str, str] = {}
+        for idx, new_rel in enumerate(ss_rels):
+            if idx < len(old_ss) and old_ss[idx] in old_sources:
+                new_sources[new_rel] = old_sources[old_ss[idx]]
+        entry = replace(entry, screenshots=tuple(ss_rels),
+                        screenshot_sources=new_sources if new_sources else {})
 
     # ── Clean up old archive files when re-publishing ────────────────────
     if archive_in_place and entry.archive:
@@ -764,6 +821,8 @@ def import_to_repo(
     if progress_cb:
         progress_cb(1.0)
 
+    return entry
+
 
 def update_in_repo(
     repo_root: Path,
@@ -776,7 +835,7 @@ def update_in_repo(
     phase_cb: Callable[[str], None] | None = None,
     stats_cb: Callable[[int, int, float], None] | None = None,
     cancel_event=None,
-) -> None:
+):
     """Update an existing entry in *repo_root*.
 
     - If *new_archive_src* is given, the archive is replaced (chunked copy,
@@ -784,6 +843,7 @@ def update_in_repo(
     - Only image keys with a non-empty value in *images* are overwritten.
     - Screenshots are fully replaced when *images["screenshots"]* is non-empty.
     - ``catalogue.json`` is updated in place (matched by ID).
+    - Returns the final :class:`AppEntry` with content-hashed image paths.
     """
     app_dir = repo_root / "apps" / new_entry.id
     app_dir.mkdir(parents=True, exist_ok=True)
@@ -835,25 +895,46 @@ def update_in_repo(
                 if old_archive != archive_dest and old_archive.exists():
                     old_archive.unlink(missing_ok=True)
 
-    # ── Single images (icon, cover, logo) ────────────────────────────────
+    # ── Single images (icon, cover, logo) — content-hashed names ────────
     for key in ("icon", "cover", "logo"):
         src = images.get(key)
-        if src and getattr(new_entry, key):
-            dest = repo_root / getattr(new_entry, key)
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            _optimize_image(src, dest, key)
+        if src:
+            hashed = _optimize_and_hash(src, app_dir, key, key)
+            new_rel = f"apps/{new_entry.id}/{hashed}"
+            # Remove old image file if path changed
+            old_rel = getattr(old_entry, key, "")
+            if old_rel and old_rel != new_rel:
+                old_file = repo_root / old_rel
+                if isinstance(old_file, Path):
+                    old_file.unlink(missing_ok=True)
+                else:
+                    try:
+                        old_file.unlink()
+                    except Exception:
+                        pass
+            new_entry = replace(new_entry, **{key: new_rel})
 
-    # ── Screenshots ───────────────────────────────────────────────────────
+    # ── Screenshots — content-hashed names ────────────────────────────────
     # None = keep existing, [] = clear all, [...] = replace
     new_screenshots = images.get("screenshots")
     if new_screenshots is not None:
         ss_dir = repo_root / "apps" / new_entry.id / "screenshots"
         if ss_dir.exists():
             _rmtree(ss_dir)
+        ss_rels: list[str] = []
         if new_screenshots:
-            ss_dir.mkdir(parents=True, exist_ok=True)
-            for i, src in enumerate(new_screenshots, 1):
-                _optimize_image(src, ss_dir / f"{i:02d}{Path(src).suffix}", "screenshot")
+            for src in new_screenshots:
+                hashed = _optimize_and_hash(src, ss_dir, "ss", "screenshot")
+                ss_rels.append(f"apps/{new_entry.id}/screenshots/{hashed}")
+        # Rebuild screenshot_sources with the new hashed paths.
+        old_sources = new_entry.screenshot_sources or {}
+        old_ss = new_entry.screenshots or ()
+        new_sources: dict[str, str] = {}
+        for idx, new_rel in enumerate(ss_rels):
+            if idx < len(old_ss) and old_ss[idx] in old_sources:
+                new_sources[new_rel] = old_sources[old_ss[idx]]
+        new_entry = replace(new_entry, screenshots=tuple(ss_rels),
+                            screenshot_sources=new_sources if new_sources else {})
 
     # ── catalogue.json ────────────────────────────────────────────────────
     if phase_cb:
@@ -862,6 +943,8 @@ def update_in_repo(
 
     if progress_cb:
         progress_cb(1.0)
+
+    return new_entry
 
 
 def remove_from_repo(
@@ -953,6 +1036,7 @@ def _write_catalogue(
     data: dict = {
         "cellar_version": 1,
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        "image_hashing": True,
         "apps": apps,
     }
     if categories is not None:

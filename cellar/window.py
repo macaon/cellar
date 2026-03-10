@@ -265,7 +265,8 @@ class CellarWindow(Adw.ApplicationWindow):
         entries = list(all_entries.values())
 
         # Determine offline repos and show/hide the banner.
-        offline_repos = [r for r in manager if r.is_offline]
+        # Exclude repos whose catalogue.json was removed (not a network issue).
+        offline_repos = [r for r in manager if r.is_offline and not r.is_catalogue_missing]
         if offline_repos:
             names = ", ".join(r.name for r in offline_repos)
             noun = "Repository" if len(offline_repos) == 1 else "Repositories"
@@ -455,7 +456,6 @@ class CellarWindow(Adw.ApplicationWindow):
                 entry=selected_entry,
                 repo=self._first_repo,
                 on_done=_on_edit_done,
-                on_deleted=self._on_entry_deleted,
             ).present(self)
 
         def _on_install_done(prefix_dir: str, install_path: str = "", runner: str = "", install_size: int = 0) -> None:
@@ -503,10 +503,6 @@ class CellarWindow(Adw.ApplicationWindow):
         )
         page = Adw.NavigationPage(title=entry.name, child=detail)
         self.nav_view.push(page)
-
-    def _on_entry_deleted(self) -> None:
-        self.nav_view.pop()
-        self._load_catalogue()
 
     def _on_preferences_activated(self, _action, _param) -> None:
         from cellar.views.settings import SettingsDialog

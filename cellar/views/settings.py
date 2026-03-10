@@ -511,6 +511,9 @@ class SettingsDialog(Adw.PreferencesDialog):
         repos = [r for r in load_repos() if r["uri"] != uri]
         save_repos(repos)
         clear_password(uri)
+        from cellar.backend.repo import Repo
+        Repo.clear_catalogue_cache(uri)
+        Repo.clear_asset_cache(uri)
         self._rebuild_repo_rows()
         if self._on_repos_changed:
             self._on_repos_changed()
@@ -864,7 +867,7 @@ class AddEditRepoDialog(Adw.Dialog):
             return
 
         try:
-            repo.fetch_catalogue()
+            repo.fetch_catalogue(use_cache=False)
         except RepoError as exc:
             err = str(exc)
             if _looks_like_missing(err):

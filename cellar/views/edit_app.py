@@ -273,28 +273,19 @@ class EditAppDialog(Adw.Dialog):
         self._strategy_row.set_model(strat_model)
         launch_group.add(self._strategy_row)
 
-        self._entry_point_entry = Adw.ActionRow(title="Launch Target")
-        self._entry_point_entry.set_subtitle("Not set")
-        self._entry_point_entry.set_subtitle_selectable(True)
-        ep_browse_btn = Gtk.Button(icon_name="folder-open-symbolic")
-        ep_browse_btn.add_css_class("flat")
-        ep_browse_btn.set_valign(Gtk.Align.CENTER)
-        ep_browse_btn.set_sensitive(self._locally_installed)
-        ep_browse_btn.set_tooltip_text(
-            "Browse for executable\u2026" if self._locally_installed
-            else "Not installed locally"
-        )
-        ep_browse_btn.connect("clicked", self._on_browse_entry_point)
-        self._entry_point_entry.add_suffix(ep_browse_btn)
-        if self._locally_installed:
-            self._entry_point_entry.set_activatable_widget(ep_browse_btn)
-        launch_group.add(self._entry_point_entry)
+        # Launch targets — dynamic list, one row per target
+        self._launch_targets: list[dict] = []
+        self._target_rows: list[Adw.ExpanderRow] = []
+        self._targets_group = launch_group  # we'll add target rows here
 
-        self._launch_args_entry = Adw.EntryRow(title="Launch Arguments")
-        self._launch_args_entry.set_tooltip_text(
-            "Optional arguments passed to the entry point on launch."
-        )
-        launch_group.add(self._launch_args_entry)
+        add_target_row = Adw.ActionRow(title="Add Launch Target\u2026")
+        add_btn = Gtk.Button(label="Add\u2026", valign=Gtk.Align.CENTER)
+        add_btn.add_css_class("flat")
+        add_btn.connect("clicked", self._on_add_target_clicked)
+        add_target_row.add_suffix(add_btn)
+        add_target_row.set_activatable_widget(add_btn)
+        self._add_target_row = add_target_row
+        launch_group.add(add_target_row)
 
         page.append(launch_group)
 
@@ -387,13 +378,8 @@ class EditAppDialog(Adw.Dialog):
                 "Executable path within the app directory, e.g. \u201cbin/mygame\u201d"
             )
 
-        if e.entry_point:
-            self._entry_point = e.entry_point
-            self._entry_point_entry.set_subtitle(GLib.markup_escape_text(e.entry_point))
-        else:
-            self._entry_point = ""
-            self._entry_point_entry.set_subtitle("Not set")
-        self._launch_args_entry.set_text(e.launch_args or "")
+        for t in e.launch_targets:
+            self._add_target_row_ui(dict(t))
 
         # Media panel — set subtitles first (sync), then load thumbnails async
         self._media.set_image_subtitles(e.icon, e.cover, e.logo, bool(e.hide_title))
@@ -528,7 +514,7 @@ class EditAppDialog(Adw.Dialog):
 
     # ── Entry point browser ───────────────────────────────────────────────
 
-    def _on_browse_entry_point(self, _btn) -> None:
+    def _on_browse_target(self, _btn, idx: int) -> None:
         import os
         from cellar.backend.umu import prefixes_dir
         e = self._old_entry
@@ -556,11 +542,13 @@ class EditAppDialog(Adw.Dialog):
             exe_filter.set_name("Windows executables (*.exe)")
             exe_filter.add_pattern("*.exe")
             chooser.add_filter(exe_filter)
-        chooser.connect("response", self._on_entry_point_chosen, chooser, browse_root, e.platform)
+        chooser.connect("response", self._on_target_path_chosen, chooser,
+                        browse_root, e.platform, idx)
         chooser.show()
         self._ep_chooser = chooser  # keep reference alive
 
-    def _on_entry_point_chosen(self, _c, response, chooser, browse_root: Path, platform: str) -> None:
+    def _on_target_path_chosen(self, _c, response, chooser, browse_root: Path,
+                               platform: str, idx: int) -> None:
         import os
         if response != Gtk.ResponseType.ACCEPT:
             return
@@ -578,8 +566,11 @@ class EditAppDialog(Adw.Dialog):
                 formatted = "C:\\" + rel.replace("/", "\\")
             except ValueError:
                 formatted = abs_path
-        self._entry_point = formatted
-        self._entry_point_entry.set_subtitle(GLib.markup_escape_text(formatted))
+        if idx < len(self._launch_targets):
+            self._launch_targets[idx]["path"] = formatted
+            self._target_rows[idx].set_subtitle(
+                GLib.markup_escape_text(formatted)
+            )
 
     # ── Steam lookup ──────────────────────────────────────────────────────
 
@@ -610,9 +601,10 @@ class EditAppDialog(Adw.Dialog):
                 self._genres_entry.set_text(str(genres))
         if result.get("summary"):
             self._summary_entry.set_text(result["summary"])
-        if result.get("description"):
+            # Use the short summary for description too — the long Steam
+            # description is too verbose for catalogue display.
             buf = self._desc_view.get_buffer()
-            buf.set_text(result["description"])
+            buf.set_text(result["summary"])
         if result.get("steam_appid"):
             self._steam_appid_entry.set_text(str(result["steam_appid"]))
         if result.get("category") and result["category"] in self._categories:
@@ -648,8 +640,6 @@ class EditAppDialog(Adw.Dialog):
         genres_text = self._genres_entry.get_text().strip()
         genres = tuple(g.strip() for g in genres_text.split(",") if g.strip()) if genres_text else ()
         strategy = _STRATEGIES[self._strategy_row.get_selected()]
-        entry_point = self._entry_point
-        launch_args = self._launch_args_entry.get_text().strip()
 
         # Single images via media panel: None=keep existing, ""=clear, str=new file
         icon_path = self._media.get_icon_path() if self._media.icon_changed else None
@@ -710,7 +700,7 @@ class EditAppDialog(Adw.Dialog):
             archive_crc32=e.archive_crc32,
             install_size_estimate=e.install_size_estimate,
             update_strategy=strategy,
-            launch_targets=self._build_launch_targets(entry_point, launch_args),
+            launch_targets=tuple(self._launch_targets),
             compatibility_notes=e.compatibility_notes,
             changelog=e.changelog,
             lock_runner=e.lock_runner,
@@ -844,13 +834,105 @@ class EditAppDialog(Adw.Dialog):
 
         threading.Thread(target=_run, daemon=True).start()
 
-    def _build_launch_targets(self, entry_point: str, launch_args: str) -> tuple[dict, ...]:
-        """Build launch_targets tuple, preserving secondary targets from the old entry."""
-        old = list(self._old_entry.launch_targets)
-        primary = {"name": old[0].get("name", "Main") if old else "Main", "path": entry_point}
-        if launch_args:
-            primary["args"] = launch_args
-        return tuple([primary] + old[1:])
+    # ── Launch target management ─────────────────────────────────────────
+
+    def _add_target_row_ui(self, target: dict) -> None:
+        """Add a UI row for *target* and track it in ``_launch_targets``."""
+        self._launch_targets.append(target)
+        idx = len(self._launch_targets) - 1
+
+        name = target.get("name", "Main")
+        path = target.get("path", "")
+        args = target.get("args", "")
+
+        row = Adw.ExpanderRow(title=GLib.markup_escape_text(name))
+        row.set_subtitle(GLib.markup_escape_text(path) if path else "Not set")
+        row.set_subtitle_lines(1)
+
+        # Browse button
+        browse_btn = Gtk.Button(icon_name="folder-open-symbolic")
+        browse_btn.add_css_class("flat")
+        browse_btn.set_valign(Gtk.Align.CENTER)
+        browse_btn.set_sensitive(self._locally_installed)
+        browse_btn.set_tooltip_text(
+            "Browse for executable\u2026" if self._locally_installed
+            else "Not installed locally"
+        )
+        browse_btn.connect("clicked", self._on_browse_target, idx)
+        row.add_suffix(browse_btn)
+
+        # Delete button
+        del_btn = Gtk.Button(icon_name="user-trash-symbolic")
+        del_btn.add_css_class("flat")
+        del_btn.set_valign(Gtk.Align.CENTER)
+        del_btn.connect("clicked", self._on_remove_target, idx)
+        row.add_suffix(del_btn)
+
+        # Name sub-row
+        name_entry = Adw.EntryRow(title="Name")
+        name_entry.set_text(name)
+        name_entry.connect("changed", self._on_target_name_changed, idx, row)
+        row.add_row(name_entry)
+
+        # Args sub-row
+        args_entry = Adw.EntryRow(title="Arguments")
+        args_entry.set_text(args)
+        args_entry.connect("changed", self._on_target_args_changed, idx)
+        row.add_row(args_entry)
+
+        self._target_rows.append(row)
+        self._targets_group.remove(self._add_target_row)
+        self._targets_group.add(row)
+        self._targets_group.add(self._add_target_row)
+
+    def _on_add_target_clicked(self, _btn) -> None:
+        self._add_target_row_ui({"name": "New Target", "path": ""})
+
+    def _on_remove_target(self, _btn, idx: int) -> None:
+        if idx >= len(self._launch_targets):
+            return
+        row = self._target_rows[idx]
+        self._targets_group.remove(row)
+        self._launch_targets.pop(idx)
+        self._target_rows.pop(idx)
+        # Re-bind remaining rows to correct indices
+        self._rebind_target_indices()
+
+    def _rebind_target_indices(self) -> None:
+        """Reconnect signal handlers after a row removal shifts indices."""
+        # Simplest approach: just rebuild internal index references.
+        # The target dicts are already correct in _launch_targets;
+        # we just need new closures for the callbacks.
+        for new_idx, row in enumerate(self._target_rows):
+            # Clear old suffix buttons and re-add with correct index
+            # Actually, since we use idx captured in closures, we need to
+            # rebuild the suffix buttons. But that's complex with ExpanderRow.
+            # Instead, we'll use a mutable container approach.
+            pass
+        # The closures capture idx by value at creation time, which is now stale
+        # after removal. Rebuild the entire targets UI.
+        old_targets = list(self._launch_targets)
+        # Remove all existing rows
+        for row in self._target_rows:
+            self._targets_group.remove(row)
+        self._launch_targets.clear()
+        self._target_rows.clear()
+        for t in old_targets:
+            self._add_target_row_ui(t)
+
+    def _on_target_name_changed(self, entry: Adw.EntryRow, idx: int,
+                                row: Adw.ExpanderRow) -> None:
+        if idx < len(self._launch_targets):
+            self._launch_targets[idx]["name"] = entry.get_text().strip()
+            row.set_title(GLib.markup_escape_text(entry.get_text().strip()))
+
+    def _on_target_args_changed(self, entry: Adw.EntryRow, idx: int) -> None:
+        if idx < len(self._launch_targets):
+            text = entry.get_text().strip()
+            if text:
+                self._launch_targets[idx]["args"] = text
+            else:
+                self._launch_targets[idx].pop("args", None)
 
     def _on_cancel_progress_clicked(self, _btn) -> None:
         self._cancel_event.set()

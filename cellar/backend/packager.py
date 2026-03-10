@@ -252,6 +252,38 @@ class _ChunkWriter:
         return self._crc_writer
 
 
+def _cleanup_old_archive(repo_root, new_entry) -> None:
+    """Remove stale archive files left by a previous publish of the same app.
+
+    When an app is re-published with ``archive_in_place=True`` the new chunk
+    files are already on disk.  This helper reads the *existing* catalogue
+    entry (if any) and removes its old archive artefacts — either the old
+    unchunked file or the old chunk files — so they don't linger on the repo.
+    """
+    cat_path = repo_root / "catalogue.json"
+    if not cat_path.exists():
+        return
+    try:
+        raw = json.loads(cat_path.read_text())
+        apps = raw.get("apps", raw) if isinstance(raw, dict) else raw
+    except Exception:
+        return
+    old = next((a for a in apps if a.get("id") == new_entry.id), None)
+    if not old or not old.get("archive"):
+        return
+    old_archive = repo_root / old["archive"]
+    if old.get("archive_chunks"):
+        # Old entry was chunked — remove old chunk files.
+        _cleanup_chunks(old_archive)
+    else:
+        # Old entry was a single file — remove it if it still exists.
+        if old_archive.exists():
+            try:
+                old_archive.unlink(missing_ok=True)
+            except (OSError, TypeError):
+                pass
+
+
 def _cleanup_chunks(dest_path) -> None:
     """Remove all ``.NNN`` chunk files for *dest_path*."""
     parent = dest_path.parent
@@ -719,6 +751,10 @@ def import_to_repo(
     for i, src in enumerate(images.get("screenshots", []), 1):
         ss_dir.mkdir(exist_ok=True)
         _optimize_image(src, ss_dir / f"{i:02d}{Path(src).suffix}", "screenshot")
+
+    # ── Clean up old archive files when re-publishing ────────────────────
+    if archive_in_place and entry.archive:
+        _cleanup_old_archive(repo_root, entry)
 
     # ── catalogue.json ────────────────────────────────────────────────────
     if phase_cb:

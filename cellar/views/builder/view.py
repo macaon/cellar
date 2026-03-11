@@ -173,7 +173,7 @@ class PackageBuilderView(Adw.Bin):
         scroll.set_vexpand(True)
         scroll.set_child(self._flow_box)
 
-        self._list_page = Adw.NavigationPage(title="", child=scroll)
+        self._list_page = Adw.NavigationPage(title="Package Builder", child=scroll)
         self._nav_view.add(self._list_page)
 
         self.set_child(self._nav_view)

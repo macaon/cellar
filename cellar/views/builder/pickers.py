@@ -75,7 +75,7 @@ class AddLaunchTargetDialog(Adw.Dialog):
             title = "Select Executable"
         else:
             browse_root = self._content_path / "drive_c"
-            title = "Select Executable (.exe)"
+            title = "Select Executable"
         chooser = Gtk.FileChooserNative(
             title=title,
             transient_for=self.get_root(),
@@ -86,9 +86,15 @@ class AddLaunchTargetDialog(Adw.Dialog):
             chooser.set_current_folder(Gio.File.new_for_path(str(browse_root)))
         if self._platform != "linux":
             exe_filter = Gtk.FileFilter()
-            exe_filter.set_name("Windows executables (*.exe)")
-            exe_filter.add_pattern("*.exe")
+            exe_filter.set_name("Windows executables")
+            for ext in ("exe", "msi", "bat", "cmd", "com", "lnk"):
+                exe_filter.add_pattern(f"*.{ext}")
+                exe_filter.add_pattern(f"*.{ext.upper()}")
             chooser.add_filter(exe_filter)
+            all_filter = Gtk.FileFilter()
+            all_filter.set_name("All files")
+            all_filter.add_pattern("*")
+            chooser.add_filter(all_filter)
         chooser.connect("response", self._on_exe_chosen, chooser)
         chooser.show()
         self._chooser = chooser

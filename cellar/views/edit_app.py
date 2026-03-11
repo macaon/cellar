@@ -491,7 +491,7 @@ class EditAppDialog(Adw.Dialog):
         else:
             prefix = prefixes_dir() / e.id / "drive_c"
             browse_root = prefix if prefix.is_dir() else Path.home()
-            title = "Select Executable (.exe)"
+            title = "Select Executable"
 
         chooser = Gtk.FileChooserNative(
             title=title,
@@ -503,9 +503,15 @@ class EditAppDialog(Adw.Dialog):
         chooser.set_current_folder(Gio.File.new_for_path(str(browse_root)))
         if e.platform != "linux":
             exe_filter = Gtk.FileFilter()
-            exe_filter.set_name("Windows executables (*.exe)")
-            exe_filter.add_pattern("*.exe")
+            exe_filter.set_name("Windows executables")
+            for ext in ("exe", "msi", "bat", "cmd", "com", "lnk"):
+                exe_filter.add_pattern(f"*.{ext}")
+                exe_filter.add_pattern(f"*.{ext.upper()}")
             chooser.add_filter(exe_filter)
+            all_filter = Gtk.FileFilter()
+            all_filter.set_name("All files")
+            all_filter.add_pattern("*")
+            chooser.add_filter(all_filter)
         chooser.connect("response", self._on_target_path_chosen, chooser,
                         browse_root, e.platform, idx)
         chooser.show()

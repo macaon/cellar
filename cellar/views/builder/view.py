@@ -834,7 +834,7 @@ class PackageBuilderView(Adw.Bin):
 
             run_installer_row = Adw.ActionRow(
                 title="Run Installer",
-                subtitle="Run a .exe inside the prefix",
+                subtitle="Run an installer inside the prefix",
             )
             run_installer_row.set_sensitive(project.initialized)
             run_btn = Gtk.Button(label="Choose\u2026")
@@ -1461,7 +1461,7 @@ class PackageBuilderView(Adw.Bin):
             return
         project = self._project
         chooser = Gtk.FileChooserNative(
-            title="Select Installer (.exe)",
+            title="Select Installer",
             action=Gtk.FileChooserAction.OPEN,
             accept_label="Run",
         )
@@ -1470,9 +1470,14 @@ class PackageBuilderView(Adw.Bin):
             chooser.set_transient_for(win)
         f = Gtk.FileFilter()
         f.set_name("Windows executables")
-        f.add_pattern("*.exe")
-        f.add_pattern("*.msi")
+        for ext in ("exe", "msi", "bat", "cmd", "com", "lnk"):
+            f.add_pattern(f"*.{ext}")
+            f.add_pattern(f"*.{ext.upper()}")
         chooser.add_filter(f)
+        all_filter = Gtk.FileFilter()
+        all_filter.set_name("All files")
+        all_filter.add_pattern("*")
+        chooser.add_filter(all_filter)
         chooser.connect(
             "response",
             lambda c, r: self._on_installer_chosen(c, r, project),

@@ -162,8 +162,8 @@ def launch_app_monitored(
 
     Reads umu-run's stderr line-by-line, calling *line_cb* for each line.
     Returns once the game appears to have started (two-tier marker detection:
-    first Wine init lines like ``fsync:``, then Proton/container lines like
-    ``Proton:``), after a 30 s timeout, or when stderr closes.  Wine keeps
+    first Proton/container setup lines, then ``fsync:``/``esync:`` indicating
+    Wine is ready), after a 30 s timeout, or when stderr closes.  Wine keeps
     stderr open for the lifetime of the process, so we must not wait for EOF.
     """
     import os
@@ -179,10 +179,10 @@ def launch_app_monitored(
         app_id, " ".join(cmd[:-1]),
         umu_env["WINEPREFIX"], umu_env["PROTONPATH"], umu_env["GAMEID"], entry_point,
     )
-    # Tier 1: Wine is initializing — note it, keep monitoring.
-    _WINE_INIT = ("fsync:", "esync:", "wine: configuration")
-    # Tier 2: Proton/container setup finishing — close to app readiness.
-    _STARTED = ("Proton:", "pressure-vessel")
+    # Tier 1: Proton/container is setting up — keep monitoring.
+    _SETUP = ("pressure-vessel", "Proton:", "wine: configuration")
+    # Tier 2: Wine sync is up — game is about to start.
+    _STARTED = ("fsync:", "esync:")
     _MONITOR_TIMEOUT = 30  # seconds — never hold the dialog forever
     proc = subprocess.Popen(
         cmd, env=env, start_new_session=True,
@@ -197,7 +197,7 @@ def launch_app_monitored(
             log.debug("umu-run: %s", line)
             if line_cb:
                 line_cb(line)
-        if not wine_seen and any(m in line for m in _WINE_INIT):
+        if not wine_seen and any(m in line for m in _SETUP):
             wine_seen = True
         if wine_seen and any(m in line for m in _STARTED):
             break

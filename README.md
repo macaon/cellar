@@ -65,12 +65,11 @@ sets `PROTONPATH=runners/<runner>` and umu writes runner artifacts into the
 prefix. That prefix is then archived and published. A base references exactly
 one runner via the `runner` field.
 
-**App** — the actual application package. If it references a base image via
-`base_image`, the archive is a *delta* — it contains only files that differ
-from that base (see [Delta packages](#delta-packages) below). The runner for
-the app is always derived by looking up `bases[base_image].runner` — no
-redundant runner reference on the app entry. Apps without a `base_image` are
-full standalone archives.
+**App** — the actual application package. Every Windows app references a base
+image via `base_image`. The archive is a *delta* — it contains only files that
+differ from that base (see [Delta packages](#delta-packages) below). The
+runner for the app is always derived by looking up `bases[base_image].runner`
+— no redundant runner reference on the app entry.
 
 Linux native apps skip this hierarchy entirely — they have no runner, no base,
 and no WINEPREFIX. The archive is extracted directly and the entry point is
@@ -176,9 +175,9 @@ prefix, and reinstalls from scratch.
 ### Install pipeline summary
 
 **Windows app:**
-ensure runner → ensure base (if delta) → download app archive (chunked,
-streaming CRC32) → extract → seed prefix from base (CoW) → overlay delta →
-apply delete manifest → write file manifest → record in SQLite database
+ensure runner → ensure base → download app delta (chunked, streaming CRC32) →
+extract to temp → seed prefix from base (CoW) → overlay delta → apply delete
+manifest → write file manifest → record in SQLite database
 
 **Linux app:**
 download archive (chunked) → extract to `native/<id>/` → `chmod +x` entry
@@ -207,8 +206,8 @@ filesystem via a writable transport and serve it over HTTP for users.
 
 ### Building and publishing a base image
 
-A base image is a shared WINEPREFIX that multiple app packages can build on
-top of. Creating one is the first step before publishing delta app packages.
+A base image is a shared WINEPREFIX that all Windows app packages build on
+top of. Creating one is the first step before publishing any app packages.
 
 1. Open the **Package Builder** tab → click **New Project** → select **Base**.
 2. Enter a name (e.g. "GE-Proton10-32-allfonts"). Pick a GE-Proton runner
@@ -238,10 +237,9 @@ top of. Creating one is the first step before publishing delta app packages.
 6. **Fill in metadata.** The metadata dialog lets you set the title, category,
    description, and media (icon, cover, screenshots). Use the Steam lookup
    button to auto-fill from the Steam Store.
-7. Click **Publish** and choose the target repo. If a matching base image is
-   installed locally, Cellar automatically computes the delta (BLAKE2b diff) —
-   only changed files are included in the archive. Otherwise a full archive is
-   created.
+7. Click **Publish** and choose the target repo. Cellar automatically computes
+   the delta against the base image (BLAKE2b diff) — only changed files are
+   included in the archive.
 
 ### Bearer token authentication for HTTP(S) repos
 
@@ -389,7 +387,7 @@ This keeps the initial catalogue fetch small even for repos with many apps.
 
 | Field | Description |
 |---|---|
-| `base_image` | Delta archive base. The installer seeds the prefix from this base before overlaying. Runner derived via `bases[base_image].runner`. Omit for full archives. |
+| `base_image` | The base image this delta is built against. The installer seeds the prefix from this base before overlaying. Runner derived via `bases[base_image].runner`. Required for all Windows apps. |
 | `archive_chunks` | Per-chunk size and CRC32. Empty or absent for legacy single-file archives. |
 | `steam_appid` | Sets `GAMEID=umu-<id>` for umu-launcher, enabling [protonfixes](https://github.com/Open-Wine-Components/umu-protonfixes). Omit or `null` for `GAMEID=0`. |
 | `update_strategy` | `"safe"` (rsync overlay, preserves user data) or `"full"` (complete replacement with warning). |

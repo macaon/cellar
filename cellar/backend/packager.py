@@ -809,10 +809,6 @@ def import_to_repo(
         entry = replace(entry, screenshots=tuple(ss_rels),
                         screenshot_sources=new_sources if new_sources else {})
 
-    # ── Clean up old archive files when re-publishing ────────────────────
-    if archive_in_place and entry.archive:
-        _cleanup_old_archive(repo_root, entry)
-
     # ── catalogue.json ────────────────────────────────────────────────────
     if phase_cb:
         phase_cb("Writing catalogue\u2026")

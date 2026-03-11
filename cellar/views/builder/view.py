@@ -1834,6 +1834,11 @@ class PackageBuilderView(Adw.Bin):
             archive_dest = repo_root / entry.archive
             archive_dest.parent.mkdir(parents=True, exist_ok=True)
 
+            # Remove old archive chunks before writing new ones — they share
+            # the same filename pattern, so cleanup after would delete new files.
+            from cellar.backend.packager import _cleanup_old_archive
+            _cleanup_old_archive(repo_root, entry)
+
             _reset_phase("Compressing and uploading\u2026")
             try:
                 if project.project_type == "linux":

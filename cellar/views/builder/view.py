@@ -145,13 +145,6 @@ class PackageBuilderView(Adw.Bin):
         self._nav_view.connect("popped", self._on_nav_popped)
 
         # ── List page ────────────────────────────────────────────────────
-        list_toolbar = Adw.ToolbarView()
-        list_header = Adw.HeaderBar()
-        list_header.set_show_start_title_buttons(False)
-        list_header.set_show_end_title_buttons(False)
-
-        list_toolbar.add_top_bar(list_header)
-
         # Register CSS for the dashed new-project card
         css = Gtk.CssProvider()
         css.load_from_string(
@@ -180,9 +173,7 @@ class PackageBuilderView(Adw.Bin):
         scroll.set_vexpand(True)
         scroll.set_child(self._flow_box)
 
-        list_toolbar.set_content(scroll)
-
-        self._list_page = Adw.NavigationPage(title="", child=list_toolbar)
+        self._list_page = Adw.NavigationPage(title="", child=scroll)
         self._nav_view.add(self._list_page)
 
         self.set_child(self._nav_view)

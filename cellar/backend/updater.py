@@ -315,7 +315,7 @@ def update_app_safe(
                     InstallCancelled,
                     InstallError,
                     _build_source,
-                    _find_bottle_dir,
+                    _find_top_dir,
                     _install_chunks,
                     _stream_and_extract,
                 )
@@ -351,7 +351,7 @@ def update_app_safe(
                         stats_cb=stats_cb,
                         name_cb=None,
                     )
-                bottle_src = _find_bottle_dir(extract_dir)
+                content_src = _find_top_dir(extract_dir)
             except InstallCancelled:
                 raise UpdateCancelled
             except InstallError as exc:
@@ -365,7 +365,7 @@ def update_app_safe(
                 progress_cb(ov_lo)
             is_delta = bool(entry.base_image)
             _overlay(
-                bottle_src,
+                content_src,
                 prefix_path,
                 is_delta=is_delta,
                 progress_cb=_sub(ov_lo, 1.0),
@@ -377,7 +377,7 @@ def update_app_safe(
             # For delta archives the .cellar_delete manifest lists files that
             # were present in the previous version but removed in this one.
             if is_delta:
-                delete_manifest = bottle_src / ".cellar_delete"
+                delete_manifest = content_src / ".cellar_delete"
                 if delete_manifest.exists():
                     for line in delete_manifest.read_text().splitlines():
                         rel = line.strip()

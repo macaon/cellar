@@ -697,7 +697,7 @@ def install_app(
                     stats_cb=download_stats_cb,
                     name_cb=extract_name_cb,
                 )
-            delta_src = _find_bottle_dir(delta_dir)
+            delta_src = _find_top_dir(delta_dir)
 
             from cellar.backend.base_store import base_path  # noqa: PLC0415
             if phase_cb:
@@ -978,39 +978,29 @@ def _extract_zst(
 # Identify
 # ---------------------------------------------------------------------------
 
-def _find_bottle_dir(extract_dir: Path) -> Path:
-    """Return the prefix source directory inside *extract_dir*.
+def _find_top_dir(extract_dir: Path) -> Path:
+    """Return the single top-level directory inside *extract_dir*.
 
-    Expects a single top-level directory.  Both Cellar-native archives
-    (``prefix/`` top-level) and legacy Bottles archives (arbitrary name,
-    may contain ``bottle.yml``) are accepted; ``bottle.yml`` is ignored.
-
-    When there are multiple top-level directories the one named ``prefix``
-    is preferred (Cellar-native format), then one containing ``bottle.yml``
-    (legacy Bottles format), otherwise raises ``InstallError``.
+    Archives produced by the packager wrap content in one top-level
+    directory.  When there are multiple, the one named ``prefix`` is
+    preferred (Windows apps), otherwise raises ``InstallError``.
     """
     dirs = [d for d in extract_dir.iterdir() if d.is_dir()]
 
     if not dirs:
         raise InstallError(
-            "Archive contains no directories; expected a top-level prefix directory."
+            "Archive contains no directories; expected a top-level directory."
         )
 
     if len(dirs) == 1:
         return dirs[0]
 
-    # Prefer the Cellar-native top-level name.
     for d in dirs:
         if d.name == "prefix":
             return d
 
-    # Fall back to a Bottles-format archive.
-    with_yml = [d for d in dirs if (d / "bottle.yml").exists()]
-    if len(with_yml) == 1:
-        return with_yml[0]
-
     raise InstallError(
-        f"Cannot identify prefix directory in archive "
+        f"Cannot identify content directory in archive "
         f"({len(dirs)} top-level directories found; expected exactly one)."
     )
 

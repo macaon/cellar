@@ -71,7 +71,7 @@ def install_base(
     """
     # Import lazily to avoid circular-import issues with installer.py.
     from cellar.backend.installer import (  # noqa: PLC0415
-        InstallCancelled, InstallError, _extract_archive, _find_bottle_dir,
+        InstallCancelled, InstallError, _extract_archive, _find_top_dir,
     )
 
     archive_path = Path(archive_path)
@@ -93,7 +93,7 @@ def install_base(
             raise BaseStoreError(f"Failed to extract base archive: {exc}") from exc
 
         try:
-            bottle_src = _find_bottle_dir(extract_dir)
+            content_src = _find_top_dir(extract_dir)
         except InstallError as exc:
             raise BaseStoreError(str(exc)) from exc
 
@@ -102,11 +102,11 @@ def install_base(
             shutil.rmtree(dest)
         dest.parent.mkdir(parents=True, exist_ok=True)
         try:
-            for src in bottle_src.rglob("*"):
+            for src in content_src.rglob("*"):
                 if cancel_event and cancel_event.is_set():
                     shutil.rmtree(dest, ignore_errors=True)
                     raise InstallCancelled("Base installation cancelled")
-                rel = src.relative_to(bottle_src)
+                rel = src.relative_to(content_src)
                 dst = dest / rel
                 if src.is_symlink():
                     dst.parent.mkdir(parents=True, exist_ok=True)

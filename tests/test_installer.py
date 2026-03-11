@@ -57,50 +57,40 @@ def _patch_prefixes_dir(tmp_path: Path):
 
 
 # ---------------------------------------------------------------------------
-# _find_bottle_dir
+# _find_top_dir
 # ---------------------------------------------------------------------------
 
-def test_find_bottle_dir_single_dir(tmp_path):
+def test_find_top_dir_single_dir(tmp_path):
     extract = tmp_path / "extracted"
     bottle = extract / "MyBottle"
     bottle.mkdir(parents=True)
-    assert ins._find_bottle_dir(extract) == bottle
+    assert ins._find_top_dir(extract) == bottle
 
 
-def test_find_bottle_dir_prefers_prefix_name(tmp_path):
+def test_find_top_dir_prefers_prefix_name(tmp_path):
     """A directory named 'prefix' is preferred (Cellar-native umu archive)."""
     extract = tmp_path / "extracted"
     (extract / "dir1").mkdir(parents=True)
     prefix = extract / "prefix"
     prefix.mkdir()
-    assert ins._find_bottle_dir(extract) == prefix
+    assert ins._find_top_dir(extract) == prefix
 
 
-def test_find_bottle_dir_picks_bottle_yml(tmp_path):
-    """Legacy Bottles archive: directory with bottle.yml is preferred."""
-    extract = tmp_path / "extracted"
-    (extract / "dir1").mkdir(parents=True)
-    bottle = extract / "dir2"
-    bottle.mkdir()
-    (bottle / "bottle.yml").write_text("")
-    assert ins._find_bottle_dir(extract) == bottle
-
-
-def test_find_bottle_dir_no_dirs_raises(tmp_path):
+def test_find_top_dir_no_dirs_raises(tmp_path):
     extract = tmp_path / "extracted"
     extract.mkdir()
     (extract / "somefile.txt").write_text("x")
     with pytest.raises(ins.InstallError, match="no directories"):
-        ins._find_bottle_dir(extract)
+        ins._find_top_dir(extract)
 
 
-def test_find_bottle_dir_ambiguous_raises(tmp_path):
+def test_find_top_dir_ambiguous_raises(tmp_path):
     extract = tmp_path / "extracted"
     (extract / "dir1").mkdir(parents=True)
     (extract / "dir2").mkdir()
-    # Neither is named 'prefix' nor has bottle.yml
+    # Neither is named 'prefix'
     with pytest.raises(ins.InstallError, match="Cannot identify"):
-        ins._find_bottle_dir(extract)
+        ins._find_top_dir(extract)
 
 
 # ---------------------------------------------------------------------------

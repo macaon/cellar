@@ -364,7 +364,7 @@ class PackageBuilderView(Adw.Bin):
             from cellar.backend.installer import (
                 InstallCancelled,
                 _build_source,
-                _find_bottle_dir,
+                _find_top_dir,
                 _install_chunks,
                 _stream_and_extract,
             )
@@ -419,7 +419,10 @@ class PackageBuilderView(Adw.Bin):
                             name_cb=None,
                         )
 
-                    bottle_src = _find_bottle_dir(extract_dir)
+                    if entry.archive_chunks:
+                        content_src = extract_dir  # strip_top_dir already applied
+                    else:
+                        content_src = _find_top_dir(extract_dir)
 
                     slug = slugify(entry.id)
                     existing = {p.slug for p in load_projects()}
@@ -451,8 +454,8 @@ class PackageBuilderView(Adw.Bin):
 
                     GLib.idle_add(progress.set_label, "Copying content\u2026")
                     project.content_path.mkdir(parents=True, exist_ok=True)
-                    for src in bottle_src.rglob("*"):
-                        rel = src.relative_to(bottle_src)
+                    for src in content_src.rglob("*"):
+                        rel = src.relative_to(content_src)
                         dst = project.content_path / rel
                         if src.is_dir():
                             dst.mkdir(parents=True, exist_ok=True)
@@ -525,7 +528,7 @@ class PackageBuilderView(Adw.Bin):
             from cellar.backend.installer import (
                 InstallCancelled,
                 _build_source,
-                _find_bottle_dir,
+                _find_top_dir,
                 _install_chunks,
                 _stream_and_extract,
             )
@@ -574,7 +577,10 @@ class PackageBuilderView(Adw.Bin):
                             name_cb=None,
                         )
 
-                    bottle_src = _find_bottle_dir(extract_dir)
+                    if base_entry.archive_chunks:
+                        content_src = extract_dir
+                    else:
+                        content_src = _find_top_dir(extract_dir)
 
                     slug = slugify(base_entry.name)
                     existing = {p.slug for p in load_projects()}
@@ -594,8 +600,8 @@ class PackageBuilderView(Adw.Bin):
                     GLib.idle_add(progress.set_label, "Copying content\u2026")
                     GLib.idle_add(progress.set_fraction, 0.0)
                     project.content_path.mkdir(parents=True, exist_ok=True)
-                    for src in bottle_src.rglob("*"):
-                        rel = src.relative_to(bottle_src)
+                    for src in content_src.rglob("*"):
+                        rel = src.relative_to(content_src)
                         dst = project.content_path / rel
                         if src.is_dir():
                             dst.mkdir(parents=True, exist_ok=True)

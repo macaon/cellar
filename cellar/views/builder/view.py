@@ -1666,7 +1666,7 @@ class PackageBuilderView(Adw.Bin):
             cmd = [str(exe)]
             if entry_args:
                 cmd += shlex.split(entry_args)
-            subprocess.Popen(cmd, start_new_session=True)
+            subprocess.Popen(cmd, cwd=str(exe.parent), start_new_session=True)
             return
         if not project.runner:
             what = "a base image" if project.project_type == "app" else "a runner"

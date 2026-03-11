@@ -1198,13 +1198,13 @@ def create_delta_archive(
     file_cb: Callable[[int, int], None] | None = None,
     cancel_event: Event | None = None,
 ) -> tuple[int, str]:
-    """Create a delta ``.tar.zst`` from a full Bottles backup, relative to *base_dir*.
+    """Create a delta ``.tar.zst`` from a full prefix archive, relative to *base_dir*.
 
     Extracts *full_archive_path* to a temp directory, identifies files that
     differ from *base_dir* by content hash, and packs only those files into a
     new zstd-compressed archive at *dest*.
 
-    The result has the same top-level bottle directory name as the original and
+    The result has the same top-level prefix directory name as the original and
     is suitable for :func:`~cellar.backend.installer._overlay_delta` at install
     time.  *phase_cb* is called with a human-readable step label at each major
     phase ("Extracting archive…", "Scanning files…", "Compressing & Uploading delta…").
@@ -1228,7 +1228,7 @@ def create_delta_archive(
     full_archive_path = Path(full_archive_path)
 
     # Use ~/.cache/cellar for extraction — /tmp is typically a small tmpfs
-    # (often 8 GB) that cannot hold a multi-GB extracted bottle.
+    # (often 8 GB) that cannot hold a multi-GB extracted prefix.
     cache_base = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "cellar"
     cache_base.mkdir(parents=True, exist_ok=True)
 
@@ -1268,29 +1268,26 @@ def create_delta_archive(
 
         # 2. Locate the prefix root inside the extracted archive.
         # Prefer a dir named "prefix/" (Cellar-native umu archive),
-        # then a dir containing "bottle.yml" (legacy Bottles backup),
         # then fall back to the first subdirectory.
         subdirs = [d for d in extract_dir.iterdir() if d.is_dir()]
         if not subdirs:
             raise RuntimeError("No prefix directory found in archive")
-        bottle_dir = subdirs[0]
+        prefix_dir = subdirs[0]
         for d in subdirs:
             if d.name == "prefix":
-                bottle_dir = d
+                prefix_dir = d
                 break
-            if (d / "bottle.yml").exists():
-                bottle_dir = d
 
-        bottle_name = bottle_dir.name
-        delta_bottle = delta_dir / bottle_name
-        delta_bottle.mkdir()
+        prefix_name = prefix_dir.name
+        delta_prefix = delta_dir / prefix_name
+        delta_prefix.mkdir()
 
         # 3. Compute the delta (files that differ from base_dir).
         # progress_cb runs 0→1 for this phase only.
         if phase_cb:
             phase_cb("Scanning files\u2026")
         _compute_delta(
-            bottle_dir, base_dir, delta_bottle,
+            prefix_dir, base_dir, delta_prefix,
             cancel_event=cancel_event,
             file_cb=file_cb,
             progress_cb=progress_cb,
@@ -1302,7 +1299,7 @@ def create_delta_archive(
         # already present on the user's system, so only the delta represents
         # new disk space required.
         delta_uncompressed_size = sum(
-            f.stat().st_size for f in delta_bottle.rglob("*") if f.is_file()
+            f.stat().st_size for f in delta_prefix.rglob("*") if f.is_file()
         )
 
         # 4. Pack the delta into a .tar.zst (zstd level 3: fast compress,
@@ -1314,7 +1311,7 @@ def create_delta_archive(
         try:
             import zstandard as zstd  # noqa: PLC0415
             cctx = zstd.ZstdCompressor(level=3)
-            delta_items = sorted(delta_bottle.rglob("*"))
+            delta_items = sorted(delta_prefix.rglob("*"))
             total_items = len(delta_items)
             with open(dest, "wb") as fh:
                 crc_writer = _CRCWriter(fh)
@@ -1322,11 +1319,11 @@ def create_delta_archive(
                     with tarfile.open(fileobj=compressor, mode="w|") as tf:
                         # Add root dir, then all contents one item at a time
                         # so cancel_event is checked between each entry.
-                        tf.add(delta_bottle, arcname=bottle_name, recursive=False)
+                        tf.add(delta_prefix, arcname=prefix_name, recursive=False)
                         for i, item in enumerate(delta_items, 1):
                             _chk()
-                            rel = item.relative_to(delta_bottle)
-                            tf.add(item, arcname=f"{bottle_name}/{rel}",
+                            rel = item.relative_to(delta_prefix)
+                            tf.add(item, arcname=f"{prefix_name}/{rel}",
                                    recursive=False)
                             if file_cb:
                                 file_cb(i, total_items)
@@ -1357,7 +1354,7 @@ def _compute_delta(
 
     Uses content hashing (BLAKE2b-128) so that files with identical bytes are
     excluded from the delta regardless of their timestamps.  This is important
-    because a base image installed on one day and an app bottle created on
+    because a base image installed on one day and an app prefix created on
     another day will share identical Windows system files but with different
     mtimes — a size-or-mtime heuristic would incorrectly include them.
 
@@ -1366,7 +1363,7 @@ def _compute_delta(
     in the base image but removed before the app backup was taken (e.g. Windows
     setup temp files cleaned up by the installer).  ``_overlay_delta`` reads
     this manifest and removes the listed paths after seeding so the installed
-    bottle matches the original backup exactly.
+    prefix matches the original backup exactly.
     """
     # ── Step 1: copy changed / new files ──────────────────────────────────
     _compute_delta_python(

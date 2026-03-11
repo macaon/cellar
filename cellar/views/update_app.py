@@ -133,9 +133,9 @@ class UpdateDialog(Adw.Dialog):
 
     def _on_backup_row_activated(self, _row) -> None:
         import datetime
-        bottle_name = self._installed_record.get("prefix_dir", self._entry.id)
+        prefix_name = self._installed_record.get("prefix_dir", self._entry.id)
         stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        suggested = f"{bottle_name}-pre-update-{stamp}.tar.gz"
+        suggested = f"{prefix_name}-pre-update-{stamp}.tar.gz"
 
         chooser = Gtk.FileChooserNative(
             title="Choose Backup Location",

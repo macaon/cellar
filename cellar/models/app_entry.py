@@ -71,7 +71,7 @@ class RunnerEntry:
 
 @dataclass(frozen=True, slots=True)
 class BaseEntry:
-    """A base bottle image used as the shared foundation for delta packages.
+    """A base prefix image used as the shared foundation for delta packages.
 
     Stored in the top-level ``bases`` dict of ``catalogue.json``.  The dict
     key is the base's display *name* (e.g. ``"GE-Proton10-32"`` or a custom
@@ -119,7 +119,7 @@ class AppEntry:
     *Display* — metadata shown in the detail view.
     *Attribution* — developer/publisher info and external links.
     *Media* — icon, cover art, screenshots (repo-relative paths).
-    *Installation* — archive location, hashes, Bottles component config.
+    *Installation* — archive location, hashes, runner and base image config.
     """
 
     # ── Identity (required) ───────────────────────────────────────────────

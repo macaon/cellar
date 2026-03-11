@@ -99,7 +99,6 @@ def _refresh_desktop_db() -> None:
 
 def create_desktop_entry(
     entry,               # AppEntry — avoid circular import at module level
-    bottle_name: str,    # prefix_dir for Windows apps; install dir name for Linux
     icon_source: str | None = None,
     install_path: str = "",
     target: dict | None = None,

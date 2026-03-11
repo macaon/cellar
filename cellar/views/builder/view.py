@@ -1879,30 +1879,23 @@ class PackageBuilderView(Adw.Bin):
                     base_image = ""
                 else:
                     from cellar.backend.base_store import is_base_installed, base_path
-                    _use_delta = is_base_installed(project.runner)
-                    if _use_delta:
-                        _reset_phase("Scanning files\u2026")
-                        size, crc32, chunks = compress_prefix_delta_zst(
-                            _src_path,
-                            base_path(project.runner),
-                            archive_dest,
-                            cancel_event=cancel_event,
-                            phase_cb=_reset_phase,
-                            progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                            file_cb=_file_cb,
-                            bytes_cb=_bytes_cb,
+                    if not is_base_installed(project.runner):
+                        raise RuntimeError(
+                            f"Base image \u201c{project.runner}\u201d is not installed locally. "
+                            "Install the base image before publishing."
                         )
-                        base_image = project.runner
-                    else:
-                        size, crc32, chunks = compress_prefix_zst(
-                            project.content_path,
-                            archive_dest,
-                            cancel_event=cancel_event,
-                            progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                            file_cb=_file_cb,
-                            bytes_cb=_bytes_cb,
-                        )
-                        base_image = ""
+                    _reset_phase("Scanning files\u2026")
+                    size, crc32, chunks = compress_prefix_delta_zst(
+                        _src_path,
+                        base_path(project.runner),
+                        archive_dest,
+                        cancel_event=cancel_event,
+                        phase_cb=_reset_phase,
+                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+                        file_cb=_file_cb,
+                        bytes_cb=_bytes_cb,
+                    )
+                    base_image = project.runner
             except CancelledError:
                 # Clean up partial chunk files from the repo.
                 from cellar.backend.packager import _cleanup_chunks

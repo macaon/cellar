@@ -63,7 +63,7 @@ class UpdateCancelled(Exception):
 # ---------------------------------------------------------------------------
 
 # Tuple patterns matched against the *lowercased* parts of each file's path
-# relative to the bottle root.  ``None`` matches any single component.
+# relative to the prefix root.  ``None`` matches any single component.
 #
 # User-data paths — never overwritten or deleted during an overlay update.
 _EXCLUDE_PREFIXES: list[tuple] = [
@@ -117,7 +117,7 @@ _RSYNC_EXCLUDES: list[str] = [
 # Public API
 # ---------------------------------------------------------------------------
 
-def backup_bottle(
+def backup_prefix(
     prefix_path: Path,
     dest_path: Path,
     *,
@@ -219,7 +219,7 @@ def update_app_safe(
     For delta packages (``entry.base_image`` is set) the rsync overlay
     strategy works without base reconstruction: the delta archive contains
     only changed/new files and the overlay applies them directly on top of
-    the existing bottle.  Files absent from the delta are left untouched
+    the existing prefix.  Files absent from the delta are left untouched
     (``--no-delete`` semantics), so unchanged base files and user data are
     both preserved.  ``base_entry`` and ``base_archive_uri`` are accepted
     for API consistency with ``install_app`` but are not used here.
@@ -231,9 +231,9 @@ def update_app_safe(
     archive_uri:
         Absolute path or HTTP(S) URL of the new archive.
     prefix_path:
-        The existing installed bottle directory.
+        The existing installed prefix directory.
     backup_path:
-        When supplied, the current bottle is archived here before the
+        When supplied, the current prefix is archived here before the
         update proceeds.  The parent directory is created automatically.
     base_entry:
         Ignored.  Present for API symmetry with ``install_app``.
@@ -255,11 +255,10 @@ def update_app_safe(
     UpdateCancelled
         When *cancel_event* is set during the operation.
     """
-    if entry.base_image:
-        log.debug(
-            "Delta update for %r: overlaying delta directly (no base reconstruction needed)",
-            entry.id,
-        )
+    log.debug(
+        "Delta update for %r: overlaying delta directly (no base reconstruction needed)",
+        entry.id,
+    )
     # Fraction ranges shift when a backup phase is present.
     has_backup = backup_path is not None
     dl_lo  = 0.20 if has_backup else 0.00
@@ -277,7 +276,7 @@ def update_app_safe(
 
     # ── Phase 1: Backup ────────────────────────────────────────────────────
     if has_backup:
-        backup_bottle(
+        backup_prefix(
             prefix_path,
             backup_path,
             progress_cb=_sub(0.0, 0.20),
@@ -363,26 +362,22 @@ def update_app_safe(
                 phase_cb("Updating\u2026")
             if progress_cb:
                 progress_cb(ov_lo)
-            is_delta = bool(entry.base_image)
             _overlay(
                 content_src,
                 prefix_path,
-                is_delta=is_delta,
                 progress_cb=_sub(ov_lo, 1.0),
                 cancel_event=cancel_event,
             )
 
-            # ── Phase 6: Apply delete manifest (delta archives) ──────────────
-            # For full archives --delete in rsync already handles removals.
-            # For delta archives the .cellar_delete manifest lists files that
-            # were present in the previous version but removed in this one.
-            if is_delta:
-                delete_manifest = content_src / ".cellar_delete"
-                if delete_manifest.exists():
-                    for line in delete_manifest.read_text().splitlines():
-                        rel = line.strip()
-                        if rel and not _is_excluded(Path(rel)):
-                            (prefix_path / rel).unlink(missing_ok=True)
+            # ── Phase 6: Apply delete manifest ───────────────────────────────
+            # The .cellar_delete manifest lists files that were present in the
+            # previous version but removed in this one.
+            delete_manifest = content_src / ".cellar_delete"
+            if delete_manifest.exists():
+                for line in delete_manifest.read_text().splitlines():
+                    rel = line.strip()
+                    if rel and not _is_excluded(Path(rel)):
+                        (prefix_path / rel).unlink(missing_ok=True)
 
         # ── Phase 7: Rewrite manifest with new package baseline ──────────────
         # Written before restoring user files so only package files are
@@ -413,48 +408,38 @@ def _overlay(
     src: Path,
     dst: Path,
     *,
-    is_delta: bool = False,
     progress_cb: Callable[[float], None] | None = None,
     cancel_event: threading.Event | None = None,
 ) -> None:
     """Overlay *src* onto *dst*, skipping excluded user-data paths.
 
-    For full archives (*is_delta* = False), files present in *dst* but absent
-    from *src* are deleted (game files removed by the publisher are cleaned up
-    while user-data exclusions are honoured).
-
-    For delta archives (*is_delta* = True), only files present in *src* are
-    copied — no destination-only files are removed here; deletion is handled
-    separately via the ``.cellar_delete`` manifest after this call returns.
+    Only files present in *src* are copied — no destination-only files are
+    removed here; deletion is handled separately via the ``.cellar_delete``
+    manifest after this call returns.
 
     Tries ``rsync`` first; falls back to a pure-Python implementation when
     rsync is not available (e.g. inside a restricted Flatpak sandbox).
     """
     if shutil.which("rsync"):
-        _overlay_rsync(src, dst, is_delta=is_delta, cancel_event=cancel_event)
+        _overlay_rsync(src, dst, cancel_event=cancel_event)
     else:
-        _overlay_python(src, dst, is_delta=is_delta, progress_cb=progress_cb, cancel_event=cancel_event)
+        _overlay_python(src, dst, progress_cb=progress_cb, cancel_event=cancel_event)
 
 
 def _overlay_rsync(
     src: Path,
     dst: Path,
     *,
-    is_delta: bool,
     cancel_event: threading.Event | None,
 ) -> None:
     """Run rsync overlay with user-data exclusions.
 
-    For full archives, ``--delete`` removes destination files absent from the
-    new version while the exclude rules protect user-data paths.  Delta
-    archives omit ``--delete`` because the source only contains changed files;
-    the ``.cellar_delete`` manifest handles explicit removals separately.
+    Only files present in *src* are copied; the ``.cellar_delete`` manifest
+    handles explicit removals separately.
     """
     cmd = ["rsync", "-a"]
     for pattern in _RSYNC_EXCLUDES:
         cmd += ["--exclude", pattern]
-    if not is_delta:
-        cmd.append("--delete")
     # Trailing slash on src copies contents, not the directory itself.
     cmd += [str(src) + "/", str(dst) + "/"]
 
@@ -462,7 +447,7 @@ def _overlay_rsync(
         proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     except FileNotFoundError:
         # rsync disappeared between the which() check and Popen — use fallback
-        _overlay_python(src, dst, is_delta=is_delta, progress_cb=None, cancel_event=cancel_event)
+        _overlay_python(src, dst, progress_cb=None, cancel_event=cancel_event)
         return
 
     while True:
@@ -485,24 +470,21 @@ def _overlay_python(
     src: Path,
     dst: Path,
     *,
-    is_delta: bool,
     progress_cb: Callable[[float], None] | None,
     cancel_event: threading.Event | None,
 ) -> None:
     """Pure-Python overlay copy with user-data exclusions.
 
-    For full archives (*is_delta* = False), destination files absent from
-    *src* are deleted after copying (honouring exclusions).
+    Only files present in *src* are copied; deletion is handled separately
+    via the ``.cellar_delete`` manifest.
     """
     all_files = [p for p in src.rglob("*") if p.is_file()]
     total = max(len(all_files), 1)
 
-    src_rels: set[Path] = set()
     for i, fp in enumerate(all_files):
         if cancel_event and cancel_event.is_set():
             raise UpdateCancelled
         rel = fp.relative_to(src)
-        src_rels.add(rel)
         if _is_excluded(rel):
             continue
         dst_file = dst / rel
@@ -511,21 +493,9 @@ def _overlay_python(
         if progress_cb and i % 50 == 0:
             progress_cb(i / total)
 
-    if not is_delta:
-        # Delete destination files that are absent from the new version,
-        # skipping user-data exclusions so saves are preserved.
-        for fp in list(dst.rglob("*")):
-            if not fp.is_file():
-                continue
-            if cancel_event and cancel_event.is_set():
-                raise UpdateCancelled
-            rel = fp.relative_to(dst)
-            if rel not in src_rels and not _is_excluded(rel):
-                fp.unlink(missing_ok=True)
-
 
 def _is_excluded(rel: Path) -> bool:
-    """Return True if *rel* (relative to bottle root) should be skipped."""
+    """Return True if *rel* (relative to prefix root) should be skipped."""
     parts = tuple(p.lower() for p in rel.parts)
     if not parts:
         return False

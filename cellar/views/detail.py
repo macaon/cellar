@@ -805,7 +805,6 @@ class DetailView(Gtk.Box):
         icon_source = self._resolve_icon_source()
         kwargs: dict = dict(
             entry=self._entry,
-            bottle_name=self._entry.id,
             icon_source=icon_source,
             target=target,
             target_idx=target_idx,
@@ -1263,7 +1262,7 @@ class DetailView(Gtk.Box):
 
         if e.platform == "linux":
             _add(_simple_card("penguin-alt-symbolic", "Native", "Linux")[0])
-        elif e.base_image:
+        else:
             _add(self._make_wine_card())
             self._resolve_base_async()
 
@@ -1459,10 +1458,8 @@ class DetailView(Gtk.Box):
                          + (0 if self._base_installed else self._base_sz)
                          + (0 if self._runner_installed else self._runner_sz))
             _initial_total = _fmt_bytes(_total_sz) if _total_sz else _fmt_bytes(e.archive_size)
-        elif base_image:
-            _initial_total = "…"
         else:
-            _initial_total = _fmt_bytes(e.archive_size) if e.archive_size else "Unknown"
+            _initial_total = "…"
         total_pill = _pill(_initial_total, large=True)
         total_pill.set_halign(Gtk.Align.CENTER)
         header = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -1480,17 +1477,12 @@ class DetailView(Gtk.Box):
         app_pill = _pill(_fmt_bytes(e.archive_size) if e.archive_size else "Unknown")
         listbox.append(_row(app_pill, e.name, "The app itself"))
 
-        base_pill: Gtk.Label | None = None
-        base_action_row: Adw.ActionRow | None = None
-        runner_pill: Gtk.Label | None = None
-        runner_action_row: Adw.ActionRow | None = None
-        if base_image:
-            base_pill = _pill("…")
-            base_action_row = _row(base_pill, "Base Image", "…")
-            listbox.append(base_action_row)
-            runner_pill = _pill("…")
-            runner_action_row = _row(runner_pill, "Runner", "…")
-            listbox.append(runner_action_row)
+        base_pill = _pill("…")
+        base_action_row = _row(base_pill, "Base Image", "…")
+        listbox.append(base_action_row)
+        runner_pill = _pill("…")
+        runner_action_row = _row(runner_pill, "Runner", "…")
+        listbox.append(runner_action_row)
 
         # ── Layout ──────────────────────────────────────────────────
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
@@ -1507,30 +1499,27 @@ class DetailView(Gtk.Box):
         dlg.present(self)
 
         # ── Populate base + runner rows from cached resolution ────────
-        if base_image and base_pill is not None and base_action_row is not None:
-            if self._base_installed is not None and self._runner_installed is not None:
-                # Already resolved — total_pill was pre-computed above; just fill the rows.
-                base_pill.set_label(_fmt_bytes(self._base_sz) if self._base_sz else "Unknown")
-                base_action_row.set_subtitle(_base_status_subtitle(self._base_installed))
-                if runner_pill is not None and runner_action_row is not None:
-                    runner_pill.set_label(_fmt_bytes(self._runner_sz) if self._runner_sz else "Unknown")
-                    runner_action_row.set_subtitle(_base_status_subtitle(self._runner_installed))
-            else:
-                # Resolution not yet done (rare — dialog opened within ms of page load).
-                _bp, _br = base_pill, base_action_row
-                _rp, _rr = runner_pill, runner_action_row
-                _t, _app = total_pill, e.archive_size
+        if self._base_installed is not None and self._runner_installed is not None:
+            # Already resolved — total_pill was pre-computed above; just fill the rows.
+            base_pill.set_label(_fmt_bytes(self._base_sz) if self._base_sz else "Unknown")
+            base_action_row.set_subtitle(_base_status_subtitle(self._base_installed))
+            runner_pill.set_label(_fmt_bytes(self._runner_sz) if self._runner_sz else "Unknown")
+            runner_action_row.set_subtitle(_base_status_subtitle(self._runner_installed))
+        else:
+            # Resolution not yet done (rare — dialog opened within ms of page load).
+            _bp, _br = base_pill, base_action_row
+            _rp, _rr = runner_pill, runner_action_row
+            _t, _app = total_pill, e.archive_size
 
-                def _on_resolved(installed: bool, base_sz: int, runner_installed: bool, runner_sz: int) -> None:
-                    total = _app + (0 if installed else base_sz) + (0 if runner_installed else runner_sz)
-                    _bp.set_label(_fmt_bytes(base_sz) if base_sz else "Unknown")
-                    _br.set_subtitle(_base_status_subtitle(installed))
-                    if _rp is not None and _rr is not None:
-                        _rp.set_label(_fmt_bytes(runner_sz) if runner_sz else "Unknown")
-                        _rr.set_subtitle(_base_status_subtitle(runner_installed))
-                    _t.set_label(_fmt_bytes(total) if total else _fmt_bytes(_app))
+            def _on_resolved(installed: bool, base_sz: int, runner_installed: bool, runner_sz: int) -> None:
+                total = _app + (0 if installed else base_sz) + (0 if runner_installed else runner_sz)
+                _bp.set_label(_fmt_bytes(base_sz) if base_sz else "Unknown")
+                _br.set_subtitle(_base_status_subtitle(installed))
+                _rp.set_label(_fmt_bytes(runner_sz) if runner_sz else "Unknown")
+                _rr.set_subtitle(_base_status_subtitle(runner_installed))
+                _t.set_label(_fmt_bytes(total) if total else _fmt_bytes(_app))
 
-                self._base_resolve_cbs.append(_on_resolved)
+            self._base_resolve_cbs.append(_on_resolved)
 
     def _show_wine_dialog(self) -> None:
         """Show Wine runner details."""

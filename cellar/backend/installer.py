@@ -8,14 +8,10 @@ Install flow (Windows / umu apps)
    streamed via their respective pure-Python transports.
 2. **Verify** — CRC32 checksum checked against ``AppEntry.archive_crc32``
    (skipped when the field is empty).
-3. **Extract** — ``tarfile`` extracts to a temporary directory.
-4. **Identify** — the single top-level directory inside the archive is taken
-   as the prefix source.  Both Cellar-native archives (``prefix/`` top-level)
-   and legacy Bottles archives (arbitrary name, may contain ``bottle.yml``)
-   are accepted.  ``bottle.yml`` is ignored if present.
-5. **Copy** — the extracted directory is copied to
-   ``umu.prefixes_dir() / app_id``; a partial copy is cleaned up on failure.
-6. **Return** — the caller receives ``entry.id`` as the ``prefix_dir`` string
+3. **Extract** — delta archive extracted to a temporary directory.
+4. **Seed + overlay** — prefix is seeded from the base image via CoW copy,
+   then the delta is overlaid on top.
+5. **Return** — the caller receives ``entry.id`` as the ``prefix_dir`` string
    and is responsible for writing the DB record (``database.mark_installed``).
 
 Threading
@@ -621,7 +617,7 @@ def install_app(
 
     from cellar.backend.umu import prefixes_dir  # noqa: PLC0415
     from cellar.backend.config import install_data_dir  # noqa: PLC0415
-    bottle_dest = prefixes_dir() / entry.id
+    prefix_dest = prefixes_dir() / entry.id
 
     # ── Step 0a: Ensure runner is installed ────────────────────────────
     if base_entry and base_entry.runner:
@@ -669,95 +665,56 @@ def install_app(
     _transport_kw = dict(token=token, ssl_verify=ssl_verify, ca_cert=ca_cert,
                          ssh_identity=ssh_identity)
 
-    if entry.base_image:
-        # Delta path: extract to a temp dir on the same filesystem, then
-        # seed from base + overlay.  The delta is small so temp space is fine.
-        with tempfile.TemporaryDirectory(
-            prefix="cellar-delta-", dir=install_data_dir()
-        ) as tmp_str:
-            delta_dir = Path(tmp_str) / "delta"
-            delta_dir.mkdir()
-            if entry.archive_chunks:
-                _install_chunks(
-                    archive_uri, entry.archive_chunks, delta_dir,
-                    cancel_event=cancel_event,
-                    progress_cb=download_cb, stats_cb=download_stats_cb,
-                    name_cb=extract_name_cb, **_transport_kw,
-                )
-            else:
-                chunks, total = _build_source(
-                    archive_uri, expected_size=entry.archive_size, **_transport_kw)
-                _stream_and_extract(
-                    chunks, total,
-                    is_zst=archive_uri.endswith(".tar.zst"),
-                    dest=delta_dir,
-                    expected_crc32=entry.archive_crc32,
-                    cancel_event=cancel_event,
-                    progress_cb=download_cb,
-                    stats_cb=download_stats_cb,
-                    name_cb=extract_name_cb,
-                )
-            delta_src = _find_top_dir(delta_dir)
-
-            from cellar.backend.base_store import base_path  # noqa: PLC0415
-            if phase_cb:
-                phase_cb("Applying delta\u2026")
-            try:
-                bottle_dest.mkdir(parents=True, exist_ok=True)
-                _seed_from_base(base_path(entry.base_image), bottle_dest,
-                                cancel_event=cancel_event)
-                _overlay_delta(delta_src, bottle_dest, cancel_event=cancel_event)
-            except Exception:
-                shutil.rmtree(bottle_dest, ignore_errors=True)
-                raise
-    elif entry.archive_chunks:
-        # Chunked full archive: download, extract, and delete each chunk.
-        if phase_cb:
-            phase_cb("Installing\u2026")
-        bottle_dest.mkdir(parents=True, exist_ok=True)
-        try:
+    # Delta path: extract to a temp dir on the same filesystem, then
+    # seed from base + overlay.  The delta is small so temp space is fine.
+    with tempfile.TemporaryDirectory(
+        prefix="cellar-delta-", dir=install_data_dir()
+    ) as tmp_str:
+        delta_dir = Path(tmp_str) / "delta"
+        delta_dir.mkdir()
+        if entry.archive_chunks:
             _install_chunks(
-                archive_uri, entry.archive_chunks, bottle_dest,
-                strip_top_dir=True,
+                archive_uri, entry.archive_chunks, delta_dir,
                 cancel_event=cancel_event,
                 progress_cb=download_cb, stats_cb=download_stats_cb,
                 name_cb=extract_name_cb, **_transport_kw,
             )
-        except Exception:
-            shutil.rmtree(bottle_dest, ignore_errors=True)
-            raise
-    else:
-        # Legacy single-file full archive.
-        if phase_cb:
-            phase_cb("Installing\u2026")
-        bottle_dest.mkdir(parents=True, exist_ok=True)
-        try:
+        else:
             chunks, total = _build_source(
                 archive_uri, expected_size=entry.archive_size, **_transport_kw)
             _stream_and_extract(
                 chunks, total,
                 is_zst=archive_uri.endswith(".tar.zst"),
-                dest=bottle_dest,
+                dest=delta_dir,
                 expected_crc32=entry.archive_crc32,
                 cancel_event=cancel_event,
                 progress_cb=download_cb,
                 stats_cb=download_stats_cb,
                 name_cb=extract_name_cb,
-                strip_top_dir=True,
             )
+        delta_src = _find_top_dir(delta_dir)
+
+        from cellar.backend.base_store import base_path  # noqa: PLC0415
+        if phase_cb:
+            phase_cb("Applying delta\u2026")
+        try:
+            prefix_dest.mkdir(parents=True, exist_ok=True)
+            _seed_from_base(base_path(entry.base_image), prefix_dest,
+                            cancel_event=cancel_event)
+            _overlay_delta(delta_src, prefix_dest, cancel_event=cancel_event)
         except Exception:
-            shutil.rmtree(bottle_dest, ignore_errors=True)
+            shutil.rmtree(prefix_dest, ignore_errors=True)
             raise
 
     from cellar.backend.manifest import write_manifest  # noqa: PLC0415
-    write_manifest(bottle_dest)
+    write_manifest(prefix_dest)
 
     # Pre-download steamrt3 on first install so the first launch is instant.
     from cellar.backend.umu import is_runtime_ready, init_prefix  # noqa: PLC0415
     if not is_runtime_ready():
         if phase_cb:
             phase_cb("Initialising prefix\u2026")
-        init_prefix(bottle_dest, base_entry.runner, steam_appid=entry.steam_appid)
+        init_prefix(prefix_dest, base_entry.runner, steam_appid=entry.steam_appid)
 
     if phase_cb:
         phase_cb("Done")
@@ -1173,10 +1130,10 @@ def _ensure_runner_installed(
 
 def _seed_from_base(
     base_dir: Path,
-    bottle_dest: Path,
+    prefix_dest: Path,
     cancel_event: threading.Event | None = None,
 ) -> None:
-    """Populate *bottle_dest* with copies of every file in *base_dir*.
+    """Populate *prefix_dest* with copies of every file in *base_dir*.
 
     Uses ``cp --reflink=auto`` which creates copy-on-write clones on btrfs
     and XFS, so Wine can freely update system files after a runner change
@@ -1188,7 +1145,7 @@ def _seed_from_base(
     cp = shutil.which("cp")
     if cp:
         proc = subprocess.Popen(
-            [cp, "-a", "--reflink=auto", f"{base_dir}/.", f"{bottle_dest}/"],
+            [cp, "-a", "--reflink=auto", f"{base_dir}/.", f"{prefix_dest}/"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
         )
@@ -1206,7 +1163,7 @@ def _seed_from_base(
     for src in base_dir.rglob("*"):
         _check_cancel(cancel_event)
         rel = src.relative_to(base_dir)
-        dst = bottle_dest / rel
+        dst = prefix_dest / rel
         if src.is_dir():
             dst.mkdir(parents=True, exist_ok=True)
         elif src.is_file():
@@ -1216,10 +1173,10 @@ def _seed_from_base(
 
 def _overlay_delta(
     delta_src: Path,
-    bottle_dest: Path,
+    prefix_dest: Path,
     cancel_event: threading.Event | None = None,
 ) -> None:
-    """Overlay delta files onto *bottle_dest*.
+    """Overlay delta files onto *prefix_dest*.
 
     For each file in *delta_src*, any existing file at the destination is
     removed before copying so the base content is not modified in-place.
@@ -1231,7 +1188,7 @@ def _overlay_delta(
     if shutil.which("rsync"):
         proc = subprocess.Popen(
             ["rsync", "-a", "--exclude=.cellar_delete",
-             f"{delta_src}/", f"{bottle_dest}/"],
+             f"{delta_src}/", f"{prefix_dest}/"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
         )
@@ -1242,9 +1199,9 @@ def _overlay_delta(
                 raise InstallCancelled("Cancelled during delta overlay")
             time.sleep(0.05)
         if proc.returncode != 0:
-            _overlay_delta_python(delta_src, bottle_dest, cancel_event)
+            _overlay_delta_python(delta_src, prefix_dest, cancel_event)
     else:
-        _overlay_delta_python(delta_src, bottle_dest, cancel_event)
+        _overlay_delta_python(delta_src, prefix_dest, cancel_event)
 
     # Apply delete manifest: remove base files absent from the original backup.
     _check_cancel(cancel_event)
@@ -1253,12 +1210,12 @@ def _overlay_delta(
         for line in delete_manifest.read_text().splitlines():
             rel = line.strip()
             if rel:
-                (bottle_dest / rel).unlink(missing_ok=True)
+                (prefix_dest / rel).unlink(missing_ok=True)
 
 
 def _overlay_delta_python(
     delta_src: Path,
-    bottle_dest: Path,
+    prefix_dest: Path,
     cancel_event: threading.Event | None = None,
 ) -> None:
     """Python fallback for delta overlay."""
@@ -1267,7 +1224,7 @@ def _overlay_delta_python(
         if src.name == ".cellar_delete":
             continue
         rel = src.relative_to(delta_src)
-        dst = bottle_dest / rel
+        dst = prefix_dest / rel
         if src.is_dir():
             dst.mkdir(parents=True, exist_ok=True)
         elif src.is_file():

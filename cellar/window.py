@@ -307,10 +307,23 @@ class CellarWindow(Adw.ApplicationWindow):
 
         try:
             if entries:
-                # Prefer an online repo for asset resolution.
-                online_repo = next((r for r in manager if not r.is_offline), None)
-                resolver_repo = online_repo or self._first_repo
-                resolver = resolver_repo.resolve_asset_uri if resolver_repo else None
+                # Build a resolver that picks the correct repo per asset.
+                # Asset paths are "apps/<app_id>/...", so we extract the app ID
+                # and look up the repo that actually carries it.
+                _fallback_repo = next((r for r in manager if not r.is_offline), None) or self._first_repo
+
+                def resolver(rel_path: str, *, _entry_repos=self._entry_repos, _fb=_fallback_repo) -> str:
+                    if not rel_path:
+                        return ""
+                    parts = rel_path.split("/")
+                    if len(parts) >= 2 and parts[0] == "apps":
+                        app_id = parts[1]
+                        repos = _entry_repos.get(app_id, [])
+                        # Prefer an online repo for this specific app.
+                        repo = next((r for r in repos if not r.is_offline), None) or (repos[0] if repos else _fb)
+                    else:
+                        repo = _fb
+                    return repo.resolve_asset_uri(rel_path) if repo else ""
 
                 installed_records: dict[str, dict] = {}
                 for e in entries:
@@ -754,7 +767,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="io.github.cellar",
-            version="0.57.0",
+            version="0.57.1",
             comments="A GNOME storefront for Windows and Linux apps.",
             license_type=Gtk.License.GPL_3_0,
         )

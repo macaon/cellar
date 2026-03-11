@@ -18,7 +18,6 @@ Storage layout
 from __future__ import annotations
 
 import logging
-import shutil
 import subprocess
 from pathlib import Path
 from typing import Callable
@@ -31,46 +30,6 @@ _FLATPAK_INFO = Path("/.flatpak-info")
 def is_cellar_sandboxed() -> bool:
     """Return True if Cellar is running inside a Flatpak sandbox."""
     return _FLATPAK_INFO.exists()
-
-
-def _probe_umu(cmd: list[str]) -> bool:
-    """Return True if *cmd* + ['--help'] exits with code 0."""
-    try:
-        r = subprocess.run(cmd + ["--help"], capture_output=True, timeout=5)
-        return r.returncode == 0
-    except Exception:
-        return False
-
-
-def detect_umu(override: str | None = None) -> str | None:
-    """Return an invocation string for umu-launcher, or None if not found.
-
-    Search order:
-    1. *override* (from ``config.json`` ``umu_path`` key)
-    2. When sandboxed (Flatpak): return ``"umu-run"`` immediately — probing
-       host binaries from inside the sandbox is not possible, and
-       ``_umu_cmd()`` will prepend ``flatpak-spawn --host`` automatically.
-    3. ``sys.executable -m umu`` — the Python running Cellar; most likely to
-       have umu installed when the user installed it via pip/pipx/uv.
-    4. ``umu-run`` on ``$PATH`` — only if the script actually works (its
-       shebang may point to a different Python that lacks the umu package).
-    """
-    import sys
-    if override:
-        return override
-    if is_cellar_sandboxed():
-        # Inside the Flatpak sandbox we cannot probe host binaries.
-        # _umu_cmd() will prepend ["flatpak-spawn", "--host"] so "umu-run"
-        # resolves against the host's PATH at execution time.
-        return "umu-run"
-    # Prefer the interpreter that's running Cellar right now.
-    if _probe_umu([sys.executable, "-m", "umu"]):
-        return f"{sys.executable} -m umu"
-    # Fall back to the umu-run wrapper script — but only if it actually works.
-    found = shutil.which("umu-run")
-    if found and _probe_umu([found]):
-        return found
-    return None
 
 
 def runners_dir() -> Path:
@@ -146,30 +105,13 @@ def build_env(
     }
 
 
-def _umu_cmd(base_env: dict[str, str] | None = None) -> list[str]:
-    """Return the base umu-run command, prefixed with flatpak-spawn if sandboxed.
+def _umu_cmd() -> list[str]:
+    """Return the base umu-run command.
 
-    When sandboxed, *base_env* vars are injected as ``--env=KEY=VALUE`` flags
-    so they reach the host-side umu-run process (flatpak-spawn does not
-    forward the caller's environment to the host automatically).
+    umu-run is bundled inside the Flatpak at ``/app/bin/umu-run`` and is
+    always available on ``$PATH`` within the sandbox.
     """
-    from cellar.backend.config import load_umu_path
-    umu = detect_umu(load_umu_path())
-    if umu is None:
-        log.warning("umu-launcher not found — launch will likely fail")
-        umu = "umu-run"
-    # detect_umu may return a multi-word invocation like "/usr/bin/python3 -m umu"
-    parts = umu.split()
-    if is_cellar_sandboxed():
-        # If umu-run is bundled inside the Flatpak, run it directly — env vars
-        # reach it normally via subprocess env= and no flatpak-spawn is needed.
-        if Path("/app/bin/umu-run").exists():
-            return parts
-        # Fallback: umu not bundled; call host umu via flatpak-spawn, injecting
-        # env vars as --env= flags since flatpak-spawn doesn't forward the env.
-        env_flags = [f"--env={k}={v}" for k, v in (base_env or {}).items()]
-        return ["flatpak-spawn", "--host"] + env_flags + parts
-    return parts
+    return ["umu-run"]
 
 
 def launch_app(
@@ -195,7 +137,7 @@ def launch_app(
     umu_env = build_env(app_id, runner_name, steam_appid, prefix_dir=prefix_dir)
     env = {**os.environ, **umu_env}
     # Pass exe as positional arg — the primary documented umu-run form.
-    cmd = _umu_cmd(umu_env) + [entry_point]
+    cmd = _umu_cmd() + [entry_point]
     if launch_args:
         cmd += shlex.split(launch_args)
     log.info(
@@ -228,7 +170,7 @@ def launch_app_monitored(
     import shlex
     umu_env = build_env(app_id, runner_name, steam_appid, prefix_dir=prefix_dir)
     env = {**os.environ, **umu_env}
-    cmd = _umu_cmd(umu_env) + [entry_point]
+    cmd = _umu_cmd() + [entry_point]
     if launch_args:
         cmd += shlex.split(launch_args)
     log.info(
@@ -272,7 +214,7 @@ def init_prefix(
     prefix_path.mkdir(parents=True, exist_ok=True)
     env = {**os.environ, **base_env}
     # Empty-string positional arg → umu initialises the prefix, runs nothing.
-    cmd = _umu_cmd(base_env) + [""]
+    cmd = _umu_cmd() + [""]
     log.info(
         "init_prefix: %s\n  WINEPREFIX=%s\n  PROTONPATH=%s\n  GAMEID=%s",
         " ".join(cmd), base_env["WINEPREFIX"], base_env["PROTONPATH"], gameid,
@@ -310,7 +252,7 @@ def run_winetricks(
     import os
     base_env = build_env("", runner_name, gameid, prefix_dir=prefix_path)
     env = {**os.environ, **base_env}
-    cmd = _umu_cmd(base_env) + ["winetricks"] + verbs
+    cmd = _umu_cmd() + ["winetricks"] + verbs
     log.info(
         "run_winetricks: %s\n  WINEPREFIX=%s\n  PROTONPATH=%s\n  GAMEID=%s\n  verbs=%s",
         " ".join(cmd[:len(_umu_cmd())]),
@@ -379,7 +321,7 @@ def run_in_prefix(
         base_env.update(extra_env)
     env = {**os.environ, **base_env}
     # Pass exe as positional arg — the primary documented umu-run form.
-    cmd = _umu_cmd(base_env) + [exe_path]
+    cmd = _umu_cmd() + [exe_path]
     log.info(
         "run_in_prefix: %s\n  WINEPREFIX=%s\n  PROTONPATH=%s\n  GAMEID=%s\n  EXE=%s",
         " ".join(cmd[:-1]),

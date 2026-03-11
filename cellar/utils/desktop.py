@@ -151,12 +151,11 @@ def create_desktop_entry(
             exec_line = "true"  # placeholder; entry point unknown
         comment = (entry.summary or f"Launch {entry.name}.").replace("\n", " ")
     else:
-        # umu-launcher launch: set env vars then invoke umu-run.
+        # umu-launcher launch: always via flatpak run so the bundled umu-run
+        # is available regardless of how the shortcut is invoked.
         from cellar.backend.umu import (  # noqa: PLC0415
-            detect_umu, is_cellar_sandboxed, prefixes_dir, runners_dir,
-            _umu_data_env,
+            prefixes_dir, runners_dir, _umu_data_env,
         )
-        from cellar.backend.config import load_umu_path  # noqa: PLC0415
 
         steam_appid = getattr(entry, "steam_appid", None)
         gameid = f"umu-{steam_appid}" if steam_appid else "0"
@@ -178,26 +177,14 @@ def create_desktop_entry(
         exe_arg = f' "{exe_escaped}"' if exe_escaped else ""
         args_str = f" {launch_args}" if launch_args else ""
 
-        if is_cellar_sandboxed():
-            # Inside a Flatpak: launch via flatpak run so umu-run is available.
-            umu_data = _umu_data_env()
-            env_parts = (
-                f'--env=WINEPREFIX="{prefix}"'
-                + (f' --env=PROTONPATH="{proton}"' if proton else "")
-                + f' --env=GAMEID="{gameid}"'
-                + f' --env=UMU_FOLDERS_PATH="{umu_data["UMU_FOLDERS_PATH"]}"'
-            )
-            exec_line = f"flatpak run --command=umu-run {env_parts} io.github.cellar{exe_arg}{args_str}"
-        else:
-            umu_bin = detect_umu(load_umu_path()) or "umu-run"
-            umu_data = _umu_data_env()
-            env_prefix = (
-                f'env WINEPREFIX="{prefix}"'
-                + (f' PROTONPATH="{proton}"' if proton else "")
-                + f' GAMEID="{gameid}"'
-                + f' UMU_FOLDERS_PATH="{umu_data["UMU_FOLDERS_PATH"]}"'
-            )
-            exec_line = f"{env_prefix} {umu_bin}{exe_arg}{args_str}"
+        umu_data = _umu_data_env()
+        env_parts = (
+            f'--env=WINEPREFIX="{prefix}"'
+            + (f' --env=PROTONPATH="{proton}"' if proton else "")
+            + f' --env=GAMEID="{gameid}"'
+            + f' --env=UMU_FOLDERS_PATH="{umu_data["UMU_FOLDERS_PATH"]}"'
+        )
+        exec_line = f"flatpak run --command=umu-run {env_parts} io.github.cellar{exe_arg}{args_str}"
         comment = (entry.summary or f"Launch {entry.name} via umu-launcher.").replace("\n", " ")
 
     # Categories

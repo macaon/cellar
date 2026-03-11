@@ -70,9 +70,6 @@ class SettingsDialog(Adw.PreferencesDialog):
         # ── Group: Install Location ───────────────────────────────────────
         self._build_install_location_group(page)
 
-        # ── Group: umu-launcher ───────────────────────────────────────────
-        self._build_umu_group(page)
-
         self._rebuild_repo_rows()
 
     # ------------------------------------------------------------------
@@ -309,73 +306,6 @@ class SettingsDialog(Adw.PreferencesDialog):
             work=lambda: _move_install_data(old_dir, new_dir),
             on_done=_finish,
         )
-
-    # ------------------------------------------------------------------
-    # umu-launcher
-    # ------------------------------------------------------------------
-
-    def _build_umu_group(self, page: Adw.PreferencesPage) -> None:
-        from cellar.backend.config import load_umu_path
-        from cellar.backend.umu import detect_umu
-
-        detected = detect_umu(None) or ""
-        desc = "Path to umu-run binary. Leave empty to auto-detect."
-        if detected:
-            desc = f"Path to umu-run binary. Leave empty to auto-detect (found: {detected})."
-
-        umu_group = Adw.PreferencesGroup(
-            title="umu-launcher",
-            description=desc,
-        )
-        page.add(umu_group)
-
-        self._umu_path_row = Adw.EntryRow(title="umu-run path")
-        current = load_umu_path() or ""
-        if current:
-            self._umu_path_row.set_text(current)
-        umu_group.add(self._umu_path_row)
-
-        # Clear button — visible only when field has text
-        self._umu_clear_btn = Gtk.Button(
-            icon_name="edit-clear-symbolic",
-            valign=Gtk.Align.CENTER,
-            has_frame=False,
-            tooltip_text="Clear override",
-            visible=bool(current),
-        )
-        self._umu_clear_btn.connect("clicked", self._on_umu_clear)
-        self._umu_path_row.add_suffix(self._umu_clear_btn)
-
-        # Auto-save on Enter
-        self._umu_path_row.connect("apply", self._on_umu_apply)
-        self._umu_path_row.connect("changed", self._on_umu_changed)
-
-        # Auto-save on focus-out via the delegate
-        delegate = self._umu_path_row.get_delegate()
-        if delegate:
-            delegate.connect("notify::has-focus", self._on_umu_focus_changed)
-
-    def _on_umu_apply(self, _row) -> None:
-        from cellar.backend.config import save_umu_path
-        path = self._umu_path_row.get_text().strip() or None
-        save_umu_path(path)
-        self.add_toast(Adw.Toast(title="umu-run path saved"))
-
-    def _on_umu_changed(self, _row) -> None:
-        has_text = bool(self._umu_path_row.get_text().strip())
-        self._umu_clear_btn.set_visible(has_text)
-
-    def _on_umu_focus_changed(self, delegate, _pspec) -> None:
-        if not delegate.has_focus():
-            from cellar.backend.config import save_umu_path
-            path = self._umu_path_row.get_text().strip() or None
-            save_umu_path(path)
-
-    def _on_umu_clear(self, _btn) -> None:
-        from cellar.backend.config import save_umu_path
-        self._umu_path_row.set_text("")
-        save_umu_path(None)
-        self.add_toast(Adw.Toast(title="umu-run path cleared"))
 
     # ------------------------------------------------------------------
     # Repo list management

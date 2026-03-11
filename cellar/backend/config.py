@@ -259,28 +259,6 @@ def save_repos(repos: list[dict]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# umu-launcher path helpers
-# ---------------------------------------------------------------------------
-
-def load_umu_path() -> str | None:
-    """Return the user-overridden umu-run binary path, or None (auto-detect)."""
-    return _load().get("umu_path") or None
-
-
-def save_umu_path(path: str | None) -> None:
-    """Persist a umu-run binary path override.
-
-    Pass ``None`` to clear the override (auto-detection will be used).
-    """
-    cfg = _load()
-    if path is None:
-        cfg.pop("umu_path", None)
-    else:
-        cfg["umu_path"] = path
-    _save(cfg)
-
-
-# ---------------------------------------------------------------------------
 # Install location helpers
 # ---------------------------------------------------------------------------
 

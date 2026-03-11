@@ -484,6 +484,7 @@ class CatalogueEntriesDialog(Adw.Dialog):
             if entry.is_partial:
                 GLib.idle_add(progress.set_label, "Fetching metadata\u2026")
                 entry = repo.fetch_app_metadata(entry.id)
+                GLib.idle_add(progress.set_label, "Downloading\u2026")
             archive_uri = repo.resolve_asset_uri(entry.archive)
 
             from cellar.backend.config import install_data_dir

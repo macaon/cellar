@@ -137,10 +137,10 @@ class AppMetadataDialog(Adw.Dialog):
 
         self._cats = list(_BASE_CATS)
         self._cat_row = Adw.ComboRow(title="Category")
-        self._cat_row.set_model(Gtk.StringList.new(["(none)"] + self._cats))
-        cat_val = p.category if p else ""
+        self._cat_row.set_model(Gtk.StringList.new(self._cats))
+        cat_val = p.category if p else "Other"
         if cat_val in self._cats:
-            self._cat_row.set_selected(self._cats.index(cat_val) + 1)
+            self._cat_row.set_selected(self._cats.index(cat_val))
         det_group.add(self._cat_row)
 
         self._dev_row = Adw.EntryRow(title="Developer")
@@ -259,7 +259,7 @@ class AppMetadataDialog(Adw.Dialog):
         if isinstance(self._title_row, Adw.EntryRow):
             p.name = self._title_row.get_text().strip()
         p.version = self._version_row.get_text().strip() or "1.0"
-        p.category = self._cats[cat_idx - 1] if cat_idx > 0 else ""
+        p.category = self._cats[cat_idx]
         p.developer = self._dev_row.get_text().strip()
         p.publisher = self._pub_row.get_text().strip()
         try:
@@ -378,7 +378,7 @@ class AppMetadataDialog(Adw.Dialog):
         if result.get("genres"):
             self._genres_row.set_text(", ".join(result["genres"]))
         if result.get("category") and result["category"] in self._cats:
-            self._cat_row.set_selected(self._cats.index(result["category"]) + 1)
+            self._cat_row.set_selected(self._cats.index(result["category"]))
         if result.get("screenshots"):
             self._media.replace_steam_screenshots(result["screenshots"])
 
@@ -398,7 +398,7 @@ class AppMetadataDialog(Adw.Dialog):
         summary = self._summary_row.get_text().strip()
 
         project = create_project(name, self._project_type)
-        project.category = self._cats[cat_idx - 1] if cat_idx > 0 else ""
+        project.category = self._cats[cat_idx]
         project.developer = self._dev_row.get_text().strip()
         project.publisher = self._pub_row.get_text().strip()
         project.version = self._version_row.get_text().strip() or "1.0"

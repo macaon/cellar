@@ -101,6 +101,7 @@ BASE_CATEGORIES: list[str] = [
     "Audio",
     "Education",
     "Utility",
+    "Other",
 ]
 
 #: Default symbolic icon name for each built-in category.
@@ -112,6 +113,7 @@ BASE_CATEGORY_ICONS: dict[str, str] = {
     "Audio": "audio-x-generic-symbolic",
     "Education": "applications-science-symbolic",
     "Utility": "applications-utilities-symbolic",
+    "Other": "window-flat-symbolic",
 }
 
 #: Curated set of symbolic icon names offered in the category icon picker.

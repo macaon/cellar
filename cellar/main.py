@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format="%(name)s %(levelname)s: %(message)s",
 )
 # smbprotocol is very chatty at INFO level (logs every read/write response).

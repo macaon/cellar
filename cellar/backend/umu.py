@@ -161,13 +161,14 @@ def launch_app_monitored(
     """Launch *entry_point* like :func:`launch_app`, but capture stderr.
 
     Reads umu-run's stderr line-by-line, calling *line_cb* for each line.
-    Returns once the game appears to have started (detected by known umu-run
-    output patterns like ``fsync`` or ``Proton:``), or when stderr closes.
-    Wine keeps stderr open for the lifetime of the process, so we must not
-    wait for EOF.
+    Returns once the game appears to have started (two-tier marker detection:
+    first Wine init lines like ``fsync:``, then Proton/container lines like
+    ``Proton:``), after a 30 s timeout, or when stderr closes.  Wine keeps
+    stderr open for the lifetime of the process, so we must not wait for EOF.
     """
     import os
     import shlex
+    import time
     umu_env = build_env(app_id, runner_name, steam_appid, prefix_dir=prefix_dir)
     env = {**os.environ, **umu_env}
     cmd = _umu_cmd() + [entry_point]
@@ -178,18 +179,30 @@ def launch_app_monitored(
         app_id, " ".join(cmd[:-1]),
         umu_env["WINEPREFIX"], umu_env["PROTONPATH"], umu_env["GAMEID"], entry_point,
     )
-    # Markers that indicate umu setup is done and Wine is running.
-    _STARTED = ("fsync:", "esync:", "Proton:", "wine: configuration")
+    # Tier 1: Wine is initializing — note it, keep monitoring.
+    _WINE_INIT = ("fsync:", "esync:", "wine: configuration")
+    # Tier 2: Proton/container setup finishing — close to app readiness.
+    _STARTED = ("Proton:", "pressure-vessel")
+    _MONITOR_TIMEOUT = 30  # seconds — never hold the dialog forever
     proc = subprocess.Popen(
         cmd, env=env, start_new_session=True,
         stderr=subprocess.PIPE, text=True, bufsize=1,
     )
     assert proc.stderr is not None
+    deadline = time.monotonic() + _MONITOR_TIMEOUT
+    wine_seen = False
     for raw in proc.stderr:
         line = raw.rstrip("\n")
-        if line and line_cb:
-            line_cb(line)
-        if any(marker in line for marker in _STARTED):
+        if line:
+            log.debug("umu-run: %s", line)
+            if line_cb:
+                line_cb(line)
+        if not wine_seen and any(m in line for m in _WINE_INIT):
+            wine_seen = True
+        if wine_seen and any(m in line for m in _STARTED):
+            break
+        if time.monotonic() > deadline:
+            log.debug("umu-run: monitor timeout reached, detaching")
             break
     # Detach — don't wait for process exit or read remaining stderr.
     proc.stderr.close()

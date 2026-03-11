@@ -542,8 +542,16 @@ class DetailView(Gtk.Box):
                 label = "Verifying runtime\u2026"
             elif "Setting up Unified Launcher" in line:
                 label = "Setting up\u2026"
-            elif "Using steamrt3" in line:
-                label = "Launching\u2026"
+            elif "pressure-vessel" in line:
+                label = "Starting container\u2026"
+            elif "Using steamrt3" in line or "Using SteamLinuxRuntime" in line:
+                label = "Starting runtime\u2026"
+            elif "fsync:" in line or "esync:" in line:
+                label = "Configuring Wine\u2026"
+            elif "wine: configuration" in line:
+                label = "Initializing prefix\u2026"
+            elif "Proton:" in line:
+                label = "Starting Proton\u2026"
             else:
                 return
             GLib.idle_add(progress.set_label, label)

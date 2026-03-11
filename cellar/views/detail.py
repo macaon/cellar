@@ -1306,6 +1306,7 @@ class DetailView(Gtk.Box):
         """Show a popover with genre pills anchored to *anchor*."""
         popover = Gtk.Popover()
         popover.set_parent(anchor)
+        popover.set_position(Gtk.PositionType.TOP)
 
         flow = Gtk.FlowBox()
         flow.set_homogeneous(False)

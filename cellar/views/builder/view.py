@@ -22,6 +22,7 @@ from dataclasses import replace as _dc_replace
 from pathlib import Path
 from typing import Callable
 
+from cellar.utils import natural_sort_key
 from cellar.utils.async_work import run_in_background
 
 import gi
@@ -225,7 +226,7 @@ class PackageBuilderView(Adw.Bin):
         # Always-visible "New Project" card at the start
         self._flow_box.append(_NewProjectCard())
 
-        for p in sorted(projects, key=lambda x: x.name.lower()):
+        for p in sorted(projects, key=lambda x: natural_sort_key(x.name)):
             card = _ProjectCard(p)
             self._project_cards.append(card)
             self._flow_box.append(card)
@@ -273,7 +274,7 @@ class PackageBuilderView(Adw.Bin):
                         results.append((base_entry, repo, "base"))
             except Exception as exc:
                 log.warning("Could not fetch bases from %s: %s", repo.uri, exc)
-        results.sort(key=lambda t: t[0].name.lower())
+        results.sort(key=lambda t: natural_sort_key(t[0].name))
         return results, used_bases
 
     def _on_card_activated(self, _fb, child: Gtk.FlowBoxChild) -> None:

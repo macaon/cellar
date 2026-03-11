@@ -13,6 +13,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, GObject, Gtk, Pango
 
 from cellar.models.app_entry import AppEntry
+from cellar.utils import natural_sort_key
 from cellar.utils.images import load_and_crop, load_and_fit, to_texture
 from cellar.views.widgets import set_margins
 
@@ -338,7 +339,7 @@ class BrowseView(Gtk.Box):
             return
 
         # Add cards sorted alphabetically.
-        for entry in sorted(self._entries, key=lambda e: e.name.lower()):
+        for entry in sorted(self._entries, key=lambda e: natural_sort_key(e.name)):
             card = AppCard(entry, resolve_asset=self._resolve_asset, is_installed=entry.id in self._installed_ids,
                           repo_uris=self._entry_repo_uris.get(entry.id, set()))
             self._cards.append(card)

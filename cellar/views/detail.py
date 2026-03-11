@@ -1492,7 +1492,9 @@ class DetailView(Gtk.Box):
 
         # ── Header: total size pill ──────────────────────────────────
         # Compute initial value: if base+runner are already resolved, sum what's missing.
-        if base_image and self._base_installed is not None and self._runner_installed is not None:
+        if not base_image:
+            _initial_total = _fmt_bytes(e.archive_size) if e.archive_size else "Unknown"
+        elif self._base_installed is not None and self._runner_installed is not None:
             _total_sz = (e.archive_size
                          + (0 if self._base_installed else self._base_sz)
                          + (0 if self._runner_installed else self._runner_sz))
@@ -1516,12 +1518,13 @@ class DetailView(Gtk.Box):
         app_pill = _pill(_fmt_bytes(e.archive_size) if e.archive_size else "Unknown")
         listbox.append(_row(app_pill, e.name, "The app itself"))
 
-        base_pill = _pill("…")
-        base_action_row = _row(base_pill, "Base Image", "…")
-        listbox.append(base_action_row)
-        runner_pill = _pill("…")
-        runner_action_row = _row(runner_pill, "Runner", "…")
-        listbox.append(runner_action_row)
+        if base_image:
+            base_pill = _pill("…")
+            base_action_row = _row(base_pill, "Base Image", "…")
+            listbox.append(base_action_row)
+            runner_pill = _pill("…")
+            runner_action_row = _row(runner_pill, "Runner", "…")
+            listbox.append(runner_action_row)
 
         # ── Layout ──────────────────────────────────────────────────
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
@@ -1538,13 +1541,13 @@ class DetailView(Gtk.Box):
         dlg.present(self)
 
         # ── Populate base + runner rows from cached resolution ────────
-        if self._base_installed is not None and self._runner_installed is not None:
+        if base_image and self._base_installed is not None and self._runner_installed is not None:
             # Already resolved — total_pill was pre-computed above; just fill the rows.
             base_pill.set_label(_fmt_bytes(self._base_sz) if self._base_sz else "Unknown")
             base_action_row.set_subtitle(_base_status_subtitle(self._base_installed))
             runner_pill.set_label(_fmt_bytes(self._runner_sz) if self._runner_sz else "Unknown")
             runner_action_row.set_subtitle(_base_status_subtitle(self._runner_installed))
-        else:
+        elif base_image:
             # Resolution not yet done (rare — dialog opened within ms of page load).
             _bp, _br = base_pill, base_action_row
             _rp, _rr = runner_pill, runner_action_row

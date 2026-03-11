@@ -122,9 +122,11 @@ class AppCard(Gtk.FlowBoxChild):
         *,
         resolve_asset: Callable[[str], str] | None = None,
         is_installed: bool = False,
+        repo_uris: set[str] | None = None,
     ) -> None:
         super().__init__()
         self.entry = entry
+        self.repo_uris: set[str] = repo_uris or set()
         self.add_css_class("app-card-cell")
 
         set_margins(self, 6)
@@ -226,8 +228,15 @@ class AppCard(Gtk.FlowBoxChild):
         self.set_child(None)
         super().do_dispose()
 
-    def matches(self, active_categories: set[str], search: str) -> bool:
+    def matches(
+        self,
+        active_categories: set[str],
+        search: str,
+        active_repos: set[str] | None = None,
+    ) -> bool:
         """Return True if this card should be visible given the current filter."""
+        if active_repos and not self.repo_uris & active_repos:
+            return False
         if active_categories and self.entry.category not in active_categories:
             return False
         if search:
@@ -261,6 +270,7 @@ class BrowseView(Gtk.Box):
         self._empty_description = empty_description
         self._cards: list[AppCard] = []
         self._active_categories: set[str] = set()
+        self._active_repos: set[str] = set()
         self._search_text: str = ""
 
         # Stored so cards can be rebuilt on catalogue reload.
@@ -306,11 +316,13 @@ class BrowseView(Gtk.Box):
         entries: list[AppEntry],
         resolve_asset: Callable[[str], str] | None = None,
         installed_ids: set[str] | None = None,
+        entry_repo_uris: dict[str, set[str]] | None = None,
     ) -> None:
         """Populate the grid from a list of catalogue entries."""
         self._entries = entries
         self._resolve_asset = resolve_asset
         self._installed_ids = installed_ids or set()
+        self._entry_repo_uris: dict[str, set[str]] = entry_repo_uris or {}
         self._rebuild_cards()
 
     def _rebuild_cards(self) -> None:
@@ -323,7 +335,8 @@ class BrowseView(Gtk.Box):
 
         # Add cards sorted alphabetically.
         for entry in sorted(self._entries, key=lambda e: e.name.lower()):
-            card = AppCard(entry, resolve_asset=self._resolve_asset, is_installed=entry.id in self._installed_ids)
+            card = AppCard(entry, resolve_asset=self._resolve_asset, is_installed=entry.id in self._installed_ids,
+                          repo_uris=self._entry_repo_uris.get(entry.id, set()))
             self._cards.append(card)
             self._flow_box.append(card)
 
@@ -343,12 +356,16 @@ class BrowseView(Gtk.Box):
         self._active_categories = categories
         self._apply_filter()
 
+    def set_active_repos(self, repos: set[str]) -> None:
+        self._active_repos = repos
+        self._apply_filter()
+
     # ── Internals ─────────────────────────────────────────────────────────
 
     def _apply_filter(self) -> None:
         any_visible = False
         for card in self._cards:
-            visible = card.matches(self._active_categories, self._search_text)
+            visible = card.matches(self._active_categories, self._search_text, self._active_repos)
             card.set_visible(visible)
             if visible:
                 any_visible = True
@@ -360,7 +377,7 @@ class BrowseView(Gtk.Box):
                     f"No apps match \u201c{self._search_text}\u201d.",
                 )
             else:
-                self._show_status("No Apps Here", "No apps match the selected category.")
+                self._show_status("No Apps Here", "No apps match the selected filters.")
         else:
             self._stack.set_visible_child_name("grid")
 
@@ -374,6 +391,7 @@ class BrowseView(Gtk.Box):
             self._flow_box.remove(child)
         self._cards.clear()
         self._active_categories = set()
+        self._active_repos = set()
 
     def _on_card_activated(self, _flow_box: Gtk.FlowBox, child: AppCard) -> None:
         log.debug("App selected: %s", child.entry.id)

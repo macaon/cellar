@@ -264,6 +264,24 @@ class CellarWindow(Adw.ApplicationWindow):
                 log.warning("Failed to fetch from %s: %s", repo.uri, exc)
         entries = list(all_entries.values())
 
+        # Build per-repo app-ID sets to detect distinct repos (vs mirrors).
+        _repo_ids: dict[str, set[str]] = {}
+        for app_id, repos in self._entry_repos.items():
+            for repo in repos:
+                _repo_ids.setdefault(repo.uri, set()).add(app_id)
+        _seen: dict[frozenset[str], object] = {}
+        for repo in manager:
+            key = frozenset(_repo_ids.get(repo.uri, ()))
+            if key not in _seen:
+                _seen[key] = repo
+        self._distinct_repos = list(_seen.values())
+
+        # Map app_id → set of repo URIs for filter matching.
+        entry_repo_uris: dict[str, set[str]] = {
+            app_id: {r.uri for r in repos}
+            for app_id, repos in self._entry_repos.items()
+        }
+
         # Determine offline repos and show/hide the banner.
         # Exclude repos whose catalogue.json was removed (not a network issue).
         offline_repos = [r for r in manager if r.is_offline and not r.is_catalogue_missing]
@@ -309,11 +327,11 @@ class CellarWindow(Adw.ApplicationWindow):
                 ]
 
                 installed_ids = set(installed_records.keys())
-                self._browse_explore.load_entries(explore_entries, resolve_asset=resolver, installed_ids=installed_ids)
-                self._browse_installed.load_entries(installed_entries, resolve_asset=resolver, installed_ids=installed_ids)
-                self._browse_updates.load_entries(update_entries, resolve_asset=resolver, installed_ids=installed_ids)
+                self._browse_explore.load_entries(explore_entries, resolve_asset=resolver, installed_ids=installed_ids, entry_repo_uris=entry_repo_uris)
+                self._browse_installed.load_entries(installed_entries, resolve_asset=resolver, installed_ids=installed_ids, entry_repo_uris=entry_repo_uris)
+                self._browse_updates.load_entries(update_entries, resolve_asset=resolver, installed_ids=installed_ids, entry_repo_uris=entry_repo_uris)
                 self.updates_page.set_badge_number(len(update_entries))
-                self._rebuild_filter_popover(explore_entries)
+                self._rebuild_filter_popover(explore_entries, self._distinct_repos)
             else:
                 self._browse_explore.show_error(
                     "Empty Catalogue",
@@ -334,11 +352,14 @@ class CellarWindow(Adw.ApplicationWindow):
 
     # ── Filter popover ────────────────────────────────────────────────────
 
-    def _rebuild_filter_popover(self, entries: list) -> None:
-        """Build (or rebuild) the category filter popover from the current entry list."""
+    def _rebuild_filter_popover(self, entries: list, distinct_repos: list | None = None) -> None:
+        """Build (or rebuild) the filter popover from the current entry list."""
         categories = sorted({e.category for e in entries if e.category})
         self._category_btns = {}
+        self._repo_btns: dict[str, Gtk.CheckButton] = {}
         self._active_categories = set()
+        self._active_repos: set[str] = set()
+        show_repos = distinct_repos is not None and len(distinct_repos) >= 2
 
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         outer.set_margin_top(4)
@@ -346,20 +367,49 @@ class CellarWindow(Adw.ApplicationWindow):
         outer.set_margin_start(4)
         outer.set_margin_end(4)
 
-        if not categories:
+        if not categories and not show_repos:
             empty_lbl = Gtk.Label(label="No categories available")
             empty_lbl.add_css_class("dim-label")
             empty_lbl.set_margin_top(8)
             empty_lbl.set_margin_bottom(8)
             outer.append(empty_lbl)
         else:
-            # "All" button clears the filter
+            # "All" button clears all filters.
             all_btn = Gtk.Button(label="All")
             all_btn.add_css_class("flat")
             all_btn.connect("clicked", self._on_filter_clear)
             outer.append(all_btn)
 
             outer.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
+
+            # Repository section (only when 2+ distinct repos).
+            if show_repos:
+                repo_lbl = Gtk.Label(label="Repository")
+                repo_lbl.add_css_class("heading")
+                repo_lbl.set_halign(Gtk.Align.START)
+                repo_lbl.set_margin_start(8)
+                repo_lbl.set_margin_top(4)
+                repo_lbl.set_margin_bottom(2)
+                outer.append(repo_lbl)
+
+                for repo in distinct_repos:
+                    btn = Gtk.CheckButton(label=repo.name)
+                    btn.add_css_class("flat")
+                    btn.connect("toggled", self._on_repo_toggled, repo.uri)
+                    self._repo_btns[repo.uri] = btn
+                    outer.append(btn)
+
+                outer.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
+
+            # Category section.
+            if show_repos and categories:
+                cat_lbl = Gtk.Label(label="Category")
+                cat_lbl.add_css_class("heading")
+                cat_lbl.set_halign(Gtk.Align.START)
+                cat_lbl.set_margin_start(8)
+                cat_lbl.set_margin_top(4)
+                cat_lbl.set_margin_bottom(2)
+                outer.append(cat_lbl)
 
             for cat in categories:
                 btn = Gtk.CheckButton(label=cat)
@@ -378,19 +428,36 @@ class CellarWindow(Adw.ApplicationWindow):
         else:
             self._active_categories.discard(category)
         active = self._active_categories.copy()
-        self._filter_dot.set_visible(bool(active))
+        self._filter_dot.set_visible(bool(active) or bool(self._active_repos))
         self._browse_explore.set_active_categories(active)
         self._browse_installed.set_active_categories(active)
         self._browse_updates.set_active_categories(active)
 
+    def _on_repo_toggled(self, btn: Gtk.CheckButton, repo_uri: str) -> None:
+        if btn.get_active():
+            self._active_repos.add(repo_uri)
+        else:
+            self._active_repos.discard(repo_uri)
+        active = self._active_repos.copy()
+        self._filter_dot.set_visible(bool(active) or bool(self._active_categories))
+        self._browse_explore.set_active_repos(active)
+        self._browse_installed.set_active_repos(active)
+        self._browse_updates.set_active_repos(active)
+
     def _on_filter_clear(self, _button: Gtk.Button) -> None:
         for btn in self._category_btns.values():
             btn.set_active(False)
+        for btn in self._repo_btns.values():
+            btn.set_active(False)
         self._active_categories = set()
+        self._active_repos = set()
         self._filter_dot.set_visible(False)
         self._browse_explore.set_active_categories(set())
         self._browse_installed.set_active_categories(set())
         self._browse_updates.set_active_categories(set())
+        self._browse_explore.set_active_repos(set())
+        self._browse_installed.set_active_repos(set())
+        self._browse_updates.set_active_repos(set())
         self.filter_button.get_popover().popdown()
 
     # ── Signal handlers ───────────────────────────────────────────────────
@@ -514,7 +581,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="io.github.cellar",
-            version="0.53.14",
+            version="0.54.0",
             comments="A GNOME storefront for Windows and Linux apps.",
             license_type=Gtk.License.GPL_3_0,
         )

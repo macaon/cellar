@@ -379,6 +379,16 @@ class SettingsDialog(Adw.PreferencesDialog):
             icon.set_tooltip_text("SSL verification disabled")
             row.add_prefix(icon)
 
+        enabled = repo_cfg.get("enabled", True)
+
+        switch = Gtk.Switch(
+            active=enabled,
+            valign=Gtk.Align.CENTER,
+            tooltip_text="Enable or disable this repository",
+        )
+        switch.connect("notify::active", self._on_repo_enabled_toggled, uri)
+        row.add_suffix(switch)
+
         edit_btn = Gtk.Button(
             icon_name="document-edit-symbolic",
             valign=Gtk.Align.CENTER,
@@ -398,7 +408,22 @@ class SettingsDialog(Adw.PreferencesDialog):
         del_btn.connect("clicked", self._on_delete_repo, uri)
         row.add_suffix(del_btn)
 
+        if not enabled:
+            row.add_css_class("dim-label")
+
         return row
+
+    def _on_repo_enabled_toggled(self, switch: Gtk.Switch, _pspec, uri: str) -> None:
+        enabled = switch.get_active()
+        repos = load_repos()
+        for r in repos:
+            if r["uri"] == uri:
+                r["enabled"] = enabled
+                break
+        save_repos(repos)
+        self._rebuild_repo_rows()
+        if self._on_repos_changed:
+            self._on_repos_changed()
 
     # ------------------------------------------------------------------
     # Add / Edit handlers

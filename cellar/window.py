@@ -205,6 +205,8 @@ class CellarWindow(Adw.ApplicationWindow):
                 log.warning("CELLAR_REPO %r is invalid: %s", env_uri, exc)
 
         for cfg in load_repos():
+            if not cfg.get("enabled", True):
+                continue
             try:
                 ca_cert_name = cfg.get("ca_cert") or None
                 ca_cert_path: str | None = None
@@ -752,7 +754,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="io.github.cellar",
-            version="0.56.2",
+            version="0.57.0",
             comments="A GNOME storefront for Windows and Linux apps.",
             license_type=Gtk.License.GPL_3_0,
         )

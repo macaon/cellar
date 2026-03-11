@@ -197,12 +197,10 @@ class PackageBuilderView(Adw.Bin):
         """Reload project list from disk and refresh the card grid."""
         projects = load_projects()
         # Clear existing cards
-        from cellar.views.browse import _dispose_subtree
         while True:
             child = self._flow_box.get_child_at_index(0)
             if child is None:
                 break
-            _dispose_subtree(child)
             self._flow_box.remove(child)
         self._project_cards: list[_ProjectCard] = []
 

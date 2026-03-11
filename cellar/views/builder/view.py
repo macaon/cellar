@@ -69,6 +69,9 @@ class PackageBuilderView(Adw.Bin):
         self._project: Project | None = None
         self._project_cards: list[_ProjectCard] = []
         self._replacing_detail = False
+        self._search_text: str = ""
+        self._active_types: set[str] = set()
+        self._active_repos: set[str] = set()
 
         self._setup_actions()
         self._build()
@@ -83,6 +86,32 @@ class PackageBuilderView(Adw.Bin):
         if all_repos is not None:
             self._all_repos = all_repos
         self._reload_projects()
+
+    def set_search_text(self, text: str) -> None:
+        self._search_text = text
+        self._apply_filter()
+
+    def set_active_types(self, types: set[str]) -> None:
+        self._active_types = types
+        self._apply_filter()
+
+    def set_active_repos(self, repos: set[str]) -> None:
+        self._active_repos = repos
+        self._apply_filter()
+
+    def _apply_filter(self) -> None:
+        """Show/hide cards based on current search text and active filters."""
+        child = self._flow_box.get_child_at_index(0)
+        i = 0
+        while child is not None:
+            if isinstance(child, _NewProjectCard):
+                child.set_visible(True)
+            elif isinstance(child, (_ProjectCard, _CatalogueCard)):
+                child.set_visible(
+                    child.matches(self._search_text, self._active_types, self._active_repos)
+                )
+            i += 1
+            child = self._flow_box.get_child_at_index(i)
 
     # ------------------------------------------------------------------
     # Actions
@@ -2224,7 +2253,20 @@ _TYPE_ICONS = {
     "linux": "penguin-alt-symbolic",
     "app": "grid-large-symbolic",
 }
-_TYPE_LABELS = {"app": "Windows App", "linux": "Linux App", "base": "Base Image"}
+_TYPE_LABELS = {"app": "Proton App", "linux": "Native App", "base": "Base Image"}
+
+# Map internal project_type / kind values to filter-pill identifiers.
+_FILTER_TYPE_PROTON = "proton"
+_FILTER_TYPE_NATIVE = "native"
+_FILTER_TYPE_BASE = "base"
+
+def _resolve_filter_type(project_type: str, platform: str = "windows") -> str:
+    """Return the filter-pill type id for a project type + platform combo."""
+    if project_type == "base":
+        return _FILTER_TYPE_BASE
+    if project_type == "linux" or platform == "linux":
+        return _FILTER_TYPE_NATIVE
+    return _FILTER_TYPE_PROTON
 
 
 class _NewProjectDialog(Adw.Dialog):
@@ -2257,8 +2299,8 @@ class _NewProjectDialog(Adw.Dialog):
         )
 
         win_row = Adw.ActionRow(
-            title="Windows Package",
-            subtitle="App running in Wine",
+            title="Proton Package",
+            subtitle="App running in Proton/Wine",
             activatable=True,
         )
         win_row.add_prefix(
@@ -2271,7 +2313,7 @@ class _NewProjectDialog(Adw.Dialog):
         group.add(win_row)
 
         linux_row = Adw.ActionRow(
-            title="Linux Package",
+            title="Native Package",
             subtitle="Native Linux application",
             activatable=True,
         )
@@ -2286,7 +2328,7 @@ class _NewProjectDialog(Adw.Dialog):
 
         base_row = Adw.ActionRow(
             title="Base Image",
-            subtitle="Reusable Wine runtime for Windows packages",
+            subtitle="Reusable Wine runtime for Proton packages",
             activatable=True,
         )
         base_row.add_prefix(
@@ -2430,6 +2472,17 @@ class _ProjectCard(Gtk.FlowBoxChild):
         self.set_child(None)
         super().do_dispose()
 
+    def matches(self, search: str, active_types: set[str], active_repos: set[str]) -> bool:
+        """Return True if this card should be visible given the current filters."""
+        if active_types:
+            ft = _resolve_filter_type(self.project.project_type)
+            if ft not in active_types:
+                return False
+        if search and search.lower() not in self.project.name.lower():
+            return False
+        # Projects are local — always pass repo filter.
+        return True
+
     def refresh_label(self) -> None:
         """Update the displayed name."""
         self._name_label.set_label(self.project.name)
@@ -2470,7 +2523,7 @@ class _CatalogueCard(Gtk.FlowBoxChild):
         else:
             platform = getattr(entry, "platform", "windows")
             icon_name = "penguin-alt-symbolic" if platform == "linux" else "grid-large-symbolic"
-            type_label = "Linux App" if platform == "linux" else "Windows App"
+            type_label = "Native App" if platform == "linux" else "Proton App"
 
         icon = Gtk.Image.new_from_icon_name(icon_name)
         icon.set_pixel_size(_ICON_SIZE)
@@ -2531,6 +2584,19 @@ class _CatalogueCard(Gtk.FlowBoxChild):
         fixed = _FixedBox(_CARD_WIDTH, _CARD_HEIGHT, clip=False)
         fixed.set_child(card)
         self.set_child(fixed)
+
+    def matches(self, search: str, active_types: set[str], active_repos: set[str]) -> bool:
+        """Return True if this card should be visible given the current filters."""
+        if active_repos and self.repo.uri not in active_repos:
+            return False
+        if active_types:
+            platform = getattr(self.entry, "platform", "windows")
+            ft = _resolve_filter_type(self.kind, platform)
+            if ft not in active_types:
+                return False
+        if search and search.lower() not in self.entry.name.lower():
+            return False
+        return True
 
     def do_dispose(self) -> None:
         from cellar.views.browse import _dispose_subtree

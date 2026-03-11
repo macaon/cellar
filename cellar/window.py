@@ -98,6 +98,16 @@ class CellarWindow(Adw.ApplicationWindow):
         self._category_btns: dict[str, Gtk.CheckButton] = {}
         self._active_categories: set[str] = set()
 
+        # Builder filter state (type + repo).
+        self._builder_type_btns: dict[str, Gtk.CheckButton] = {}
+        self._builder_repo_btns: dict[str, Gtk.CheckButton] = {}
+        self._builder_active_types: set[str] = set()
+        self._builder_active_repos: set[str] = set()
+
+        # Track which popover is active so we can rebuild on tab switch.
+        self._browse_filter_entries: list = []
+        self._browse_filter_repos: list | None = None
+
         # Active-filter dot badge overlaid on the filter button icon.
         _filter_icon = Gtk.Image.new_from_icon_name("funnel-symbolic")
         self._filter_dot = Gtk.Box()
@@ -354,6 +364,9 @@ class CellarWindow(Adw.ApplicationWindow):
 
     def _rebuild_filter_popover(self, entries: list, distinct_repos: list | None = None) -> None:
         """Build (or rebuild) the filter popover from the current entry list."""
+        # Cache for restoring when switching back from builder tab.
+        self._browse_filter_entries = entries
+        self._browse_filter_repos = distinct_repos
         categories = sorted({e.category for e in entries if e.category})
         self._category_btns = {}
         self._repo_btns: dict[str, Gtk.CheckButton] = {}
@@ -458,6 +471,108 @@ class CellarWindow(Adw.ApplicationWindow):
         self._browse_explore.set_active_repos(set())
         self._browse_installed.set_active_repos(set())
         self._browse_updates.set_active_repos(set())
+        self.filter_button.get_popover().popdown()
+
+    # ── Builder filter popover ─────────────────────────────────────────────
+
+    def _rebuild_browse_filter_popover(self) -> None:
+        """Restore the browse-tab filter popover."""
+        self._rebuild_filter_popover(
+            self._browse_filter_entries, self._browse_filter_repos
+        )
+
+    def _rebuild_builder_filter_popover(self) -> None:
+        """Build the builder-tab filter popover (Type + Repo)."""
+        self._builder_type_btns = {}
+        self._builder_repo_btns = {}
+        self._builder_active_types = set()
+        self._builder_active_repos = set()
+        self._package_builder.set_active_types(set())
+        self._package_builder.set_active_repos(set())
+
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        outer.set_margin_top(4)
+        outer.set_margin_bottom(4)
+        outer.set_margin_start(4)
+        outer.set_margin_end(4)
+
+        # "All" button clears all filters.
+        all_btn = Gtk.Button(label="All")
+        all_btn.add_css_class("flat")
+        all_btn.connect("clicked", self._on_builder_filter_clear)
+        outer.append(all_btn)
+
+        outer.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
+
+        # Type section.
+        type_lbl = Gtk.Label(label="Type")
+        type_lbl.add_css_class("heading")
+        type_lbl.set_halign(Gtk.Align.START)
+        type_lbl.set_margin_start(8)
+        type_lbl.set_margin_top(4)
+        type_lbl.set_margin_bottom(2)
+        outer.append(type_lbl)
+
+        for key, label in (("proton", "Proton"), ("native", "Native"), ("base", "Base")):
+            btn = Gtk.CheckButton(label=label)
+            btn.add_css_class("flat")
+            btn.connect("toggled", self._on_builder_type_toggled, key)
+            self._builder_type_btns[key] = btn
+            outer.append(btn)
+
+        # Repo section (only when 2+ writable repos).
+        if len(self._writable_repos) >= 2:
+            outer.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
+            repo_lbl = Gtk.Label(label="Repository")
+            repo_lbl.add_css_class("heading")
+            repo_lbl.set_halign(Gtk.Align.START)
+            repo_lbl.set_margin_start(8)
+            repo_lbl.set_margin_top(4)
+            repo_lbl.set_margin_bottom(2)
+            outer.append(repo_lbl)
+
+            for repo in self._writable_repos:
+                btn = Gtk.CheckButton(label=repo.name or repo.uri)
+                btn.add_css_class("flat")
+                btn.connect("toggled", self._on_builder_repo_toggled, repo.uri)
+                self._builder_repo_btns[repo.uri] = btn
+                outer.append(btn)
+
+        popover = Gtk.Popover()
+        popover.set_child(outer)
+        self.filter_button.set_popover(popover)
+        self._filter_dot.set_visible(False)
+
+    def _on_builder_type_toggled(self, btn: Gtk.CheckButton, type_key: str) -> None:
+        if btn.get_active():
+            self._builder_active_types.add(type_key)
+        else:
+            self._builder_active_types.discard(type_key)
+        self._filter_dot.set_visible(
+            bool(self._builder_active_types) or bool(self._builder_active_repos)
+        )
+        self._package_builder.set_active_types(self._builder_active_types.copy())
+
+    def _on_builder_repo_toggled(self, btn: Gtk.CheckButton, repo_uri: str) -> None:
+        if btn.get_active():
+            self._builder_active_repos.add(repo_uri)
+        else:
+            self._builder_active_repos.discard(repo_uri)
+        self._filter_dot.set_visible(
+            bool(self._builder_active_types) or bool(self._builder_active_repos)
+        )
+        self._package_builder.set_active_repos(self._builder_active_repos.copy())
+
+    def _on_builder_filter_clear(self, _button: Gtk.Button) -> None:
+        for btn in self._builder_type_btns.values():
+            btn.set_active(False)
+        for btn in self._builder_repo_btns.values():
+            btn.set_active(False)
+        self._builder_active_types = set()
+        self._builder_active_repos = set()
+        self._filter_dot.set_visible(False)
+        self._package_builder.set_active_types(set())
+        self._package_builder.set_active_repos(set())
         self.filter_button.get_popover().popdown()
 
     # ── Signal handlers ───────────────────────────────────────────────────
@@ -581,7 +696,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="io.github.cellar",
-            version="0.55.7",
+            version="0.55.8",
             comments="A GNOME storefront for Windows and Linux apps.",
             license_type=Gtk.License.GPL_3_0,
         )
@@ -592,10 +707,10 @@ class CellarWindow(Adw.ApplicationWindow):
 
     def _on_view_switched(self, stack: Adw.ViewStack, _param) -> None:
         in_builder = stack.get_visible_child_name() == "builder"
-        self.search_button.set_visible(not in_builder)
-        self.filter_button.set_visible(not in_builder)
         if in_builder:
-            self.search_bar.set_search_mode(False)
+            self._rebuild_builder_filter_popover()
+        else:
+            self._rebuild_browse_filter_popover()
 
     def _on_search_toggled(self, button: Gtk.ToggleButton) -> None:
         self.search_bar.set_search_mode(button.get_active())
@@ -608,6 +723,7 @@ class CellarWindow(Adw.ApplicationWindow):
         self._browse_explore.set_search_text(text)
         self._browse_installed.set_search_text(text)
         self._browse_updates.set_search_text(text)
+        self._package_builder.set_search_text(text)
 
     def _on_refresh_clicked(self, _button: Gtk.Button) -> None:
         self._load_catalogue()

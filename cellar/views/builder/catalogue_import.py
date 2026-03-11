@@ -606,6 +606,12 @@ class CatalogueEntriesDialog(Adw.Dialog):
                         except Exception:
                             log.warning("Could not download screenshot %s", ss_rel)
                     project.screenshot_paths = screenshot_paths
+                    # Map new local paths to original Steam source URLs for dedup
+                    import_sources: dict[str, str] = {}
+                    for idx, ss_rel in enumerate(entry.screenshots):
+                        if ss_rel in entry.screenshot_sources and idx < len(screenshot_paths):
+                            import_sources[screenshot_paths[idx]] = entry.screenshot_sources[ss_rel]
+                    project.screenshot_sources = import_sources
 
                     # Linux imports: pre-fill source_dir with the extracted prefix
                     # so the project is immediately publishable. User can still

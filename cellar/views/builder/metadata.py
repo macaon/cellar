@@ -204,7 +204,8 @@ class AppMetadataDialog(Adw.Dialog):
                 p.icon_path or "", p.cover_path or "", p.logo_path or "",
                 bool(p.hide_title),
             )
-            self._media.set_screenshots_local(list(p.screenshot_paths))
+            source_urls = [p.screenshot_sources.get(sp) for sp in p.screenshot_paths] if p.screenshot_sources else None
+            self._media.set_screenshots_local(list(p.screenshot_paths), source_urls)
             if p.steam_screenshots:
                 self._media.add_steam_screenshots(p.steam_screenshots)
                 if p.selected_steam_urls:

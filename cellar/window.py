@@ -700,9 +700,11 @@ class CellarWindow(Adw.ApplicationWindow):
                     current_page.set_title(updated_entry.name)
                 self._show_toast("Entry updated")
 
+            # Use the writable repo that carries this entry, not the global first repo.
+            _writable = next((r for r in source_repos if r.is_writable), None) or self._first_repo
             EditAppDialog(
                 entry=selected_entry,
-                repo=self._first_repo,
+                repo=_writable,
                 on_done=_on_edit_done,
             ).present(self)
 
@@ -767,7 +769,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="io.github.cellar",
-            version="0.57.1",
+            version="0.57.2",
             comments="A GNOME storefront for Windows and Linux apps.",
             license_type=Gtk.License.GPL_3_0,
         )

@@ -1663,9 +1663,12 @@ class PackageBuilderView(Adw.Bin):
                 self._show_toast(f"Executable not found: {exe}")
                 return
             import shlex
+            from cellar.backend.umu import is_cellar_sandboxed
             cmd = [str(exe)]
             if entry_args:
                 cmd += shlex.split(entry_args)
+            if is_cellar_sandboxed():
+                cmd = ["flatpak-spawn", "--host"] + cmd
             subprocess.Popen(cmd, cwd=str(exe.parent), start_new_session=True)
             return
         if not project.runner:

@@ -15,6 +15,7 @@ builddir/
 # Flatpak build artefacts
 build-dir/
 build-flatpak/
+cellar-build/
 repo/
 cellar.flatpak
 .flatpak-builder/

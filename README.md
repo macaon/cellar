@@ -31,11 +31,9 @@ Linux native apps are extracted and launched directly.
 - Offline mode — cached catalogue allows browsing and launching when the repo is unreachable
 
 **For maintainers** (requires a writable repo)
-- Package Builder — two-panel project view for creating and publishing packages:
-  - **Windows app project** — initialise a WINEPREFIX with a chosen GE-Proton runner, install winetricks dependencies, run `.exe` installers, configure entry points, test-launch, then publish
-  - **Linux app project** — point at a local directory, set an entry point, publish
-  - **Base image project** — build a shared WINEPREFIX used as the delta base for multiple app packages
-  - **Import from catalogue** — pull an existing entry into a local project for re-packaging or editing
+- Package Builder — create and publish packages for Windows apps, Linux apps, and base images
+  - Initialise a WINEPREFIX, install winetricks dependencies, run `.exe` installers, configure launch targets, test-launch, and publish
+  - Existing catalogue entries from writable repos can be downloaded for re-packaging or deleted
 - Steam Store metadata lookup — auto-fill title, description, developer, genres, cover art, and screenshots
 - Edit and delete existing catalogue entries directly from the detail view
 - Delta archive creation — automatic diff against a base image using BLAKE2b content hashing

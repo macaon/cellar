@@ -371,6 +371,11 @@ class PackageBuilderView(Adw.Bin):
             from cellar.backend.packager import slugify
             from cellar.utils.progress import fmt_stats
 
+            nonlocal entry
+            if entry.is_partial:
+                GLib.idle_add(progress.set_label, "Fetching metadata\u2026")
+                entry = repo.fetch_app_metadata(entry.id)
+
             archive_uri = repo.resolve_asset_uri(entry.archive)
 
             from cellar.backend.config import install_data_dir

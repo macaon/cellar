@@ -92,8 +92,7 @@ class CatalogueEntriesDialog(Adw.Dialog):
         for repo in self._repos:
             try:
                 for entry in repo.fetch_catalogue():
-                    if entry.archive:
-                        apps.append((entry, repo, "app"))
+                    apps.append((entry, repo, "app"))
             except Exception as exc:
                 log.warning("Could not fetch catalogue from %s: %s", repo.uri, exc)
             try:
@@ -473,6 +472,7 @@ class CatalogueEntriesDialog(Adw.Dialog):
         progress.present(root)
 
         def _work():
+            nonlocal entry
             import tempfile
             from cellar.backend.installer import (
                 InstallCancelled,     # noqa: PLC2701
@@ -481,6 +481,9 @@ class CatalogueEntriesDialog(Adw.Dialog):
                 _install_chunks,      # noqa: PLC2701
                 _stream_and_extract,  # noqa: PLC2701
             )
+            if entry.is_partial:
+                GLib.idle_add(progress.set_label, "Fetching metadata\u2026")
+                entry = repo.fetch_app_metadata(entry.id)
             archive_uri = repo.resolve_asset_uri(entry.archive)
 
             from cellar.backend.config import install_data_dir

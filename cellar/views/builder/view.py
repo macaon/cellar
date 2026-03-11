@@ -182,7 +182,7 @@ class PackageBuilderView(Adw.Bin):
 
         list_toolbar.set_content(scroll)
 
-        self._list_page = Adw.NavigationPage(title="Packages", child=list_toolbar)
+        self._list_page = Adw.NavigationPage(title="", child=list_toolbar)
         self._nav_view.add(self._list_page)
 
         self.set_child(self._nav_view)

@@ -695,7 +695,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="io.github.cellar",
-            version="0.55.9",
+            version="0.55.10",
             comments="A GNOME storefront for Windows and Linux apps.",
             license_type=Gtk.License.GPL_3_0,
         )
@@ -715,7 +715,12 @@ class CellarWindow(Adw.ApplicationWindow):
         self.search_bar.set_search_mode(button.get_active())
 
     def _on_search_mode_changed(self, bar: Gtk.SearchBar, _param) -> None:
-        self.search_button.set_active(bar.get_search_mode())
+        active = bar.get_search_mode()
+        self.search_button.set_active(active)
+        if active:
+            self.search_button.add_css_class("suggested-action")
+        else:
+            self.search_button.remove_css_class("suggested-action")
 
     def _on_search_changed(self, entry: Gtk.SearchEntry) -> None:
         text = entry.get_text()

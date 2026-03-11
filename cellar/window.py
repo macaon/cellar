@@ -108,16 +108,8 @@ class CellarWindow(Adw.ApplicationWindow):
         self._browse_filter_entries: list = []
         self._browse_filter_repos: list | None = None
 
-        # Active-filter dot badge overlaid on the filter button icon.
-        _filter_icon = Gtk.Image.new_from_icon_name("funnel-symbolic")
-        self._filter_dot = Gtk.Box()
-        self._filter_dot.add_css_class("filter-active-dot")
-        self._filter_dot.set_halign(Gtk.Align.END)
-        self._filter_dot.set_valign(Gtk.Align.START)
-        self._filter_dot.set_visible(False)
-        _filter_overlay = Gtk.Overlay(child=_filter_icon)
-        _filter_overlay.add_overlay(self._filter_dot)
-        self.filter_button.set_child(_filter_overlay)
+        # No custom child — let the GtkMenuButton use its icon-name from the
+        # .ui file so it renders with standard headerbar flat styling.
 
         # The first successfully loaded Repo — used to resolve asset URIs in
         # the browse grid and callbacks.  Updated on every catalogue reload.
@@ -245,7 +237,7 @@ class CellarWindow(Adw.ApplicationWindow):
         self._all_repos = list(manager)
         self.builder_page.set_visible(bool(self._writable_repos))
         self._package_builder.update_repos(self._writable_repos, all_repos=self._all_repos)
-        self._filter_dot.set_visible(False)
+        self._set_filter_active(False)
 
         if not list(manager):
             self._browse_explore.show_error(
@@ -435,13 +427,20 @@ class CellarWindow(Adw.ApplicationWindow):
         popover.set_child(outer)
         self.filter_button.set_popover(popover)
 
+    def _set_filter_active(self, active: bool) -> None:
+        """Toggle accent styling on the filter button."""
+        if active:
+            self.filter_button.add_css_class("suggested-action")
+        else:
+            self.filter_button.remove_css_class("suggested-action")
+
     def _on_category_toggled(self, btn: Gtk.CheckButton, category: str) -> None:
         if btn.get_active():
             self._active_categories.add(category)
         else:
             self._active_categories.discard(category)
         active = self._active_categories.copy()
-        self._filter_dot.set_visible(bool(active) or bool(self._active_repos))
+        self._set_filter_active(bool(active) or bool(self._active_repos))
         self._browse_explore.set_active_categories(active)
         self._browse_installed.set_active_categories(active)
         self._browse_updates.set_active_categories(active)
@@ -452,7 +451,7 @@ class CellarWindow(Adw.ApplicationWindow):
         else:
             self._active_repos.discard(repo_uri)
         active = self._active_repos.copy()
-        self._filter_dot.set_visible(bool(active) or bool(self._active_categories))
+        self._set_filter_active(bool(active) or bool(self._active_categories))
         self._browse_explore.set_active_repos(active)
         self._browse_installed.set_active_repos(active)
         self._browse_updates.set_active_repos(active)
@@ -464,7 +463,7 @@ class CellarWindow(Adw.ApplicationWindow):
             btn.set_active(False)
         self._active_categories = set()
         self._active_repos = set()
-        self._filter_dot.set_visible(False)
+        self._set_filter_active(False)
         self._browse_explore.set_active_categories(set())
         self._browse_installed.set_active_categories(set())
         self._browse_updates.set_active_categories(set())
@@ -541,14 +540,14 @@ class CellarWindow(Adw.ApplicationWindow):
         popover = Gtk.Popover()
         popover.set_child(outer)
         self.filter_button.set_popover(popover)
-        self._filter_dot.set_visible(False)
+        self._set_filter_active(False)
 
     def _on_builder_type_toggled(self, btn: Gtk.CheckButton, type_key: str) -> None:
         if btn.get_active():
             self._builder_active_types.add(type_key)
         else:
             self._builder_active_types.discard(type_key)
-        self._filter_dot.set_visible(
+        self._set_filter_active(
             bool(self._builder_active_types) or bool(self._builder_active_repos)
         )
         self._package_builder.set_active_types(self._builder_active_types.copy())
@@ -558,7 +557,7 @@ class CellarWindow(Adw.ApplicationWindow):
             self._builder_active_repos.add(repo_uri)
         else:
             self._builder_active_repos.discard(repo_uri)
-        self._filter_dot.set_visible(
+        self._set_filter_active(
             bool(self._builder_active_types) or bool(self._builder_active_repos)
         )
         self._package_builder.set_active_repos(self._builder_active_repos.copy())
@@ -570,7 +569,7 @@ class CellarWindow(Adw.ApplicationWindow):
             btn.set_active(False)
         self._builder_active_types = set()
         self._builder_active_repos = set()
-        self._filter_dot.set_visible(False)
+        self._set_filter_active(False)
         self._package_builder.set_active_types(set())
         self._package_builder.set_active_repos(set())
         self.filter_button.get_popover().popdown()
@@ -696,7 +695,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="io.github.cellar",
-            version="0.55.8",
+            version="0.55.9",
             comments="A GNOME storefront for Windows and Linux apps.",
             license_type=Gtk.License.GPL_3_0,
         )

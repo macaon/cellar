@@ -267,13 +267,8 @@ def init_prefix(
     umu handle Steam Runtime setup correctly.
     """
     import os
-    gameid = f"umu-{steam_appid}" if steam_appid else "0"
-    base_env: dict[str, str] = {
-        **_umu_data_env(),
-        "WINEPREFIX": str(prefix_path),
-        "PROTONPATH": str(runners_dir() / runner_name),
-        "GAMEID": gameid,
-    }
+    base_env = build_env("", runner_name, steam_appid, prefix_dir=prefix_path)
+    gameid = base_env["GAMEID"]
     prefix_path.mkdir(parents=True, exist_ok=True)
     env = {**os.environ, **base_env}
     # Empty-string positional arg → umu initialises the prefix, runs nothing.
@@ -313,12 +308,7 @@ def run_winetricks(
     from the parent process (printed to the terminal).
     """
     import os
-    base_env: dict[str, str] = {
-        **_umu_data_env(),
-        "WINEPREFIX": str(prefix_path),
-        "PROTONPATH": str(runners_dir() / runner_name),
-        "GAMEID": str(gameid) if gameid else "0",
-    }
+    base_env = build_env("", runner_name, gameid, prefix_dir=prefix_path)
     env = {**os.environ, **base_env}
     cmd = _umu_cmd(base_env) + ["winetricks"] + verbs
     log.info(
@@ -384,12 +374,7 @@ def run_in_prefix(
         Subprocess timeout in seconds.
     """
     import os
-    base_env: dict[str, str] = {
-        **_umu_data_env(),
-        "WINEPREFIX": str(prefix_path),
-        "PROTONPATH": str(runners_dir() / runner_name),
-        "GAMEID": str(gameid) if gameid else "0",
-    }
+    base_env = build_env("", runner_name, gameid, prefix_dir=prefix_path)
     if extra_env:
         base_env.update(extra_env)
     env = {**os.environ, **base_env}

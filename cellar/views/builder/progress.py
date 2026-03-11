@@ -10,6 +10,8 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk
 
+from cellar.views.widgets import set_margins
+
 
 class ProgressDialog(Adw.Dialog):
     """Simple blocking progress dialog for long-running operations.
@@ -24,10 +26,7 @@ class ProgressDialog(Adw.Dialog):
         self._cancel_event = cancel_event
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        box.set_margin_top(24)
-        box.set_margin_bottom(24)
-        box.set_margin_start(24)
-        box.set_margin_end(24)
+        set_margins(box, 24)
         box.set_valign(Gtk.Align.CENTER)
         box.set_vexpand(True)
 
@@ -118,10 +117,7 @@ class WinetricksProgressDialog(Adw.Dialog):
         toolbar.add_top_bar(header)
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        box.set_margin_top(16)
-        box.set_margin_bottom(16)
-        box.set_margin_start(16)
-        box.set_margin_end(16)
+        set_margins(box, 16)
 
         verb_label = Gtk.Label(label="Running: " + ", ".join(verbs))
         verb_label.set_xalign(0)

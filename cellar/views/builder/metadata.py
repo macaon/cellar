@@ -14,6 +14,7 @@ from gi.repository import Adw, GLib, Gtk
 
 from cellar.backend.project import Project, save_project
 from cellar.views.builder.media_panel import MediaPanel
+from cellar.views.widgets import set_margins
 
 log = logging.getLogger(__name__)
 
@@ -94,10 +95,7 @@ class AppMetadataDialog(Adw.Dialog):
         # Plain box instead of AdwPreferencesPage — the page has a built-in
         # ScrolledWindow which creates a second scrollbar when nested inside ours.
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
-        page.set_margin_top(12)
-        page.set_margin_bottom(12)
-        page.set_margin_start(12)
-        page.set_margin_end(12)
+        set_margins(page, 12)
         page.set_vexpand(True)
         page.set_hexpand(False)
         left_box.append(page)

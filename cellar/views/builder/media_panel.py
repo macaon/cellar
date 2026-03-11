@@ -18,6 +18,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk
 
 from cellar.views.browse import _FixedBox
+from cellar.views.widgets import set_margins
 
 log = logging.getLogger(__name__)
 
@@ -32,10 +33,7 @@ class MediaPanel(Gtk.Box):
     def __init__(self, *, on_changed: Callable | None = None) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.set_hexpand(True)
-        self.set_margin_top(16)
-        self.set_margin_bottom(16)
-        self.set_margin_start(16)
-        self.set_margin_end(16)
+        set_margins(self, 16)
 
         self._on_changed = on_changed
         self._chooser = None  # prevent GC of FileChooserNative

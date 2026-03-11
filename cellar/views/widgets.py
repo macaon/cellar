@@ -7,7 +7,50 @@ from typing import Callable
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gtk
+gi.require_version("Adw", "1")
+from gi.repository import Adw, Gtk
+
+
+def set_margins(widget: Gtk.Widget, size: int) -> None:
+    """Apply uniform margins on all four sides."""
+    widget.set_margin_top(size)
+    widget.set_margin_bottom(size)
+    widget.set_margin_start(size)
+    widget.set_margin_end(size)
+
+
+def make_dialog_header(
+    dialog: Adw.Dialog,
+    *,
+    cancel_label: str = "Cancel",
+    cancel_cb: Callable | None = None,
+    action_label: str | None = None,
+    action_cb: Callable | None = None,
+    action_sensitive: bool = True,
+) -> tuple[Adw.ToolbarView, Adw.HeaderBar, Gtk.Button | None]:
+    """Build a standard dialog toolbar with cancel and optional action button.
+
+    Returns ``(toolbar_view, header, action_btn)``.
+    """
+    toolbar = Adw.ToolbarView()
+    header = Adw.HeaderBar()
+    header.set_show_end_title_buttons(False)
+
+    cancel_btn = Gtk.Button(label=cancel_label)
+    cancel_btn.connect("clicked", cancel_cb or (lambda _: dialog.close()))
+    header.pack_start(cancel_btn)
+
+    action_btn = None
+    if action_label:
+        action_btn = Gtk.Button(label=action_label)
+        action_btn.add_css_class("suggested-action")
+        action_btn.set_sensitive(action_sensitive)
+        if action_cb:
+            action_btn.connect("clicked", action_cb)
+        header.pack_end(action_btn)
+
+    toolbar.add_top_bar(header)
+    return toolbar, header, action_btn
 
 
 def make_loading_stack(label: str = "Loading\u2026") -> tuple[Gtk.Stack, Gtk.ListBox]:
@@ -34,10 +77,7 @@ def make_loading_stack(label: str = "Loading\u2026") -> tuple[Gtk.Stack, Gtk.Lis
     list_box = Gtk.ListBox()
     list_box.set_selection_mode(Gtk.SelectionMode.SINGLE)
     list_box.add_css_class("boxed-list")
-    list_box.set_margin_top(12)
-    list_box.set_margin_bottom(12)
-    list_box.set_margin_start(12)
-    list_box.set_margin_end(12)
+    set_margins(list_box, 12)
     scroll.set_child(list_box)
     stack.add_named(scroll, "list")
 

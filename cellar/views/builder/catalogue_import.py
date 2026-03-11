@@ -17,6 +17,7 @@ from gi.repository import Adw, GLib, Gtk
 
 from cellar.backend.project import Project, load_projects, save_project
 from cellar.utils.async_work import run_in_background
+from cellar.views.widgets import set_margins
 from cellar.utils.progress import fmt_stats
 from cellar.views.builder.progress import ProgressDialog
 
@@ -66,10 +67,7 @@ class CatalogueEntriesDialog(Adw.Dialog):
         scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
         scroll.set_min_content_height(500)
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=24)
-        vbox.set_margin_top(12)
-        vbox.set_margin_bottom(12)
-        vbox.set_margin_start(12)
-        vbox.set_margin_end(12)
+        set_margins(vbox, 12)
         self._apps_group = Adw.PreferencesGroup(title="Apps")
         self._bases_group = Adw.PreferencesGroup(title="Base Images")
         self._runners_group = Adw.PreferencesGroup(title="Runners")

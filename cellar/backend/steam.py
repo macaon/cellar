@@ -10,6 +10,8 @@ import logging
 import re
 from html.parser import HTMLParser
 
+import requests
+
 from cellar.utils.http import make_session
 
 log = logging.getLogger(__name__)
@@ -181,7 +183,7 @@ def fetch_steam_images(appid: int, sgdb_key: str = "") -> dict:
             r = session.head(url, timeout=10, allow_redirects=True)
             if r.status_code == 200:
                 result[slot] = url
-        except Exception:
+        except (OSError, requests.RequestException):
             pass
 
     return result
@@ -218,7 +220,7 @@ def _sgdb_resolve_game(
             f"{_SGDB_API}/games/steam/{appid}",
             headers=headers, params={"platformdata": "steam"}, timeout=15,
         )
-    except Exception as exc:
+    except (OSError, requests.RequestException) as exc:
         log.debug("SGDB game lookup request failed: %s", exc)
         return None, None
     if r.status_code != 200:

@@ -28,7 +28,7 @@ import logging
 from cellar.utils.async_work import run_in_background
 from cellar.utils.progress import fmt_stats as _fmt_stats
 from cellar.views.builder.media_panel import MediaPanel
-from cellar.views.widgets import make_progress_page
+from cellar.views.widgets import make_dialog_header, make_progress_page, set_margins
 
 log = logging.getLogger(__name__)
 
@@ -52,9 +52,6 @@ class EditAppDialog(Adw.Dialog):
         self._repo = repo
         self._on_done = on_done
         self._cancel_event = threading.Event()
-
-        # Raw (unescaped) entry point value
-        self._entry_point: str = ""
 
         # Screenshot dirty flag — True once grid has been touched
         self._screenshots_dirty: bool = False
@@ -89,22 +86,13 @@ class EditAppDialog(Adw.Dialog):
     # ── UI construction ───────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
-        toolbar_view = Adw.ToolbarView()
-
-        header = Adw.HeaderBar()
-        header.set_show_end_title_buttons(False)
-
-        cancel_btn = Gtk.Button(label="Cancel")
-        cancel_btn.connect("clicked", self._on_cancel_clicked)
-        header.pack_start(cancel_btn)
-
-        self._save_btn = Gtk.Button(label="Save Changes")
-        self._save_btn.add_css_class("suggested-action")
-        self._save_btn.set_sensitive(False)
-        self._save_btn.connect("clicked", self._on_save_clicked)
-        header.pack_end(self._save_btn)
-
-        toolbar_view.add_top_bar(header)
+        toolbar_view, _hdr, self._save_btn = make_dialog_header(
+            self,
+            cancel_cb=self._on_cancel_clicked,
+            action_label="Save Changes",
+            action_cb=self._on_save_clicked,
+            action_sensitive=False,
+        )
 
         self._stack = Gtk.Stack()
         self._stack.add_named(self._build_form(), "form")
@@ -133,10 +121,7 @@ class EditAppDialog(Adw.Dialog):
         # Plain box instead of AdwPreferencesPage — the page has a built-in
         # ScrolledWindow which creates a second scrollbar when nested inside ours.
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
-        page.set_margin_top(12)
-        page.set_margin_bottom(12)
-        page.set_margin_start(12)
-        page.set_margin_end(12)
+        set_margins(page, 12)
         page.set_vexpand(True)
         page.set_hexpand(False)
         left_box.append(page)
@@ -534,17 +519,12 @@ class EditAppDialog(Adw.Dialog):
         abs_path = chooser.get_file().get_path()
         if platform == "linux":
             try:
-                rel = os.path.relpath(abs_path, str(browse_root))
-            except ValueError:
-                rel = abs_path
-            formatted = rel
-        else:
-            drive_c = browse_root
-            try:
-                rel = os.path.relpath(abs_path, str(drive_c))
-                formatted = "C:\\" + rel.replace("/", "\\")
+                formatted = os.path.relpath(abs_path, str(browse_root))
             except ValueError:
                 formatted = abs_path
+        else:
+            from cellar.utils.paths import to_win32_path
+            formatted = to_win32_path(abs_path, str(browse_root))
         if idx < len(self._launch_targets):
             self._launch_targets[idx]["path"] = formatted
             self._target_rows[idx].set_subtitle(
@@ -877,17 +857,6 @@ class EditAppDialog(Adw.Dialog):
 
     def _rebind_target_indices(self) -> None:
         """Reconnect signal handlers after a row removal shifts indices."""
-        # Simplest approach: just rebuild internal index references.
-        # The target dicts are already correct in _launch_targets;
-        # we just need new closures for the callbacks.
-        for new_idx, row in enumerate(self._target_rows):
-            # Clear old suffix buttons and re-add with correct index
-            # Actually, since we use idx captured in closures, we need to
-            # rebuild the suffix buttons. But that's complex with ExpanderRow.
-            # Instead, we'll use a mutable container approach.
-            pass
-        # The closures capture idx by value at creation time, which is now stale
-        # after removal. Rebuild the entire targets UI.
         old_targets = list(self._launch_targets)
         # Remove all existing rows
         for row in self._target_rows:

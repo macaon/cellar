@@ -15,7 +15,7 @@ from gi.repository import Adw, Gio, GLib, Gtk
 
 from cellar.utils.async_work import run_in_background
 from cellar.views.builder.progress import ProgressDialog
-from cellar.views.widgets import make_loading_stack
+from cellar.views.widgets import make_dialog_header, make_loading_stack
 
 log = logging.getLogger(__name__)
 
@@ -32,21 +32,12 @@ class AddLaunchTargetDialog(Adw.Dialog):
         self._build_ui()
 
     def _build_ui(self) -> None:
-        toolbar = Adw.ToolbarView()
-        header = Adw.HeaderBar()
-        header.set_show_end_title_buttons(False)
-
-        cancel_btn = Gtk.Button(label="Cancel")
-        cancel_btn.connect("clicked", lambda _: self.close())
-        header.pack_start(cancel_btn)
-
-        self._add_btn = Gtk.Button(label="Add")
-        self._add_btn.add_css_class("suggested-action")
-        self._add_btn.set_sensitive(False)
-        self._add_btn.connect("clicked", self._on_add_clicked)
-        header.pack_end(self._add_btn)
-
-        toolbar.add_top_bar(header)
+        toolbar, _hdr, self._add_btn = make_dialog_header(
+            self,
+            action_label="Add",
+            action_cb=self._on_add_clicked,
+            action_sensitive=False,
+        )
 
         page = Adw.PreferencesPage()
         group = Adw.PreferencesGroup()
@@ -108,17 +99,12 @@ class AddLaunchTargetDialog(Adw.Dialog):
         abs_path = chooser.get_file().get_path()
         if self._platform == "linux":
             try:
-                rel = os.path.relpath(abs_path, str(self._content_path))
-            except ValueError:
-                rel = abs_path
-            display_path = rel
-        else:
-            drive_c = self._content_path / "drive_c"
-            try:
-                rel = os.path.relpath(abs_path, str(drive_c))
-                display_path = "C:\\" + rel.replace("/", "\\")
+                display_path = os.path.relpath(abs_path, str(self._content_path))
             except ValueError:
                 display_path = abs_path
+        else:
+            from cellar.utils.paths import to_win32_path
+            display_path = to_win32_path(abs_path, str(self._content_path / "drive_c"))
         self._chosen_path = display_path
         self._exe_row.set_subtitle(GLib.markup_escape_text(display_path))
         # Auto-fill name from filename if empty
@@ -153,20 +139,12 @@ class RunnerPickerDialog(Adw.Dialog):
         self._releases: list[dict] = []
         self._selected_idx: int = -1
 
-        toolbar = Adw.ToolbarView()
-        header = Adw.HeaderBar()
-        header.set_show_end_title_buttons(False)
-        cancel_btn = Gtk.Button(label="Cancel")
-        cancel_btn.connect("clicked", lambda _: self.close())
-        header.pack_start(cancel_btn)
-
-        self._install_btn = Gtk.Button(label="Install")
-        self._install_btn.add_css_class("suggested-action")
-        self._install_btn.set_sensitive(False)
-        self._install_btn.connect("clicked", self._on_install_clicked)
-        header.pack_end(self._install_btn)
-
-        toolbar.add_top_bar(header)
+        toolbar, _hdr, self._install_btn = make_dialog_header(
+            self,
+            action_label="Install",
+            action_cb=self._on_install_clicked,
+            action_sensitive=False,
+        )
 
         self._stack, self._list_box = make_loading_stack("Fetching releases\u2026")
         self._list_box.connect("row-selected", self._on_row_selected)
@@ -289,20 +267,12 @@ class BasePickerDialog(Adw.Dialog):
         self._bases: list[tuple] = []  # (BaseEntry, repo)
         self._selected_idx: int = -1
 
-        toolbar = Adw.ToolbarView()
-        header = Adw.HeaderBar()
-        header.set_show_end_title_buttons(False)
-        cancel_btn = Gtk.Button(label="Cancel")
-        cancel_btn.connect("clicked", lambda _: self.close())
-        header.pack_start(cancel_btn)
-
-        self._install_btn = Gtk.Button(label="Install")
-        self._install_btn.add_css_class("suggested-action")
-        self._install_btn.set_sensitive(False)
-        self._install_btn.connect("clicked", self._on_install_clicked)
-        header.pack_end(self._install_btn)
-
-        toolbar.add_top_bar(header)
+        toolbar, _hdr, self._install_btn = make_dialog_header(
+            self,
+            action_label="Install",
+            action_cb=self._on_install_clicked,
+            action_sensitive=False,
+        )
 
         self._stack, self._list_box = make_loading_stack("Fetching bases\u2026")
         self._list_box.connect("row-selected", self._on_row_selected)

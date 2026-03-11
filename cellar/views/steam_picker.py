@@ -19,6 +19,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk
 
 from cellar.utils.async_work import run_in_background
+from cellar.views.widgets import make_dialog_header, set_margins
 
 log = logging.getLogger(__name__)
 
@@ -48,14 +49,7 @@ class SteamPickerDialog(Adw.Dialog):
     # ------------------------------------------------------------------
 
     def _build_ui(self) -> None:
-        toolbar_view = Adw.ToolbarView()
-
-        header = Adw.HeaderBar()
-        header.set_show_end_title_buttons(False)
-        close_btn = Gtk.Button(label="Cancel")
-        close_btn.connect("clicked", lambda _: self.close())
-        header.pack_start(close_btn)
-        toolbar_view.add_top_bar(header)
+        toolbar_view, _hdr, _ = make_dialog_header(self)
 
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
 
@@ -120,10 +114,7 @@ class SteamPickerDialog(Adw.Dialog):
         self._error_label.add_css_class("error")
         self._error_label.set_wrap(True)
         self._error_label.set_halign(Gtk.Align.CENTER)
-        self._error_label.set_margin_top(24)
-        self._error_label.set_margin_bottom(24)
-        self._error_label.set_margin_start(24)
-        self._error_label.set_margin_end(24)
+        set_margins(self._error_label, 24)
         error_box.append(self._error_label)
         self._stack.add_named(error_box, "error")
 

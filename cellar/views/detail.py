@@ -18,7 +18,7 @@ from gi.repository import Adw, Gdk, GLib, Gio, Gtk, Pango
 
 from cellar.models.app_entry import AppEntry
 from cellar.utils.images import load_and_crop, load_and_fit, load_logo, to_texture
-from cellar.views.widgets import make_progress_page
+from cellar.views.widgets import make_progress_page, set_margins
 from cellar.utils.paths import short_path as _short_path
 from cellar.utils.async_work import run_in_background
 from cellar.utils.progress import fmt_stats as _fmt_dl_stats, trunc_middle as _trunc_filename
@@ -1486,10 +1486,7 @@ class DetailView(Gtk.Box):
 
         # ── Layout ──────────────────────────────────────────────────
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
-        content.set_margin_top(18)
-        content.set_margin_bottom(18)
-        content.set_margin_start(18)
-        content.set_margin_end(18)
+        set_margins(content, 18)
         content.append(header)
         content.append(listbox)
 
@@ -1558,10 +1555,7 @@ class DetailView(Gtk.Box):
 
         # ── Layout ───────────────────────────────────────────────────
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
-        content.set_margin_top(18)
-        content.set_margin_bottom(18)
-        content.set_margin_start(18)
-        content.set_margin_end(18)
+        set_margins(content, 18)
         content.append(runner_lbl)
         content.append(runner_listbox)
 

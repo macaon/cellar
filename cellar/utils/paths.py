@@ -63,6 +63,18 @@ def short_path(path) -> str:
     return str(path).replace(os.path.expanduser("~"), "~", 1)
 
 
+def to_win32_path(abs_path: str, drive_c: str) -> str:
+    """Convert a POSIX path under *drive_c* to a ``C:\\`` Windows-style path.
+
+    Falls back to *abs_path* unchanged if it doesn't live under *drive_c*.
+    """
+    try:
+        rel = os.path.relpath(abs_path, drive_c)
+        return "C:\\" + rel.replace("/", "\\")
+    except ValueError:
+        return abs_path
+
+
 def ui_file(name: str) -> str:
     """Return the absolute path string for a UI template file.
 

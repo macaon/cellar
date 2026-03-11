@@ -78,7 +78,9 @@ def _install_icon(app_id: str, src: str) -> str:
         _remove_icons(app_id)
 
         dest = _ICONS_DIR / f"{app_id}_{crc:08x}.png"
-        dest.write_bytes(png_bytes)
+        tmp = dest.with_suffix(".tmp")
+        tmp.write_bytes(png_bytes)
+        tmp.replace(dest)
         log.debug("Installed icon for %s → %s", app_id, dest)
         return str(dest)
     except Exception as exc:

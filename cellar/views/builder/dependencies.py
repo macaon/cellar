@@ -14,6 +14,7 @@ from gi.repository import Adw, GLib, Gtk
 
 from cellar.backend.project import Project, save_project
 from cellar.utils.async_work import run_in_background
+from cellar.views.widgets import set_margins
 from cellar.views.builder.progress import WinetricksProgressDialog
 
 log = logging.getLogger(__name__)
@@ -147,10 +148,7 @@ class DependencyPickerDialog(Adw.Dialog):
         self._list_box = Gtk.ListBox()
         self._list_box.set_selection_mode(Gtk.SelectionMode.NONE)
         self._list_box.add_css_class("boxed-list")
-        self._list_box.set_margin_top(12)
-        self._list_box.set_margin_bottom(12)
-        self._list_box.set_margin_start(12)
-        self._list_box.set_margin_end(12)
+        set_margins(self._list_box, 12)
 
         for category, verbs in _VERB_CATALOGUE:
             exp_row = Adw.ExpanderRow(title=html.escape(category))

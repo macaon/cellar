@@ -226,10 +226,13 @@ def _load() -> dict:
 
 
 def _save(data: dict) -> None:
-    _config_path().write_text(
+    dest = _config_path()
+    tmp = dest.with_suffix(".tmp")
+    tmp.write_text(
         json.dumps(data, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
+    tmp.replace(dest)
 
 
 # ---------------------------------------------------------------------------

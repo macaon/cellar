@@ -48,6 +48,7 @@ from cellar.views.builder.pickers import (
     pick_repo,
 )
 from cellar.views.builder.progress import ProgressDialog
+from cellar.views.widgets import set_margins
 
 log = logging.getLogger(__name__)
 
@@ -172,10 +173,7 @@ class PackageBuilderView(Adw.Bin):
         self._flow_box.set_selection_mode(Gtk.SelectionMode.NONE)
         self._flow_box.set_min_children_per_line(2)
         self._flow_box.set_max_children_per_line(8)
-        self._flow_box.set_margin_top(18)
-        self._flow_box.set_margin_bottom(18)
-        self._flow_box.set_margin_start(18)
-        self._flow_box.set_margin_end(18)
+        set_margins(self._flow_box, 18)
         self._flow_box.connect("child-activated", self._on_card_activated)
 
         scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
@@ -2360,10 +2358,7 @@ class _NewProjectCard(Gtk.FlowBoxChild):
     def __init__(self) -> None:
         super().__init__()
         self.add_css_class("app-card-cell")
-        self.set_margin_start(6)
-        self.set_margin_end(6)
-        self.set_margin_top(6)
-        self.set_margin_bottom(6)
+        set_margins(self, 6)
 
         card = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         card.add_css_class("new-project-card")
@@ -2417,10 +2412,7 @@ class _ProjectCard(Gtk.FlowBoxChild):
         self.project = project
         self.add_css_class("app-card-cell")
 
-        self.set_margin_start(6)
-        self.set_margin_end(6)
-        self.set_margin_top(6)
-        self.set_margin_bottom(6)
+        set_margins(self, 6)
 
         card = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         card.add_css_class("card")
@@ -2496,10 +2488,7 @@ class _CatalogueCard(Gtk.FlowBoxChild):
         self.kind = kind  # "app" or "base"
         self.add_css_class("app-card-cell")
 
-        self.set_margin_start(6)
-        self.set_margin_end(6)
-        self.set_margin_top(6)
-        self.set_margin_bottom(6)
+        set_margins(self, 6)
 
         card = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         card.add_css_class("card")

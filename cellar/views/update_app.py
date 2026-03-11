@@ -14,7 +14,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk
 
 from cellar.models.app_entry import AppEntry
-from cellar.views.widgets import make_progress_page
+from cellar.views.widgets import make_dialog_header, make_progress_page
 from cellar.utils.paths import short_path as _short_path
 from cellar.utils.progress import fmt_stats
 
@@ -64,21 +64,11 @@ class UpdateDialog(Adw.Dialog):
     # ── UI construction ───────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
-        toolbar_view = Adw.ToolbarView()
-
-        self._header = Adw.HeaderBar()
-        self._header.set_show_end_title_buttons(False)
-
-        cancel_btn = Gtk.Button(label="Cancel")
-        cancel_btn.connect("clicked", lambda _: self.close())
-        self._header.pack_start(cancel_btn)
-
-        self._update_header_btn = Gtk.Button(label="Update")
-        self._update_header_btn.add_css_class("suggested-action")
-        self._update_header_btn.connect("clicked", self._on_proceed_clicked)
-        self._header.pack_end(self._update_header_btn)
-
-        toolbar_view.add_top_bar(self._header)
+        toolbar_view, self._header, self._update_header_btn = make_dialog_header(
+            self,
+            action_label="Update",
+            action_cb=self._on_proceed_clicked,
+        )
 
         self._stack = Gtk.Stack()
         self._stack.add_named(self._build_confirm_page(), "confirm")

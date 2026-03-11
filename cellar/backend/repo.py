@@ -422,16 +422,24 @@ class Repo:
             return False
         return urlparse(self.uri).scheme.lower() not in ("http", "https")
 
+    @property
+    def _cache_key(self) -> str:
+        """Short hash of the repo URI, used as a cache directory name."""
+        return hashlib.sha256(self.uri.encode()).hexdigest()[:16]
+
+    @property
+    def _is_local(self) -> bool:
+        return self._fetcher is not None and isinstance(self._fetcher, _LocalFetcher)
+
     # ------------------------------------------------------------------
     # Public API — reading
     # ------------------------------------------------------------------
 
     def _catalogue_cache_path(self) -> Path | None:
         """Return the local cache path for this repo's catalogue.json, or None for local repos."""
-        if self._fetcher is not None and isinstance(self._fetcher, _LocalFetcher):
+        if self._is_local:
             return None
-        key = hashlib.sha256(self.uri.encode()).hexdigest()[:16]
-        return _CATALOGUE_CACHE_ROOT / key / "catalogue.json"
+        return _CATALOGUE_CACHE_ROOT / self._cache_key / "catalogue.json"
 
     @staticmethod
     def clear_catalogue_cache(uri: str) -> None:
@@ -634,10 +642,9 @@ class Repo:
 
     def _metadata_cache_path(self, app_id: str) -> Path | None:
         """Return the cache file path for per-app metadata, or ``None`` for local repos."""
-        if self._fetcher is not None and isinstance(self._fetcher, _LocalFetcher):
+        if self._is_local:
             return None
-        key = hashlib.sha256(self.uri.encode()).hexdigest()[:16]
-        return _METADATA_CACHE_ROOT / key / f"{app_id}.json"
+        return _METADATA_CACHE_ROOT / self._cache_key / f"{app_id}.json"
 
     def resolve_asset_uri(self, repo_relative: str) -> str:
         """Return a URI/path string for a repo-relative asset (icon, screenshot…).
@@ -654,7 +661,7 @@ class Repo:
             return self.peek_asset_cache(repo_relative)
         if (
             repo_relative
-            and not isinstance(self._fetcher, _LocalFetcher)
+            and not self._is_local
             and Path(repo_relative).suffix.lower() in _IMAGE_EXTENSIONS
         ):
             return self._fetch_to_cache(repo_relative)
@@ -668,10 +675,9 @@ class Repo:
         stale files are removed by :meth:`gc_asset_cache` after a successful
         catalogue fetch.  Local repos are excluded (files are already on disk).
         """
-        if self._fetcher is not None and isinstance(self._fetcher, _LocalFetcher):
+        if self._is_local:
             return
-        key = hashlib.sha256(self.uri.encode()).hexdigest()[:16]
-        cache_dir = _ASSET_CACHE_ROOT / key
+        cache_dir = _ASSET_CACHE_ROOT / self._cache_key
         cache_dir.mkdir(parents=True, exist_ok=True)
         self._cache_dir = cache_dir
 
@@ -717,7 +723,7 @@ class Repo:
         """
         if not repo_relative:
             return ""
-        if self._fetcher is not None and isinstance(self._fetcher, _LocalFetcher):
+        if self._is_local:
             return self._fetcher.resolve_uri(repo_relative)
         if Path(repo_relative).suffix.lower() not in _IMAGE_EXTENSIONS:
             return ""
@@ -731,7 +737,7 @@ class Repo:
 
         No-op for local repos or when the file is not currently cached.
         """
-        if (self._fetcher is not None and isinstance(self._fetcher, _LocalFetcher)) or not repo_relative:
+        if self._is_local or not repo_relative:
             return
         if self._cache_dir is None:
             return
@@ -842,7 +848,7 @@ class Repo:
 
         Raises :exc:`RepoError` for non-local repos (HTTP, SSH, SMB).
         """
-        if self._fetcher is None or not isinstance(self._fetcher, _LocalFetcher):
+        if not self._is_local:
             raise RepoError("local_path() is only available for local repos")
         return self._fetcher._root / rel_path.lstrip("/")
 
@@ -866,7 +872,7 @@ class Repo:
         if self._fetcher is None:
             raise RepoError(f"Repo {self.uri} is offline — write operations unavailable")
 
-        if isinstance(self._fetcher, _LocalFetcher):
+        if self._is_local:
             return self._fetcher._root / rel_path.lstrip("/")
 
         if isinstance(self._fetcher, _SmbFetcher):

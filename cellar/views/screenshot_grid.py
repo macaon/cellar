@@ -22,6 +22,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Gtk
 
 from cellar.utils.async_work import run_in_background
+from cellar.views.widgets import set_margins
 
 log = logging.getLogger(__name__)
 
@@ -100,10 +101,7 @@ class ScreenshotGridWidget(Gtk.Box):
             self._flow.set_max_children_per_line(10)
         self._flow.set_row_spacing(8)
         self._flow.set_column_spacing(8)
-        self._flow.set_margin_top(8)
-        self._flow.set_margin_bottom(8)
-        self._flow.set_margin_start(8)
-        self._flow.set_margin_end(8)
+        set_margins(self._flow, 8)
 
         if self._scrolled:
             scroll = Gtk.ScrolledWindow(

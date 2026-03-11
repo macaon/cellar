@@ -14,6 +14,7 @@ from gi.repository import Adw, GObject, Gtk, Pango
 
 from cellar.models.app_entry import AppEntry
 from cellar.utils.images import load_and_crop, load_and_fit, to_texture
+from cellar.views.widgets import set_margins
 
 log = logging.getLogger(__name__)
 
@@ -126,10 +127,7 @@ class AppCard(Gtk.FlowBoxChild):
         self.entry = entry
         self.add_css_class("app-card-cell")
 
-        self.set_margin_start(6)
-        self.set_margin_end(6)
-        self.set_margin_top(6)
-        self.set_margin_bottom(6)
+        set_margins(self, 6)
 
         # Outer card — horizontal box with .card styling.
         card = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
@@ -288,10 +286,7 @@ class BrowseView(Gtk.Box):
         self._flow_box.set_selection_mode(Gtk.SelectionMode.NONE)
         self._flow_box.set_homogeneous(False)
         self._flow_box.set_halign(Gtk.Align.CENTER)
-        self._flow_box.set_margin_start(18)
-        self._flow_box.set_margin_end(18)
-        self._flow_box.set_margin_top(18)
-        self._flow_box.set_margin_bottom(18)
+        set_margins(self._flow_box, 18)
         self._flow_box.connect("child-activated", self._on_card_activated)
         grid_scroll.set_child(self._flow_box)
         self._stack.add_named(grid_scroll, "grid")

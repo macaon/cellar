@@ -1083,11 +1083,23 @@ class PackageBuilderView(Adw.Bin):
         """Populate the Runner group with radio rows for installed runners."""
         from cellar.backend import runners as _runners
 
-        # Runners referenced by at least one published base cannot be deleted.
+        # Runners referenced by at least one published base (in the base's
+        # source repo) cannot be deleted.  We scope the check per-repo so
+        # that publishing the same base to a second repo doesn't lock the
+        # runner on the first repo indefinitely.
+        from cellar.backend.database import get_all_installed_bases
+
+        repo_by_uri = {repo.uri: repo for repo in self._all_repos}
         runners_in_use: set[str] = set()
-        for repo in self._all_repos:
-            for base in repo._bases.values():
-                runners_in_use.add(base.runner)
+        for rec in get_all_installed_bases():
+            base_runner = rec["runner"]
+            repo_source = rec.get("repo_source") or ""
+            target_repo = repo_by_uri.get(repo_source)
+            if target_repo is None:
+                continue
+            base_entry = target_repo._bases.get(base_runner)
+            if base_entry and base_entry.runner:
+                runners_in_use.add(base_entry.runner)
 
         first_check: Gtk.CheckButton | None = None
         for rname in _runners.installed_runners():
@@ -1219,12 +1231,23 @@ class PackageBuilderView(Adw.Bin):
                     base_images.append(name)
         base_images.sort()
 
-        # Base images referenced by at least one published app cannot be deleted.
+        # Base images referenced by at least one published app (in the base's
+        # source repo) cannot be deleted.  Scoped per-repo so that mirroring a
+        # base to a second repo doesn't prevent cleanup on the first.
+        from cellar.backend.database import get_all_installed_bases
+
+        repo_by_uri = {repo.uri: repo for repo in self._all_repos}
         bases_in_use: set[str] = set()
-        for repo in self._all_repos:
-            for entry in repo.fetch_catalogue():
-                if entry.base_image:
-                    bases_in_use.add(entry.base_image)
+        for rec in get_all_installed_bases():
+            base_runner = rec["runner"]
+            repo_source = rec.get("repo_source") or ""
+            target_repo = repo_by_uri.get(repo_source)
+            if target_repo is None:
+                continue
+            for entry in target_repo.fetch_catalogue():
+                if entry.base_image == base_runner:
+                    bases_in_use.add(base_runner)
+                    break
 
         # If no runner set yet, default to the latest installed base (last by installed_at)
         effective_runner = project.runner or (base_images[-1] if base_images else "")

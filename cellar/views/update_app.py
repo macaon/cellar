@@ -46,7 +46,7 @@ class UpdateDialog(Adw.Dialog):
         base_archive_uri: str = "",
         token: str | None = None,
     ) -> None:
-        super().__init__(title=f"Update {entry.name}", content_width=440, content_height=470)
+        super().__init__(title=f"Update {entry.name}", content_width=360, content_height=470)
         self._entry = entry
         self._installed_record = installed_record
         self._prefix_path = prefix_path
@@ -164,6 +164,7 @@ class UpdateDialog(Adw.Dialog):
     def _on_proceed_clicked(self, _btn) -> None:
         self._stack.set_visible_child_name("progress")
         self._header.set_visible(False)
+        self.set_content_height(0)
         self._start_update()
 
     def _on_cancel_progress_clicked(self, _btn) -> None:

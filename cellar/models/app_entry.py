@@ -20,7 +20,7 @@ from typing import Literal
 # Fields included in the slim catalogue.json index (v2).  Everything else
 # lives only in the per-app ``apps/<id>/metadata.json``.
 INDEX_FIELDS: tuple[str, ...] = (
-    "id", "name", "category", "summary",
+    "id", "name", "category", "summary", "genres",
     "icon", "cover", "platform", "archive_crc32", "base_image",
 )
 
@@ -267,6 +267,7 @@ class AppEntry:
         _opt_str(d, "icon", self.icon)
         _opt_str(d, "cover", self.cover)
         d["platform"] = self.platform
+        _opt_seq(d, "genres", self.genres)
         _opt_str(d, "archive_crc32", self.archive_crc32)
         _opt_str(d, "base_image", self.base_image)
         return d

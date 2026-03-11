@@ -94,9 +94,11 @@ class CellarWindow(Adw.ApplicationWindow):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
-        # Category check buttons in the filter popover — rebuilt after each catalogue load.
+        # Category / genre check buttons in the filter popover — rebuilt after each catalogue load.
         self._category_btns: dict[str, Gtk.CheckButton] = {}
         self._active_categories: set[str] = set()
+        self._genre_btns: dict[str, Gtk.CheckButton] = {}
+        self._active_genres: set[str] = set()
 
         # Builder filter state (type + repo).
         self._builder_type_btns: dict[str, Gtk.CheckButton] = {}
@@ -360,9 +362,12 @@ class CellarWindow(Adw.ApplicationWindow):
         self._browse_filter_entries = entries
         self._browse_filter_repos = distinct_repos
         categories = sorted({e.category for e in entries if e.category})
+        genres = sorted({g for e in entries for g in e.genres})
         self._category_btns = {}
+        self._genre_btns = {}
         self._repo_btns: dict[str, Gtk.CheckButton] = {}
         self._active_categories = set()
+        self._active_genres = set()
         self._active_repos: set[str] = set()
         show_repos = distinct_repos is not None and len(distinct_repos) >= 2
 
@@ -372,7 +377,7 @@ class CellarWindow(Adw.ApplicationWindow):
         outer.set_margin_start(4)
         outer.set_margin_end(4)
 
-        if not categories and not show_repos:
+        if not categories and not show_repos and not genres:
             empty_lbl = Gtk.Label(label="No categories available")
             empty_lbl.add_css_class("dim-label")
             empty_lbl.set_margin_top(8)
@@ -423,6 +428,25 @@ class CellarWindow(Adw.ApplicationWindow):
                 self._category_btns[cat] = btn
                 outer.append(btn)
 
+            # Genre section.
+            if genres:
+                if categories or show_repos:
+                    outer.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
+                genre_lbl = Gtk.Label(label="Genre")
+                genre_lbl.add_css_class("heading")
+                genre_lbl.set_halign(Gtk.Align.START)
+                genre_lbl.set_margin_start(8)
+                genre_lbl.set_margin_top(4)
+                genre_lbl.set_margin_bottom(2)
+                outer.append(genre_lbl)
+
+                for genre in genres:
+                    btn = Gtk.CheckButton(label=genre)
+                    btn.add_css_class("flat")
+                    btn.connect("toggled", self._on_genre_toggled, genre)
+                    self._genre_btns[genre] = btn
+                    outer.append(btn)
+
         popover = Gtk.Popover()
         popover.set_child(outer)
         self.filter_button.set_popover(popover)
@@ -434,13 +458,16 @@ class CellarWindow(Adw.ApplicationWindow):
         else:
             self.filter_button.remove_css_class("suggested-action")
 
+    def _any_filter_active(self) -> bool:
+        return bool(self._active_categories) or bool(self._active_repos) or bool(self._active_genres)
+
     def _on_category_toggled(self, btn: Gtk.CheckButton, category: str) -> None:
         if btn.get_active():
             self._active_categories.add(category)
         else:
             self._active_categories.discard(category)
         active = self._active_categories.copy()
-        self._set_filter_active(bool(active) or bool(self._active_repos))
+        self._set_filter_active(self._any_filter_active())
         self._browse_explore.set_active_categories(active)
         self._browse_installed.set_active_categories(active)
         self._browse_updates.set_active_categories(active)
@@ -451,18 +478,32 @@ class CellarWindow(Adw.ApplicationWindow):
         else:
             self._active_repos.discard(repo_uri)
         active = self._active_repos.copy()
-        self._set_filter_active(bool(active) or bool(self._active_categories))
+        self._set_filter_active(self._any_filter_active())
         self._browse_explore.set_active_repos(active)
         self._browse_installed.set_active_repos(active)
         self._browse_updates.set_active_repos(active)
+
+    def _on_genre_toggled(self, btn: Gtk.CheckButton, genre: str) -> None:
+        if btn.get_active():
+            self._active_genres.add(genre)
+        else:
+            self._active_genres.discard(genre)
+        active = self._active_genres.copy()
+        self._set_filter_active(self._any_filter_active())
+        self._browse_explore.set_active_genres(active)
+        self._browse_installed.set_active_genres(active)
+        self._browse_updates.set_active_genres(active)
 
     def _on_filter_clear(self, _button: Gtk.Button) -> None:
         for btn in self._category_btns.values():
             btn.set_active(False)
         for btn in self._repo_btns.values():
             btn.set_active(False)
+        for btn in self._genre_btns.values():
+            btn.set_active(False)
         self._active_categories = set()
         self._active_repos = set()
+        self._active_genres = set()
         self._set_filter_active(False)
         self._browse_explore.set_active_categories(set())
         self._browse_installed.set_active_categories(set())
@@ -470,7 +511,17 @@ class CellarWindow(Adw.ApplicationWindow):
         self._browse_explore.set_active_repos(set())
         self._browse_installed.set_active_repos(set())
         self._browse_updates.set_active_repos(set())
+        self._browse_explore.set_active_genres(set())
+        self._browse_installed.set_active_genres(set())
+        self._browse_updates.set_active_genres(set())
         self.filter_button.get_popover().popdown()
+
+    def apply_genre_filter(self, genre: str) -> None:
+        """Activate a single genre filter from outside (e.g. detail view pill click)."""
+        self._on_filter_clear(None)  # type: ignore[arg-type]
+        btn = self._genre_btns.get(genre)
+        if btn:
+            btn.set_active(True)
 
     # ── Builder filter popover ─────────────────────────────────────────────
 
@@ -627,6 +678,7 @@ class CellarWindow(Adw.ApplicationWindow):
                         on_install_done=_on_install_done,
                         on_remove_done=_on_remove_done,
                         on_update_done=_on_update_done,
+                        on_genre_filter=_on_genre_filter,
                         is_offline=is_offline,
                     )
                     current_page.set_child(new_detail)
@@ -670,6 +722,10 @@ class CellarWindow(Adw.ApplicationWindow):
             self._show_toast(f"{entry.name} updated successfully")
             self._load_catalogue()
 
+        def _on_genre_filter(genre: str) -> None:
+            self.nav_view.pop()
+            self.apply_genre_filter(genre)
+
         detail = DetailView(
             entry,
             source_repos=source_repos,
@@ -680,6 +736,7 @@ class CellarWindow(Adw.ApplicationWindow):
             on_install_done=_on_install_done,
             on_remove_done=_on_remove_done,
             on_update_done=_on_update_done,
+            on_genre_filter=_on_genre_filter,
             is_offline=is_offline,
         )
         page = Adw.NavigationPage(title=entry.name, child=detail)
@@ -695,7 +752,7 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog = Adw.AboutDialog(
             application_name="Cellar",
             application_icon="io.github.cellar",
-            version="0.55.10",
+            version="0.56.0",
             comments="A GNOME storefront for Windows and Linux apps.",
             license_type=Gtk.License.GPL_3_0,
         )

@@ -233,11 +233,14 @@ class AppCard(Gtk.FlowBoxChild):
         active_categories: set[str],
         search: str,
         active_repos: set[str] | None = None,
+        active_genres: set[str] | None = None,
     ) -> bool:
         """Return True if this card should be visible given the current filter."""
         if active_repos and not self.repo_uris & active_repos:
             return False
         if active_categories and self.entry.category not in active_categories:
+            return False
+        if active_genres and not (set(self.entry.genres) & active_genres):
             return False
         if search:
             needle = search.lower()
@@ -271,6 +274,7 @@ class BrowseView(Gtk.Box):
         self._cards: list[AppCard] = []
         self._active_categories: set[str] = set()
         self._active_repos: set[str] = set()
+        self._active_genres: set[str] = set()
         self._search_text: str = ""
 
         # Stored so cards can be rebuilt on catalogue reload.
@@ -360,12 +364,16 @@ class BrowseView(Gtk.Box):
         self._active_repos = repos
         self._apply_filter()
 
+    def set_active_genres(self, genres: set[str]) -> None:
+        self._active_genres = genres
+        self._apply_filter()
+
     # ── Internals ─────────────────────────────────────────────────────────
 
     def _apply_filter(self) -> None:
         any_visible = False
         for card in self._cards:
-            visible = card.matches(self._active_categories, self._search_text, self._active_repos)
+            visible = card.matches(self._active_categories, self._search_text, self._active_repos, self._active_genres)
             card.set_visible(visible)
             if visible:
                 any_visible = True

@@ -105,11 +105,13 @@ class DetailView(Gtk.Box):
         on_install_done: Callable | None = None,
         on_remove_done: Callable | None = None,
         on_update_done: Callable | None = None,
+        on_genre_filter: Callable[[str], None] | None = None,
         is_offline: bool = False,
     ) -> None:
         super().__init__()
         self._entry = entry
         self._source_repos = source_repos or []
+        self._on_genre_filter = on_genre_filter
         self._is_offline = is_offline
         # Prefer an online repo for asset resolution; fall back to first repo.
         _online = next((r for r in self._source_repos if not r.is_offline), None)
@@ -1273,7 +1275,10 @@ class DetailView(Gtk.Box):
             _add(_simple_card("x-office-calendar-symbolic", str(e.release_year), "Released")[0])
 
         if e.category:
-            _add(_simple_card(e.category_icon or "tag-symbolic", e.category, "Category")[0])
+            cat_card = _simple_card(e.category_icon or "tag-symbolic", e.category, "Category")[0]
+            if e.genres:
+                _make_interactive(cat_card, lambda: self._show_genre_popover(cat_card))
+            _add(cat_card)
 
         first = outer.get_first_child()
         last = outer.get_last_child()
@@ -1296,6 +1301,40 @@ class DetailView(Gtk.Box):
             else:
                 parent.prepend(new_cards)
         self._info_cards = new_cards
+
+    def _show_genre_popover(self, anchor: Gtk.Widget) -> None:
+        """Show a popover with genre pills anchored to *anchor*."""
+        popover = Gtk.Popover()
+        popover.set_parent(anchor)
+
+        flow = Gtk.FlowBox()
+        flow.set_homogeneous(False)
+        flow.set_max_children_per_line(4)
+        flow.set_selection_mode(Gtk.SelectionMode.NONE)
+        flow.set_margin_top(4)
+        flow.set_margin_bottom(4)
+        flow.set_margin_start(4)
+        flow.set_margin_end(4)
+        flow.set_row_spacing(4)
+        flow.set_column_spacing(4)
+
+        for genre in self._entry.genres:
+            pill = Gtk.Button(label=genre)
+            pill.add_css_class("pill")
+            pill.add_css_class("genre-pill")
+            if self._on_genre_filter:
+                pill.connect("clicked", self._on_genre_pill_clicked, genre, popover)
+            else:
+                pill.set_sensitive(False)
+            flow.insert(pill, -1)
+
+        popover.set_child(flow)
+        popover.popup()
+
+    def _on_genre_pill_clicked(self, _btn: Gtk.Button, genre: str, popover: Gtk.Popover) -> None:
+        popover.popdown()
+        if self._on_genre_filter:
+            self._on_genre_filter(genre)
 
     def _make_wine_card(self) -> Gtk.Box:
         """Return a card showing the Wine base image."""

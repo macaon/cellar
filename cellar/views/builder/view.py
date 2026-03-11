@@ -1024,7 +1024,7 @@ class PackageBuilderView(Adw.Bin):
                 pub_btn = Gtk.Button(label="Publish\u2026")
                 pub_btn.set_valign(Gtk.Align.CENTER)
                 pub_btn.add_css_class("suggested-action")
-                pub_btn.connect("clicked", self._on_publish_update_clicked)
+                pub_btn.connect("clicked", self._on_publish_app_clicked)
                 pub_row.add_suffix(pub_btn)
                 pkg_group.add(pub_row)
             else:
@@ -1761,7 +1761,7 @@ class PackageBuilderView(Adw.Bin):
             images["screenshots"] = list(project.screenshot_paths)
 
         cancel_event = threading.Event()
-        progress = ProgressDialog(label="Compressing\u2026", cancel_event=cancel_event)
+        progress = ProgressDialog(label="Compressing and uploading\u2026", cancel_event=cancel_event)
         progress.present(self)
 
         from cellar.utils.progress import fmt_size, trunc_middle as _trunc
@@ -1926,161 +1926,6 @@ class PackageBuilderView(Adw.Bin):
 
         run_in_background(_work, on_done=_done, on_error=_error)
 
-    def _on_publish_update_clicked(self, _btn) -> None:
-        """Re-publish: update an existing catalogue entry in-place."""
-        if self._project is None:
-            return
-        project = self._project
-        if not project.origin_app_id:
-            return
-        if not project.entry_point:
-            self._show_toast("Add a launch target before publishing.")
-            return
-        if project.project_type == "linux" and not project.source_dir:
-            self._show_toast("Choose a source folder before publishing.")
-            return
-        if project.project_type != "linux" and not project.runner:
-            what = "a base image" if project.project_type == "app" else "a runner"
-            self._show_toast(f"Select {what} before publishing.")
-            return
-        if not self._writable_repos:
-            self._show_toast("No writable repository configured.")
-            return
-
-        _src_path = Path(project.source_dir) if project.project_type == "linux" else project.content_path
-
-        # Find a writable repo that has this entry.
-        repo = None
-        old_entry = None
-        for r in self._writable_repos:
-            try:
-                old_entry = r.fetch_entry_by_id(project.origin_app_id)
-                repo = r
-                break
-            except Exception:
-                pass
-        if repo is None or old_entry is None:
-            self._show_toast(
-                f"Could not find '{project.origin_app_id}' in any writable repository."
-            )
-            return
-
-        cancel_event = threading.Event()
-        progress = ProgressDialog(label="Compressing\u2026", cancel_event=cancel_event)
-        progress.present(self)
-
-        from cellar.utils.progress import fmt_size, trunc_middle as _trunc
-        _current_file: list[str] = [""]
-
-        def _file_cb(name: str) -> None:
-            _current_file[0] = name
-            GLib.idle_add(progress.set_stats, _trunc(name, 40))
-
-        def _bytes_cb(n: int) -> None:
-            name = _current_file[0]
-            text = (_trunc(name, 28) + " \u2022 " if name else "") + fmt_size(n) + " written"
-            GLib.idle_add(progress.set_stats, text)
-
-        def _reset_phase(label: str) -> None:
-            _current_file[0] = ""
-            GLib.idle_add(progress.set_label, label)
-            GLib.idle_add(progress.set_stats, "")
-            GLib.idle_add(progress.set_fraction, 0.0)
-
-        def _work():
-            from cellar.backend.packager import (
-                compress_prefix_zst, compress_prefix_delta_zst, update_in_repo,
-                CancelledError,
-            )
-            repo_root = repo.writable_path()
-            archive_dest = repo_root / old_entry.archive
-            archive_dest.parent.mkdir(parents=True, exist_ok=True)
-
-            try:
-                if project.project_type == "linux":
-                    size, crc32, chunks = compress_prefix_zst(
-                        _src_path,
-                        archive_dest,
-                        cancel_event=cancel_event,
-                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                        file_cb=_file_cb,
-                        bytes_cb=_bytes_cb,
-                    )
-                    base_image = ""
-                else:
-                    from cellar.backend.base_store import is_base_installed, base_path
-                    _use_delta = is_base_installed(project.runner)
-                    if _use_delta:
-                        _reset_phase("Scanning files\u2026")
-                        size, crc32, chunks = compress_prefix_delta_zst(
-                            project.content_path,
-                            base_path(project.runner),
-                            archive_dest,
-                            cancel_event=cancel_event,
-                            phase_cb=_reset_phase,
-                            progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                            file_cb=_file_cb,
-                            bytes_cb=_bytes_cb,
-                        )
-                        base_image = project.runner
-                    else:
-                        size, crc32, chunks = compress_prefix_zst(
-                            project.content_path,
-                            archive_dest,
-                            cancel_event=cancel_event,
-                            progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                            file_cb=_file_cb,
-                            bytes_cb=_bytes_cb,
-                        )
-                        base_image = old_entry.base_image  # preserve existing delta setting
-            except CancelledError:
-                from cellar.backend.packager import _cleanup_chunks
-                try:
-                    _cleanup_chunks(archive_dest)
-                except Exception:
-                    pass
-                raise
-
-            GLib.idle_add(progress.set_label, "Finalizing\u2026")
-            GLib.idle_add(progress.set_stats, "")
-            GLib.idle_add(progress.start_pulse)
-            new_entry = _dc_replace(
-                old_entry,
-                archive_crc32=crc32,
-                archive_size=size,
-                archive_chunks=chunks,
-                base_image=base_image,
-                launch_targets=tuple(project.entry_points),
-            )
-            update_in_repo(
-                repo_root,
-                old_entry,
-                new_entry,
-                images={},
-                new_archive_src=None,
-                phase_cb=lambda s: GLib.idle_add(progress.set_label, s),
-            )
-
-        def _done(_result) -> None:
-            progress.force_close()
-            delete_project(project.slug)
-            self._project = None
-            self._reload_projects()
-            self._nav_view.pop_to_page(self._list_page)
-            self._show_toast(f"Update published for {project.name}.")
-            if self._on_catalogue_changed:
-                self._on_catalogue_changed()
-
-        def _error(msg: str) -> None:
-            progress.force_close()
-            if cancel_event.is_set():
-                self._show_toast("Publish cancelled.")
-                return
-            err = Adw.AlertDialog(heading="Publish failed", body=msg)
-            err.add_response("ok", "OK")
-            err.present(self)
-
-        run_in_background(_work, on_done=_done, on_error=_error)
 
     def _on_publish_base_clicked(self, _btn) -> None:
         if self._project is None:

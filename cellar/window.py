@@ -298,7 +298,7 @@ class CellarWindow(Adw.ApplicationWindow):
                 # Updates only for entries reachable online (can actually download).
                 update_entries = [
                     e for e in installed_entries
-                    if bool(e.archive) and _has_update(installed_records[e.id], e)
+                    if _has_update(installed_records[e.id], e)
                     and e.id not in self._offline_entry_ids
                 ]
 

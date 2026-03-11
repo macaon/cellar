@@ -220,6 +220,7 @@ class PackageBuilderView(Adw.Bin):
                 on_download=self._on_catalogue_download,
                 on_delete=self._on_catalogue_delete,
                 has_dependants=has_dependants,
+                show_repo=len(self._writable_repos) > 1,
             )
             self._flow_box.append(card)
 
@@ -2398,6 +2399,7 @@ class _ProjectCard(Gtk.FlowBoxChild):
         self._name_label.add_css_class("heading")
         self._name_label.set_halign(Gtk.Align.START)
         self._name_label.set_ellipsize(Pango.EllipsizeMode.END)
+        self._name_label.set_tooltip_text(project.name)
         text_box.append(self._name_label)
 
         type_label = _TYPE_LABELS.get(project.project_type, "")
@@ -2424,6 +2426,7 @@ class _ProjectCard(Gtk.FlowBoxChild):
     def refresh_label(self) -> None:
         """Update the displayed name."""
         self._name_label.set_label(self.project.name)
+        self._name_label.set_tooltip_text(self.project.name)
 
 
 class _CatalogueCard(Gtk.FlowBoxChild):
@@ -2438,6 +2441,7 @@ class _CatalogueCard(Gtk.FlowBoxChild):
         on_download: Callable,
         on_delete: Callable,
         has_dependants: bool = False,
+        show_repo: bool = False,
     ) -> None:
         super().__init__()
         self.entry = entry
@@ -2480,11 +2484,14 @@ class _CatalogueCard(Gtk.FlowBoxChild):
         name_label.add_css_class("heading")
         name_label.set_halign(Gtk.Align.START)
         name_label.set_ellipsize(Pango.EllipsizeMode.END)
+        name_label.set_tooltip_text(entry.name)
         text_box.append(name_label)
 
-        subtitle = Gtk.Label(label=type_label)
+        subtitle_text = (repo.name or repo.uri) if show_repo else type_label
+        subtitle = Gtk.Label(label=subtitle_text)
         subtitle.add_css_class("dim-label")
         subtitle.set_halign(Gtk.Align.START)
+        subtitle.set_ellipsize(Pango.EllipsizeMode.END)
         text_box.append(subtitle)
 
         # Right: action buttons

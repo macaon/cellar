@@ -1782,6 +1782,8 @@ class PackageBuilderView(Adw.Bin):
             GLib.idle_add(progress.set_stats, "")
             GLib.idle_add(progress.set_fraction, 0.0)
 
+        all_repos = list(self._all_repos)
+
         def _work():
             from cellar.backend.packager import (
                 compress_prefix_zst, compress_prefix_delta_zst, import_to_repo,
@@ -1885,6 +1887,91 @@ class PackageBuilderView(Adw.Bin):
                 except Exception:
                     pass
                 raise
+
+            # ── Auto-publish base image + runner if missing from target repo ─
+            if base_image:
+                import json as _json
+                from cellar.backend.packager import (
+                    compress_runner_zst, upsert_runner, upsert_base,
+                )
+                from cellar.backend.base_store import base_path
+                from cellar.backend.umu import runners_dir
+
+                # Read target repo's catalogue to check existing bases/runners
+                _target_bases: dict[str, str] = {}
+                _target_runners: dict[str, str] = {}
+                _cat_path = repo_root / "catalogue.json"
+                try:
+                    if _cat_path.exists():
+                        with _cat_path.open("r") as _f:
+                            _cat_raw = _json.load(_f)
+                        if isinstance(_cat_raw, dict):
+                            _target_bases = _cat_raw.get("bases", {})
+                            _target_runners = _cat_raw.get("runners", {})
+                except Exception:
+                    pass
+
+                _need_base = base_image not in _target_bases
+                if _need_base:
+                    # Resolve the underlying runner name from any repo
+                    _runner_name = base_image  # fallback: assume same
+                    for _r in all_repos:
+                        try:
+                            _rb = _r.fetch_bases()
+                            if base_image in _rb:
+                                _runner_name = _rb[base_image].runner
+                                break
+                        except Exception:
+                            continue
+
+                    _need_runner = _runner_name not in _target_runners
+
+                    if _need_runner:
+                        _runner_src = runners_dir() / _runner_name
+                        _runner_rel = f"runners/{_runner_name}.tar.zst"
+                        _runner_dest = repo_root / _runner_rel
+                        _runner_dest.parent.mkdir(parents=True, exist_ok=True)
+                        _reset_phase("Uploading runner\u2026")
+                        try:
+                            _rs, _rc, _rch = compress_runner_zst(
+                                _runner_src,
+                                _runner_dest,
+                                cancel_event=cancel_event,
+                                progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+                                file_cb=_file_cb,
+                                bytes_cb=_bytes_cb,
+                            )
+                        except CancelledError:
+                            from cellar.backend.packager import _cleanup_chunks
+                            try:
+                                _cleanup_chunks(_runner_dest)
+                            except Exception:
+                                pass
+                            raise
+                        upsert_runner(repo_root, _runner_name, _runner_rel, _rc, _rs, _rch)
+
+                    # Compress and upload the base image
+                    _base_rel = f"bases/{base_image}-base.tar.zst"
+                    _base_dest = repo_root / _base_rel
+                    _base_dest.parent.mkdir(parents=True, exist_ok=True)
+                    _reset_phase("Uploading base image\u2026")
+                    try:
+                        _bs, _bc, _bch = compress_prefix_zst(
+                            base_path(base_image),
+                            _base_dest,
+                            cancel_event=cancel_event,
+                            progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+                            file_cb=_file_cb,
+                            bytes_cb=_bytes_cb,
+                        )
+                    except CancelledError:
+                        from cellar.backend.packager import _cleanup_chunks
+                        try:
+                            _cleanup_chunks(_base_dest)
+                        except Exception:
+                            pass
+                        raise
+                    upsert_base(repo_root, base_image, _runner_name, _base_rel, _bc, _bs, _bch)
 
             GLib.idle_add(progress.set_label, "Finalizing\u2026")
             GLib.idle_add(progress.set_stats, "")

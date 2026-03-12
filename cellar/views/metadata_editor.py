@@ -1195,6 +1195,7 @@ class MetadataEditorDialog(Adw.Dialog):
         name = target.get("name", "Main")
         path = target.get("path", "")
         args = target.get("args", "")
+        env = target.get("env", "")
 
         row = Adw.ExpanderRow(title=GLib.markup_escape_text(name))
         row.set_subtitle(GLib.markup_escape_text(path) if path else "Not set")
@@ -1225,6 +1226,16 @@ class MetadataEditorDialog(Adw.Dialog):
         args_entry.set_text(args)
         args_entry.connect("changed", self._on_target_args_changed, idx)
         row.add_row(args_entry)
+
+        env_entry = Adw.EntryRow(title="Environment")
+        env_entry.set_text(env)
+        env_entry.set_tooltip_text(
+            "Environment variables. Paste Steam launch options directly, e.g. "
+            "PROTON_USE_WINED3D=1 PROTON_NO_ESYNC=1 %command% — "
+            "%command% and unrecognised tokens are ignored automatically."
+        )
+        env_entry.connect("changed", self._on_target_env_changed, idx)
+        row.add_row(env_entry)
 
         self._target_rows.append(row)
         grp = self._targets_group
@@ -1265,6 +1276,14 @@ class MetadataEditorDialog(Adw.Dialog):
                 self._launch_targets[idx]["args"] = text
             else:
                 self._launch_targets[idx].pop("args", None)
+
+    def _on_target_env_changed(self, entry: Adw.EntryRow, idx: int) -> None:
+        if idx < len(self._launch_targets):
+            text = entry.get_text().strip()
+            if text:
+                self._launch_targets[idx]["env"] = text
+            else:
+                self._launch_targets[idx].pop("env", None)
 
     # ── Entry point file browser (RepoContext only) ───────────────────────
 

@@ -122,6 +122,7 @@ def launch_app(
     *,
     prefix_dir: Path | None = None,
     launch_args: str = "",
+    extra_env: dict[str, str] | None = None,
 ) -> None:
     """Launch *entry_point* inside the *app_id* prefix.  Fire-and-forget.
 
@@ -131,19 +132,23 @@ def launch_app(
 
     *prefix_dir* overrides the WINEPREFIX; useful when launching from a
     non-standard location such as a Package Builder project prefix.
+
+    *extra_env* is merged on top of the umu environment, useful for per-app
+    Proton tweaks such as ``PROTON_USE_WINED3D=1``.
     """
     import os
     import shlex
     umu_env = build_env(app_id, runner_name, steam_appid, prefix_dir=prefix_dir)
-    env = {**os.environ, **umu_env}
+    env = {**os.environ, **umu_env, **(extra_env or {})}
     # Pass exe as positional arg — the primary documented umu-run form.
     cmd = _umu_cmd() + [entry_point]
     if launch_args:
         cmd += shlex.split(launch_args)
     log.info(
-        "Launching app %s: %s\n  WINEPREFIX=%s\n  PROTONPATH=%s\n  GAMEID=%s\n  EXE=%s",
+        "Launching app %s: %s\n  WINEPREFIX=%s\n  PROTONPATH=%s\n  GAMEID=%s\n  EXE=%s%s",
         app_id, " ".join(cmd[:-1]),
         umu_env["WINEPREFIX"], umu_env["PROTONPATH"], umu_env["GAMEID"], entry_point,
+        ("\n  EXTRA_ENV=" + " ".join(f"{k}={v}" for k, v in extra_env.items())) if extra_env else "",
     )
     subprocess.Popen(cmd, env=env, start_new_session=True)
 
@@ -156,6 +161,7 @@ def launch_app_monitored(
     *,
     prefix_dir: Path | None = None,
     launch_args: str = "",
+    extra_env: dict[str, str] | None = None,
     line_cb: Callable[[str], None] | None = None,
 ) -> None:
     """Launch *entry_point* like :func:`launch_app`, but capture stderr.
@@ -165,20 +171,24 @@ def launch_app_monitored(
     first Proton/container setup lines, then ``fsync:``/``esync:`` indicating
     Wine is ready), after a 30 s timeout, or when stderr closes.  Wine keeps
     stderr open for the lifetime of the process, so we must not wait for EOF.
+
+    *extra_env* is merged on top of the umu environment, useful for per-app
+    Proton tweaks such as ``PROTON_USE_WINED3D=1``.
     """
     import os
     import shlex
     import time
     umu_env = build_env(app_id, runner_name, steam_appid, prefix_dir=prefix_dir)
-    env = {**os.environ, **umu_env}
+    env = {**os.environ, **umu_env, **(extra_env or {})}
     cmd = _umu_cmd() + [entry_point]
     if launch_args:
         cmd += shlex.split(launch_args)
     log.info(
         "Launching app (monitored) %s: %s"
-        "\n  WINEPREFIX=%s\n  PROTONPATH=%s\n  GAMEID=%s\n  EXE=%s",
+        "\n  WINEPREFIX=%s\n  PROTONPATH=%s\n  GAMEID=%s\n  EXE=%s%s",
         app_id, " ".join(cmd[:-1]),
         umu_env["WINEPREFIX"], umu_env["PROTONPATH"], umu_env["GAMEID"], entry_point,
+        ("\n  EXTRA_ENV=" + " ".join(f"{k}={v}" for k, v in extra_env.items())) if extra_env else "",
     )
     # Tier 1: Proton/container is setting up — keep monitoring.
     _SETUP = ("pressure-vessel", "Proton:", "wine: configuration")

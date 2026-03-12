@@ -548,6 +548,8 @@ class DetailView(Gtk.Box):
             if base_entry:
                 runner_name = base_entry.runner
 
+        extra_env = _parse_launch_env(target.get("env", ""))
+
         progress = ProgressDialog(label="Launching\u2026")
         progress.set_can_close(True)
 
@@ -580,6 +582,7 @@ class DetailView(Gtk.Box):
                     runner_name=runner_name,
                     steam_appid=self._entry.steam_appid,
                     launch_args=entry_args,
+                    extra_env=extra_env or None,
                     line_cb=_on_line,
                 )
             except Exception as exc:
@@ -2087,6 +2090,38 @@ class ScreenshotDialog(Adw.Dialog):
 # ---------------------------------------------------------------------------
 # Widget factories
 # ---------------------------------------------------------------------------
+
+def _parse_launch_env(env_str: str) -> dict[str, str]:
+    """Parse a launch-environment string into a ``{KEY: value}`` dict.
+
+    Accepts Steam-style launch option strings copied from ProtonDB, e.g.::
+
+        PROTON_USE_WINED3D=1 PROTON_NO_ESYNC=1 %command%
+
+    Rules:
+    - Tokens matching ``KEY=VALUE`` (identifier before ``=``) are kept.
+    - ``%command%`` and any other non-``KEY=VALUE`` tokens are silently dropped.
+    - Duplicate keys: last value wins.
+    """
+    import shlex
+    result: dict[str, str] = {}
+    try:
+        tokens = shlex.split(env_str)
+    except ValueError:
+        tokens = env_str.split()
+    for tok in tokens:
+        if tok == "%command%":
+            continue
+        eq = tok.find("=")
+        if eq <= 0:
+            continue
+        key = tok[:eq]
+        # Key must look like an env-var identifier (letters, digits, underscores)
+        if not key.replace("_", "").isalnum():
+            continue
+        result[key] = tok[eq + 1:]
+    return result
+
 
 def _base_status_subtitle(installed: bool) -> str:
     return "Already present on your system" if installed else "Will also be downloaded"

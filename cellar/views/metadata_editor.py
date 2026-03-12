@@ -978,10 +978,11 @@ class MetadataEditorDialog(Adw.Dialog):
         if ctx.save_is_async:
             self._do_async_save(fields, images)
         else:
+            is_create = ctx.is_create  # capture before save() mutates ctx state
             result = ctx.save(fields, images)
             self._saved_result = result
             self.close()
-            if ctx.is_create and self._on_created:
+            if is_create and self._on_created:
                 self._on_created(result)
             elif self._on_changed:
                 self._on_changed()

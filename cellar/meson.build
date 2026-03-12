@@ -1,5 +1,6 @@
 python_sources = files(
   '__init__.py',
+  '_version.py',
   'main.py',
   'window.py',
 )

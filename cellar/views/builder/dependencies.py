@@ -14,8 +14,8 @@ from gi.repository import Adw, GLib, Gtk
 
 from cellar.backend.project import Project, save_project
 from cellar.utils.async_work import run_in_background
-from cellar.views.widgets import set_margins
 from cellar.views.builder.progress import WinetricksProgressDialog
+from cellar.views.widgets import set_margins
 
 log = logging.getLogger(__name__)
 

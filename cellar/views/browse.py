@@ -340,8 +340,12 @@ class BrowseView(Gtk.Box):
 
         # Add cards sorted alphabetically.
         for entry in sorted(self._entries, key=lambda e: natural_sort_key(e.name)):
-            card = AppCard(entry, resolve_asset=self._resolve_asset, is_installed=entry.id in self._installed_ids,
-                          repo_uris=self._entry_repo_uris.get(entry.id, set()))
+            card = AppCard(
+                entry,
+                resolve_asset=self._resolve_asset,
+                is_installed=entry.id in self._installed_ids,
+                repo_uris=self._entry_repo_uris.get(entry.id, set()),
+            )
             self._cards.append(card)
             self._flow_box.append(card)
 
@@ -374,7 +378,10 @@ class BrowseView(Gtk.Box):
     def _apply_filter(self) -> None:
         any_visible = False
         for card in self._cards:
-            visible = card.matches(self._active_categories, self._search_text, self._active_repos, self._active_genres)
+            visible = card.matches(
+                self._active_categories, self._search_text,
+                self._active_repos, self._active_genres,
+            )
             card.set_visible(visible)
             if visible:
                 any_visible = True

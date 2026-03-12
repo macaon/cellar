@@ -360,6 +360,7 @@ class BasePickerDialog(Adw.Dialog):
 
         def _work():
             import tempfile
+
             from cellar.backend.base_store import install_base
             from cellar.backend.installer import (
                 _build_source,  # noqa: PLC2701

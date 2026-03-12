@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import logging
 import os
-from cellar.utils.async_work import run_in_background
 from pathlib import Path
 
 import gi
+
+from cellar.utils.async_work import run_in_background
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
@@ -39,7 +40,7 @@ def _reconcile_installed_record(entry) -> dict | None:
     been deleted outside Cellar (stale record).
     """
     from cellar.backend import database  # noqa: PLC0415
-    from cellar.backend.umu import prefixes_dir, native_dir  # noqa: PLC0415
+    from cellar.backend.umu import native_dir, prefixes_dir  # noqa: PLC0415
 
     rec = database.get_installed(entry.id)
     if rec is None:
@@ -182,7 +183,10 @@ class CellarWindow(Adw.ApplicationWindow):
 
         # Pre-warm the GE-Proton release list in the background.
         from cellar.backend import runners
-        run_in_background(runners.fetch_releases, on_error=lambda msg: log.debug("Runner pre-warm failed: %s", msg))
+        run_in_background(
+            runners.fetch_releases,
+            on_error=lambda msg: log.debug("Runner pre-warm failed: %s", msg),
+        )
 
     # ── Catalogue loading ─────────────────────────────────────────────────
 
@@ -311,9 +315,13 @@ class CellarWindow(Adw.ApplicationWindow):
                 # Build a resolver that picks the correct repo per asset.
                 # Asset paths are "apps/<app_id>/...", so we extract the app ID
                 # and look up the repo that actually carries it.
-                _fallback_repo = next((r for r in manager if not r.is_offline), None) or self._first_repo
+                _fallback_repo = (
+                    next((r for r in manager if not r.is_offline), None) or self._first_repo
+                )
 
-                def resolver(rel_path: str, *, _entry_repos=self._entry_repos, _fb=_fallback_repo) -> str:
+                def resolver(
+                    rel_path: str, *, _entry_repos=self._entry_repos, _fb=_fallback_repo,
+                ) -> str:
                     if not rel_path:
                         return ""
                     parts = rel_path.split("/")
@@ -321,7 +329,10 @@ class CellarWindow(Adw.ApplicationWindow):
                         app_id = parts[1]
                         repos = _entry_repos.get(app_id, [])
                         # Prefer an online repo for this specific app.
-                        repo = next((r for r in repos if not r.is_offline), None) or (repos[0] if repos else _fb)
+                        repo = (
+                            next((r for r in repos if not r.is_offline), None)
+                            or (repos[0] if repos else _fb)
+                        )
                     else:
                         repo = _fb
                     return repo.resolve_asset_uri(rel_path) if repo else ""
@@ -347,9 +358,14 @@ class CellarWindow(Adw.ApplicationWindow):
                 ]
 
                 installed_ids = set(installed_records.keys())
-                self._browse_explore.load_entries(explore_entries, resolve_asset=resolver, installed_ids=installed_ids, entry_repo_uris=entry_repo_uris)
-                self._browse_installed.load_entries(installed_entries, resolve_asset=resolver, installed_ids=installed_ids, entry_repo_uris=entry_repo_uris)
-                self._browse_updates.load_entries(update_entries, resolve_asset=resolver, installed_ids=installed_ids, entry_repo_uris=entry_repo_uris)
+                _load_kw = dict(
+                    resolve_asset=resolver,
+                    installed_ids=installed_ids,
+                    entry_repo_uris=entry_repo_uris,
+                )
+                self._browse_explore.load_entries(explore_entries, **_load_kw)
+                self._browse_installed.load_entries(installed_entries, **_load_kw)
+                self._browse_updates.load_entries(update_entries, **_load_kw)
                 self.updates_page.set_badge_number(len(update_entries))
                 self._rebuild_filter_popover(explore_entries, self._distinct_repos)
             else:
@@ -475,7 +491,9 @@ class CellarWindow(Adw.ApplicationWindow):
             self.filter_button.remove_css_class("suggested-action")
 
     def _any_filter_active(self) -> bool:
-        return bool(self._active_categories) or bool(self._active_repos) or bool(self._active_genres)
+        return (
+            bool(self._active_categories) or bool(self._active_repos) or bool(self._active_genres)
+        )
 
     def _on_category_toggled(self, btn: Gtk.CheckButton, category: str) -> None:
         if btn.get_active():
@@ -644,8 +662,8 @@ class CellarWindow(Adw.ApplicationWindow):
     # ── Signal handlers ───────────────────────────────────────────────────
 
     def _on_app_selected(self, _browse, entry) -> None:
-        from cellar.views.detail import DetailView
         from cellar.backend import database
+        from cellar.views.detail import DetailView
 
         source_repos = self._entry_repos.get(entry.id, [])
         if not source_repos and self._first_repo:
@@ -658,8 +676,8 @@ class CellarWindow(Adw.ApplicationWindow):
         is_installed = rec is not None
 
         def _on_edit(selected_entry):
-            from cellar.views.metadata_editor import MetadataEditorDialog, RepoContext
             from cellar.views.detail import DetailView
+            from cellar.views.metadata_editor import MetadataEditorDialog, RepoContext
 
             def _on_edit_done(updated_entry):
                 log.debug("_on_edit_done: updated_entry.id=%r screenshots=%s",
@@ -708,7 +726,9 @@ class CellarWindow(Adw.ApplicationWindow):
                 on_done=_on_edit_done,
             ).present(self)
 
-        def _on_install_done(prefix_dir: str, install_path: str = "", runner: str = "", install_size: int = 0) -> None:
+        def _on_install_done(
+            prefix_dir: str, install_path: str = "", runner: str = "", install_size: int = 0
+        ) -> None:
             repo_uri = str(self._first_repo.uri) if self._first_repo else ""
             database.mark_installed(
                 entry.id, prefix_dir, entry.version, repo_uri,

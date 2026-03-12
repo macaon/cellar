@@ -9,12 +9,11 @@ from pathlib import Path
 from typing import Callable
 from urllib.parse import urlparse
 
-
 import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, GLib, Gio, Gtk
+from gi.repository import Adw, Gio, GLib, Gtk
 
 from cellar.backend.config import (
     certs_dir,
@@ -23,7 +22,6 @@ from cellar.backend.config import (
     load_ssh_password,
     save_repos,
 )
-from cellar.utils.progress import fmt_stats as _fmt_ul_stats
 
 log = logging.getLogger(__name__)
 
@@ -199,7 +197,7 @@ class SettingsDialog(Adw.PreferencesDialog):
     # ------------------------------------------------------------------
 
     def _build_install_location_group(self, page: Adw.PreferencesPage) -> None:
-        from cellar.backend.config import install_data_dir, load_install_base
+        from cellar.backend.config import install_data_dir
 
         group = Adw.PreferencesGroup(
             title="Install Location",
@@ -237,7 +235,7 @@ class SettingsDialog(Adw.PreferencesDialog):
         group.add(self._install_location_row)
 
     def _on_install_location_browse(self, _btn) -> None:
-        from cellar.backend.config import install_data_dir, load_install_base, save_install_base
+        from cellar.backend.config import load_install_base
 
         chooser = Gtk.FileChooserNative(
             title="Select Install Base Folder",
@@ -347,6 +345,7 @@ class SettingsDialog(Adw.PreferencesDialog):
             row.add_prefix(icon)
         elif uri.startswith("sftp://"):
             from urllib.parse import urlparse as _urlparse
+
             from cellar.backend.config import load_ssh_password
             ssh_user = _urlparse(uri).username or ""
             has_pw = bool(load_ssh_password(uri))
@@ -363,7 +362,8 @@ class SettingsDialog(Adw.PreferencesDialog):
                 )
                 icon.set_tooltip_text(
                     f"SFTP: {ssh_user}" + (" (password stored)" if has_pw else " (agent/config)")
-                    if ssh_user else ("SFTP (password stored)" if has_pw else "SFTP (agent/config)")
+                    if ssh_user
+                    else ("SFTP (password stored)" if has_pw else "SFTP (agent/config)")
                 )
             row.add_prefix(icon)
         elif token:
@@ -789,7 +789,10 @@ class AddEditRepoDialog(Adw.Dialog):
             parsed = urlparse(uri)
             local_path = Path(parsed.path if parsed.path else uri).expanduser()
             if not local_path.is_dir():
-                self._ask_init(uri, name, token, ssl_verify, smb_username, smb_password, ssh_username, ssh_password)
+                self._ask_init(
+                    uri, name, token, ssl_verify,
+                    smb_username, smb_password, ssh_username, ssh_password,
+                )
                 return
 
         # Resolve CA cert path for the connection attempt.
@@ -827,7 +830,10 @@ class AddEditRepoDialog(Adw.Dialog):
             err = str(exc)
             if _looks_like_missing(err):
                 if repo.is_writable:
-                    self._ask_init(uri, name, token, ssl_verify, smb_username, smb_password, ssh_username, ssh_password)
+                    self._ask_init(
+                        uri, name, token, ssl_verify,
+                        smb_username, smb_password, ssh_username, ssh_password,
+                    )
                 else:
                     self._alert(
                         "No Catalogue Found",
@@ -887,7 +893,10 @@ class AddEditRepoDialog(Adw.Dialog):
             if not dest.exists():
                 shutil.copy2(src, dest)
 
-        self._finish_save(uri, name, token, ssl_verify, ca_cert_name, smb_username, smb_password, ssh_username, ssh_password)
+        self._finish_save(
+            uri, name, token, ssl_verify, ca_cert_name,
+            smb_username, smb_password, ssh_username, ssh_password,
+        )
 
     # ------------------------------------------------------------------
     # Init flow (catalogue missing on a writable repo)
@@ -942,12 +951,14 @@ class AddEditRepoDialog(Adw.Dialog):
         if response != "init":
             return
         scheme = urlparse(uri).scheme.lower()
+        _args = (uri, name, token, ssl_verify,
+                 smb_username, smb_password, ssh_username, ssh_password)
         if _is_local_uri(uri):
-            self._init_local_repo(uri, name, token, ssl_verify, smb_username, smb_password, ssh_username, ssh_password)
+            self._init_local_repo(*_args)
         elif scheme == "smb":
-            self._init_smb_repo(uri, name, token, ssl_verify, smb_username, smb_password, ssh_username, ssh_password)
+            self._init_smb_repo(*_args)
         elif scheme == "sftp":
-            self._init_ssh_repo(uri, name, token, ssl_verify, smb_username, smb_password, ssh_username, ssh_password)
+            self._init_ssh_repo(*_args)
         else:
             self._alert(
                 "Not Supported",
@@ -977,7 +988,10 @@ class AddEditRepoDialog(Adw.Dialog):
         except OSError as exc:
             self._alert("Could Not Initialise", str(exc))
             return
-        self._finish_save(uri, name, token, ssl_verify, None, smb_username, smb_password, ssh_username, ssh_password)
+        self._finish_save(
+            uri, name, token, ssl_verify, None,
+            smb_username, smb_password, ssh_username, ssh_password,
+        )
 
     def _init_smb_repo(
         self,
@@ -1029,7 +1043,10 @@ class AddEditRepoDialog(Adw.Dialog):
             else:
                 self._alert("Could Not Initialise", err)
             return
-        self._finish_save(uri, name, token, ssl_verify, None, smb_username, smb_password, ssh_username, ssh_password)
+        self._finish_save(
+            uri, name, token, ssl_verify, None,
+            smb_username, smb_password, ssh_username, ssh_password,
+        )
 
     def _init_ssh_repo(
         self,
@@ -1072,7 +1089,10 @@ class AddEditRepoDialog(Adw.Dialog):
             return
 
         log.info("Initialised new SFTP repo at %s", uri)
-        self._finish_save(uri, name, token, ssl_verify, None, smb_username, smb_password, ssh_username, ssh_password)
+        self._finish_save(
+            uri, name, token, ssl_verify, None,
+            smb_username, smb_password, ssh_username, ssh_password,
+        )
 
     # ------------------------------------------------------------------
     # Helpers
@@ -1142,6 +1162,7 @@ def _move_install_data(old_dir: Path, new_dir: Path) -> None:
     values are updated after all moves complete.
     """
     import shutil
+
     from cellar.backend import database
 
     for subdir in ("prefixes", "native", "bases"):

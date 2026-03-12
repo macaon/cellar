@@ -11,14 +11,14 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
+import logging
+
 from gi.repository import Adw, GLib, Gtk
 
 from cellar.models.app_entry import AppEntry
-from cellar.views.widgets import make_dialog_header, make_progress_page
 from cellar.utils.paths import short_path as _short_path
 from cellar.utils.progress import fmt_stats
-
-import logging
+from cellar.views.widgets import make_dialog_header, make_progress_page
 
 log = logging.getLogger(__name__)
 
@@ -85,7 +85,9 @@ class UpdateDialog(Adw.Dialog):
         ver_group = Adw.PreferencesGroup(title="Update")
         current = self._installed_record.get("version") or "unknown"
         ver_group.add(Adw.ActionRow(title="Current version", subtitle=current))
-        ver_group.add(Adw.ActionRow(title="New version", subtitle=self._entry.version or "unknown"))
+        ver_group.add(Adw.ActionRow(
+            title="New version", subtitle=self._entry.version or "unknown",
+        ))
         page.add(ver_group)
 
         # ── Backup ────────────────────────────────────────────────────────

@@ -22,10 +22,10 @@ from dataclasses import replace as _dc_replace
 from pathlib import Path
 from typing import Callable
 
+import gi
+
 from cellar.utils import natural_sort_key
 from cellar.utils.async_work import run_in_background
-
-import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
@@ -33,15 +33,12 @@ from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango
 
 from cellar.backend.project import (
     Project,
-    ProjectType,
     create_project,
     delete_project,
     load_projects,
-    package_project,
     save_project,
 )
 from cellar.views.builder.dependencies import DependencyPickerDialog
-from cellar.views.metadata_editor import MetadataEditorDialog, ProjectContext, RepoContext
 from cellar.views.builder.pickers import (
     AddLaunchTargetDialog,
     BasePickerDialog,
@@ -49,6 +46,7 @@ from cellar.views.builder.pickers import (
     pick_repo,
 )
 from cellar.views.builder.progress import ProgressDialog
+from cellar.views.metadata_editor import MetadataEditorDialog, ProjectContext, RepoContext
 from cellar.views.widgets import set_margins
 
 log = logging.getLogger(__name__)
@@ -160,7 +158,10 @@ class PackageBuilderView(Adw.Bin):
         ag = Gio.SimpleActionGroup()
 
         delete_act = Gio.SimpleAction.new("delete", None)
-        delete_act.connect("activate", lambda *_: self._on_delete_clicked(self._project) if self._project else None)
+        delete_act.connect(
+            "activate",
+            lambda *_: self._on_delete_clicked(self._project) if self._project else None,
+        )
         ag.add_action(delete_act)
 
         self.insert_action_group("builder", ag)
@@ -301,11 +302,15 @@ class PackageBuilderView(Adw.Bin):
 
     def _on_new_windows(self) -> None:
         """Create a new Windows project — base image is selected in detail view."""
-        dialog = MetadataEditorDialog(context=ProjectContext(), on_created=self._on_project_created)
+        dialog = MetadataEditorDialog(
+            context=ProjectContext(), on_created=self._on_project_created,
+        )
         dialog.present(self)
 
     def _on_new_linux_clicked(self, _btn) -> None:
-        dialog = MetadataEditorDialog(context=ProjectContext(project_type="linux"), on_created=self._on_project_created)
+        dialog = MetadataEditorDialog(
+            context=ProjectContext(project_type="linux"), on_created=self._on_project_created,
+        )
         dialog.present(self)
 
     def _on_new_base_clicked(self, _btn) -> None:
@@ -384,6 +389,7 @@ class PackageBuilderView(Adw.Bin):
 
         def _work():
             import tempfile
+
             from cellar.backend.installer import (
                 InstallCancelled,
                 _build_source,
@@ -490,7 +496,9 @@ class PackageBuilderView(Adw.Bin):
                     GLib.idle_add(progress.set_label, "Downloading images\u2026")
                     project.project_dir.mkdir(parents=True, exist_ok=True)
 
-                    for slot, rel_path in [("icon", entry.icon), ("cover", entry.cover), ("logo", entry.logo)]:
+                    for slot, rel_path in [
+                        ("icon", entry.icon), ("cover", entry.cover), ("logo", entry.logo)
+                    ]:
                         if not rel_path:
                             continue
                         try:
@@ -548,6 +556,7 @@ class PackageBuilderView(Adw.Bin):
 
         def _work():
             import tempfile
+
             from cellar.backend.installer import (
                 InstallCancelled,
                 _build_source,
@@ -1184,7 +1193,11 @@ class PackageBuilderView(Adw.Bin):
         # still matches the previous runner (i.e. the user hasn't customised it).
         old_runner = self._project.runner
         self._project.runner = runner_name
-        if not self._project.name or self._project.name == old_runner or self._project.name == "(no runner)":
+        if (
+            not self._project.name
+            or self._project.name == old_runner
+            or self._project.name == "(no runner)"
+        ):
             self._project.name = runner_name
             if hasattr(self, "_base_name_row"):
                 self._base_name_row.set_text(runner_name)
@@ -1735,6 +1748,7 @@ class PackageBuilderView(Adw.Bin):
                 self._show_toast(f"Executable not found: {exe}")
                 return
             import shlex
+
             from cellar.backend.umu import is_cellar_sandboxed
             cmd = [str(exe)]
             if entry_args:
@@ -1788,7 +1802,9 @@ class PackageBuilderView(Adw.Bin):
         self._do_publish_app(project, self._writable_repos[0])
 
     def _do_publish_app(self, project: Project, repo) -> None:
-        _src_path = Path(project.source_dir) if project.project_type == "linux" else project.content_path
+        _src_path = (
+            Path(project.source_dir) if project.project_type == "linux" else project.content_path
+        )
 
         # Build AppEntry from project metadata.
         from cellar.models.app_entry import AppEntry
@@ -1833,10 +1849,13 @@ class PackageBuilderView(Adw.Bin):
             images["screenshots"] = list(project.screenshot_paths)
 
         cancel_event = threading.Event()
-        progress = ProgressDialog(label="Compressing and uploading\u2026", cancel_event=cancel_event)
+        progress = ProgressDialog(
+            label="Compressing and uploading\u2026", cancel_event=cancel_event,
+        )
         progress.present(self)
 
-        from cellar.utils.progress import fmt_size, trunc_middle as _trunc
+        from cellar.utils.progress import fmt_size
+        from cellar.utils.progress import trunc_middle as _trunc
         _current_file: list[str] = [""]
 
         def _file_cb(name: str) -> None:
@@ -1858,8 +1877,10 @@ class PackageBuilderView(Adw.Bin):
 
         def _work():
             from cellar.backend.packager import (
-                compress_prefix_zst, compress_prefix_delta_zst, import_to_repo,
                 CancelledError,
+                compress_prefix_delta_zst,
+                compress_prefix_zst,
+                import_to_repo,
             )
 
             # Download any Steam screenshots the user selected in metadata
@@ -1897,7 +1918,9 @@ class PackageBuilderView(Adw.Bin):
                         _new_rels[_n_existing + k]: _steam_url_for_path[_downloaded[k]]
                         for k in range(len(_downloaded))
                     }
-                    entry = _dc_replace(entry, screenshots=_new_rels, screenshot_sources=_ss_sources)
+                    entry = _dc_replace(
+                        entry, screenshots=_new_rels, screenshot_sources=_ss_sources,
+                    )
                     images["screenshots"] = list(project.screenshot_paths)
                 project.steam_screenshots = []
                 project.selected_steam_urls = []
@@ -1926,7 +1949,7 @@ class PackageBuilderView(Adw.Bin):
                     )
                     base_image = ""
                 else:
-                    from cellar.backend.base_store import is_base_installed, base_path
+                    from cellar.backend.base_store import base_path, is_base_installed
                     if not is_base_installed(project.runner):
                         raise RuntimeError(
                             f"Base image \u201c{project.runner}\u201d is not installed locally. "
@@ -1956,10 +1979,13 @@ class PackageBuilderView(Adw.Bin):
             # ── Auto-publish base image + runner if missing from target repo ─
             if base_image:
                 import json as _json
-                from cellar.backend.packager import (
-                    compress_runner_zst, upsert_runner, upsert_base,
-                )
+
                 from cellar.backend.base_store import base_path
+                from cellar.backend.packager import (
+                    compress_runner_zst,
+                    upsert_base,
+                    upsert_runner,
+                )
                 from cellar.backend.umu import runners_dir
 
                 # Read target repo's catalogue to check existing bases/runners
@@ -2101,10 +2127,13 @@ class PackageBuilderView(Adw.Bin):
 
     def _do_publish_base(self, project: Project, repo) -> None:
         cancel_event = threading.Event()
-        progress = ProgressDialog(label="Compressing and uploading\u2026", cancel_event=cancel_event)
+        progress = ProgressDialog(
+            label="Compressing and uploading\u2026", cancel_event=cancel_event,
+        )
         progress.present(self)
 
-        from cellar.utils.progress import fmt_size, trunc_middle as _trunc
+        from cellar.utils.progress import fmt_size
+        from cellar.utils.progress import trunc_middle as _trunc
         _current_file: list[str] = [""]
 
         def _file_cb(name: str) -> None:
@@ -2119,11 +2148,14 @@ class PackageBuilderView(Adw.Bin):
         base_name = project.name
 
         def _work():
-            from cellar.backend.packager import (
-                compress_prefix_zst, compress_runner_zst,
-                upsert_runner, upsert_base, CancelledError,
-            )
             from cellar.backend.base_store import install_base_from_dir
+            from cellar.backend.packager import (
+                CancelledError,
+                compress_prefix_zst,
+                compress_runner_zst,
+                upsert_base,
+                upsert_runner,
+            )
             from cellar.backend.umu import runners_dir
 
             runner = project.runner
@@ -2456,7 +2488,9 @@ class _ProjectCard(Gtk.FlowBoxChild):
         card.set_overflow(Gtk.Overflow.HIDDEN)
 
         # Left: type icon
-        icon = Gtk.Image.new_from_icon_name(_TYPE_ICONS.get(project.project_type, "grid-large-symbolic"))
+        icon = Gtk.Image.new_from_icon_name(
+            _TYPE_ICONS.get(project.project_type, "grid-large-symbolic")
+        )
         icon.set_pixel_size(_ICON_SIZE)
         icon.set_halign(Gtk.Align.CENTER)
         icon.set_valign(Gtk.Align.CENTER)
@@ -2602,7 +2636,9 @@ class _CatalogueCard(Gtk.FlowBoxChild):
             action_group.add_action(edit_action)
             menu.append("Edit metadata", "card.edit")
         menu.append("Download for editing", "card.download")
-        del_label = "Delete from catalogue" if not has_dependants else "Delete (base has dependants)"
+        del_label = (
+            "Delete from catalogue" if not has_dependants else "Delete (base has dependants)"
+        )
         menu.append(del_label, "card.delete")
 
         menu_btn = Gtk.MenuButton(icon_name="view-more-symbolic", menu_model=menu)

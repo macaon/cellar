@@ -17,9 +17,9 @@ from gi.repository import Adw, GLib, Gtk
 
 from cellar.backend.project import Project, load_projects, save_project
 from cellar.utils.async_work import run_in_background
-from cellar.views.widgets import set_margins
 from cellar.utils.progress import fmt_stats
 from cellar.views.builder.progress import ProgressDialog
+from cellar.views.widgets import set_margins
 
 log = logging.getLogger(__name__)
 
@@ -125,7 +125,11 @@ class CatalogueEntriesDialog(Adw.Dialog):
             if kind == "base":
                 depended_runners.add((repo.uri, item.runner))
 
-        groups = {"app": self._apps_group, "base": self._bases_group, "runner": self._runners_group}
+        groups = {
+            "app": self._apps_group,
+            "base": self._bases_group,
+            "runner": self._runners_group,
+        }
         counts = {"app": 0, "base": 0, "runner": 0}
 
         for idx, (item, repo, kind) in enumerate(results):
@@ -147,7 +151,9 @@ class CatalogueEntriesDialog(Adw.Dialog):
                 icon_name="folder-download-symbolic",
                 valign=Gtk.Align.CENTER,
                 has_frame=False,
-                tooltip_text="Install runner locally" if kind == "runner" else "Import for editing",
+                tooltip_text=(
+                    "Install runner locally" if kind == "runner" else "Import for editing"
+                ),
             )
             dl_btn.connect("clicked", self._on_download_clicked, row)
             row.add_suffix(dl_btn)
@@ -236,11 +242,16 @@ class CatalogueEntriesDialog(Adw.Dialog):
             if kind == "base":
                 is_depended = (repo.uri, item.name) in depended_bases
                 can_delete = not is_depended
-                tooltip = "Apps in this repo depend on this base" if is_depended else "Remove from repo"
+                tooltip = (
+                    "Apps in this repo depend on this base" if is_depended else "Remove from repo"
+                )
             elif kind == "runner":
                 is_depended = (repo.uri, item.name) in depended_runners
                 can_delete = not is_depended
-                tooltip = "Base images in this repo depend on this runner" if is_depended else "Remove from repo"
+                tooltip = (
+                    "Base images in this repo depend on this runner"
+                    if is_depended else "Remove from repo"
+                )
             else:
                 continue  # apps are always deletable if writable
             del_btn.set_sensitive(can_delete)
@@ -278,6 +289,7 @@ class CatalogueEntriesDialog(Adw.Dialog):
 
         def _work():
             import tempfile
+
             from cellar.backend.installer import (  # noqa: PLC2701
                 InstallCancelled,
                 _build_source,
@@ -392,6 +404,7 @@ class CatalogueEntriesDialog(Adw.Dialog):
 
         def _work():
             import tempfile
+
             from cellar.backend.installer import (  # noqa: PLC2701
                 InstallCancelled,
                 _build_source,
@@ -477,11 +490,12 @@ class CatalogueEntriesDialog(Adw.Dialog):
         def _work():
             nonlocal entry
             import tempfile
+
             from cellar.backend.installer import (
-                InstallCancelled,     # noqa: PLC2701
-                _build_source,        # noqa: PLC2701
-                _find_top_dir,     # noqa: PLC2701
-                _install_chunks,      # noqa: PLC2701
+                InstallCancelled,  # noqa: PLC2701
+                _build_source,  # noqa: PLC2701
+                _find_top_dir,  # noqa: PLC2701
+                _install_chunks,  # noqa: PLC2701
                 _stream_and_extract,  # noqa: PLC2701
             )
             if entry.is_partial:
@@ -580,7 +594,9 @@ class CatalogueEntriesDialog(Adw.Dialog):
                     GLib.idle_add(progress.set_label, "Downloading images\u2026")
                     project.project_dir.mkdir(parents=True, exist_ok=True)
 
-                    for slot, rel_path in [("icon", entry.icon), ("cover", entry.cover), ("logo", entry.logo)]:
+                    for slot, rel_path in [
+                        ("icon", entry.icon), ("cover", entry.cover), ("logo", entry.logo)
+                    ]:
                         if not rel_path:
                             continue
                         try:
@@ -610,7 +626,9 @@ class CatalogueEntriesDialog(Adw.Dialog):
                     import_sources: dict[str, str] = {}
                     for idx, ss_rel in enumerate(entry.screenshots):
                         if ss_rel in entry.screenshot_sources and idx < len(screenshot_paths):
-                            import_sources[screenshot_paths[idx]] = entry.screenshot_sources[ss_rel]
+                            import_sources[screenshot_paths[idx]] = (
+                                entry.screenshot_sources[ss_rel]
+                            )
                     project.screenshot_sources = import_sources
 
                     # Linux imports: pre-fill source_dir with the extracted prefix
@@ -684,7 +702,11 @@ class CatalogueEntriesDialog(Adw.Dialog):
             _item, _repo, kind = self._entries.pop(idx)
             row = self._row_widgets.pop(idx)
             self._del_buttons.pop(idx)
-            group = {"app": self._apps_group, "base": self._bases_group, "runner": self._runners_group}[kind]
+            group = {
+                "app": self._apps_group,
+                "base": self._bases_group,
+                "runner": self._runners_group,
+            }[kind]
             group.remove(row)
             self._refresh_delete_buttons()
             self._update_empty_state()

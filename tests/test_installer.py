@@ -13,7 +13,6 @@ import pytest
 from cellar.backend import installer as ins
 from cellar.models.app_entry import AppEntry
 
-
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
 # ---------------------------------------------------------------------------

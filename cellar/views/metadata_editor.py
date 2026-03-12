@@ -2,9 +2,9 @@
 
 Can be opened from any entry point in the app:
 
-- New project (create mode):    ``MetadataEditorDialog(context=ProjectContext(), on_created=cb)``
-- Edit existing project:         ``MetadataEditorDialog(context=ProjectContext(project=p), on_changed=cb)``
-- Edit catalogue entry:          ``MetadataEditorDialog(context=RepoContext(entry=e, repo=r), on_done=cb)``
+- New project:       ``MetadataEditorDialog(context=ProjectContext(), on_created=cb)``
+- Existing project:  ``MetadataEditorDialog(context=ProjectContext(project=p), on_changed=cb)``
+- Catalogue entry:   ``MetadataEditorDialog(context=RepoContext(entry=e, repo=r), on_done=cb)``
 """
 
 from __future__ import annotations
@@ -197,7 +197,7 @@ class ProjectContext(_SaveContext):
 
     def save(self, fields, images, *, progress_cb=None, phase_cb=None,
              stats_cb=None, cancel_event=None):
-        from cellar.backend.project import Project, create_project, save_project
+        from cellar.backend.project import create_project, save_project
 
         p = self._project
         if p is None:
@@ -416,7 +416,7 @@ class RepoContext(_SaveContext):
         import tempfile as _tmp
         from dataclasses import replace as _dc_replace
 
-        from cellar.backend.packager import CancelledError, update_in_repo
+        from cellar.backend.packager import update_in_repo
         from cellar.utils.http import make_session as _make_session
 
         e = self._entry
@@ -435,7 +435,9 @@ class RepoContext(_SaveContext):
         steam_appid = int(steam_appid_text) if steam_appid_text.isdigit() else None
         website = fields.get("website", "")
         genres_text = fields.get("genres", "")
-        genres = tuple(g.strip() for g in genres_text.split(",") if g.strip()) if genres_text else ()
+        genres = (
+            tuple(g.strip() for g in genres_text.split(",") if g.strip()) if genres_text else ()
+        )
         strategy = fields.get("update_strategy", "safe")
         launch_targets = tuple(fields.get("launch_targets", []))
         hide_title = bool(images.get("hide_title", e.hide_title))
@@ -449,7 +451,8 @@ class RepoContext(_SaveContext):
         elif icon_path == "":
             icon_rel = ""
         else:
-            ext = ".png" if Path(icon_path).suffix.lower() in (".ico", ".bmp") else Path(icon_path).suffix
+            sfx = Path(icon_path).suffix.lower()
+            ext = ".png" if sfx in (".ico", ".bmp") else Path(icon_path).suffix
             icon_rel = f"apps/{app_id}/icon{ext}"
 
         if cover_path is None:
@@ -1095,7 +1098,9 @@ class MetadataEditorDialog(Adw.Dialog):
             self._website_row.set_text(result["website"])
         if result.get("genres"):
             genres = result["genres"]
-            self._genres_row.set_text(", ".join(genres) if isinstance(genres, list) else str(genres))
+            self._genres_row.set_text(
+                ", ".join(genres) if isinstance(genres, list) else str(genres)
+            )
         if result.get("summary"):
             self._summary_row.set_text(result["summary"])
             self._desc_view.get_buffer().set_text(result["summary"])
@@ -1223,12 +1228,12 @@ class MetadataEditorDialog(Adw.Dialog):
     # ── Entry point file browser (RepoContext only) ───────────────────────
 
     def _on_browse_target(self, _btn, idx: int) -> None:
-        import os
         e = self._context._entry
         if e.platform == "linux":
             from cellar.backend.database import get_installed
             rec = get_installed(e.id)
-            install_path = Path(rec["install_path"]) / e.id if rec and rec.get("install_path") else Path.home()
+            has_path = rec and rec.get("install_path")
+            install_path = Path(rec["install_path"]) / e.id if has_path else Path.home()
             browse_root = install_path
         else:
             from cellar.backend.umu import prefixes_dir

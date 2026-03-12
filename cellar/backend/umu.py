@@ -175,7 +175,8 @@ def launch_app_monitored(
     if launch_args:
         cmd += shlex.split(launch_args)
     log.info(
-        "Launching app (monitored) %s: %s\n  WINEPREFIX=%s\n  PROTONPATH=%s\n  GAMEID=%s\n  EXE=%s",
+        "Launching app (monitored) %s: %s"
+        "\n  WINEPREFIX=%s\n  PROTONPATH=%s\n  GAMEID=%s\n  EXE=%s",
         app_id, " ".join(cmd[:-1]),
         umu_env["WINEPREFIX"], umu_env["PROTONPATH"], umu_env["GAMEID"], entry_point,
     )

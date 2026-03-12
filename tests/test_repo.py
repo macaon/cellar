@@ -295,7 +295,9 @@ def test_ssh_fetcher_resolve_uri_no_user_no_port():
 def test_ssh_fetcher_missing_ssh_raises():
     with patch("subprocess.run", side_effect=FileNotFoundError):
         with pytest.raises(RepoError, match="ssh executable not found"):
-            _SshFetcher("host.example.com", "/srv/repo", user="alice").fetch_bytes("catalogue.json")
+            _SshFetcher(
+                "host.example.com", "/srv/repo", user="alice",
+            ).fetch_bytes("catalogue.json")
 
 
 def test_ssh_fetcher_nonzero_exit_raises():
@@ -304,7 +306,9 @@ def test_ssh_fetcher_nonzero_exit_raises():
     result.stderr = b"Connection refused"
     with patch("subprocess.run", return_value=result):
         with pytest.raises(RepoError, match="SSH fetch failed"):
-            _SshFetcher("host.example.com", "/srv/repo", user="alice").fetch_bytes("catalogue.json")
+            _SshFetcher(
+                "host.example.com", "/srv/repo", user="alice",
+            ).fetch_bytes("catalogue.json")
 
 
 def test_ssh_fetcher_success():
@@ -313,7 +317,8 @@ def test_ssh_fetcher_success():
     result.returncode = 0
     result.stdout = payload
     with patch("subprocess.run", return_value=result):
-        assert _SshFetcher("host.example.com", "/srv/repo", user="alice").fetch_bytes("catalogue.json") == payload
+        fetcher = _SshFetcher("host.example.com", "/srv/repo", user="alice")
+        assert fetcher.fetch_bytes("catalogue.json") == payload
 
 
 def test_ssh_fetcher_identity_file_in_command():
@@ -365,7 +370,6 @@ def test_fetch_bases_empty_when_no_bases_key(tmp_path):
 
 
 def test_fetch_bases_populated_after_fetch_catalogue():
-    from cellar.models.app_entry import BaseEntry
     repo = Repo(str(FIXTURES))
     repo.fetch_catalogue()
     bases = repo.fetch_bases()
@@ -402,11 +406,15 @@ def test_base_runner_backwards_compat_reads_old_base_win_ver():
 
 
 def test_upsert_base_writes_to_catalogue(tmp_path):
-    from cellar.backend.packager import upsert_base
     import json
+
+    from cellar.backend.packager import upsert_base
     cat = tmp_path / "catalogue.json"
     cat.write_text('{"cellar_version":1,"apps":[]}', encoding="utf-8")
-    upsert_base(tmp_path, "soda-9.0-1", "soda-9.0-1", "bases/soda-9.0-1-base.tar.gz", "aabb1122", 700000000)
+    upsert_base(
+        tmp_path, "soda-9.0-1", "soda-9.0-1",
+        "bases/soda-9.0-1-base.tar.gz", "aabb1122", 700000000,
+    )
     raw = json.loads(cat.read_text())
     assert raw["bases"]["soda-9.0-1"]["runner"] == "soda-9.0-1"
     assert raw["bases"]["soda-9.0-1"]["archive"] == "bases/soda-9.0-1-base.tar.gz"
@@ -415,8 +423,9 @@ def test_upsert_base_writes_to_catalogue(tmp_path):
 
 
 def test_upsert_base_preserves_existing_apps(tmp_path):
-    from cellar.backend.packager import upsert_base
     import json
+
+    from cellar.backend.packager import upsert_base
     cat = tmp_path / "catalogue.json"
     cat.write_text(
         '{"cellar_version":1,"apps":[{"id":"a","name":"A","version":"1","category":"C"}]}',
@@ -429,8 +438,9 @@ def test_upsert_base_preserves_existing_apps(tmp_path):
 
 
 def test_remove_base_removes_entry(tmp_path):
-    from cellar.backend.packager import upsert_base, remove_base
     import json
+
+    from cellar.backend.packager import remove_base, upsert_base
     cat = tmp_path / "catalogue.json"
     cat.write_text('{"cellar_version":1,"apps":[]}', encoding="utf-8")
     bases_dir = tmp_path / "bases"
@@ -447,9 +457,10 @@ def test_remove_base_removes_entry(tmp_path):
 
 
 def test_upsert_catalogue_preserves_bases(tmp_path):
-    from cellar.backend.packager import upsert_base, _upsert_catalogue
-    from cellar.models.app_entry import AppEntry
     import json
+
+    from cellar.backend.packager import _upsert_catalogue, upsert_base
+    from cellar.models.app_entry import AppEntry
     cat = tmp_path / "catalogue.json"
     cat.write_text('{"cellar_version":1,"apps":[]}', encoding="utf-8")
     upsert_base(tmp_path, "soda-9.0-1", "soda-9.0-1", "bases/soda-9.0-1-base.tar.gz")

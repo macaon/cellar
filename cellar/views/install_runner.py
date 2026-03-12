@@ -36,12 +36,12 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, GLib, Gtk
-
-from cellar.views.widgets import make_progress_page
+from gi.repository import Adw, GLib
 
 from cellar.utils.http import DEFAULT_TIMEOUT, make_session
-from cellar.utils.progress import fmt_stats as _fmt_dl_stats, trunc_middle as _trunc_filename
+from cellar.utils.progress import fmt_stats as _fmt_dl_stats
+from cellar.utils.progress import trunc_middle as _trunc_filename
+from cellar.views.widgets import make_progress_page
 
 log = logging.getLogger(__name__)
 

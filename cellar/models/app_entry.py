@@ -16,7 +16,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
-
 # Fields included in the slim catalogue.json index (v2).  Everything else
 # lives only in the per-app ``apps/<id>/metadata.json``.
 INDEX_FIELDS: tuple[str, ...] = (

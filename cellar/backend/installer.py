@@ -41,7 +41,6 @@ import requests
 
 from cellar.utils.http import DEFAULT_TIMEOUT, make_session
 
-
 # ---------------------------------------------------------------------------
 # Exceptions
 # ---------------------------------------------------------------------------
@@ -245,6 +244,7 @@ def _build_source(
         # are needed here — they are already cached by the library.
         try:
             import smbclient  # type: ignore[import]
+
             from cellar.utils.smb import smb_uri_to_unc
         except ImportError as exc:
             raise InstallError(
@@ -390,6 +390,7 @@ def _preflight_check_chunks(
                     missing.append(uri)
             elif scheme == "smb":
                 import smbclient  # type: ignore[import]
+
                 from cellar.utils.smb import smb_uri_to_unc
                 unc = smb_uri_to_unc(uri)
                 try:
@@ -615,8 +616,8 @@ def install_app(
     """
     _check_cancel(cancel_event)
 
-    from cellar.backend.umu import prefixes_dir  # noqa: PLC0415
     from cellar.backend.config import install_data_dir  # noqa: PLC0415
+    from cellar.backend.umu import prefixes_dir  # noqa: PLC0415
     prefix_dest = prefixes_dir() / entry.id
 
     # ── Step 0a: Ensure runner is installed ────────────────────────────
@@ -710,7 +711,7 @@ def install_app(
     write_manifest(prefix_dest)
 
     # Pre-download steamrt3 on first install so the first launch is instant.
-    from cellar.backend.umu import is_runtime_ready, init_prefix  # noqa: PLC0415
+    from cellar.backend.umu import init_prefix, is_runtime_ready  # noqa: PLC0415
     if not is_runtime_ready():
         if phase_cb:
             phase_cb("Initialising prefix\u2026")
@@ -991,8 +992,8 @@ def _ensure_base_installed(
     Streams directly into ``bases_dir()/runner/`` — no staging in /tmp.
     CRC32 verification is performed inline during streaming.
     """
-    from cellar.backend.base_store import base_path, is_base_installed  # noqa: PLC0415
     from cellar.backend import database  # noqa: PLC0415
+    from cellar.backend.base_store import base_path, is_base_installed  # noqa: PLC0415
 
     if is_base_installed(runner):
         return

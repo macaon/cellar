@@ -9,7 +9,10 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
+
+if TYPE_CHECKING:
+    from cellar.views.screenshot_grid import ScreenshotGridWidget
 
 import gi
 
@@ -65,7 +68,9 @@ class MediaPanel(Gtk.Box):
             self._icon_thumb,
             self._icon_thumb_wrap,
             self._icon_dl_btn,
-        ) = self._make_image_row("Icon", self._on_pick_icon, thumb_w=52, thumb_h=52, steam_slot="icon")
+        ) = self._make_image_row(
+            "Icon", self._on_pick_icon, thumb_w=52, thumb_h=52, steam_slot="icon",
+        )
 
         (
             self._cover_row,
@@ -73,7 +78,9 @@ class MediaPanel(Gtk.Box):
             self._cover_thumb,
             self._cover_thumb_wrap,
             self._cover_dl_btn,
-        ) = self._make_image_row("Cover", self._on_pick_cover, thumb_w=52, thumb_h=70, steam_slot="cover")
+        ) = self._make_image_row(
+            "Cover", self._on_pick_cover, thumb_w=52, thumb_h=70, steam_slot="cover",
+        )
 
         self._hide_title_btn = Gtk.ToggleButton()
         self._hide_title_btn.set_icon_name("eye-open-negative-filled-symbolic")
@@ -89,10 +96,13 @@ class MediaPanel(Gtk.Box):
             self._logo_thumb_wrap,
             self._logo_dl_btn,
         ) = self._make_image_row(
-            "Logo", self._on_pick_logo, extra_suffix=self._hide_title_btn, thumb_w=130, thumb_h=52, steam_slot="logo",
+            "Logo", self._on_pick_logo,
+            extra_suffix=self._hide_title_btn, thumb_w=130, thumb_h=52, steam_slot="logo",
         )
 
-        self._steam_dl_btns = [b for b in (self._icon_dl_btn, self._cover_dl_btn, self._logo_dl_btn) if b]
+        self._steam_dl_btns = [
+            b for b in (self._icon_dl_btn, self._cover_dl_btn, self._logo_dl_btn) if b
+        ]
 
         self._icon_clear_btn.connect("clicked", self._on_icon_clear)
         self._cover_clear_btn.connect("clicked", self._on_cover_clear)
@@ -196,9 +206,12 @@ class MediaPanel(Gtk.Box):
         self._orig_cover = cover
         self._orig_logo = logo
         for path, row, clear_btn, thumb, thumb_wrap, slot in [
-            (icon, self._icon_row, self._icon_clear_btn, self._icon_thumb, self._icon_thumb_wrap, "icon"),
-            (cover, self._cover_row, self._cover_clear_btn, self._cover_thumb, self._cover_thumb_wrap, "cover"),
-            (logo, self._logo_row, self._logo_clear_btn, self._logo_thumb, self._logo_thumb_wrap, "logo"),
+            (icon, self._icon_row, self._icon_clear_btn,
+             self._icon_thumb, self._icon_thumb_wrap, "icon"),
+            (cover, self._cover_row, self._cover_clear_btn,
+             self._cover_thumb, self._cover_thumb_wrap, "cover"),
+            (logo, self._logo_row, self._logo_clear_btn,
+             self._logo_thumb, self._logo_thumb_wrap, "logo"),
         ]:
             if path:
                 display = self._convert_if_needed(path)
@@ -217,7 +230,9 @@ class MediaPanel(Gtk.Box):
             self._hide_title_btn.set_active(True)
             self._hide_title_btn.set_icon_name("eye-not-looking-symbolic")
 
-    def set_image_subtitles(self, icon_rel: str, cover_rel: str, logo_rel: str, hide_title: bool) -> None:
+    def set_image_subtitles(
+        self, icon_rel: str, cover_rel: str, logo_rel: str, hide_title: bool
+    ) -> None:
         """Set subtitle text from relative paths (for edit_app where thumbnails load async)."""
         self._orig_icon = icon_rel
         self._orig_cover = cover_rel
@@ -251,7 +266,9 @@ class MediaPanel(Gtk.Box):
             self._logo_thumb.set_filename(path)
             self._logo_thumb_wrap.set_visible(True)
 
-    def set_screenshots_local(self, paths: list[str], source_urls: list[str | None] | None = None) -> None:
+    def set_screenshots_local(
+        self, paths: list[str], source_urls: list[str | None] | None = None
+    ) -> None:
         self._screenshot_grid.set_local_items(paths, source_urls)
 
     def add_steam_screenshots(self, screenshots: list[dict]) -> None:
@@ -439,7 +456,11 @@ class MediaPanel(Gtk.Box):
     # ------------------------------------------------------------------
 
     def _dl_btn_for_slot(self, slot: str) -> Gtk.Button | None:
-        return {"icon": self._icon_dl_btn, "cover": self._cover_dl_btn, "logo": self._logo_dl_btn}.get(slot)
+        return {
+            "icon": self._icon_dl_btn,
+            "cover": self._cover_dl_btn,
+            "logo": self._logo_dl_btn,
+        }.get(slot)
 
     def _on_steam_image_download(self, slot: str) -> None:
         appid = getattr(self, "_steam_appid", None)
@@ -447,7 +468,7 @@ class MediaPanel(Gtk.Box):
             return
 
         from cellar.backend.config import load_sgdb_key
-        from cellar.backend.steam import fetch_steam_images, download_steam_image
+        from cellar.backend.steam import download_steam_image, fetch_steam_images
         from cellar.utils.async_work import run_in_background
 
         sgdb_key = load_sgdb_key()
@@ -518,6 +539,7 @@ class MediaPanel(Gtk.Box):
         if ext not in (".ico", ".bmp"):
             return path
         import tempfile
+
         from cellar.utils.images import Image
         with Image.open(path) as img:
             tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)

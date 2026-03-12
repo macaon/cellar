@@ -153,7 +153,9 @@ def create_desktop_entry(
         # umu-launcher launch: always via flatpak run so the bundled umu-run
         # is available regardless of how the shortcut is invoked.
         from cellar.backend.umu import (  # noqa: PLC0415
-            prefixes_dir, runners_dir, _umu_data_env,
+            _umu_data_env,
+            prefixes_dir,
+            runners_dir,
         )
 
         steam_appid = getattr(entry, "steam_appid", None)
@@ -183,7 +185,9 @@ def create_desktop_entry(
             + f' --env=GAMEID="{gameid}"'
             + f' --env=UMU_FOLDERS_PATH="{umu_data["UMU_FOLDERS_PATH"]}"'
         )
-        exec_line = f"flatpak run --command=umu-run {env_parts} io.github.cellar{exe_arg}{args_str}"
+        exec_line = (
+            f"flatpak run --command=umu-run {env_parts} io.github.cellar{exe_arg}{args_str}"
+        )
         comment = (entry.summary or f"Launch {entry.name} via umu-launcher.").replace("\n", " ")
 
     # Categories

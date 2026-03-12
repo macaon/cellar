@@ -23,7 +23,10 @@ import logging
 import stat as _stat
 import threading
 from pathlib import Path
-from typing import IO
+from typing import IO, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import paramiko
 
 from cellar.utils._remote_path import RemotePathMixin
 
@@ -42,8 +45,8 @@ _MAX_POOL = 4       # max idle SFTP channels per connection
 _WINDOW_SIZE = 2 * 1024 * 1024 * 1024 - 1  # ~2 GB SSH channel window (max allowed)
 _MAX_PACKET = 32768  # max SSH packet payload
 
-_transport_cache: dict[tuple, "paramiko.Transport"] = {}  # type: ignore[name-defined]
-_sftp_pool: dict[tuple, list["paramiko.SFTPClient"]] = {}  # type: ignore[name-defined]
+_transport_cache: dict[tuple, "paramiko.Transport"] = {}
+_sftp_pool: dict[tuple, list["paramiko.SFTPClient"]] = {}
 _sftp_lock = threading.Lock()
 
 
@@ -117,7 +120,7 @@ def _return_sftp(
     port: int,
     user: str | None,
     identity: str | None,
-    sftp: "paramiko.SFTPClient",  # type: ignore[name-defined]
+    sftp: "paramiko.SFTPClient",
 ) -> None:
     """Return a checked-out SFTP channel to the pool for reuse."""
     conn_key = (host, port, user, identity)
@@ -377,8 +380,10 @@ class SshPath(RemotePathMixin):
             sftp = _get_sftp(self._host, self._port, self._user, self._identity, self._password)
             fh = sftp.open(self._path, "wb")
             fh.set_pipelined(True)  # queue writes without waiting for ACKs
-            return _SshWriteStream(fh, f"{self._host}:{self._path}",
-                                   sftp=sftp, conn=(self._host, self._port, self._user, self._identity))
+            return _SshWriteStream(
+                fh, f"{self._host}:{self._path}",
+                sftp=sftp, conn=(self._host, self._port, self._user, self._identity),
+            )
         else:
             import io
             data = self.read_bytes()

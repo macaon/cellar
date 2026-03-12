@@ -6,7 +6,6 @@ import logging
 import os
 import re
 import threading
-import time
 from pathlib import Path
 from typing import Callable
 
@@ -14,14 +13,14 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gdk, GLib, Gio, Gtk, Pango
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango
 
 from cellar.models.app_entry import AppEntry
-from cellar.utils.images import load_and_crop, load_and_fit, load_logo, to_texture
-from cellar.views.widgets import make_progress_page, set_margins
-from cellar.utils.paths import short_path as _short_path
 from cellar.utils.async_work import run_in_background
-from cellar.utils.progress import fmt_stats as _fmt_dl_stats, trunc_middle as _trunc_filename
+from cellar.utils.images import load_and_crop, load_and_fit, load_logo, to_texture
+from cellar.utils.paths import short_path as _short_path
+from cellar.utils.progress import fmt_stats as _fmt_dl_stats
+from cellar.views.widgets import make_progress_page, set_margins
 
 log = logging.getLogger(__name__)
 
@@ -373,7 +372,8 @@ class DetailView(Gtk.Box):
             btn.set_tooltip_text("")
             self._update_indicator.set_visible(self._has_update and not self._is_offline)
             self._update_indicator.set_tooltip_text(
-                "Update available — see Options menu" if (self._has_update and not self._is_offline) else ""
+                "Update available — see Options menu"
+                if (self._has_update and not self._is_offline) else ""
             )
         elif self._is_offline:
             self._install_btn_label.set_label("Unavailable")
@@ -450,7 +450,9 @@ class DetailView(Gtk.Box):
 
         # Resolve base archive for delta installs.
         base_image = entry.base_image
-        base_entry, base_archive_uri = self._find_base_entry(base_image) if base_image else (None, "")
+        base_entry, base_archive_uri = (
+            self._find_base_entry(base_image) if base_image else (None, "")
+        )
 
         # Resolve runner archive (runner binary required by umu-launcher).
         runner_name = base_entry.runner if base_entry else ""
@@ -471,9 +473,13 @@ class DetailView(Gtk.Box):
         )
         dialog.present(self.get_root())
 
-    def _on_install_success(self, prefix_dir: str, install_path: str = "", runner: str = "", install_size: int = 0) -> None:
+    def _on_install_success(
+        self, prefix_dir: str, install_path: str = "", runner: str = "", install_size: int = 0
+    ) -> None:
         self._is_installed = True
-        self._installed_record = {"prefix_dir": prefix_dir, "install_path": install_path, "install_size": install_size}
+        self._installed_record = {
+            "prefix_dir": prefix_dir, "install_path": install_path, "install_size": install_size,
+        }
         self._installed_record = {
             **(self._installed_record or {}),
             "prefix_dir": prefix_dir,
@@ -580,8 +586,9 @@ class DetailView(Gtk.Box):
         import subprocess as _sp
         if not entry_path:
             return
-        from cellar.backend.umu import native_dir, is_cellar_sandboxed
         import shlex as _shlex
+
+        from cellar.backend.umu import is_cellar_sandboxed, native_dir
         exe = native_dir() / self._entry.id / entry_path
         cmd = [str(exe)]
         if entry_args:
@@ -610,9 +617,9 @@ class DetailView(Gtk.Box):
         dialog.present(self.get_root())
 
     def _on_update_clicked(self, _btn) -> None:
-        from cellar.views.update_app import UpdateDialog
-        from cellar.backend.umu import native_dir, prefixes_dir
         from cellar.backend import database
+        from cellar.backend.umu import native_dir, prefixes_dir
+        from cellar.views.update_app import UpdateDialog
 
         if self._entry.is_partial:
             self._entry = self._ensure_metadata()
@@ -661,6 +668,7 @@ class DetailView(Gtk.Box):
 
     def _on_remove_confirmed(self) -> None:
         import shutil
+
         from cellar.backend import database
 
         if self._entry.platform == "linux":
@@ -684,7 +692,9 @@ class DetailView(Gtk.Box):
 
         # Capture runner and repo_source before clearing the record.
         removed_runner = self._installed_record.get("runner") if self._installed_record else None
-        removed_repo = self._installed_record.get("repo_source") if self._installed_record else None
+        removed_repo = (
+            self._installed_record.get("repo_source") if self._installed_record else None
+        )
 
         database.remove_installed(self._entry.id)
         from cellar.utils.desktop import remove_desktop_entry
@@ -695,7 +705,8 @@ class DetailView(Gtk.Box):
             remaining = database.get_all_installed()
 
             if removed_runner and not any(r.get("runner") == removed_runner for r in remaining):
-                from cellar.backend import runners as _runners, base_store
+                from cellar.backend import base_store
+                from cellar.backend import runners as _runners
                 try:
                     _runners.remove_runner(removed_runner)
                     base_store.remove_base(removed_runner)
@@ -1238,7 +1249,9 @@ class DetailView(Gtk.Box):
         if self._is_installed:
             stored_size = (self._installed_record or {}).get("install_size") or 0
             if stored_size:
-                _add(_simple_card("drive-harddisk-symbolic", _fmt_bytes(stored_size), "Install size")[0])
+                _add(_simple_card(
+                    "drive-harddisk-symbolic", _fmt_bytes(stored_size), "Install size",
+                )[0])
         else:
             if e.archive_size > 0:
                 # Use pre-resolved total when available.
@@ -1554,8 +1567,12 @@ class DetailView(Gtk.Box):
             _rp, _rr = runner_pill, runner_action_row
             _t, _app = total_pill, e.archive_size
 
-            def _on_resolved(installed: bool, base_sz: int, runner_installed: bool, runner_sz: int) -> None:
-                total = _app + (0 if installed else base_sz) + (0 if runner_installed else runner_sz)
+            def _on_resolved(
+                installed: bool, base_sz: int, runner_installed: bool, runner_sz: int
+            ) -> None:
+                total = (
+                    _app + (0 if installed else base_sz) + (0 if runner_installed else runner_sz)
+                )
                 _bp.set_label(_fmt_bytes(base_sz) if base_sz else "Unknown")
                 _br.set_subtitle(_base_status_subtitle(installed))
                 _rp.set_label(_fmt_bytes(runner_sz) if runner_sz else "Unknown")
@@ -1751,7 +1768,7 @@ class InstallProgressDialog(Adw.Dialog):
         *,
         entry: AppEntry,
         archive_uri: str,
-        on_success: Callable,  # (prefix_dir: str, install_path: str, runner: str, install_size: int) -> None
+        on_success: Callable,  # (prefix_dir, install_path, runner, install_size) -> None
         token: str | None = None,
         ssh_identity: str | None = None,
         base_entry=None,            # BaseEntry | None — for delta installs
@@ -1883,7 +1900,9 @@ class InstallProgressDialog(Adw.Dialog):
                 )
                 from cellar.utils.paths import dir_size_bytes as _dir_size
                 _install_size = _dir_size(install_dest)
-                GLib.idle_add(self._on_done, self._entry.id, str(install_dest.parent), "", _install_size)
+                GLib.idle_add(
+                    self._on_done, self._entry.id, str(install_dest.parent), "", _install_size,
+                )
             except InstallCancelled:
                 GLib.idle_add(self._on_cancelled)
             except Exception as exc:  # noqa: BLE001
@@ -1898,7 +1917,10 @@ class InstallProgressDialog(Adw.Dialog):
             GLib.source_remove(self._pulse_id)
             self._pulse_id = None
         self._phase_label.set_text(label)
-        if "Copying" in label or "Applying delta" in label or "Installing" in label or "Initialising" in label:
+        if (
+            "Copying" in label or "Applying delta" in label
+            or "Installing" in label or "Initialising" in label
+        ):
             # Indeterminate pulse for copytree / rsync delta / Linux copy
             self._progress_bar.set_fraction(0.0)
             self._progress_bar.set_show_text(False)
@@ -1913,7 +1935,9 @@ class InstallProgressDialog(Adw.Dialog):
         self._progress_bar.pulse()
         return True  # keep calling
 
-    def _on_done(self, prefix_dir: str, install_path: str = "", runner: str = "", install_size: int = 0) -> None:
+    def _on_done(
+        self, prefix_dir: str, install_path: str = "", runner: str = "", install_size: int = 0
+    ) -> None:
         self.close()
         self._on_success(prefix_dir, install_path, runner, install_size)
 

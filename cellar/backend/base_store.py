@@ -18,6 +18,7 @@ from typing import Callable
 
 from cellar.backend import database
 
+
 class BaseStoreError(Exception):
     """Raised when a base store operation fails."""
 
@@ -71,7 +72,10 @@ def install_base(
     """
     # Import lazily to avoid circular-import issues with installer.py.
     from cellar.backend.installer import (  # noqa: PLC0415
-        InstallCancelled, InstallError, _extract_archive, _find_top_dir,
+        InstallCancelled,
+        InstallError,
+        _extract_archive,
+        _find_top_dir,
     )
 
     archive_path = Path(archive_path)

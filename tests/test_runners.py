@@ -2,13 +2,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import Mock, patch
 
-import pytest
-
 import cellar.backend.runners as runners
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -87,8 +83,10 @@ def test_fetch_releases_skips_non_tarball_assets():
         "tag_name": "GE-Proton10-32",
         "name": "GE-Proton10-32",
         "assets": [
-            {"name": "GE-Proton10-32.tar.gz.sha512sum", "browser_download_url": "https://x/hash", "size": 200},
-            {"name": "GE-Proton10-32.tar.gz", "browser_download_url": "https://x/archive.tar.gz", "size": 999},
+            {"name": "GE-Proton10-32.tar.gz.sha512sum",
+             "browser_download_url": "https://x/hash", "size": 200},
+            {"name": "GE-Proton10-32.tar.gz",
+             "browser_download_url": "https://x/archive.tar.gz", "size": 999},
         ],
     }]
     with patch("requests.Session.get", _mock_get(api_data)):

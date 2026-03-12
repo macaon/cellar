@@ -34,3 +34,9 @@ line-length = 99
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I"]
+
+[tool.ruff.lint.per-file-ignores]
+# gi.require_version() must precede gi.repository imports — E402 is intentional
+"cellar/main.py" = ["E402"]
+"cellar/window.py" = ["E402"]
+"cellar/views/**" = ["E402"]

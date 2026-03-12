@@ -10,7 +10,6 @@ from PIL import Image
 
 from cellar.utils.images import load_and_crop, load_and_fit, optimize_image
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

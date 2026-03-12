@@ -155,6 +155,7 @@ class _SshFetcher:
 
     def _sftp(self):
         import contextlib
+
         from cellar.utils.ssh import _get_sftp, _return_sftp
 
         @contextlib.contextmanager
@@ -472,6 +473,7 @@ class Repo:
         added repo) so the real remote error propagates.
         """
         import dataclasses
+
         from cellar.backend.packager import BASE_CATEGORY_ICONS
 
         cache_path = self._catalogue_cache_path()
@@ -541,7 +543,10 @@ class Repo:
         for item in items:
             try:
                 e = AppEntry.from_dict(item)
-                icon = category_icons_raw.get(e.category) or BASE_CATEGORY_ICONS.get(e.category, "")
+                icon = (
+                    category_icons_raw.get(e.category)
+                    or BASE_CATEGORY_ICONS.get(e.category, "")
+                )
                 if icon:
                     e = dataclasses.replace(e, category_icon=icon)
                 entries.append(e)
@@ -597,6 +602,7 @@ class Repo:
         same way :meth:`fetch_catalogue` does.
         """
         import dataclasses
+
         from cellar.backend.packager import BASE_CATEGORY_ICONS
 
         rel_path = f"apps/{app_id}/metadata.json"

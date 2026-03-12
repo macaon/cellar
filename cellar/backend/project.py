@@ -45,7 +45,8 @@ class Project:
     steam_appid: int | None = None
     deps_installed: list[str] = field(default_factory=list)
     notes: str = ""
-    initialized: bool = False  # True once prefix has been initialized (Windows) or source_dir is set (Linux)
+    # True once prefix has been initialized (Windows) or source_dir is set (Linux)
+    initialized: bool = False
     origin_app_id: str = ""    # set when project was imported from a catalogue entry
     source_dir: str = ""       # Linux projects only: path to the pre-installed app directory
 
@@ -254,6 +255,7 @@ def create_project(
 def delete_project(slug: str) -> None:
     """Delete the project directory entirely."""
     import shutil
+
     from cellar.backend.umu import projects_dir
     p = projects_dir() / slug
     if p.exists():

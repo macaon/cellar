@@ -17,7 +17,8 @@ def natural_sort_key(s: str) -> list[tuple[int, int | str]]:
 
     >>> natural_sort_key("Game 2") < natural_sort_key("Game 10")
     True
-    >>> natural_sort_key("Kathy Rain: Director's Cut") < natural_sort_key("Kathy Rain 2: Soothsayer")
+    >>> k = natural_sort_key
+    >>> k("Kathy Rain: Director's Cut") < k("Kathy Rain 2: Soothsayer")
     True
     """
     result: list[tuple[int, int | str]] = []

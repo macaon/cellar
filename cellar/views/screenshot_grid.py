@@ -65,7 +65,7 @@ class ScreenshotGridWidget(Gtk.Box):
         grid.open_file_chooser()                   # trigger file picker from external button
 
         # On save:
-        items = grid.get_items()                   # included items (selected local + selected steam)
+        items = grid.get_items()           # included items (selected local + selected steam)
         excluded = grid.get_excluded_local_items() # local items unchecked by user
     """
 

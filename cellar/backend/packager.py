@@ -13,6 +13,7 @@ import re
 import shutil
 import sys
 import tarfile
+import tempfile
 import time
 import zlib
 from dataclasses import replace
@@ -23,9 +24,6 @@ from typing import Callable
 
 from cellar.utils.images import content_hash as _content_hash
 from cellar.utils.images import optimize_image as _optimize_image
-
-
-import tempfile
 
 
 def _output_ext(src: str, role: str) -> str:
@@ -222,7 +220,10 @@ class _ChunkWriter:
         # rather than resetting to zero each time a new chunk starts.
         if self._bytes_cb:
             prior = self._total_written
-            cb = lambda n, _p=prior, _b=self._bytes_cb: _b(_p + n)
+            _b = self._bytes_cb
+
+            def cb(n: int, _p: int = prior) -> None:
+                _b(_p + n)
         else:
             cb = None
         self._crc_writer = _CRCWriter(self._fp, bytes_cb=cb)
@@ -570,6 +571,7 @@ def compress_prefix_delta_zst(
     """
     import hashlib
     import io
+
     import zstandard as zstd  # noqa: PLC0415
 
     dest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -637,7 +639,6 @@ def compress_prefix_delta_zst(
     if phase_cb:
         phase_cb("Compressing and uploading\u2026")
 
-    delta_uncompressed = sum(src.stat().st_size for src, _ in delta_files)
     total_pack = len(delta_files)
     done = [0]
     done_bytes = [0]
@@ -1189,7 +1190,9 @@ def remove_runner(repo_root: Path, runner_name: str) -> None:
             except OSError:
                 pass
 
-    _write_catalogue(cat_path, apps, categories, runners if runners else None, bases, category_icons)
+    _write_catalogue(
+        cat_path, apps, categories, runners if runners else None, bases, category_icons
+    )
 
 
 def create_delta_archive(

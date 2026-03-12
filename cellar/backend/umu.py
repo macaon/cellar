@@ -94,15 +94,16 @@ def build_env(
     *,
     prefix_dir: Path | None = None,
 ) -> dict[str, str]:
-    """Return the environment variables dict for a umu invocation."""
+    """Return the environment variables dict for a umu / proton invocation."""
     gameid = f"umu-{steam_appid}" if steam_appid else "0"
     wineprefix = prefix_dir if prefix_dir is not None else prefixes_dir() / app_id
-    return {
+    env = {
         **_umu_data_env(),
         "WINEPREFIX": str(wineprefix),
         "PROTONPATH": str(runners_dir() / runner_name),
         "GAMEID": gameid,
     }
+    return env
 
 
 def _umu_cmd() -> list[str]:
@@ -140,13 +141,12 @@ def launch_app(
     import shlex
     umu_env = build_env(app_id, runner_name, steam_appid, prefix_dir=prefix_dir)
     env = {**os.environ, **umu_env, **(extra_env or {})}
-    # Pass exe as positional arg — the primary documented umu-run form.
     cmd = _umu_cmd() + [entry_point]
     if launch_args:
         cmd += shlex.split(launch_args)
     log.info(
-        "Launching app %s: %s\n  WINEPREFIX=%s\n  PROTONPATH=%s\n  GAMEID=%s\n  EXE=%s%s",
-        app_id, " ".join(cmd[:-1]),
+        "Launching app %s via umu-run\n  WINEPREFIX=%s\n  PROTONPATH=%s\n  GAMEID=%s\n  EXE=%s%s",
+        app_id,
         umu_env["WINEPREFIX"], umu_env["PROTONPATH"], umu_env["GAMEID"], entry_point,
         ("\n  EXTRA_ENV=" + " ".join(f"{k}={v}" for k, v in extra_env.items())) if extra_env else "",
     )
@@ -184,9 +184,9 @@ def launch_app_monitored(
     if launch_args:
         cmd += shlex.split(launch_args)
     log.info(
-        "Launching app (monitored) %s: %s"
+        "Launching app (monitored) %s via umu-run"
         "\n  WINEPREFIX=%s\n  PROTONPATH=%s\n  GAMEID=%s\n  EXE=%s%s",
-        app_id, " ".join(cmd[:-1]),
+        app_id,
         umu_env["WINEPREFIX"], umu_env["PROTONPATH"], umu_env["GAMEID"], entry_point,
         ("\n  EXTRA_ENV=" + " ".join(f"{k}={v}" for k, v in extra_env.items())) if extra_env else "",
     )

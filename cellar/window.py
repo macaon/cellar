@@ -696,6 +696,10 @@ class CellarWindow(Adw.ApplicationWindow):
                 # cache wipe would race with (and delete) the freshly downloaded
                 # screenshot files.
                 self._load_catalogue()
+                # Re-query installed state — the closure's original rec/is_installed
+                # are stale after the catalogue was rewritten.
+                fresh_rec = _reconcile_installed_record(updated_entry)
+                fresh_installed = fresh_rec is not None
                 current_page = self.nav_view.get_visible_page()
                 log.debug("_on_edit_done: current_page=%r", current_page)
                 if current_page is not None:
@@ -707,8 +711,8 @@ class CellarWindow(Adw.ApplicationWindow):
                         source_repos=repos_for_detail,
                         is_writable=can_write,
                         on_edit=_on_edit if can_write else None,
-                        is_installed=is_installed,
-                        installed_record=rec,
+                        is_installed=fresh_installed,
+                        installed_record=fresh_rec,
                         on_install_done=_on_install_done,
                         on_remove_done=_on_remove_done,
                         on_update_done=_on_update_done,

@@ -361,6 +361,8 @@ class RepoContext(_SaveContext):
             "description": e.description or "",
             "update_strategy": e.update_strategy or "safe",
             "launch_targets": [dict(t) for t in e.launch_targets],
+            "dxvk": e.dxvk,
+            "vkd3d": e.vkd3d,
             "debug": e.debug,
             "direct_proton": e.direct_proton,
         }
@@ -466,6 +468,8 @@ class RepoContext(_SaveContext):
         )
         strategy = fields.get("update_strategy", "safe")
         launch_targets = tuple(fields.get("launch_targets", []))
+        dxvk = bool(fields.get("dxvk", True))
+        vkd3d = bool(fields.get("vkd3d", True))
         debug = bool(fields.get("debug", False))
         direct_proton = bool(fields.get("direct_proton", False))
         hide_title = bool(images.get("hide_title", e.hide_title))
@@ -521,6 +525,8 @@ class RepoContext(_SaveContext):
             update_strategy=strategy,
             launch_targets=launch_targets,
             steam_appid=steam_appid,
+            dxvk=dxvk,
+            vkd3d=vkd3d,
             debug=debug,
             direct_proton=direct_proton,
         )
@@ -715,6 +721,8 @@ class MetadataEditorDialog(Adw.Dialog):
             strategy = fields.get("update_strategy", "safe")
             if strategy in _STRATEGIES:
                 self._strategy_row.set_selected(_STRATEGIES.index(strategy))
+            self._dxvk_row.set_active(bool(fields.get("dxvk", True)))
+            self._vkd3d_row.set_active(bool(fields.get("vkd3d", True)))
             self._debug_row.set_active(bool(fields.get("debug", False)))
             self._direct_proton_row.set_active(bool(fields.get("direct_proton", False)))
 
@@ -897,6 +905,20 @@ class MetadataEditorDialog(Adw.Dialog):
             self._strategy_row.set_model(strat_model)
             launch_group.add(self._strategy_row)
 
+            self._dxvk_row = Adw.SwitchRow(
+                title="DXVK",
+                subtitle="Translate D3D9/10/11 to Vulkan",
+            )
+            self._dxvk_row.set_active(True)
+            launch_group.add(self._dxvk_row)
+
+            self._vkd3d_row = Adw.SwitchRow(
+                title="VKD3D-Proton",
+                subtitle="Translate D3D12 to Vulkan",
+            )
+            self._vkd3d_row.set_active(True)
+            launch_group.add(self._vkd3d_row)
+
             self._debug_row = Adw.SwitchRow(
                 title="Proton Debug Logging",
                 subtitle="Enable PROTON_LOG=1 when launching",
@@ -991,6 +1013,8 @@ class MetadataEditorDialog(Adw.Dialog):
         if ctx.show_launch_settings:
             fields["launch_targets"] = list(self._launch_targets)
             fields["update_strategy"] = _STRATEGIES[self._strategy_row.get_selected()]
+            fields["dxvk"] = self._dxvk_row.get_active()
+            fields["vkd3d"] = self._vkd3d_row.get_active()
             fields["debug"] = self._debug_row.get_active()
             fields["direct_proton"] = self._direct_proton_row.get_active()
 

@@ -549,6 +549,10 @@ class DetailView(Gtk.Box):
                 runner_name = base_entry.runner
 
         extra_env = _parse_launch_env(target.get("env", ""))
+        from cellar.backend.umu import dll_overrides  # noqa: PLC0415
+        overrides = dll_overrides(dxvk=self._entry.dxvk, vkd3d=self._entry.vkd3d)
+        if overrides:
+            extra_env["WINEDLLOVERRIDES"] = overrides
         if self._entry.debug:
             extra_env["PROTON_LOG"] = "1"
 

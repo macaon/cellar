@@ -181,6 +181,10 @@ class AppEntry:
     compatibility_notes: str = ""
     changelog: str = ""
     lock_runner: bool = False
+    # DXVK translates D3D9/10/11 → Vulkan; VKD3D translates D3D12 → Vulkan.
+    # Both are shipped by GE-Proton — these flags control DLL overrides only.
+    dxvk: bool = True
+    vkd3d: bool = True
     debug: bool = False
     direct_proton: bool = False
 
@@ -250,6 +254,8 @@ class AppEntry:
             compatibility_notes=data.get("compatibility_notes", ""),
             changelog=data.get("changelog", ""),
             lock_runner=bool(data.get("lock_runner", False)),
+            dxvk=bool(data.get("dxvk", True)),
+            vkd3d=bool(data.get("vkd3d", True)),
             debug=bool(data.get("debug", False)),
             direct_proton=bool(data.get("direct_proton", False)),
         )
@@ -334,6 +340,10 @@ class AppEntry:
         _opt_str(d, "changelog", self.changelog)
         if self.lock_runner:
             d["lock_runner"] = True
+        if not self.dxvk:
+            d["dxvk"] = False
+        if not self.vkd3d:
+            d["vkd3d"] = False
         if self.debug:
             d["debug"] = True
         if self.direct_proton:

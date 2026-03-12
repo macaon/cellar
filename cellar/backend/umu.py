@@ -88,6 +88,23 @@ def is_runtime_ready() -> bool:
     return (data_dir().parent / "umu" / "steamrt3").is_dir()
 
 
+def dll_overrides(*, dxvk: bool = True, vkd3d: bool = True) -> str:
+    """Build a ``WINEDLLOVERRIDES`` value for DXVK and/or VKD3D.
+
+    GE-Proton ships both DXVK and VKD3D DLLs inside every prefix, but
+    Wine needs explicit overrides to prefer them over its built-in
+    implementations.  Returns an empty string if both are disabled.
+    """
+    parts: list[str] = []
+    if dxvk:
+        parts.extend(f"{d}=n,b" for d in (
+            "d3d8", "d3d9", "d3d10core", "d3d11", "dxgi",
+        ))
+    if vkd3d:
+        parts.extend(f"{d}=n,b" for d in ("d3d12", "d3d12core"))
+    return ";".join(parts)
+
+
 def build_env(
     app_id: str,
     runner_name: str,

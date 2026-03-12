@@ -549,6 +549,8 @@ class DetailView(Gtk.Box):
                 runner_name = base_entry.runner
 
         extra_env = _parse_launch_env(target.get("env", ""))
+        if self._entry.debug:
+            extra_env["PROTON_LOG"] = "1"
 
         progress = ProgressDialog(label="Launching\u2026")
         progress.set_can_close(True)

@@ -181,6 +181,7 @@ class AppEntry:
     compatibility_notes: str = ""
     changelog: str = ""
     lock_runner: bool = False
+    debug: bool = False
 
     # ------------------------------------------------------------------
     # Convenience accessors (primary = first target)
@@ -248,6 +249,7 @@ class AppEntry:
             compatibility_notes=data.get("compatibility_notes", ""),
             changelog=data.get("changelog", ""),
             lock_runner=bool(data.get("lock_runner", False)),
+            debug=bool(data.get("debug", False)),
         )
 
     def to_index_dict(self) -> dict:
@@ -330,6 +332,8 @@ class AppEntry:
         _opt_str(d, "changelog", self.changelog)
         if self.lock_runner:
             d["lock_runner"] = True
+        if self.debug:
+            d["debug"] = True
         return d
 
 

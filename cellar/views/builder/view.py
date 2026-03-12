@@ -2007,23 +2007,14 @@ class PackageBuilderView(Adw.Bin):
         progress.present(self)
 
         from cellar.utils.progress import fmt_size
-        from cellar.utils.progress import trunc_middle as _trunc
-        _current_file: list[str] = [""]
-
-        def _file_cb(name: str) -> None:
-            _current_file[0] = name
-            GLib.idle_add(progress.set_stats, _trunc(name, 40))
 
         def _bytes_cb(n: int) -> None:
-            name = _current_file[0]
-            text = (_trunc(name, 28) + " \u2022 " if name else "") + fmt_size(n) + " written"
-            GLib.idle_add(progress.set_stats, text)
+            GLib.idle_add(progress.set_stats, fmt_size(n) + " written")
 
         def _reset_phase(label: str) -> None:
-            _current_file[0] = ""
             GLib.idle_add(progress.set_label, label)
             GLib.idle_add(progress.set_stats, "")
-            GLib.idle_add(progress.set_fraction, 0.0)
+            GLib.idle_add(progress.start_pulse)
 
         all_repos = list(self._all_repos)
 
@@ -2095,8 +2086,6 @@ class PackageBuilderView(Adw.Bin):
                         _src_path,
                         archive_dest,
                         cancel_event=cancel_event,
-                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                        file_cb=_file_cb,
                         bytes_cb=_bytes_cb,
                     )
                     base_image = ""
@@ -2114,8 +2103,6 @@ class PackageBuilderView(Adw.Bin):
                         archive_dest,
                         cancel_event=cancel_event,
                         phase_cb=_reset_phase,
-                        progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                        file_cb=_file_cb,
                         bytes_cb=_bytes_cb,
                     )
                     base_image = project.runner
@@ -2180,8 +2167,6 @@ class PackageBuilderView(Adw.Bin):
                                 _runner_src,
                                 _runner_dest,
                                 cancel_event=cancel_event,
-                                progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                                file_cb=_file_cb,
                                 bytes_cb=_bytes_cb,
                             )
                         except CancelledError:
@@ -2203,8 +2188,6 @@ class PackageBuilderView(Adw.Bin):
                             base_path(base_image),
                             _base_dest,
                             cancel_event=cancel_event,
-                            progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                            file_cb=_file_cb,
                             bytes_cb=_bytes_cb,
                         )
                     except CancelledError:
@@ -2285,17 +2268,9 @@ class PackageBuilderView(Adw.Bin):
         progress.present(self)
 
         from cellar.utils.progress import fmt_size
-        from cellar.utils.progress import trunc_middle as _trunc
-        _current_file: list[str] = [""]
-
-        def _file_cb(name: str) -> None:
-            _current_file[0] = name
-            GLib.idle_add(progress.set_stats, _trunc(name, 40))
 
         def _bytes_cb(n: int) -> None:
-            name = _current_file[0]
-            text = (_trunc(name, 28) + " \u2022 " if name else "") + fmt_size(n) + " written"
-            GLib.idle_add(progress.set_stats, text)
+            GLib.idle_add(progress.set_stats, fmt_size(n) + " written")
 
         base_name = project.name
 
@@ -2322,20 +2297,18 @@ class PackageBuilderView(Adw.Bin):
                 runner_archive_dest.parent.mkdir(parents=True, exist_ok=True)
 
                 GLib.idle_add(progress.set_label, "Compressing and uploading runner\u2026")
-                GLib.idle_add(progress.set_fraction, 0.0)
+                GLib.idle_add(progress.set_stats, "")
                 _partial_files.append(runner_archive_dest)
                 runner_size, runner_crc32, runner_chunks = compress_runner_zst(
                     runner_src,
                     runner_archive_dest,
                     cancel_event=cancel_event,
-                    progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                    file_cb=_file_cb,
                     bytes_cb=_bytes_cb,
                 )
 
                 # ── Compress and upload the base image ────────────────────
                 GLib.idle_add(progress.set_label, "Compressing and uploading base image\u2026")
-                GLib.idle_add(progress.set_fraction, 0.0)
+                GLib.idle_add(progress.set_stats, "")
                 archive_dest_rel = f"bases/{base_name}-base.tar.zst"
                 archive_dest = repo_root / archive_dest_rel
                 archive_dest.parent.mkdir(parents=True, exist_ok=True)
@@ -2345,8 +2318,6 @@ class PackageBuilderView(Adw.Bin):
                     project.content_path,
                     archive_dest,
                     cancel_event=cancel_event,
-                    progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                    file_cb=_file_cb,
                     bytes_cb=_bytes_cb,
                 )
             except CancelledError:
@@ -2371,12 +2342,11 @@ class PackageBuilderView(Adw.Bin):
             )
 
             GLib.idle_add(progress.set_label, "Installing base locally\u2026")
-            GLib.idle_add(progress.set_fraction, 0.0)
+            GLib.idle_add(progress.set_stats, "")
             install_base_from_dir(
                 project.content_path,
                 base_name,
                 repo_source=repo.uri,
-                progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
             )
 
         def _done(_result) -> None:

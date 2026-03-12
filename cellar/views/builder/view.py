@@ -1630,7 +1630,11 @@ class PackageBuilderView(Adw.Bin):
             candidates = find_exe_files(dest)
             if candidates and not project.entry_points:
                 project.entry_points = [
-                    {"name": c.name, "path": f"C:\\{src.name}\\{c.relative_to(dest)}".replace("/", "\\")}
+                    {
+                        "name": c.name,
+                        "path": f"C:\\{src.name}\\{c.relative_to(dest)}"
+                               .replace("/", "\\"),
+                    }
                     for c in candidates[:5]
                 ]
             project.source_dir = ""  # clear — data is now in the prefix

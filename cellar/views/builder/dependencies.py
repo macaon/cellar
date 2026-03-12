@@ -99,10 +99,6 @@ _VERB_CATALOGUE: list[tuple[str, list[tuple[str, str]]]] = [
         ("xna31", "Microsoft XNA Framework 3.1"),
         ("xna40", "Microsoft XNA Framework 4.0"),
     ]),
-    ("Wine Components", [
-        ("mono",  "Wine Mono (.NET compatibility layer)"),
-        ("gecko", "Wine Gecko (HTML/Internet Explorer engine)"),
-    ]),
 ]
 
 

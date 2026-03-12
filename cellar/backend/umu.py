@@ -332,7 +332,7 @@ def _install_mono(
     for child in mono_dir.iterdir():
         msi = child / "support" / "winemono-support.msi"
         if msi.is_file():
-            wine_path = f"Z:{msi}"
+            wine_path = "Z:" + str(msi).replace("/", "\\")
             cmd = _umu_cmd() + ["msiexec", "/i", wine_path, "/qn"]
             log.info("Installing Wine Mono from %s", msi)
             subprocess.run(cmd, env=env, timeout=timeout, capture_output=False)

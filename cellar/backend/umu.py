@@ -194,6 +194,10 @@ def launch_app_monitored(
         wineprefix = prefix_dir if prefix_dir is not None else prefixes_dir() / app_id
         env["STEAM_COMPAT_DATA_PATH"] = str(wineprefix)
         env["STEAM_COMPAT_CLIENT_INSTALL_PATH"] = str(proton_dir)
+        # Proton script reads SteamGameId / SteamAppId, not GAMEID.
+        appid_str = str(steam_appid) if steam_appid else "0"
+        env["SteamGameId"] = appid_str
+        env["SteamAppId"] = appid_str
         cmd = [sys.executable, str(proton_script), "run", entry_point]
     else:
         cmd = _umu_cmd() + [entry_point]

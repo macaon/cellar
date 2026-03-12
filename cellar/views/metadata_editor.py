@@ -362,6 +362,7 @@ class RepoContext(_SaveContext):
             "update_strategy": e.update_strategy or "safe",
             "launch_targets": [dict(t) for t in e.launch_targets],
             "debug": e.debug,
+            "direct_proton": e.direct_proton,
         }
 
     def populate_media(self, media: "MediaPanel") -> None:
@@ -466,6 +467,7 @@ class RepoContext(_SaveContext):
         strategy = fields.get("update_strategy", "safe")
         launch_targets = tuple(fields.get("launch_targets", []))
         debug = bool(fields.get("debug", False))
+        direct_proton = bool(fields.get("direct_proton", False))
         hide_title = bool(images.get("hide_title", e.hide_title))
 
         icon_path = images.get("icon")    # None=keep, ""=clear, str=new
@@ -520,6 +522,7 @@ class RepoContext(_SaveContext):
             launch_targets=launch_targets,
             steam_appid=steam_appid,
             debug=debug,
+            direct_proton=direct_proton,
         )
 
         repo_images = {
@@ -713,6 +716,7 @@ class MetadataEditorDialog(Adw.Dialog):
             if strategy in _STRATEGIES:
                 self._strategy_row.set_selected(_STRATEGIES.index(strategy))
             self._debug_row.set_active(bool(fields.get("debug", False)))
+            self._direct_proton_row.set_active(bool(fields.get("direct_proton", False)))
 
         # Wire steam appid → media panel
         self._steam_row.connect("changed", self._on_steam_appid_changed)
@@ -899,6 +903,12 @@ class MetadataEditorDialog(Adw.Dialog):
             )
             launch_group.add(self._debug_row)
 
+            self._direct_proton_row = Adw.SwitchRow(
+                title="Direct Proton Launch",
+                subtitle="Bypass umu-run and call Proton directly",
+            )
+            launch_group.add(self._direct_proton_row)
+
             add_target_row = Adw.ActionRow(title="Add Launch Target\u2026")
             add_btn = Gtk.Button(label="Add\u2026", valign=Gtk.Align.CENTER)
             add_btn.add_css_class("flat")
@@ -982,6 +992,7 @@ class MetadataEditorDialog(Adw.Dialog):
             fields["launch_targets"] = list(self._launch_targets)
             fields["update_strategy"] = _STRATEGIES[self._strategy_row.get_selected()]
             fields["debug"] = self._debug_row.get_active()
+            fields["direct_proton"] = self._direct_proton_row.get_active()
 
         return fields
 

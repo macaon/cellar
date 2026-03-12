@@ -586,6 +586,7 @@ class DetailView(Gtk.Box):
                     launch_args=entry_args,
                     extra_env=extra_env or None,
                     line_cb=_on_line,
+                    direct_proton=self._entry.direct_proton,
                 )
             except Exception as exc:
                 log.warning("Launch failed: %s", exc)

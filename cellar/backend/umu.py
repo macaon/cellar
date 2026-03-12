@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import subprocess
+import sys
 from pathlib import Path
 from typing import Callable
 
@@ -163,6 +164,7 @@ def launch_app_monitored(
     launch_args: str = "",
     extra_env: dict[str, str] | None = None,
     line_cb: Callable[[str], None] | None = None,
+    direct_proton: bool = False,
 ) -> None:
     """Launch *entry_point* like :func:`launch_app`, but capture stderr.
 
@@ -174,19 +176,33 @@ def launch_app_monitored(
 
     *extra_env* is merged on top of the umu environment, useful for per-app
     Proton tweaks such as ``PROTON_USE_WINED3D=1``.
+
+    If *direct_proton* is True, bypass umu-run and call the Proton ``proton``
+    script directly via ``python3 proton run <exe>``.  This sets
+    ``STEAM_COMPAT_DATA_PATH`` (pointing to the prefix) and
+    ``STEAM_COMPAT_CLIENT_INSTALL_PATH`` as Proton expects.  Useful for
+    debugging launch issues that might be caused by umu-launcher.
     """
     import os
     import shlex
     import time
     umu_env = build_env(app_id, runner_name, steam_appid, prefix_dir=prefix_dir)
     env = {**os.environ, **umu_env, **(extra_env or {})}
-    cmd = _umu_cmd() + [entry_point]
+    if direct_proton:
+        proton_dir = runners_dir() / runner_name
+        proton_script = proton_dir / "proton"
+        wineprefix = prefix_dir if prefix_dir is not None else prefixes_dir() / app_id
+        env["STEAM_COMPAT_DATA_PATH"] = str(wineprefix)
+        env["STEAM_COMPAT_CLIENT_INSTALL_PATH"] = str(proton_dir)
+        cmd = [sys.executable, str(proton_script), "run", entry_point]
+    else:
+        cmd = _umu_cmd() + [entry_point]
     if launch_args:
         cmd += shlex.split(launch_args)
     log.info(
-        "Launching app (monitored) %s via umu-run"
+        "Launching app (monitored) %s via %s"
         "\n  WINEPREFIX=%s\n  PROTONPATH=%s\n  GAMEID=%s\n  EXE=%s%s",
-        app_id,
+        app_id, "proton direct" if direct_proton else "umu-run",
         umu_env["WINEPREFIX"], umu_env["PROTONPATH"], umu_env["GAMEID"], entry_point,
         ("\n  EXTRA_ENV=" + " ".join(f"{k}={v}" for k, v in extra_env.items())) if extra_env else "",
     )

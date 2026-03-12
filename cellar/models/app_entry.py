@@ -182,6 +182,7 @@ class AppEntry:
     changelog: str = ""
     lock_runner: bool = False
     debug: bool = False
+    direct_proton: bool = False
 
     # ------------------------------------------------------------------
     # Convenience accessors (primary = first target)
@@ -250,6 +251,7 @@ class AppEntry:
             changelog=data.get("changelog", ""),
             lock_runner=bool(data.get("lock_runner", False)),
             debug=bool(data.get("debug", False)),
+            direct_proton=bool(data.get("direct_proton", False)),
         )
 
     def to_index_dict(self) -> dict:
@@ -334,6 +336,8 @@ class AppEntry:
             d["lock_runner"] = True
         if self.debug:
             d["debug"] = True
+        if self.direct_proton:
+            d["direct_proton"] = True
         return d
 
 

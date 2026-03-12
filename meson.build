@@ -1,5 +1,5 @@
 project('cellar',
-  version: '0.55.1',
+  version: '0.58.0',
   meson_version: '>= 1.0.0',
   license: 'GPL-3.0-or-later',
 )

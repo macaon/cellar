@@ -1,9 +1,6 @@
 """Tests for cellar.backend.detect."""
 from __future__ import annotations
 
-import os
-import stat
-import struct
 from pathlib import Path
 
 import pytest
@@ -18,7 +15,6 @@ from cellar.backend.detect import (
     parse_version_hint,
     unsupported_reason,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -178,6 +174,8 @@ class TestParseAppName:
             ("game_1.2.3_build456.exe", "Game"),
             # GOG prefix variant
             ("gog_witcher_3_1.31.exe", "Witcher 3"),
+            # GoG bare version + parenthesised build ID
+            ("setup_wingspan_295_(88309).exe", "Wingspan"),
         ],
     )
     def test_parse(self, tmp_path, filename, expected):

@@ -29,8 +29,9 @@ _STRIP_PREFIX_RE = re.compile(
 # Trailing version / build / hash / GoG-id noise.
 #
 # Strategy: the chain must START with a "significant" token (semver, hex hash,
-# parenthesised number, build tag, or v-tag).  After that first anchor token,
-# bare 4+ digit numbers (e.g. GoG build IDs like 4055) are also allowed.
+# parenthesised number, build tag, v-tag, or bare number preceding a
+# parenthesised number).  After that first anchor token, bare 4+ digit
+# numbers (e.g. GoG build IDs like 4055) are also allowed.
 # This prevents stripping meaningful subtitle numbers like "2077" in
 # "Cyberpunk 2077" when they appear alone without a preceding semver/hash.
 _NOISE_SIG = (
@@ -40,6 +41,7 @@ _NOISE_SIG = (
     r"|\(\d+\)"             # (89220) parenthesised number
     r"|build\d+"            # build1234
     r"|v\d[\d.]*"           # v2, v1.0
+    r"|\d+(?=[_\-]\(\d+\))" # bare number preceding (NNN) — GoG version+build
     r")"
 )
 _NOISE_ANY = (

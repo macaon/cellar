@@ -1913,7 +1913,11 @@ class PackageBuilderView(Adw.Bin):
             what = "a base image" if project.project_type == "app" else "a runner"
             self._show_toast(f"Select {what} before test launching.")
             return
-        from cellar.backend.umu import launch_app
+        from cellar.backend.umu import dll_overrides, launch_app
+        extra_env: dict[str, str] = {}
+        overrides = dll_overrides()
+        if overrides:
+            extra_env["WINEDLLOVERRIDES"] = overrides
         launch_app(
             app_id=f"project-{project.slug}",
             entry_point=entry_path,
@@ -1921,6 +1925,7 @@ class PackageBuilderView(Adw.Bin):
             steam_appid=project.steam_appid,
             prefix_dir=project.content_path,
             launch_args=entry_args,
+            extra_env=extra_env or None,
         )
 
     def _on_publish_app_clicked(self, _btn) -> None:

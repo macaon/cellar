@@ -89,11 +89,13 @@ def is_runtime_ready() -> bool:
 
 
 def dll_overrides(*, dxvk: bool = True, vkd3d: bool = True) -> str:
-    """Build a ``WINEDLLOVERRIDES`` value for DXVK and/or VKD3D.
+    """Build a ``WINEDLLOVERRIDES`` value for DXVK, VKD3D, and Mono.
 
-    GE-Proton ships both DXVK and VKD3D DLLs inside every prefix, but
-    Wine needs explicit overrides to prefer them over its built-in
-    implementations.  Returns an empty string if both are disabled.
+    GE-Proton ships DXVK, VKD3D, and Wine Mono inside every prefix, but
+    Wine needs explicit overrides to prefer native DLLs over its built-in
+    implementations.  ``mscoree`` (the .NET/Mono CLR host) is always
+    included when any override is active.  Returns an empty string if
+    both DXVK and VKD3D are disabled.
     """
     parts: list[str] = []
     if dxvk:
@@ -102,6 +104,8 @@ def dll_overrides(*, dxvk: bool = True, vkd3d: bool = True) -> str:
         ))
     if vkd3d:
         parts.extend(f"{d}=n,b" for d in ("d3d12", "d3d12core"))
+    if parts:
+        parts.append("mscoree=n,b")
     return ";".join(parts)
 
 
@@ -289,7 +293,33 @@ def init_prefix(
         result.returncode,
         (prefix_path / "drive_c").is_dir(),
     )
+    # Install Wine Mono if bundled with the runner.  GE-Proton ships Mono at
+    # share/wine/mono/<version>/support/winemono-support.msi but umu-run ""
+    # doesn't trigger the automatic install.
+    if (prefix_path / "drive_c").is_dir():
+        _install_mono(prefix_path, runner_name, env, timeout)
     return result
+
+
+def _install_mono(
+    prefix_path: Path,
+    runner_name: str,
+    env: dict[str, str],
+    timeout: int,
+) -> None:
+    """Install Wine Mono into the prefix from the runner's bundled MSI."""
+    mono_dir = runners_dir() / runner_name / "files" / "share" / "wine" / "mono"
+    if not mono_dir.is_dir():
+        return
+    # Find the support MSI inside the versioned mono directory.
+    for child in mono_dir.iterdir():
+        msi = child / "support" / "winemono-support.msi"
+        if msi.is_file():
+            wine_path = f"Z:{msi}"
+            cmd = _umu_cmd() + ["msiexec", "/i", wine_path, "/qn"]
+            log.info("Installing Wine Mono from %s", msi)
+            subprocess.run(cmd, env=env, timeout=timeout, capture_output=False)
+            return
 
 
 def run_winetricks(

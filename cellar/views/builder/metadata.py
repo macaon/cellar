@@ -296,6 +296,11 @@ class AppMetadataDialog(Adw.Dialog):
         grid = self._media.screenshot_grid
         items = grid.get_items()
         p.screenshot_paths = [i.local_path for i in items if i.local_path]
+        p.screenshot_sources = {
+            i.local_path: i.source_url
+            for i in items
+            if i.local_path and i.source_url
+        }
         all_steam = grid.get_all_steam_items()
         p.steam_screenshots = [
             {"full": i.full_url, "thumbnail": i.thumb_url or ""}

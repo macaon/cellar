@@ -2006,12 +2006,29 @@ class PackageBuilderView(Adw.Bin):
         )
         progress.present(self)
 
+        import time
         from cellar.utils.progress import fmt_size
 
+        _prev: list[tuple[float, int]] = []  # (time, bytes)
+
         def _bytes_cb(n: int) -> None:
-            GLib.idle_add(progress.set_stats, fmt_size(n) + " written")
+            now = time.monotonic()
+            _prev.append((now, n))
+            # sliding 2-second window for smoothed speed
+            cutoff = now - 2.0
+            while _prev and _prev[0][0] < cutoff:
+                _prev.pop(0)
+            if len(_prev) >= 2:
+                dt = _prev[-1][0] - _prev[0][0]
+                db = _prev[-1][1] - _prev[0][1]
+                speed = db / dt if dt > 0 else 0
+                spd = f" ({fmt_size(int(speed))}/s)" if speed > 0 else ""
+            else:
+                spd = ""
+            GLib.idle_add(progress.set_stats, fmt_size(n) + " written" + spd)
 
         def _reset_phase(label: str) -> None:
+            _prev.clear()
             GLib.idle_add(progress.set_label, label)
             GLib.idle_add(progress.set_stats, "")
             GLib.idle_add(progress.start_pulse)
@@ -2267,10 +2284,25 @@ class PackageBuilderView(Adw.Bin):
         )
         progress.present(self)
 
+        import time
         from cellar.utils.progress import fmt_size
 
+        _prevb: list[tuple[float, int]] = []
+
         def _bytes_cb(n: int) -> None:
-            GLib.idle_add(progress.set_stats, fmt_size(n) + " written")
+            now = time.monotonic()
+            _prevb.append((now, n))
+            cutoff = now - 2.0
+            while _prevb and _prevb[0][0] < cutoff:
+                _prevb.pop(0)
+            if len(_prevb) >= 2:
+                dt = _prevb[-1][0] - _prevb[0][0]
+                db = _prevb[-1][1] - _prevb[0][1]
+                speed = db / dt if dt > 0 else 0
+                spd = f" ({fmt_size(int(speed))}/s)" if speed > 0 else ""
+            else:
+                spd = ""
+            GLib.idle_add(progress.set_stats, fmt_size(n) + " written" + spd)
 
         base_name = project.name
 

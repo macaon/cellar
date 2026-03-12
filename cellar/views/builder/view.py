@@ -914,12 +914,6 @@ class PackageBuilderView(Adw.Bin):
                 run_btn.add_css_class("suggested-action")
                 run_btn.connect("clicked", self._on_launch_prefilled_installer)
                 run_installer_row.add_suffix(run_btn)
-                clear_btn = Gtk.Button(icon_name="edit-clear-symbolic")
-                clear_btn.set_valign(Gtk.Align.CENTER)
-                clear_btn.add_css_class("flat")
-                clear_btn.set_tooltip_text("Clear pre-filled installer")
-                clear_btn.connect("clicked", self._on_clear_installer_path)
-                run_installer_row.add_suffix(clear_btn)
             else:
                 run_installer_row.set_subtitle("Run an installer inside the prefix")
                 run_btn = Gtk.Button(label="Choose\u2026")
@@ -1589,20 +1583,21 @@ class PackageBuilderView(Adw.Bin):
             return
         project = self._project
         exe_path = project.installer_path
+
+        def _on_installer_done(ok: bool) -> None:
+            log.info("Installer exited ok=%s", ok)
+            # Revert to normal "Choose…" button so user can run DLC/patches
+            project.installer_path = ""
+            save_project(project)
+            if self._project is project:
+                self._show_project(project)
+
         self._run_in_prefix_with_progress(
             project,
             exe=exe_path,
             label=f"Running {Path(exe_path).name}\u2026",
-            on_done=lambda ok: log.info("Installer exited ok=%s", ok),
+            on_done=_on_installer_done,
         )
-
-    def _on_clear_installer_path(self, _btn) -> None:
-        """Clear the pre-filled installer path and refresh the detail panel."""
-        if self._project is None:
-            return
-        self._project.installer_path = ""
-        save_project(self._project)
-        self._show_project(self._project)
 
     def _on_import_folder_to_prefix(self, _btn) -> None:
         """Copy a Windows folder into the prefix's drive_c (smart import)."""

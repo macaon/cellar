@@ -41,7 +41,7 @@ from cellar.backend.project import (
     save_project,
 )
 from cellar.views.builder.dependencies import DependencyPickerDialog
-from cellar.views.builder.metadata import AppMetadataDialog
+from cellar.views.metadata_editor import MetadataEditorDialog, ProjectContext, RepoContext
 from cellar.views.builder.pickers import (
     AddLaunchTargetDialog,
     BasePickerDialog,
@@ -301,11 +301,11 @@ class PackageBuilderView(Adw.Bin):
 
     def _on_new_windows(self) -> None:
         """Create a new Windows project — base image is selected in detail view."""
-        dialog = AppMetadataDialog(on_created=self._on_project_created)
+        dialog = MetadataEditorDialog(context=ProjectContext(), on_created=self._on_project_created)
         dialog.present(self)
 
     def _on_new_linux_clicked(self, _btn) -> None:
-        dialog = AppMetadataDialog(project_type="linux", on_created=self._on_project_created)
+        dialog = MetadataEditorDialog(context=ProjectContext(project_type="linux"), on_created=self._on_project_created)
         dialog.present(self)
 
     def _on_new_base_clicked(self, _btn) -> None:
@@ -693,21 +693,22 @@ class PackageBuilderView(Adw.Bin):
         run_in_background(_work, on_done=_done, on_error=_error)
 
     def _on_catalogue_edit(self, card: "_CatalogueCard") -> None:
-        """Fetch full metadata for the selected card then open EditAppDialog."""
+        """Fetch full metadata for the selected card then open MetadataEditorDialog."""
         entry, repo = card.entry, card.repo
 
         def _fetch():
             return repo.fetch_app_metadata(entry.id)
 
         def _open(full_entry) -> None:
-            from cellar.views.edit_app import EditAppDialog
-
             def _on_done(_updated_entry) -> None:
                 self._reload_projects()
                 if self._on_catalogue_changed:
                     self._on_catalogue_changed()
 
-            EditAppDialog(entry=full_entry, repo=repo, on_done=_on_done).present(self)
+            MetadataEditorDialog(
+                context=RepoContext(entry=full_entry, repo=repo),
+                on_done=_on_done,
+            ).present(self)
 
         def _error(msg: str) -> None:
             log.error("Failed to load metadata for %s: %s", entry.id, msg)
@@ -784,7 +785,7 @@ class PackageBuilderView(Adw.Bin):
             _slug_row.add_css_class("property")
             meta_group.add(_slug_row)
 
-            # Details summary row — opens AppMetadataDialog
+            # Details summary row — opens MetadataEditorDialog
             _details_row = Adw.ActionRow(title="Details")
             _details_summary = self._make_metadata_summary(project)
             if _details_summary:
@@ -1497,8 +1498,8 @@ class PackageBuilderView(Adw.Bin):
     def _on_edit_metadata_clicked(self, _btn) -> None:
         if self._project is None:
             return
-        dialog = AppMetadataDialog(
-            project=self._project,
+        dialog = MetadataEditorDialog(
+            context=ProjectContext(project=self._project),
             on_changed=lambda: self._show_project(self._project),
         )
         dialog.present(self)

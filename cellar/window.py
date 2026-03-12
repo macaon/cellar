@@ -657,7 +657,7 @@ class CellarWindow(Adw.ApplicationWindow):
         is_installed = rec is not None
 
         def _on_edit(selected_entry):
-            from cellar.views.edit_app import EditAppDialog
+            from cellar.views.metadata_editor import MetadataEditorDialog, RepoContext
             from cellar.views.detail import DetailView
 
             def _on_edit_done(updated_entry):
@@ -702,9 +702,8 @@ class CellarWindow(Adw.ApplicationWindow):
 
             # Use the writable repo that carries this entry, not the global first repo.
             _writable = next((r for r in source_repos if r.is_writable), None) or self._first_repo
-            EditAppDialog(
-                entry=selected_entry,
-                repo=_writable,
+            MetadataEditorDialog(
+                context=RepoContext(entry=selected_entry, repo=_writable),
                 on_done=_on_edit_done,
             ).present(self)
 

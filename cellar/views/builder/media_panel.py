@@ -1,7 +1,7 @@
 """Shared media panel for image and screenshot editing.
 
-Used by both ``AppMetadataDialog`` (builder) and ``EditAppDialog`` (catalogue
-editor) to avoid duplicating the image-row, picker, Steam-download, and
+Used by ``MetadataEditorDialog`` for all metadata editing entry points
+to avoid duplicating the image-row, picker, Steam-download, and
 screenshot-grid code.
 """
 

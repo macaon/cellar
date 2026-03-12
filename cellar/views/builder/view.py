@@ -693,16 +693,29 @@ class PackageBuilderView(Adw.Bin):
         run_in_background(_work, on_done=_done, on_error=_error)
 
     def _on_catalogue_edit(self, card: "_CatalogueCard") -> None:
-        """Open EditAppDialog for a published catalogue entry."""
-        from cellar.views.edit_app import EditAppDialog
+        """Fetch full metadata for the selected card then open EditAppDialog."""
+        entry, repo = card.entry, card.repo
 
-        def _on_done(_updated_entry) -> None:
-            self._reload_projects()
-            if self._on_catalogue_changed:
-                self._on_catalogue_changed()
+        def _fetch():
+            return repo.fetch_app_metadata(entry.id)
 
-        dialog = EditAppDialog(entry=card.entry, repo=card.repo, on_done=_on_done)
-        dialog.present(self)
+        def _open(full_entry) -> None:
+            from cellar.views.edit_app import EditAppDialog
+
+            def _on_done(_updated_entry) -> None:
+                self._reload_projects()
+                if self._on_catalogue_changed:
+                    self._on_catalogue_changed()
+
+            EditAppDialog(entry=full_entry, repo=repo, on_done=_on_done).present(self)
+
+        def _error(msg: str) -> None:
+            log.error("Failed to load metadata for %s: %s", entry.id, msg)
+            err = Adw.AlertDialog(heading="Could not load metadata", body=msg)
+            err.add_response("ok", "OK")
+            err.present(self)
+
+        run_in_background(_fetch, on_done=_open, on_error=_error)
 
     # ------------------------------------------------------------------
     # Detail panel

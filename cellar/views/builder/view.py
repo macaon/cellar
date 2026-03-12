@@ -922,7 +922,6 @@ class PackageBuilderView(Adw.Bin):
                 run_btn.connect("clicked", self._on_run_installer_clicked)
                 run_installer_row.add_suffix(run_btn)
             run_installer_row.set_sensitive(project.initialized)
-            files_group.add(run_installer_row)
 
             # Import Data row — shown when a Windows folder was dropped via smart import
             if project.source_dir and not project.installer_path:
@@ -937,6 +936,8 @@ class PackageBuilderView(Adw.Bin):
                 _import_row.add_suffix(_import_btn)
                 _import_row.set_sensitive(project.initialized)
                 files_group.add(_import_row)
+
+            files_group.add(run_installer_row)
 
             _browse_row = Adw.ActionRow(
                 title="Browse Prefix",

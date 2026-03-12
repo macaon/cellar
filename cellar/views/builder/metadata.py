@@ -323,7 +323,7 @@ class AppMetadataDialog(Adw.Dialog):
                 "name", "version", "category", "developer", "publisher",
                 "release_year", "website", "genres", "summary", "description",
                 "steam_appid", "icon_path", "cover_path", "logo_path",
-                "hide_title", "screenshot_paths", "steam_screenshots",
+                "hide_title", "screenshot_paths", "screenshot_sources", "steam_screenshots",
                 "selected_steam_urls",
             ):
                 setattr(self._project, attr, getattr(restored, attr))

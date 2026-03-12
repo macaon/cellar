@@ -214,9 +214,10 @@ def load_projects() -> list[Project]:
 def save_project(project: Project) -> None:
     """Write ``project.json`` for *project*."""
     project.project_dir.mkdir(parents=True, exist_ok=True)
-    (project.project_dir / "project.json").write_text(
-        json.dumps(project.to_dict(), indent=2)
-    )
+    path = project.project_dir / "project.json"
+    new_content = json.dumps(project.to_dict(), indent=2)
+    if not path.exists() or path.read_text(encoding="utf-8") != new_content:
+        path.write_text(new_content, encoding="utf-8")
 
 
 def create_project(

@@ -1002,7 +1002,9 @@ def _upsert_catalogue(repo_root: Path, entry) -> None:
     meta_dir = repo_root / "apps" / entry.id
     meta_dir.mkdir(parents=True, exist_ok=True)
     meta_path = meta_dir / "metadata.json"
-    meta_path.write_text(json.dumps(entry.to_metadata_dict(), indent=2, ensure_ascii=False))
+    new_meta = json.dumps(entry.to_metadata_dict(), indent=2, ensure_ascii=False)
+    if not meta_path.exists() or meta_path.read_text(encoding="utf-8") != new_meta:
+        meta_path.write_text(new_meta, encoding="utf-8")
     # Auto-register custom category into the top-level categories list
     category = entry.category if hasattr(entry, "category") else ""
     if category and category not in BASE_CATEGORIES:

@@ -240,6 +240,7 @@ class PackageBuilderView(Adw.Bin):
                 entry, repo, kind,
                 on_download=self._on_catalogue_download,
                 on_delete=self._on_catalogue_delete,
+                on_edit=self._on_catalogue_edit if kind == "app" else None,
                 has_dependants=has_dependants,
                 show_repo=len(self._writable_repos) > 1,
             )
@@ -690,6 +691,18 @@ class PackageBuilderView(Adw.Bin):
             err.present(self)
 
         run_in_background(_work, on_done=_done, on_error=_error)
+
+    def _on_catalogue_edit(self, card: "_CatalogueCard") -> None:
+        """Open EditAppDialog for a published catalogue entry."""
+        from cellar.views.edit_app import EditAppDialog
+
+        def _on_done(_updated_entry) -> None:
+            self._reload_projects()
+            if self._on_catalogue_changed:
+                self._on_catalogue_changed()
+
+        dialog = EditAppDialog(entry=card.entry, repo=card.repo, on_done=_on_done)
+        dialog.present(self)
 
     # ------------------------------------------------------------------
     # Detail panel
@@ -2491,7 +2504,7 @@ class _ProjectCard(Gtk.FlowBoxChild):
 
 
 class _CatalogueCard(Gtk.FlowBoxChild):
-    """A dimmed card for a published catalogue entry — download or delete actions."""
+    """A dimmed card for a published catalogue entry — edit, download, or delete actions."""
 
     def __init__(
         self,
@@ -2501,6 +2514,7 @@ class _CatalogueCard(Gtk.FlowBoxChild):
         *,
         on_download: Callable,
         on_delete: Callable,
+        on_edit: Callable | None = None,
         has_dependants: bool = False,
         show_repo: bool = False,
     ) -> None:
@@ -2555,29 +2569,35 @@ class _CatalogueCard(Gtk.FlowBoxChild):
         subtitle.set_ellipsize(Pango.EllipsizeMode.END)
         text_box.append(subtitle)
 
-        # Right: action buttons
-        btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        btn_box.set_valign(Gtk.Align.CENTER)
-        btn_box.set_margin_end(8)
-        card.append(btn_box)
+        # Right: single actions menu button
+        action_group = Gio.SimpleActionGroup()
 
-        dl_btn = Gtk.Button(icon_name="folder-download-symbolic")
-        dl_btn.add_css_class("flat")
-        dl_btn.set_tooltip_text("Download for editing")
-        dl_btn.connect("clicked", lambda _: on_download(self))
-        btn_box.append(dl_btn)
+        dl_action = Gio.SimpleAction.new("download", None)
+        dl_action.connect("activate", lambda *_: on_download(self))
+        action_group.add_action(dl_action)
 
-        del_btn = Gtk.Button(icon_name="user-trash-symbolic")
-        del_btn.add_css_class("flat")
-        if has_dependants:
-            del_btn.set_sensitive(False)
-            del_btn.set_tooltip_text("Base has apps that depend on it")
-        else:
-            del_btn.set_tooltip_text("Remove from repository")
-            del_btn.connect("clicked", lambda _: on_delete(self))
-        btn_box.append(del_btn)
+        del_action = Gio.SimpleAction.new("delete", None)
+        del_action.set_enabled(not has_dependants)
+        del_action.connect("activate", lambda *_: on_delete(self))
+        action_group.add_action(del_action)
 
-        # Dim icon + text but keep action buttons fully opaque
+        menu = Gio.Menu()
+        if on_edit:
+            edit_action = Gio.SimpleAction.new("edit", None)
+            edit_action.connect("activate", lambda *_: on_edit(self))
+            action_group.add_action(edit_action)
+            menu.append("Edit metadata", "card.edit")
+        menu.append("Download for editing", "card.download")
+        del_label = "Delete from catalogue" if not has_dependants else "Delete (base has dependants)"
+        menu.append(del_label, "card.delete")
+
+        menu_btn = Gtk.MenuButton(icon_name="view-more-symbolic", menu_model=menu)
+        menu_btn.add_css_class("flat")
+        menu_btn.set_valign(Gtk.Align.CENTER)
+        menu_btn.set_margin_end(8)
+        card.append(menu_btn)
+
+        # Dim icon + text but keep action button fully opaque
         icon.set_opacity(0.6)
         text_box.set_opacity(0.6)
 
@@ -2585,6 +2605,7 @@ class _CatalogueCard(Gtk.FlowBoxChild):
         fixed = _FixedBox(_CARD_WIDTH, _CARD_HEIGHT, clip=False)
         fixed.set_child(card)
         self.set_child(fixed)
+        self.insert_action_group("card", action_group)
 
     def matches(self, search: str, active_types: set[str], active_repos: set[str]) -> bool:
         """Return True if this card should be visible given the current filters."""

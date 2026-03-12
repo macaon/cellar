@@ -98,6 +98,20 @@
     ]
   },
   {
+    "name": "python3-rapidfuzz",
+    "buildsystem": "simple",
+    "build-commands": [
+      "pip3 install --verbose --exists-action=i --no-index --find-links=\"file://${PWD}\" --prefix=${FLATPAK_DEST} \"rapidfuzz\" --no-build-isolation"
+    ],
+    "sources": [
+      {
+        "type": "file",
+        "url": "https://files.pythonhosted.org/packages/d6/7e/88853ecae5b5456eb1a1d8a01cbd534e25b671735d5d974609cbae082542/rapidfuzz-3.12.2-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+        "sha256": "21d5b3793c6f5aecca595cd24164bf9d3c559e315ec684f912146fc4e769e367"
+      }
+    ]
+  },
+  {
     "name": "python3-pillow",
     "buildsystem": "simple",
     "build-commands": [

@@ -64,6 +64,53 @@ def search_games(query: str, limit: int = 10) -> list[dict]:
     ]
 
 
+def fuzzy_search_games(query: str, limit: int = 10) -> list[dict]:
+    """Search Steam with fuzzy matching and automatic query simplification.
+
+    If the initial query returns no results, progressively drops trailing
+    words and retries.  Results are re-ranked by fuzzy similarity to the
+    original query so the best match floats to the top.
+
+    Falls back to plain :func:`search_games` if ``rapidfuzz`` is not installed.
+    """
+    try:
+        from rapidfuzz import fuzz
+    except ImportError:
+        return search_games(query, limit)
+
+    words = query.split()
+    results: list[dict] = []
+
+    # Try full query first, then progressively drop trailing words
+    for end in range(len(words), max(0, len(words) - 3), -1):
+        attempt = " ".join(words[:end])
+        if not attempt:
+            continue
+        try:
+            results = search_games(attempt, limit)
+        except SteamError:
+            if end == len(words):
+                raise
+            continue
+        if results:
+            break
+
+    if not results:
+        return []
+
+    # Re-rank by fuzzy similarity to original query
+    query_lower = query.lower()
+    for r in results:
+        r["_score"] = fuzz.WRatio(query_lower, r["name"].lower())
+    results.sort(key=lambda r: r["_score"], reverse=True)
+
+    # Strip internal scoring key
+    for r in results:
+        del r["_score"]
+
+    return results[:limit]
+
+
 def fetch_details(appid: int) -> dict:
     """Fetch full metadata for a Steam App ID.
 

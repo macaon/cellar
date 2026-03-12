@@ -157,8 +157,8 @@ class SteamPickerDialog(Adw.Dialog):
         self._stack.set_visible_child_name("spinner")
 
         def _work() -> list[dict]:
-            from cellar.backend.steam import search_games
-            return search_games(query)
+            from cellar.backend.steam import fuzzy_search_games
+            return fuzzy_search_games(query)
 
         run_in_background(
             work=_work,

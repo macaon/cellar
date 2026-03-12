@@ -3,6 +3,7 @@ python_sources = files(
   'base_store.py',
   'config.py',
   'database.py',
+  'detect.py',
   'installer.py',
   'manifest.py',
   'packager.py',

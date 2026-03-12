@@ -4,14 +4,14 @@ from __future__ import annotations
 
 
 def fmt_size(n: int) -> str:
-    """Human-readable byte count: '1.4 MB', '3.20 GB', etc."""
-    if n < 1024:
+    """Human-readable byte count using SI units: '1.4 MB', '3.20 GB', etc."""
+    if n < 1000:
         return f"{n} B"
-    if n < 1024 ** 2:
-        return f"{n / 1024:.1f} KB"
-    if n < 1024 ** 3:
-        return f"{n / 1024 ** 2:.1f} MB"
-    return f"{n / 1024 ** 3:.2f} GB"
+    if n < 1000 ** 2:
+        return f"{n / 1000:.1f} KB"
+    if n < 1000 ** 3:
+        return f"{n / 1000 ** 2:.1f} MB"
+    return f"{n / 1000 ** 3:.2f} GB"
 
 
 def fmt_stats(done: int, total: int, speed: float) -> str:
@@ -33,15 +33,15 @@ def fmt_file_count(current: int, total: int) -> str:
 
 
 def fmt_compress_stats(done_files: int, total_files: int, speed_bps: float) -> str:
-    """Format compress progress as e.g. '42 / 156 files  (48.3 MiB/s)'.
+    """Format compress progress as e.g. '42 / 156 files  (48.3 MB/s)'.
 
     *speed_bps* is the uncompressed source read rate in bytes/second.
     """
     count = f"{done_files} / {total_files} files" if total_files else f"{done_files} files"
-    if speed_bps >= 0.1 * 1024 ** 2:
-        spd = f"{speed_bps / 1024 ** 2:.1f} MiB/s"
+    if speed_bps >= 0.1 * 1000 ** 2:
+        spd = f"{speed_bps / 1000 ** 2:.1f} MB/s"
     elif speed_bps > 0:
-        spd = f"{speed_bps / 1024:.0f} KiB/s"
+        spd = f"{speed_bps / 1000:.0f} KB/s"
     else:
         spd = "\u2026"
     return f"{count}  ({spd})"

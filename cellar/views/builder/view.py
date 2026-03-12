@@ -2237,13 +2237,10 @@ class PackageBuilderView(Adw.Bin):
 
         def _done(_result) -> None:
             progress.force_close()
-            delete_project(project.slug)
-            self._project = None
-            self._reload_projects()
-            self._nav_view.pop_to_page(self._list_page)
             self._show_toast(f"Published '{project.name}' to {repo.name or repo.uri}.")
             if self._on_catalogue_changed:
                 self._on_catalogue_changed()
+            self._ask_keep_project(project.slug)
 
         def _error(msg: str) -> None:
             progress.force_close()
@@ -2383,13 +2380,10 @@ class PackageBuilderView(Adw.Bin):
 
         def _done(_result) -> None:
             progress.force_close()
-            delete_project(project.slug)
-            self._project = None
-            self._reload_projects()
-            self._nav_view.pop_to_page(self._list_page)
             self._show_toast(f"Base '{base_name}' published.")
             if self._on_catalogue_changed:
                 self._on_catalogue_changed()
+            self._ask_keep_project(project.slug)
 
         def _error(msg: str) -> None:
             progress.force_close()
@@ -2401,6 +2395,27 @@ class PackageBuilderView(Adw.Bin):
             err.present(self)
 
         run_in_background(_work, on_done=_done, on_error=_error)
+
+    def _ask_keep_project(self, slug: str) -> None:
+        """Ask the user whether to keep or delete the project after publishing."""
+        dlg = Adw.AlertDialog(
+            heading="Keep project?",
+            body="The project was published successfully. Do you want to keep it in the builder for future updates?",
+        )
+        dlg.add_response("delete", "Delete")
+        dlg.add_response("keep", "Keep")
+        dlg.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
+        dlg.set_default_response("keep")
+
+        def _on_response(_dlg, response):
+            if response == "delete":
+                delete_project(slug)
+            self._project = None
+            self._reload_projects()
+            self._nav_view.pop_to_page(self._list_page)
+
+        dlg.connect("response", _on_response)
+        dlg.present(self)
 
     # ------------------------------------------------------------------
     # Helpers

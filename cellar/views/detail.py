@@ -204,6 +204,7 @@ class DetailView(Gtk.Box):
         toolbar.set_content(scroll)
 
         self._outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self._outer.set_valign(Gtk.Align.START)
         scroll.set_child(self._outer)
 
         # App header (width-clamped).
@@ -250,6 +251,13 @@ class DetailView(Gtk.Box):
         self._content_box = content_box
         self._info_cards = self._make_info_cards()
         content_box.append(self._info_cards)
+
+        # Bottom spacer absorbs extra vertical space so the content stays
+        # at its natural size when the page is shorter than the viewport
+        # (e.g. no screenshots).
+        spacer = Gtk.Box()
+        spacer.set_vexpand(True)
+        self._outer.append(spacer)
 
     # ------------------------------------------------------------------
     # Lazy metadata loading
@@ -937,22 +945,23 @@ class DetailView(Gtk.Box):
 
         # Meta column: name + developer (when title is visible).
         meta = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        meta.set_hexpand(True)
         meta.set_valign(Gtk.Align.CENTER)
-        box.append(meta)
 
+        name_lbl = Gtk.Label(label=" " if (e.hide_title and e.logo) else e.name)
         if not (e.hide_title and e.logo):
-            name_lbl = Gtk.Label(label=e.name)
             name_lbl.add_css_class("title-1")
-            name_lbl.set_halign(Gtk.Align.START)
-            name_lbl.set_wrap(True)
-            meta.append(name_lbl)
+        name_lbl.set_halign(Gtk.Align.START)
+        name_lbl.set_wrap(True)
+        meta.append(name_lbl)
 
         if not dev_below_logo and dev_parts:
             dev_lbl = Gtk.Label(label=" · ".join(dev_parts))
             dev_lbl.add_css_class("dim-label")
             dev_lbl.set_halign(Gtk.Align.START)
             meta.append(dev_lbl)
+
+        meta.set_hexpand(True)
+        box.append(meta)
 
         # Right column: action buttons.
         action_row = Gtk.Box(
@@ -1709,11 +1718,9 @@ class DetailView(Gtk.Box):
         def _build_picture(png_bytes: bytes) -> Gtk.Picture:
             texture = to_texture(png_bytes)
             pic = Gtk.Picture.new_for_paintable(texture)
-            pic.set_content_fit(Gtk.ContentFit.CONTAIN)
+            pic.set_content_fit(Gtk.ContentFit.SCALE_DOWN)
             pic.set_halign(Gtk.Align.START)
-            # Pin both dimensions explicitly so GTK never squashes the widget
-            # when a sibling has hexpand=True.
-            pic.set_size_request(texture.get_width(), texture.get_height())
+            pic.set_can_shrink(False)
             pic.add_css_class("logo-pic")
             return pic
 

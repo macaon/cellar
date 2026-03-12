@@ -2,7 +2,7 @@ python_sources = files(
   '__init__.py',
   'browse.py',
   'detail.py',
-  'edit_app.py',
+  'metadata_editor.py',
   'install_runner.py',
   'settings.py',
   'screenshot_grid.py',

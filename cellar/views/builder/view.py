@@ -15,6 +15,7 @@ Maintainers use this view to:
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import subprocess
 import threading
@@ -1611,15 +1612,71 @@ class PackageBuilderView(Adw.Bin):
 
         dest = project.content_path / "drive_c" / src.name
 
-        progress = ProgressDialog(label=f"Copying {src.name}\u2026")
+        cancel = threading.Event()
+        progress = ProgressDialog(
+            label=f"Copying {src.name}\u2026", cancel_event=cancel,
+        )
         progress.present(self)
 
         def _work():
-            shutil.copytree(str(src), str(dest), dirs_exist_ok=True)
+            from cellar.utils.progress import fmt_stats
+            import time
+
+            dest.parent.mkdir(parents=True, exist_ok=True)
+
+            # Try CoW copy first (near-instant on btrfs/XFS)
+            try:
+                result = subprocess.run(
+                    ["cp", "--reflink=auto", "-a", str(src), str(dest)],
+                    capture_output=True, text=True,
+                )
+                if result.returncode == 0:
+                    GLib.idle_add(progress.set_fraction, 1.0)
+                    GLib.idle_add(progress.set_stats, "CoW copy complete")
+                    return True
+            except FileNotFoundError:
+                pass  # cp not available (shouldn't happen on Linux)
+
+            # Fallback: file-by-file copy with progress
+            if dest.exists():
+                shutil.rmtree(dest)
+
+            total_bytes = 0
+            for dirpath, _dirs, files in os.walk(src):
+                for f in files:
+                    total_bytes += os.path.getsize(os.path.join(dirpath, f))
+
+            copied_bytes = 0
+            t0 = time.monotonic()
+            last_ui = t0
+
+            for dirpath, dirs, files in os.walk(src):
+                if cancel.is_set():
+                    raise RuntimeError("Cancelled")
+                rel = os.path.relpath(dirpath, src)
+                dst_dir = dest / rel if rel != "." else dest
+                dst_dir.mkdir(parents=True, exist_ok=True)
+                shutil.copystat(dirpath, str(dst_dir))
+                for fname in files:
+                    if cancel.is_set():
+                        raise RuntimeError("Cancelled")
+                    s = os.path.join(dirpath, fname)
+                    d = dst_dir / fname
+                    shutil.copy2(s, str(d))
+                    copied_bytes += os.path.getsize(s)
+                    now = time.monotonic()
+                    if now - last_ui >= 0.1:
+                        last_ui = now
+                        elapsed = now - t0
+                        speed = copied_bytes / elapsed if elapsed > 0 else 0
+                        frac = copied_bytes / total_bytes if total_bytes else 1.0
+                        stats = fmt_stats(copied_bytes, total_bytes, speed)
+                        GLib.idle_add(progress.set_fraction, frac)
+                        GLib.idle_add(progress.set_stats, stats)
             return True
 
         def _done(_ok):
-            progress.close()
+            progress.force_close()
             # Detect exe candidates for entry points
             from cellar.backend.detect import find_exe_files
             candidates = find_exe_files(dest)
@@ -1638,8 +1695,9 @@ class PackageBuilderView(Adw.Bin):
             self._show_toast(f"Copied {src.name} into prefix.")
 
         def _err(msg):
-            progress.close()
-            self._show_toast(f"Copy failed: {msg}")
+            progress.force_close()
+            if "Cancelled" not in str(msg):
+                self._show_toast(f"Copy failed: {msg}")
 
         run_in_background(_work, on_done=_done, on_error=_err)
 

@@ -297,6 +297,8 @@ class PackageBuilderView(Adw.Bin):
             on_windows=self._on_new_windows,
             on_linux=lambda: self._on_new_linux_clicked(None),
             on_base=lambda: self._on_new_base_clicked(None),
+            on_import=self._on_project_created,
+            parent_view=self,
         )
         dialog.present(self)
 
@@ -904,14 +906,42 @@ class PackageBuilderView(Adw.Bin):
 
             run_installer_row = Adw.ActionRow(
                 title="Run Installer",
-                subtitle="Run an installer inside the prefix",
             )
+            if project.installer_path:
+                run_installer_row.set_subtitle(Path(project.installer_path).name)
+                run_btn = Gtk.Button(label="Launch")
+                run_btn.set_valign(Gtk.Align.CENTER)
+                run_btn.add_css_class("suggested-action")
+                run_btn.connect("clicked", self._on_launch_prefilled_installer)
+                run_installer_row.add_suffix(run_btn)
+                clear_btn = Gtk.Button(icon_name="edit-clear-symbolic")
+                clear_btn.set_valign(Gtk.Align.CENTER)
+                clear_btn.add_css_class("flat")
+                clear_btn.set_tooltip_text("Clear pre-filled installer")
+                clear_btn.connect("clicked", self._on_clear_installer_path)
+                run_installer_row.add_suffix(clear_btn)
+            else:
+                run_installer_row.set_subtitle("Run an installer inside the prefix")
+                run_btn = Gtk.Button(label="Choose\u2026")
+                run_btn.set_valign(Gtk.Align.CENTER)
+                run_btn.connect("clicked", self._on_run_installer_clicked)
+                run_installer_row.add_suffix(run_btn)
             run_installer_row.set_sensitive(project.initialized)
-            run_btn = Gtk.Button(label="Choose\u2026")
-            run_btn.set_valign(Gtk.Align.CENTER)
-            run_btn.connect("clicked", self._on_run_installer_clicked)
-            run_installer_row.add_suffix(run_btn)
             files_group.add(run_installer_row)
+
+            # Import Data row — shown when a Windows folder was dropped via smart import
+            if project.source_dir and not project.installer_path:
+                _import_row = Adw.ActionRow(
+                    title="Import Folder",
+                    subtitle=Path(project.source_dir).name,
+                )
+                _import_btn = Gtk.Button(label="Copy to Prefix")
+                _import_btn.set_valign(Gtk.Align.CENTER)
+                _import_btn.add_css_class("suggested-action")
+                _import_btn.connect("clicked", self._on_import_folder_to_prefix)
+                _import_row.add_suffix(_import_btn)
+                _import_row.set_sensitive(project.initialized)
+                files_group.add(_import_row)
 
             _browse_row = Adw.ActionRow(
                 title="Browse Prefix",
@@ -1549,6 +1579,70 @@ class PackageBuilderView(Adw.Bin):
     # ------------------------------------------------------------------
     # Signal handlers — files
     # ------------------------------------------------------------------
+
+    def _on_launch_prefilled_installer(self, _btn) -> None:
+        """Launch the pre-filled installer from smart import."""
+        if self._project is None or not self._project.installer_path:
+            return
+        if not self._project.runner:
+            self._show_toast("Select a base image before running an installer.")
+            return
+        project = self._project
+        exe_path = project.installer_path
+        self._run_in_prefix_with_progress(
+            project,
+            exe=exe_path,
+            label=f"Running {Path(exe_path).name}\u2026",
+            on_done=lambda ok: log.info("Installer exited ok=%s", ok),
+        )
+
+    def _on_clear_installer_path(self, _btn) -> None:
+        """Clear the pre-filled installer path and refresh the detail panel."""
+        if self._project is None:
+            return
+        self._project.installer_path = ""
+        save_project(self._project)
+        self._show_project(self._project)
+
+    def _on_import_folder_to_prefix(self, _btn) -> None:
+        """Copy a Windows folder into the prefix's drive_c (smart import)."""
+        if self._project is None or not self._project.source_dir:
+            return
+        project = self._project
+        src = Path(project.source_dir)
+        if not src.is_dir():
+            self._show_toast("Source folder no longer exists.")
+            return
+
+        dest = project.content_path / "drive_c" / src.name
+
+        progress = ProgressDialog(label=f"Copying {src.name}\u2026")
+        progress.present(self)
+
+        def _work():
+            shutil.copytree(str(src), str(dest), dirs_exist_ok=True)
+            return True
+
+        def _done(_ok):
+            progress.close()
+            # Detect exe candidates for entry points
+            from cellar.backend.detect import find_exe_files
+            candidates = find_exe_files(dest)
+            if candidates and not project.entry_points:
+                project.entry_points = [
+                    {"name": c.name, "path": f"C:\\{src.name}\\{c.relative_to(dest)}".replace("/", "\\")}
+                    for c in candidates[:5]
+                ]
+            project.source_dir = ""  # clear — data is now in the prefix
+            save_project(project)
+            self._show_project(project)
+            self._show_toast(f"Copied {src.name} into prefix.")
+
+        def _err(msg):
+            progress.close()
+            self._show_toast(f"Copy failed: {msg}")
+
+        run_in_background(_work, on_done=_done, on_error=_err)
 
     def _on_run_installer_clicked(self, _btn) -> None:
         if self._project is None or not self._project.runner:
@@ -2330,7 +2424,7 @@ def _resolve_filter_type(project_type: str, platform: str = "windows") -> str:
 
 
 class _NewProjectDialog(Adw.Dialog):
-    """Guided new-project chooser — platform selection + base requirement flow."""
+    """Guided new-project chooser — smart import drop zone + manual platform selection."""
 
     def __init__(
         self,
@@ -2338,11 +2432,16 @@ class _NewProjectDialog(Adw.Dialog):
         on_windows: Callable[[], None],
         on_linux: Callable[[], None],
         on_base: Callable[[], None],
+        on_import: Callable,
+        parent_view,
     ) -> None:
-        super().__init__(title="New Project", content_width=400, content_height=340)
+        super().__init__(title="New Project", content_width=420, content_height=520)
         self._on_windows = on_windows
         self._on_linux = on_linux
         self._on_base = on_base
+        self._on_import = on_import
+        self._parent_view = parent_view
+        self._file_chooser = None  # prevent GC
 
         toolbar = Adw.ToolbarView()
         header = Adw.HeaderBar()
@@ -2352,23 +2451,114 @@ class _NewProjectDialog(Adw.Dialog):
         header.pack_start(cancel_btn)
         toolbar.add_top_bar(header)
 
-        page = Adw.PreferencesPage()
-        group = Adw.PreferencesGroup()
-        group.set_description(
-            "Choose the type of package to create."
+        # ── Outer scrollable container ──────────────────────────────────
+        scroll = Gtk.ScrolledWindow(vscrollbar_policy=Gtk.PolicyType.AUTOMATIC)
+        outer = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=12,
+            margin_top=18,
+            margin_bottom=18,
+            margin_start=18,
+            margin_end=18,
         )
+        scroll.set_child(outer)
+
+        # ── Drop zone frame ─────────────────────────────────────────────
+        self._drop_frame = Gtk.Frame()
+        self._drop_frame.add_css_class("drop-zone")
+
+        drop_inner = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=6,
+            halign=Gtk.Align.CENTER,
+            valign=Gtk.Align.CENTER,
+            margin_top=18,
+            margin_bottom=18,
+            margin_start=12,
+            margin_end=12,
+        )
+        icon = Gtk.Image.new_from_icon_name("document-open-symbolic")
+        icon.set_pixel_size(36)
+        icon.add_css_class("dim-label")
+        drop_inner.append(icon)
+
+        heading = Gtk.Label(label="Drop an .exe file or app folder")
+        heading.add_css_class("heading")
+        drop_inner.append(heading)
+
+        caption = Gtk.Label(label="Auto-detects platform and imports metadata")
+        caption.add_css_class("dim-label")
+        caption.add_css_class("caption")
+        drop_inner.append(caption)
+
+        self._drop_frame.set_child(drop_inner)
+        outer.append(self._drop_frame)
+
+        # Drop zone CSS
+        _css = b"""
+.drop-zone {
+    border: 2px dashed alpha(@borders, 0.8);
+    border-radius: 12px;
+    min-height: 110px;
+}
+.drop-zone.drag-hover {
+    border-color: @accent_color;
+    background-color: alpha(@accent_color, 0.08);
+}
+"""
+        _provider = Gtk.CssProvider()
+        _provider.load_from_data(_css)
+        self._drop_frame.get_style_context().add_provider(
+            _provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
+
+        drop = Gtk.DropTarget.new(Gdk.FileList, Gdk.DragAction.COPY)
+        drop.connect("drop", self._on_drop)
+        drop.connect("enter", self._on_drag_enter)
+        drop.connect("leave", self._on_drag_leave)
+        self._drop_frame.add_controller(drop)
+
+        # ── Browse buttons ──────────────────────────────────────────────
+        browse_box = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=8,
+            homogeneous=True,
+        )
+        file_btn = Gtk.Button(label="Browse File\u2026")
+        file_btn.add_css_class("pill")
+        file_btn.connect("clicked", self._on_browse_file)
+        folder_btn = Gtk.Button(label="Browse Folder\u2026")
+        folder_btn.add_css_class("pill")
+        folder_btn.connect("clicked", self._on_browse_folder)
+        browse_box.append(file_btn)
+        browse_box.append(folder_btn)
+        outer.append(browse_box)
+
+        # ── Separator ───────────────────────────────────────────────────
+        sep_box = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=8,
+            margin_top=6,
+            margin_bottom=6,
+        )
+        sep_box.append(Gtk.Separator(hexpand=True, valign=Gtk.Align.CENTER))
+        or_lbl = Gtk.Label(label="or create manually")
+        or_lbl.add_css_class("dim-label")
+        or_lbl.add_css_class("caption")
+        sep_box.append(or_lbl)
+        sep_box.append(Gtk.Separator(hexpand=True, valign=Gtk.Align.CENTER))
+        outer.append(sep_box)
+
+        # ── Manual platform group ────────────────────────────────────────
+        group = Adw.PreferencesGroup()
 
         win_row = Adw.ActionRow(
             title="Proton Package",
             subtitle="App running in Proton/Wine",
             activatable=True,
         )
-        win_row.add_prefix(
-            Gtk.Image.new_from_icon_name("grid-large-symbolic")
-        )
-        win_row.add_suffix(
-            Gtk.Image.new_from_icon_name("go-next-symbolic")
-        )
+        win_row.add_prefix(Gtk.Image.new_from_icon_name("grid-large-symbolic"))
+        win_row.add_suffix(Gtk.Image.new_from_icon_name("go-next-symbolic"))
         win_row.connect("activated", self._on_windows_activated)
         group.add(win_row)
 
@@ -2377,12 +2567,8 @@ class _NewProjectDialog(Adw.Dialog):
             subtitle="Native Linux application",
             activatable=True,
         )
-        linux_row.add_prefix(
-            Gtk.Image.new_from_icon_name("penguin-alt-symbolic")
-        )
-        linux_row.add_suffix(
-            Gtk.Image.new_from_icon_name("go-next-symbolic")
-        )
+        linux_row.add_prefix(Gtk.Image.new_from_icon_name("penguin-alt-symbolic"))
+        linux_row.add_suffix(Gtk.Image.new_from_icon_name("go-next-symbolic"))
         linux_row.connect("activated", self._on_linux_activated)
         group.add(linux_row)
 
@@ -2391,20 +2577,178 @@ class _NewProjectDialog(Adw.Dialog):
             subtitle="Reusable Wine runtime for Proton packages",
             activatable=True,
         )
-        base_row.add_prefix(
-            Gtk.Image.new_from_icon_name("package-x-generic-symbolic")
-        )
-        base_row.add_suffix(
-            Gtk.Image.new_from_icon_name("go-next-symbolic")
-        )
+        base_row.add_prefix(Gtk.Image.new_from_icon_name("package-x-generic-symbolic"))
+        base_row.add_suffix(Gtk.Image.new_from_icon_name("go-next-symbolic"))
         base_row.connect("activated", self._on_base_activated)
         group.add(base_row)
 
-        page.add(group)
-        toolbar.set_content(page)
+        clamp = Adw.Clamp(maximum_size=400)
+        clamp.set_child(group)
+        outer.append(clamp)
+
+        toolbar.set_content(scroll)
         self.set_child(toolbar)
 
-    # ── Platform row handlers ───────────────────────────────────────────
+    # ── Drop-zone handlers ──────────────────────────────────────────────
+
+    def _on_drag_enter(self, _target, _x, _y) -> Gdk.DragAction:
+        self._drop_frame.add_css_class("drag-hover")
+        return Gdk.DragAction.COPY
+
+    def _on_drag_leave(self, _target) -> None:
+        self._drop_frame.remove_css_class("drag-hover")
+
+    def _on_drop(self, _target, value, _x, _y) -> bool:
+        self._drop_frame.remove_css_class("drag-hover")
+        files = value.get_files()
+        if not files:
+            return False
+        path = Path(files[0].get_path())
+        self.close()
+        self._start_import(path)
+        return True
+
+    # ── Browse handlers ─────────────────────────────────────────────────
+
+    def _on_browse_file(self, _btn) -> None:
+        chooser = Gtk.FileChooserNative(
+            title="Select Installer or Executable",
+            transient_for=self.get_root(),
+            action=Gtk.FileChooserAction.OPEN,
+            accept_label="Import",
+        )
+        f = Gtk.FileFilter()
+        f.set_name("Windows Executables")
+        for pat in ("*.exe", "*.EXE", "*.msi", "*.MSI",
+                    "*.bat", "*.BAT", "*.cmd", "*.CMD",
+                    "*.com", "*.COM", "*.lnk", "*.LNK"):
+            f.add_pattern(pat)
+        all_f = Gtk.FileFilter()
+        all_f.set_name("All Files")
+        all_f.add_pattern("*")
+        chooser.add_filter(f)
+        chooser.add_filter(all_f)
+        chooser.connect("response", self._on_file_chosen, chooser)
+        chooser.show()
+        self._file_chooser = chooser
+
+    def _on_browse_folder(self, _btn) -> None:
+        chooser = Gtk.FileChooserNative(
+            title="Select App Folder",
+            transient_for=self.get_root(),
+            action=Gtk.FileChooserAction.SELECT_FOLDER,
+            accept_label="Import",
+        )
+        chooser.connect("response", self._on_file_chosen, chooser)
+        chooser.show()
+        self._file_chooser = chooser
+
+    def _on_file_chosen(self, _chooser, response: int, chooser) -> None:
+        if response != Gtk.ResponseType.ACCEPT:
+            return
+        path = Path(chooser.get_file().get_path())
+        self.close()
+        self._start_import(path)
+
+    # ── Import dispatch ─────────────────────────────────────────────────
+
+    def _start_import(self, path: Path) -> None:
+        """Detect platform, parse name, and open MetadataEditorDialog pre-filled."""
+        from cellar.backend.detect import (
+            detect_platform,
+            parse_app_name,
+            parse_version_hint,
+            unsupported_reason,
+        )
+
+        platform = detect_platform(path)
+
+        if platform == "unsupported":
+            msg = unsupported_reason(path)
+            err = Adw.AlertDialog(heading="Cannot import", body=msg)
+            err.add_response("ok", "OK")
+            err.present(self._parent_view)
+            return
+
+        if platform == "ambiguous":
+            self._show_platform_picker(path)
+            return
+
+        app_name = parse_app_name(path)
+        version = parse_version_hint(path)
+        self._open_metadata_editor(path, platform, app_name, version)
+
+    def _show_platform_picker(self, path: Path) -> None:
+        """Show a small dialog to disambiguate platform."""
+        from cellar.backend.detect import parse_app_name, parse_version_hint
+
+        dlg = Adw.AlertDialog(
+            heading="Which platform?",
+            body="Could not auto-detect the platform. Please choose:",
+        )
+        dlg.add_response("windows", "Proton (Windows)")
+        dlg.add_response("linux", "Native (Linux)")
+        dlg.add_response("cancel", "Cancel")
+        dlg.set_default_response("windows")
+        dlg.set_close_response("cancel")
+
+        def _on_response(_dlg, response):
+            if response in ("windows", "linux"):
+                app_name = parse_app_name(path)
+                version = parse_version_hint(path)
+                self._open_metadata_editor(path, response, app_name, version)
+
+        dlg.connect("response", _on_response)
+        dlg.present(self._parent_view)
+
+    def _open_metadata_editor(
+        self, path: Path, platform: str, app_name: str, version: str | None,
+    ) -> None:
+        """Open the standard MetadataEditorDialog with smart-import pre-fill."""
+        from cellar.backend.detect import find_linux_executables
+
+        project_type = "linux" if platform == "linux" else "app"
+        ctx = ProjectContext(project_type=project_type)
+
+        def _on_created(project):
+            # Post-creation: set import-specific fields on the project
+            changed = False
+            if platform == "windows" and path.is_file():
+                # .exe import: store installer path
+                project.installer_path = str(path)
+                changed = True
+            elif platform == "linux" and path.is_dir():
+                # Linux folder: set source_dir and detect entry points
+                project.source_dir = str(path)
+                project.initialized = True
+                candidates = find_linux_executables(path)
+                if candidates:
+                    project.entry_points = [
+                        {"name": c.name, "path": str(c.relative_to(path))}
+                        for c in candidates[:5]
+                    ]
+                changed = True
+            elif platform == "windows" and path.is_dir():
+                # Windows folder: store source_dir for later import
+                project.source_dir = str(path)
+                changed = True
+
+            if version and project.version == "1.0":
+                project.version = version
+                changed = True
+
+            if changed:
+                save_project(project)
+            self._on_import(project)
+
+        dialog = MetadataEditorDialog(
+            context=ctx,
+            on_created=_on_created,
+            auto_steam_query=app_name,
+        )
+        dialog.present(self._parent_view)
+
+    # ── Manual platform row handlers ────────────────────────────────────
 
     def _on_windows_activated(self, _row) -> None:
         self.close()

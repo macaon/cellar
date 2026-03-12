@@ -252,9 +252,33 @@ class ProjectContext(_SaveContext):
             i.full_url for i in all_items if i.is_steam and i.full_url
         ]
 
+        # Rename project directory if the title changed and it's not locked.
+        if self._project is not None and not self.title_locked:
+            self._maybe_rename_project(p)
+
         save_project(p)
         self._project = p
         return p
+
+    @staticmethod
+    def _maybe_rename_project(p) -> None:
+        """Move the project directory to match a changed title, if possible."""
+        import shutil as _shutil
+
+        from cellar.backend.packager import slugify
+        from cellar.backend.umu import projects_dir
+
+        new_slug = slugify(p.name)
+        if not new_slug or new_slug == p.slug:
+            return
+        new_dir = projects_dir() / new_slug
+        if new_dir.exists():
+            return  # collision — keep old slug silently
+        try:
+            _shutil.move(str(p.project_dir), str(new_dir))
+            p.slug = new_slug
+        except OSError as exc:
+            log.warning("Could not rename project directory: %s", exc)
 
     @staticmethod
     def _import_image(project, src_path: str, slot: str) -> str:
@@ -585,6 +609,7 @@ class MetadataEditorDialog(Adw.Dialog):
         on_created: Callable | None = None,
         on_changed: Callable | None = None,
         on_done: Callable | None = None,
+        auto_steam_query: str = "",
     ) -> None:
         _new_titles = {"linux": "New Linux App", "base": "New Base Image"}
         if context.is_create:
@@ -604,6 +629,7 @@ class MetadataEditorDialog(Adw.Dialog):
         self._screenshots_dirty = False
         self._locally_installed = self._check_locally_installed()
         self._saved_result = None
+        self._auto_steam_query = auto_steam_query
 
         # Launch target state (used only when context.show_launch_settings)
         self._launch_targets: list[dict] = []
@@ -612,6 +638,10 @@ class MetadataEditorDialog(Adw.Dialog):
         self._add_target_row_widget: Adw.ActionRow | None = None
 
         self._build_ui()
+
+        # Auto-open Steam picker after dialog is presented
+        if auto_steam_query:
+            GLib.idle_add(self._auto_open_steam_picker)
 
     def _check_locally_installed(self) -> bool:
         if not isinstance(self._context, RepoContext):
@@ -1085,6 +1115,16 @@ class MetadataEditorDialog(Adw.Dialog):
             query = self._locked_name
         picker = SteamPickerDialog(query=query, on_picked=self._apply_steam_result)
         picker.present(self.get_root())
+
+    def _auto_open_steam_picker(self) -> None:
+        """Open the Steam picker automatically with a pre-filled query (smart import)."""
+        from cellar.views.steam_picker import SteamPickerDialog
+        picker = SteamPickerDialog(
+            query=self._auto_steam_query,
+            on_picked=self._apply_steam_result,
+        )
+        picker.present(self.get_root())
+        self._auto_steam_query = ""  # only auto-open once
 
     def _apply_steam_result(self, result: dict) -> None:
         if result.get("name") and isinstance(self._title_widget, Adw.EntryRow):

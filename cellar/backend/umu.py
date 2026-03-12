@@ -128,6 +128,21 @@ def build_env(
     return env
 
 
+def _win_to_linux_path(entry_point: str, wineprefix: str) -> str:
+    """Convert a Windows-style entry point to a Linux path.
+
+    umu-run handles Linux paths via Proton's ``/unix`` option but silently
+    fails with Windows paths like ``C:\\Program Files\\App\\app.exe``.
+    """
+    if not entry_point or "/" in entry_point:
+        return entry_point  # already a Linux path
+    # Strip drive letter (e.g. "C:\") and convert backslashes.
+    if len(entry_point) >= 3 and entry_point[1] == ":" and entry_point[2] == "\\":
+        rel = entry_point[3:].replace("\\", "/")
+        return str(Path(wineprefix) / "drive_c" / rel)
+    return entry_point
+
+
 def _umu_cmd() -> list[str]:
     """Return the base umu-run command.
 
@@ -163,13 +178,14 @@ def launch_app(
     import shlex
     umu_env = build_env(app_id, runner_name, steam_appid, prefix_dir=prefix_dir)
     env = {**os.environ, **umu_env, **(extra_env or {})}
-    cmd = _umu_cmd() + [entry_point]
+    exe = _win_to_linux_path(entry_point, umu_env["WINEPREFIX"])
+    cmd = _umu_cmd() + [exe]
     if launch_args:
         cmd += shlex.split(launch_args)
     log.info(
         "Launching app %s via umu-run\n  WINEPREFIX=%s\n  PROTONPATH=%s\n  GAMEID=%s\n  EXE=%s%s",
         app_id,
-        umu_env["WINEPREFIX"], umu_env["PROTONPATH"], umu_env["GAMEID"], entry_point,
+        umu_env["WINEPREFIX"], umu_env["PROTONPATH"], umu_env["GAMEID"], exe,
         ("\n  EXTRA_ENV=" + " ".join(f"{k}={v}" for k, v in extra_env.items())) if extra_env else "",
     )
     subprocess.Popen(cmd, env=env, start_new_session=True)
@@ -209,6 +225,7 @@ def launch_app_monitored(
     import time
     umu_env = build_env(app_id, runner_name, steam_appid, prefix_dir=prefix_dir)
     env = {**os.environ, **umu_env, **(extra_env or {})}
+    exe = _win_to_linux_path(entry_point, umu_env["WINEPREFIX"])
     if direct_proton:
         proton_dir = runners_dir() / runner_name
         proton_script = proton_dir / "proton"
@@ -219,16 +236,16 @@ def launch_app_monitored(
         appid_str = str(steam_appid) if steam_appid else "0"
         env["SteamGameId"] = appid_str
         env["SteamAppId"] = appid_str
-        cmd = [sys.executable, str(proton_script), "run", entry_point]
+        cmd = [sys.executable, str(proton_script), "run", exe]
     else:
-        cmd = _umu_cmd() + [entry_point]
+        cmd = _umu_cmd() + [exe]
     if launch_args:
         cmd += shlex.split(launch_args)
     log.info(
         "Launching app (monitored) %s via %s"
         "\n  WINEPREFIX=%s\n  PROTONPATH=%s\n  GAMEID=%s\n  EXE=%s%s",
         app_id, "proton direct" if direct_proton else "umu-run",
-        umu_env["WINEPREFIX"], umu_env["PROTONPATH"], umu_env["GAMEID"], entry_point,
+        umu_env["WINEPREFIX"], umu_env["PROTONPATH"], umu_env["GAMEID"], exe,
         ("\n  EXTRA_ENV=" + " ".join(f"{k}={v}" for k, v in extra_env.items())) if extra_env else "",
     )
     # Tier 1: Proton/container is setting up — keep monitoring.

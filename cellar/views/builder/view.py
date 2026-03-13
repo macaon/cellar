@@ -1444,15 +1444,6 @@ class PackageBuilderView(Adw.Bin):
         # Fallback — hope the base name is also a valid runner directory.
         return base_name
 
-    def _find_base_project(self, project: Project) -> "Project | None":
-        """Return the base project whose name matches *project.runner*."""
-        if not project.runner:
-            return None
-        for p in load_projects():
-            if p.project_type == "base" and p.name == project.runner:
-                return p
-        return None
-
     def _on_init_prefix_clicked(self, _btn) -> None:
         if self._project is None:
             return
@@ -1470,20 +1461,29 @@ class PackageBuilderView(Adw.Bin):
 
         runner_name = self._resolve_runner_name(project)
 
-        # App projects seed from the base prefix (CoW copy) instead of
-        # running init_prefix + setup_prefix — those components are already
-        # in the base.  Base projects still do the full init + setup.
-        base_project = (
-            self._find_base_project(project)
-            if project.project_type == "app"
+        # App projects seed from the installed base image (CoW copy)
+        # instead of running init_prefix + setup_prefix — those components
+        # are already in the base.  Base projects do the full init + setup.
+        from cellar.backend.base_store import base_path, is_base_installed
+        base_dir = (
+            base_path(project.runner)
+            if project.project_type == "app" and is_base_installed(project.runner)
             else None
         )
 
+        # Look up the base builder project for its deps_installed list.
+        base_project = None
+        if base_dir:
+            for p in load_projects():
+                if p.project_type == "base" and p.name == project.runner:
+                    base_project = p
+                    break
+
         def _work():
-            if base_project and base_project.content_path.is_dir():
+            if base_dir and base_dir.is_dir():
                 GLib.idle_add(progress.set_label, "Copying base prefix…")
                 from cellar.backend.installer import _seed_from_base
-                _seed_from_base(base_project.content_path, project.content_path)
+                _seed_from_base(base_dir, project.content_path)
                 return True
 
             from cellar.backend.umu import init_prefix, setup_prefix
@@ -1515,6 +1515,10 @@ class PackageBuilderView(Adw.Bin):
                     # Carry base deps into the app project so the dependency
                     # picker shows them as already installed.
                     for verb in base_project.deps_installed:
+                        if verb not in project.deps_installed:
+                            project.deps_installed.append(verb)
+                elif base_dir:
+                    for verb in ("corefonts", "msls31", "d3dx9"):
                         if verb not in project.deps_installed:
                             project.deps_installed.append(verb)
                 else:

@@ -342,24 +342,40 @@ def _install_mono(
 def _install_gecko(
     prefix_path: Path,
     runner_name: str,
-    env: dict[str, str],
-    timeout: int,
 ) -> None:
-    """Install Wine Gecko into the prefix from the runner's bundled MSIs.
+    """Install Wine Gecko into the prefix from the runner's bundled files.
 
-    GE-Proton ships Gecko at ``files/share/wine/gecko/`` with per-arch MSIs
-    (``wine-gecko-*-x86.msi``, ``wine-gecko-*-x86_64.msi``).  Install all
-    MSIs found so both 32-bit and 64-bit IE engines are available.
+    GE-Proton ships Gecko as pre-extracted directories at
+    ``files/share/wine/gecko/wine-gecko-<ver>-<arch>/``.  Wine only creates
+    a stub (``gecko/plugin/npmshtml.dll``) during prefix init, so we copy
+    the full engine into the prefix ourselves:
+
+    - ``wine-gecko-*-x86_64`` → ``drive_c/windows/system32/gecko/``
+    - ``wine-gecko-*-x86``    → ``drive_c/windows/syswow64/gecko/``
     """
+    import shutil
+
     gecko_dir = runners_dir() / runner_name / "files" / "share" / "wine" / "gecko"
     if not gecko_dir.is_dir():
         log.debug("No bundled Gecko found at %s — skipping", gecko_dir)
         return
-    for msi in sorted(gecko_dir.rglob("*.msi")):
-        wine_path = "Z:" + str(msi).replace("/", "\\")
-        cmd = _umu_cmd() + ["msiexec", "/i", wine_path, "/qn"]
-        log.info("Installing Wine Gecko from %s", msi)
-        subprocess.run(cmd, env=env, timeout=timeout, capture_output=False)
+
+    # Map arch suffix → prefix destination directory.
+    arch_map = {
+        "x86_64": prefix_path / "drive_c" / "windows" / "system32" / "gecko",
+        "x86": prefix_path / "drive_c" / "windows" / "syswow64" / "gecko",
+    }
+
+    for src in sorted(gecko_dir.iterdir()):
+        if not src.is_dir() or not src.name.startswith("wine-gecko-"):
+            continue
+        # Determine target from directory name suffix (e.g. "wine-gecko-2.47.4-x86_64").
+        for arch, dest in arch_map.items():
+            if src.name.endswith(f"-{arch}"):
+                log.info("Installing Wine Gecko (%s) from %s → %s", arch, src, dest)
+                dest.mkdir(parents=True, exist_ok=True)
+                shutil.copytree(src, dest, dirs_exist_ok=True)
+                break
 
 
 def _apply_font_smoothing(prefix_path: Path) -> None:
@@ -468,7 +484,7 @@ def setup_prefix(
             step_cb(label, idx, total)
         try:
             if verb == "__gecko__":
-                _install_gecko(prefix_path, runner_name, env, timeout)
+                _install_gecko(prefix_path, runner_name)
             elif verb == "__fontsmoothing__":
                 _apply_font_smoothing(prefix_path)
             else:

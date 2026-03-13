@@ -339,6 +339,149 @@ def _install_mono(
             return
 
 
+def _install_gecko(
+    prefix_path: Path,
+    runner_name: str,
+    env: dict[str, str],
+    timeout: int,
+) -> None:
+    """Install Wine Gecko into the prefix from the runner's bundled MSIs.
+
+    GE-Proton ships Gecko at ``files/share/wine/gecko/`` with per-arch MSIs
+    (``wine-gecko-*-x86.msi``, ``wine-gecko-*-x86_64.msi``).  Install all
+    MSIs found so both 32-bit and 64-bit IE engines are available.
+    """
+    gecko_dir = runners_dir() / runner_name / "files" / "share" / "wine" / "gecko"
+    if not gecko_dir.is_dir():
+        log.debug("No bundled Gecko found at %s — skipping", gecko_dir)
+        return
+    for msi in sorted(gecko_dir.rglob("*.msi")):
+        wine_path = "Z:" + str(msi).replace("/", "\\")
+        cmd = _umu_cmd() + ["msiexec", "/i", wine_path, "/qn"]
+        log.info("Installing Wine Gecko from %s", msi)
+        subprocess.run(cmd, env=env, timeout=timeout, capture_output=False)
+
+
+def _apply_font_smoothing(prefix_path: Path) -> None:
+    """Enable ClearType font smoothing in the prefix's ``user.reg``.
+
+    Sets the four standard Windows font smoothing registry values under
+    ``[HKEY_CURRENT_USER\\Control Panel\\Desktop]``.
+    """
+    import re
+
+    reg_file = prefix_path / "user.reg"
+    if not reg_file.is_file():
+        log.warning("user.reg not found at %s — skipping font smoothing", reg_file)
+        return
+
+    raw = reg_file.read_bytes()
+    is_utf16 = raw[:2] in (b"\xff\xfe", b"\xfe\xff")
+    text = raw.decode("utf-16-le" if is_utf16 else "utf-8", errors="replace")
+
+    keys = {
+        '"FontSmoothing"': '"FontSmoothing"="2"',
+        '"FontSmoothingType"': '"FontSmoothingType"=dword:00000002',
+        '"FontSmoothingGamma"': '"FontSmoothingGamma"=dword:00000578',
+        '"FontSmoothingOrientation"': '"FontSmoothingOrientation"=dword:00000001',
+    }
+
+    section_re = re.compile(
+        r"(\[HKEY_CURRENT_USER\\\\Control Panel\\\\Desktop\].*?\n)",
+        re.IGNORECASE,
+    )
+    match = section_re.search(text)
+    if match:
+        # Find the end of this section (next section header or EOF).
+        rest = text[match.end():]
+        next_section = re.search(r"^\[", rest, re.MULTILINE)
+        section_end = match.end() + next_section.start() if next_section else len(text)
+        section_body = text[match.end():section_end]
+
+        # Replace existing keys or collect ones to insert.
+        new_body = section_body
+        to_insert: list[str] = []
+        for key_name, key_line in keys.items():
+            pattern = re.compile(rf"^{re.escape(key_name)}=.*$", re.MULTILINE)
+            if pattern.search(new_body):
+                new_body = pattern.sub(key_line, new_body)
+            else:
+                to_insert.append(key_line)
+
+        if to_insert:
+            new_body = new_body.rstrip("\n") + "\n" + "\n".join(to_insert) + "\n"
+
+        text = text[:match.end()] + new_body + text[section_end:]
+    else:
+        # Section doesn't exist — append it.
+        block = "\n[HKEY_CURRENT_USER\\\\Control Panel\\\\Desktop]\n"
+        block += "\n".join(keys.values()) + "\n"
+        text += block
+
+    encoded = text.encode("utf-16-le" if is_utf16 else "utf-8")
+    if is_utf16 and not encoded[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        encoded = b"\xff\xfe" + encoded
+    reg_file.write_bytes(encoded)
+    log.info("Applied font smoothing to %s", reg_file)
+
+
+# -- Standard prefix setup ---------------------------------------------------
+
+_SETUP_STEPS: list[tuple[str, str]] = [
+    ("Installing Wine Gecko…", "__gecko__"),
+    ("Applying font smoothing…", "__fontsmoothing__"),
+    ("Installing core fonts…", "corefonts"),
+    ("Installing msls31…", "msls31"),
+    ("Installing DirectX 9…", "d3dx9"),
+]
+
+
+def setup_prefix(
+    prefix_path: Path,
+    runner_name: str,
+    *,
+    steam_appid: int | None = None,
+    timeout: int = 600,
+    step_cb: Callable[[str, int, int], None] | None = None,
+) -> bool:
+    """Install standard components into an initialised prefix.
+
+    Called after :func:`init_prefix` has successfully created the prefix
+    (``drive_c`` must exist).  Installs Wine Gecko, core fonts, msls31,
+    d3dx9, and applies ClearType font smoothing.
+
+    *step_cb(label, current_step, total_steps)* is called before each step
+    so the UI can show progress.
+
+    Returns ``True`` if every step succeeded, ``False`` if any step failed
+    (failures are logged but do not abort remaining steps).
+    """
+    import os
+
+    total = len(_SETUP_STEPS)
+    all_ok = True
+    base_env = build_env("", runner_name, steam_appid, prefix_dir=prefix_path)
+    env = {**os.environ, **base_env}
+
+    for idx, (label, verb) in enumerate(_SETUP_STEPS, 1):
+        if step_cb:
+            step_cb(label, idx, total)
+        try:
+            if verb == "__gecko__":
+                _install_gecko(prefix_path, runner_name, env, timeout)
+            elif verb == "__fontsmoothing__":
+                _apply_font_smoothing(prefix_path)
+            else:
+                run_winetricks(
+                    prefix_path, runner_name, [verb], timeout=timeout,
+                )
+        except Exception:
+            log.exception("setup_prefix step %d/%d failed: %s", idx, total, label)
+            all_ok = False
+
+    return all_ok
+
+
 def run_winetricks(
     prefix_path: Path,
     runner_name: str,

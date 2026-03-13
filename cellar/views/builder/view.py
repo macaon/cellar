@@ -1462,7 +1462,7 @@ class PackageBuilderView(Adw.Bin):
         runner_name = self._resolve_runner_name(project)
 
         def _work():
-            from cellar.backend.umu import init_prefix
+            from cellar.backend.umu import init_prefix, setup_prefix
             result = init_prefix(
                 project.content_path,
                 runner_name,
@@ -1471,10 +1471,25 @@ class PackageBuilderView(Adw.Bin):
             # umu-run "" initializes the prefix then tries to execute an
             # empty string, which Wine rejects with exit code 1.  Use the
             # presence of drive_c as the real success indicator.
-            return result.returncode == 0 or (project.content_path / "drive_c").is_dir()
+            ok = result.returncode == 0 or (project.content_path / "drive_c").is_dir()
+            if not ok:
+                return False
+            def _step(label, current, total):
+                GLib.idle_add(progress.set_label, f"{label} ({current}/{total})")
+            setup_prefix(
+                project.content_path,
+                runner_name,
+                steam_appid=project.steam_appid,
+                step_cb=_step,
+            )
+            return True
 
         def _finish(ok: bool) -> None:
             progress.force_close()
+            if ok:
+                for verb in ("corefonts", "msls31", "d3dx9"):
+                    if verb not in project.deps_installed:
+                        project.deps_installed.append(verb)
             self._on_init_done(project, ok)
             if not ok:
                 self._show_toast("Prefix initialization failed. Check logs.")

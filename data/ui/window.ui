@@ -113,7 +113,7 @@
                               <object class="AdwViewStackPage" id="builder_page">
                                 <property name="name">builder</property>
                                 <property name="title" translatable="yes">Catalogue</property>
-                                <property name="icon-name">library-symbolic</property>
+                                <property name="icon-name">file-cabinet-symbolic</property>
                                 <property name="visible">false</property>
                                 <property name="child">
                                   <object class="GtkBox" id="builder_box">

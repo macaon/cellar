@@ -97,8 +97,6 @@ class DetailView(Gtk.Box):
         entry: AppEntry,
         *,
         source_repos: list | None = None,
-        is_writable: bool = False,
-        on_edit: Callable | None = None,
         is_installed: bool = False,
         installed_record: dict | None = None,
         on_install_done: Callable | None = None,
@@ -119,8 +117,6 @@ class DetailView(Gtk.Box):
         self._peek = _first.peek_asset_cache if _first else (lambda _: "")
         self._token = _first.token if _first else None
         self._ssh_identity = _first.ssh_identity if _first else None
-        self._is_writable = is_writable
-        self._on_edit = on_edit
         self._is_installed = is_installed
         self._installed_record = installed_record
         self._on_install_done = on_install_done
@@ -144,7 +140,6 @@ class DetailView(Gtk.Box):
         self._runner_installed: bool | None = None  # None = not yet resolved
         self._base_resolve_cbs: list[Callable] = []
         self._metadata_loaded = not entry.is_partial
-        self._edit_btn: Gtk.Button | None = None
 
         self._toolbar = Adw.ToolbarView()
         self.append(self._toolbar)
@@ -188,15 +183,6 @@ class DetailView(Gtk.Box):
         completes for partial ones.
         """
         toolbar = self._toolbar
-
-        if self._is_writable and self._on_edit:
-            edit_btn = Gtk.Button(
-                icon_name="document-edit-symbolic",
-                tooltip_text="Edit catalogue entry",
-            )
-            edit_btn.connect("clicked", lambda _b: self._on_edit(self._entry))
-            self._edit_btn = edit_btn
-            self._header_bar.pack_end(edit_btn)
 
         # ── Scrollable body ───────────────────────────────────────────────
         scroll = Gtk.ScrolledWindow(vexpand=True)
@@ -503,8 +489,14 @@ class DetailView(Gtk.Box):
         if self._on_install_done:
             self._on_install_done(prefix_dir, install_path, runner, install_size)
 
+    def _effective_launch_targets(self) -> list[dict]:
+        """Return the launch targets to use, honouring local overrides."""
+        from cellar.backend import database  # noqa: PLC0415
+        overrides = database.get_launch_overrides(self._entry.id)
+        return overrides.get("launch_targets") or list(self._entry.launch_targets)
+
     def _on_open_clicked(self) -> None:
-        targets = self._entry.launch_targets
+        targets = self._effective_launch_targets()
         if not targets:
             return
         if len(targets) == 1:
@@ -530,7 +522,7 @@ class DetailView(Gtk.Box):
             idx = int(response)
         except ValueError:
             return
-        targets = self._entry.launch_targets
+        targets = self._effective_launch_targets()
         if 0 <= idx < len(targets):
             self._launch_target(targets[idx])
 
@@ -540,9 +532,15 @@ class DetailView(Gtk.Box):
         if self._entry.platform == "linux":
             self._launch_linux_target(entry_path, entry_args)
             return
-        from cellar.backend.umu import launch_app_monitored  # noqa: PLC0415
+        from cellar.backend.umu import launch_app_monitored, merge_launch_params  # noqa: PLC0415
         from cellar.views.builder.progress import ProgressDialog  # noqa: PLC0415
-        runner_name = self._resolved_runner
+        from cellar.backend import database  # noqa: PLC0415
+
+        overrides = database.get_launch_overrides(self._entry.id)
+        params = merge_launch_params(
+            self._entry, overrides, installed_runner=self._resolved_runner
+        )
+        runner_name = params["runner"]
         if not runner_name:
             base_entry, _ = self._find_base_entry(self._entry.base_image)
             if base_entry:
@@ -551,16 +549,16 @@ class DetailView(Gtk.Box):
         extra_env = _parse_launch_env(target.get("env", ""))
         from cellar.backend.umu import dll_overrides  # noqa: PLC0415
         from cellar.backend.config import load_audio_driver  # noqa: PLC0415
-        audio = self._entry.audio_driver
+        audio = params["audio_driver"]
         if audio == "auto":
             audio = load_audio_driver()
-        overrides = dll_overrides(
-            dxvk=self._entry.dxvk, vkd3d=self._entry.vkd3d,
+        dll_overrides_str = dll_overrides(
+            dxvk=params["dxvk"], vkd3d=params["vkd3d"],
             audio_driver=audio,
         )
-        if overrides:
-            extra_env["WINEDLLOVERRIDES"] = overrides
-        if self._entry.debug:
+        if dll_overrides_str:
+            extra_env["WINEDLLOVERRIDES"] = dll_overrides_str
+        if params["debug"]:
             extra_env["PROTON_LOG"] = "1"
 
         progress = ProgressDialog(label="Launching\u2026")
@@ -593,11 +591,11 @@ class DetailView(Gtk.Box):
                     app_id=self._entry.id,
                     entry_point=entry_path,
                     runner_name=runner_name,
-                    steam_appid=self._entry.steam_appid,
+                    steam_appid=params["steam_appid"],
                     launch_args=entry_args,
                     extra_env=extra_env or None,
                     line_cb=_on_line,
-                    direct_proton=self._entry.direct_proton,
+                    direct_proton=params["direct_proton"],
                 )
             except Exception as exc:
                 log.warning("Launch failed: %s", exc)
@@ -779,6 +777,10 @@ class DetailView(Gtk.Box):
         manage_act.connect("activate", self._on_manage_shortcuts)
         ag.add_action(manage_act)
 
+        launch_params_act = Gio.SimpleAction.new("launch-params", None)
+        launch_params_act.connect("activate", lambda *_: self._on_launch_params_clicked())
+        ag.add_action(launch_params_act)
+
         uninstall_act = Gio.SimpleAction.new("uninstall", None)
         uninstall_act.connect("activate", lambda *_: self._on_remove_clicked())
         ag.add_action(uninstall_act)
@@ -792,6 +794,8 @@ class DetailView(Gtk.Box):
         main_section = Gio.Menu()
         if self._has_update and not self._is_offline:
             main_section.append("Update", "detail.update")
+
+        main_section.append("Launch Parameters\u2026", "detail.launch-params")
 
         targets = self._entry.launch_targets
         if len(targets) > 1:
@@ -815,6 +819,13 @@ class DetailView(Gtk.Box):
         folder = self._get_install_folder()
         if folder:
             Gio.AppInfo.launch_default_for_uri(f"file://{folder}", None)
+
+    def _on_launch_params_clicked(self) -> None:
+        from cellar.views.launch_params import LaunchParamsDialog  # noqa: PLC0415
+        LaunchParamsDialog(
+            self._entry,
+            on_saved=self._refresh_gear_menu,
+        ).present(self)
 
 
     def _get_install_folder(self) -> str | None:

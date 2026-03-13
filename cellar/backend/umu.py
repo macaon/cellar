@@ -177,6 +177,7 @@ def launch_app(
     prefix_dir: Path | None = None,
     launch_args: str = "",
     extra_env: dict[str, str] | None = None,
+    direct_proton: bool = False,
 ) -> None:
     """Launch *entry_point* inside the *app_id* prefix.  Fire-and-forget.
 
@@ -189,18 +190,31 @@ def launch_app(
 
     *extra_env* is merged on top of the umu environment, useful for per-app
     Proton tweaks such as ``PROTON_USE_WINED3D=1``.
+
+    If *direct_proton* is True, bypass umu-run and call Proton directly.
     """
     import os
     import shlex
     umu_env = build_env(app_id, runner_name, steam_appid, prefix_dir=prefix_dir)
     env = {**os.environ, **umu_env, **(extra_env or {})}
     exe = _win_to_linux_path(entry_point, umu_env["WINEPREFIX"])
-    cmd = _umu_cmd() + [exe]
+    if direct_proton:
+        proton_dir = runners_dir() / runner_name
+        proton_script = proton_dir / "proton"
+        wineprefix = prefix_dir if prefix_dir is not None else prefixes_dir() / app_id
+        env["STEAM_COMPAT_DATA_PATH"] = str(wineprefix)
+        env["STEAM_COMPAT_CLIENT_INSTALL_PATH"] = str(proton_dir)
+        appid_str = str(steam_appid) if steam_appid else "0"
+        env["SteamGameId"] = appid_str
+        env["SteamAppId"] = appid_str
+        cmd = [sys.executable, str(proton_script), "run", exe]
+    else:
+        cmd = _umu_cmd() + [exe]
     if launch_args:
         cmd += shlex.split(launch_args)
     log.info(
-        "Launching app %s via umu-run\n  WINEPREFIX=%s\n  PROTONPATH=%s\n  GAMEID=%s\n  EXE=%s%s",
-        app_id,
+        "Launching app %s via %s\n  WINEPREFIX=%s\n  PROTONPATH=%s\n  GAMEID=%s\n  EXE=%s%s",
+        app_id, "proton direct" if direct_proton else "umu-run",
         umu_env["WINEPREFIX"], umu_env["PROTONPATH"], umu_env["GAMEID"], exe,
         ("\n  EXTRA_ENV=" + " ".join(f"{k}={v}" for k, v in extra_env.items())) if extra_env else "",
     )
@@ -291,6 +305,47 @@ def launch_app_monitored(
             break
     # Detach — don't wait for process exit or read remaining stderr.
     proc.stderr.close()
+
+
+def merge_launch_params(entry, overrides: dict | None, *, installed_runner: str = "") -> dict:
+    """Merge catalogue defaults from *entry* with user *overrides*.
+
+    Returns a dict with keys: ``entry_point``, ``launch_args``,
+    ``launch_targets``, ``steam_appid``, ``runner``, ``dxvk``, ``vkd3d``,
+    ``audio_driver``, ``debug``, ``direct_proton``.
+
+    *overrides* is the result of ``database.get_launch_overrides()``; ``None``
+    or empty dict means use catalogue defaults for everything.
+
+    *installed_runner* is the runner stored in the installed DB record — used
+    as fallback when no override runner is set.
+    """
+    if not overrides:
+        overrides = {}
+
+    targets_override = overrides.get("launch_targets")
+    if targets_override:
+        first = targets_override[0]
+        entry_point = first.get("path") or entry.entry_point
+        entry_args = first.get("args", "") or ""
+        launch_targets = targets_override
+    else:
+        entry_point = entry.entry_point
+        entry_args = entry.launch_args
+        launch_targets = list(entry.launch_targets)
+
+    return {
+        "entry_point": entry_point,
+        "launch_args": entry_args,
+        "launch_targets": launch_targets,
+        "steam_appid": overrides["steam_appid"] if "steam_appid" in overrides else entry.steam_appid,
+        "runner": overrides.get("runner") or installed_runner,
+        "dxvk": overrides["dxvk"] if "dxvk" in overrides else entry.dxvk,
+        "vkd3d": overrides["vkd3d"] if "vkd3d" in overrides else entry.vkd3d,
+        "audio_driver": overrides.get("audio_driver") or entry.audio_driver,
+        "debug": overrides["debug"] if "debug" in overrides else entry.debug,
+        "direct_proton": overrides["direct_proton"] if "direct_proton" in overrides else entry.direct_proton,
+    }
 
 
 def init_prefix(

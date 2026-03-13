@@ -669,66 +669,9 @@ class CellarWindow(Adw.ApplicationWindow):
         if not source_repos and self._first_repo:
             source_repos = [self._first_repo]
         is_offline = entry.id in self._offline_entry_ids
-        # Editable only if a writable AND online repo carries this entry.
-        can_write = any(r.is_writable for r in source_repos) and not is_offline
 
         rec = _reconcile_installed_record(entry)
         is_installed = rec is not None
-
-        def _on_edit(selected_entry):
-            from cellar.views.detail import DetailView
-            from cellar.views.metadata_editor import MetadataEditorDialog, RepoContext
-
-            def _on_edit_done(updated_entry):
-                log.debug("_on_edit_done: updated_entry.id=%r screenshots=%s",
-                          updated_entry.id, updated_entry.screenshots)
-                import dataclasses as _dc
-                try:
-                    icons = self._first_repo.fetch_category_icons() if self._first_repo else {}
-                except Exception:
-                    icons = {}
-                icon = icons.get(updated_entry.category, "")
-                if icon:
-                    updated_entry = _dc.replace(updated_entry, category_icon=icon)
-                # Reload catalogue FIRST so _init_asset_cache runs with the new
-                # generated_at before the DetailView's background screenshot
-                # downloads begin.  If we did this after creating DetailView the
-                # cache wipe would race with (and delete) the freshly downloaded
-                # screenshot files.
-                self._load_catalogue()
-                # Re-query installed state — the closure's original rec/is_installed
-                # are stale after the catalogue was rewritten.
-                fresh_rec = _reconcile_installed_record(updated_entry)
-                fresh_installed = fresh_rec is not None
-                current_page = self.nav_view.get_visible_page()
-                log.debug("_on_edit_done: current_page=%r", current_page)
-                if current_page is not None:
-                    repos_for_detail = self._entry_repos.get(updated_entry.id) or source_repos
-                    log.debug("_on_edit_done: source_repos for DetailView: %s",
-                              [r.uri for r in repos_for_detail])
-                    new_detail = DetailView(
-                        updated_entry,
-                        source_repos=repos_for_detail,
-                        is_writable=can_write,
-                        on_edit=_on_edit if can_write else None,
-                        is_installed=fresh_installed,
-                        installed_record=fresh_rec,
-                        on_install_done=_on_install_done,
-                        on_remove_done=_on_remove_done,
-                        on_update_done=_on_update_done,
-                        on_genre_filter=_on_genre_filter,
-                        is_offline=is_offline,
-                    )
-                    current_page.set_child(new_detail)
-                    current_page.set_title(updated_entry.name)
-                self._show_toast("Entry updated")
-
-            # Use the writable repo that carries this entry, not the global first repo.
-            _writable = next((r for r in source_repos if r.is_writable), None) or self._first_repo
-            MetadataEditorDialog(
-                context=RepoContext(entry=selected_entry, repo=_writable),
-                on_done=_on_edit_done,
-            ).present(self)
 
         def _on_install_done(
             prefix_dir: str, install_path: str = "", runner: str = "", install_size: int = 0
@@ -770,8 +713,6 @@ class CellarWindow(Adw.ApplicationWindow):
         detail = DetailView(
             entry,
             source_repos=source_repos,
-            is_writable=can_write,
-            on_edit=_on_edit if can_write else None,
             is_installed=is_installed,
             installed_record=rec,
             on_install_done=_on_install_done,

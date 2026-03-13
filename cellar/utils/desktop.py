@@ -161,12 +161,13 @@ def create_desktop_entry(
         steam_appid = getattr(entry, "steam_appid", None)
         gameid = f"umu-{steam_appid}" if steam_appid else "0"
 
-        # Use the runner stored in the DB (runner_override takes priority).
+        # Use the runner from launch overrides if set, otherwise the installed runner.
         runner_name = ""
         try:
             from cellar.backend import database as _db  # noqa: PLC0415
             rec = _db.get_installed(entry.id) or {}
-            runner_name = rec.get("runner_override") or rec.get("runner") or ""
+            overrides = _db.get_launch_overrides(entry.id)
+            runner_name = overrides.get("runner") or rec.get("runner") or ""
         except Exception:  # noqa: BLE001
             pass
 

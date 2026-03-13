@@ -12,7 +12,7 @@ every DB open :func:`_open_db` reads the version and runs any pending
 migrations in order, then stamps the new version.  A fresh install creates
 the current schema directly (no migration required).
 
-Schema v3 (current)
+Schema v4 (current)
 -------------------
 ::
 
@@ -27,7 +27,6 @@ Schema v3 (current)
         version         TEXT,
         archive_crc32   TEXT,
         runner          TEXT,
-        runner_override TEXT,
         steam_appid     INTEGER,
         install_path    TEXT,
         install_size    INTEGER,
@@ -40,6 +39,18 @@ Schema v3 (current)
         runner       TEXT PRIMARY KEY,
         repo_source  TEXT,
         installed_at TEXT
+    );
+
+    CREATE TABLE launch_overrides (
+        app_id           TEXT PRIMARY KEY,
+        launch_targets   TEXT,
+        steam_appid      INTEGER,
+        runner           TEXT,
+        dxvk             INTEGER,
+        vkd3d            INTEGER,
+        audio_driver     TEXT,
+        debug            INTEGER,
+        direct_proton    INTEGER
     );
 """
 
@@ -54,7 +65,7 @@ from cellar.backend.config import data_dir
 
 log = logging.getLogger(__name__)
 
-_CURRENT_VERSION = 3
+_CURRENT_VERSION = 4
 
 
 # ---------------------------------------------------------------------------
@@ -119,10 +130,12 @@ def _migrate(conn: sqlite3.Connection) -> None:
         _migrate_v1_to_v2(conn)
     if current < 3:
         _migrate_v2_to_v3(conn)
+    if current < 4:
+        _migrate_v3_to_v4(conn)
 
 
 def _create_schema_v1(conn: sqlite3.Connection) -> None:
-    """Create the full v1 schema from scratch (fresh install)."""
+    """Create the full current schema from scratch (fresh install)."""
     conn.executescript("""
         CREATE TABLE schema_version (
             version INTEGER PRIMARY KEY
@@ -135,7 +148,6 @@ def _create_schema_v1(conn: sqlite3.Connection) -> None:
             version         TEXT,
             archive_crc32   TEXT,
             runner          TEXT,
-            runner_override TEXT,
             steam_appid     INTEGER,
             install_path    TEXT,
             install_size    INTEGER,
@@ -148,6 +160,18 @@ def _create_schema_v1(conn: sqlite3.Connection) -> None:
             runner       TEXT PRIMARY KEY,
             repo_source  TEXT,
             installed_at TEXT
+        );
+
+        CREATE TABLE launch_overrides (
+            app_id           TEXT PRIMARY KEY,
+            launch_targets   TEXT,
+            steam_appid      INTEGER,
+            runner           TEXT,
+            dxvk             INTEGER,
+            vkd3d            INTEGER,
+            audio_driver     TEXT,
+            debug            INTEGER,
+            direct_proton    INTEGER
         );
     """)
     conn.execute("INSERT INTO schema_version (version) VALUES (?)", (_CURRENT_VERSION,))
@@ -249,6 +273,38 @@ def _migrate_v2_to_v3(conn: sqlite3.Connection) -> None:
             )
     except Exception:
         log.exception("v2→v3 migration failed; database left unchanged")
+        raise
+
+
+def _migrate_v3_to_v4(conn: sqlite3.Connection) -> None:
+    """Drop ``runner_override`` from ``installed``; add ``launch_overrides`` table."""
+    log.info("Migrating cellar.db from v3 to v4")
+    try:
+        with conn:
+            # Drop the old per-install runner override column.
+            # SQLite 3.35+ (Python 3.10's bundled SQLite) supports DROP COLUMN.
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(installed)")}
+            if "runner_override" in cols:
+                conn.execute("ALTER TABLE installed DROP COLUMN runner_override")
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS launch_overrides (
+                    app_id           TEXT PRIMARY KEY,
+                    launch_targets   TEXT,
+                    steam_appid      INTEGER,
+                    runner           TEXT,
+                    dxvk             INTEGER,
+                    vkd3d            INTEGER,
+                    audio_driver     TEXT,
+                    debug            INTEGER,
+                    direct_proton    INTEGER
+                )
+            """)
+            conn.execute(
+                "INSERT OR REPLACE INTO schema_version (version) VALUES (?)",
+                (4,),
+            )
+    except Exception:
+        log.exception("v3→v4 migration failed; database left unchanged")
         raise
 
 
@@ -369,25 +425,82 @@ def set_install_size(app_id: str, size: int) -> None:
         )
 
 
-def get_runner_override(app_id: str) -> str | None:
-    """Return the persisted runner override for *app_id*, or ``None``."""
-    rec = get_installed(app_id)
-    if rec is None:
-        return None
-    return rec.get("runner_override")
+def get_launch_overrides(app_id: str) -> dict:
+    """Return the launch override record for *app_id*.
 
+    Returns a dict containing only the fields that are explicitly overridden;
+    absent keys mean "use the catalogue default".  Returns an empty dict if
+    no overrides have been saved.
 
-def set_runner_override(app_id: str, runner_name: str | None) -> None:
-    """Persist the runner override for *app_id*.
-
-    Pass ``None`` to clear the override.  No-op if *app_id* is not in the
-    database.
+    ``launch_targets``, if present, is a decoded list of dicts.
+    Boolean fields (``dxvk``, ``vkd3d``, ``debug``, ``direct_proton``) are
+    returned as Python booleans.
     """
+    import json as _json
+    with _open_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM launch_overrides WHERE app_id = ?", (app_id,)
+        ).fetchone()
+    if row is None:
+        return {}
+    d = dict(row)
+    d.pop("app_id", None)
+    if d.get("launch_targets") is not None:
+        d["launch_targets"] = _json.loads(d["launch_targets"])
+    for key in ("dxvk", "vkd3d", "debug", "direct_proton"):
+        if d.get(key) is not None:
+            d[key] = bool(d[key])
+    return {k: v for k, v in d.items() if v is not None}
+
+
+def set_launch_overrides(app_id: str, overrides: dict) -> None:
+    """Upsert the launch override record for *app_id*.
+
+    Only keys present in *overrides* are stored; fields not in *overrides*
+    are stored as NULL (meaning "use catalogue default").
+    """
+    import json as _json
+    lt = overrides.get("launch_targets")
+    lt_json = _json.dumps(lt) if lt is not None else None
+
+    def _to_int(v: object) -> int | None:
+        return int(v) if v is not None else None
+
     with _open_db() as conn:
         conn.execute(
-            "UPDATE installed SET runner_override = ? WHERE id = ?",
-            (runner_name, app_id),
+            """
+            INSERT INTO launch_overrides
+                (app_id, launch_targets, steam_appid, runner, dxvk, vkd3d,
+                 audio_driver, debug, direct_proton)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(app_id) DO UPDATE SET
+                launch_targets = excluded.launch_targets,
+                steam_appid    = excluded.steam_appid,
+                runner         = excluded.runner,
+                dxvk           = excluded.dxvk,
+                vkd3d          = excluded.vkd3d,
+                audio_driver   = excluded.audio_driver,
+                debug          = excluded.debug,
+                direct_proton  = excluded.direct_proton
+            """,
+            (
+                app_id,
+                lt_json,
+                overrides.get("steam_appid"),
+                overrides.get("runner") or None,
+                _to_int(overrides.get("dxvk")),
+                _to_int(overrides.get("vkd3d")),
+                overrides.get("audio_driver") or None,
+                _to_int(overrides.get("debug")),
+                _to_int(overrides.get("direct_proton")),
+            ),
         )
+
+
+def clear_launch_overrides(app_id: str) -> None:
+    """Delete all launch overrides for *app_id* (reset to catalogue defaults)."""
+    with _open_db() as conn:
+        conn.execute("DELETE FROM launch_overrides WHERE app_id = ?", (app_id,))
 
 
 def update_install_paths(old_base: str, new_base: str) -> None:

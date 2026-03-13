@@ -365,6 +365,7 @@ class RepoContext(_SaveContext):
             "vkd3d": e.vkd3d,
             "debug": e.debug,
             "direct_proton": e.direct_proton,
+            "audio_driver": e.audio_driver,
         }
 
     def populate_media(self, media: "MediaPanel") -> None:
@@ -472,6 +473,7 @@ class RepoContext(_SaveContext):
         vkd3d = bool(fields.get("vkd3d", True))
         debug = bool(fields.get("debug", False))
         direct_proton = bool(fields.get("direct_proton", False))
+        audio_driver = fields.get("audio_driver", "auto")
         hide_title = bool(images.get("hide_title", e.hide_title))
 
         icon_path = images.get("icon")    # None=keep, ""=clear, str=new
@@ -529,6 +531,7 @@ class RepoContext(_SaveContext):
             vkd3d=vkd3d,
             debug=debug,
             direct_proton=direct_proton,
+            audio_driver=audio_driver,
         )
 
         repo_images = {
@@ -725,6 +728,9 @@ class MetadataEditorDialog(Adw.Dialog):
             self._vkd3d_row.set_active(bool(fields.get("vkd3d", True)))
             self._debug_row.set_active(bool(fields.get("debug", False)))
             self._direct_proton_row.set_active(bool(fields.get("direct_proton", False)))
+            audio = fields.get("audio_driver", "auto")
+            if audio in self._AUDIO_VALUES:
+                self._audio_driver_row.set_selected(self._AUDIO_VALUES.index(audio))
 
         # Wire steam appid → media panel
         self._steam_row.connect("changed", self._on_steam_appid_changed)
@@ -931,6 +937,18 @@ class MetadataEditorDialog(Adw.Dialog):
             )
             launch_group.add(self._direct_proton_row)
 
+            self._AUDIO_LABELS = ("Auto", "PulseAudio", "ALSA", "OSS")
+            self._AUDIO_VALUES = ("auto", "pulseaudio", "alsa", "oss")
+            self._audio_driver_row = Adw.ComboRow(
+                title="Audio Driver",
+                subtitle="Wine audio backend override",
+            )
+            audio_model = Gtk.StringList()
+            for lbl in self._AUDIO_LABELS:
+                audio_model.append(lbl)
+            self._audio_driver_row.set_model(audio_model)
+            launch_group.add(self._audio_driver_row)
+
             add_target_row = Adw.ActionRow(title="Add Launch Target\u2026")
             add_btn = Gtk.Button(label="Add\u2026", valign=Gtk.Align.CENTER)
             add_btn.add_css_class("flat")
@@ -1017,6 +1035,7 @@ class MetadataEditorDialog(Adw.Dialog):
             fields["vkd3d"] = self._vkd3d_row.get_active()
             fields["debug"] = self._debug_row.get_active()
             fields["direct_proton"] = self._direct_proton_row.get_active()
+            fields["audio_driver"] = self._AUDIO_VALUES[self._audio_driver_row.get_selected()]
 
         return fields
 

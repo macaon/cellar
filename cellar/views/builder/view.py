@@ -1929,8 +1929,9 @@ class PackageBuilderView(Adw.Bin):
             self._show_toast(f"Select {what} before test launching.")
             return
         from cellar.backend.umu import dll_overrides, launch_app
+        from cellar.backend.config import load_audio_driver  # noqa: PLC0415
         extra_env: dict[str, str] = {}
-        overrides = dll_overrides()
+        overrides = dll_overrides(audio_driver=load_audio_driver())
         if overrides:
             extra_env["WINEDLLOVERRIDES"] = overrides
         launch_app(

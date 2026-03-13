@@ -88,14 +88,28 @@ def is_runtime_ready() -> bool:
     return (data_dir().parent / "umu" / "steamrt3").is_dir()
 
 
-def dll_overrides(*, dxvk: bool = True, vkd3d: bool = True) -> str:
-    """Build a ``WINEDLLOVERRIDES`` value for DXVK, VKD3D, and Mono.
+_AUDIO_OVERRIDES: dict[str, tuple[str, ...]] = {
+    "pulseaudio": ("winealsa.drv", "wineoss.drv"),
+    "alsa": ("winepulse.drv", "wineoss.drv"),
+    "oss": ("winepulse.drv", "winealsa.drv"),
+}
+
+
+def dll_overrides(
+    *, dxvk: bool = True, vkd3d: bool = True, audio_driver: str = "auto",
+) -> str:
+    """Build a ``WINEDLLOVERRIDES`` value for DXVK, VKD3D, Mono, and audio.
 
     GE-Proton ships DXVK, VKD3D, and Wine Mono inside every prefix, but
     Wine needs explicit overrides to prefer native DLLs over its built-in
     implementations.  ``mscoree`` (the .NET/Mono CLR host) is always
-    included when any override is active.  Returns an empty string if
-    both DXVK and VKD3D are disabled.
+    included when any override is active.
+
+    When *audio_driver* is not ``"auto"``, the unwanted audio driver DLLs
+    are disabled (set to empty = disabled) so Wine uses only the chosen
+    backend.
+
+    Returns an empty string when no overrides are needed.
     """
     parts: list[str] = []
     if dxvk:
@@ -104,6 +118,8 @@ def dll_overrides(*, dxvk: bool = True, vkd3d: bool = True) -> str:
         ))
     if vkd3d:
         parts.extend(f"{d}=n,b" for d in ("d3d12", "d3d12core"))
+    if audio_driver in _AUDIO_OVERRIDES:
+        parts.extend(f"{d}=" for d in _AUDIO_OVERRIDES[audio_driver])
     if parts:
         parts.append("mscoree=n,b")
     return ";".join(parts)

@@ -550,7 +550,14 @@ class DetailView(Gtk.Box):
 
         extra_env = _parse_launch_env(target.get("env", ""))
         from cellar.backend.umu import dll_overrides  # noqa: PLC0415
-        overrides = dll_overrides(dxvk=self._entry.dxvk, vkd3d=self._entry.vkd3d)
+        from cellar.backend.config import load_audio_driver  # noqa: PLC0415
+        audio = self._entry.audio_driver
+        if audio == "auto":
+            audio = load_audio_driver()
+        overrides = dll_overrides(
+            dxvk=self._entry.dxvk, vkd3d=self._entry.vkd3d,
+            audio_driver=audio,
+        )
         if overrides:
             extra_env["WINEDLLOVERRIDES"] = overrides
         if self._entry.debug:

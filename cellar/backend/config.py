@@ -281,6 +281,28 @@ def save_install_base(path: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Global Wine audio driver default
+# ---------------------------------------------------------------------------
+
+def load_audio_driver() -> str:
+    """Return the global default Wine audio driver, or ``'auto'``."""
+    return _load().get("audio_driver", "auto")
+
+
+def save_audio_driver(driver: str) -> None:
+    """Persist the global default Wine audio driver.
+
+    Pass ``'auto'`` (or empty) to reset to the default.
+    """
+    cfg = _load()
+    if driver and driver != "auto":
+        cfg["audio_driver"] = driver
+    else:
+        cfg.pop("audio_driver", None)
+    _save(cfg)
+
+
+# ---------------------------------------------------------------------------
 # Per-scheme aliases (kept for call-site readability)
 # ---------------------------------------------------------------------------
 

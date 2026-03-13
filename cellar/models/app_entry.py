@@ -18,6 +18,8 @@ from typing import Literal
 
 # Fields included in the slim catalogue.json index (v2).  Everything else
 # lives only in the per-app ``apps/<id>/metadata.json``.
+AUDIO_DRIVERS: tuple[str, ...] = ("auto", "pulseaudio", "alsa", "oss")
+
 INDEX_FIELDS: tuple[str, ...] = (
     "id", "name", "category", "summary", "genres",
     "icon", "cover", "platform", "archive_crc32", "base_image",
@@ -187,6 +189,8 @@ class AppEntry:
     vkd3d: bool = True
     debug: bool = False
     direct_proton: bool = False
+    # Wine audio backend: "auto" (let Proton decide), "pulseaudio", "alsa", "oss".
+    audio_driver: str = "auto"
 
     # ------------------------------------------------------------------
     # Convenience accessors (primary = first target)
@@ -258,6 +262,7 @@ class AppEntry:
             vkd3d=bool(data.get("vkd3d", True)),
             debug=bool(data.get("debug", False)),
             direct_proton=bool(data.get("direct_proton", False)),
+            audio_driver=data.get("audio_driver", "auto"),
         )
 
     def to_index_dict(self) -> dict:
@@ -348,6 +353,8 @@ class AppEntry:
             d["debug"] = True
         if self.direct_proton:
             d["direct_proton"] = True
+        if self.audio_driver != "auto":
+            d["audio_driver"] = self.audio_driver
         return d
 
 

@@ -68,6 +68,9 @@ class SettingsDialog(Adw.PreferencesDialog):
         # ── Group: Install Location ───────────────────────────────────────
         self._build_install_location_group(page)
 
+        # ── Group: Wine ────────────────────────────────────────────────────
+        self._build_wine_group(page)
+
         self._rebuild_repo_rows()
 
     # ------------------------------------------------------------------
@@ -304,6 +307,45 @@ class SettingsDialog(Adw.PreferencesDialog):
             work=lambda: _move_install_data(old_dir, new_dir),
             on_done=_finish,
         )
+
+    # ------------------------------------------------------------------
+    # Wine
+    # ------------------------------------------------------------------
+
+    _AUDIO_LABELS = ("Auto (let Proton decide)", "PulseAudio", "ALSA", "OSS")
+    _AUDIO_VALUES = ("auto", "pulseaudio", "alsa", "oss")
+
+    def _build_wine_group(self, page: Adw.PreferencesPage) -> None:
+        from cellar.backend.config import load_audio_driver  # noqa: PLC0415
+
+        group = Adw.PreferencesGroup(
+            title="Wine",
+            description="Default settings for Windows applications.",
+        )
+        page.add(group)
+
+        self._audio_row = Adw.ComboRow(
+            title="Audio Driver",
+            subtitle="Default audio backend for Wine/Proton apps",
+        )
+        model = Gtk.StringList()
+        for label in self._AUDIO_LABELS:
+            model.append(label)
+        self._audio_row.set_model(model)
+
+        current = load_audio_driver()
+        if current in self._AUDIO_VALUES:
+            self._audio_row.set_selected(self._AUDIO_VALUES.index(current))
+
+        self._audio_row.connect("notify::selected", self._on_audio_driver_changed)
+        group.add(self._audio_row)
+
+    def _on_audio_driver_changed(self, row, _pspec) -> None:
+        from cellar.backend.config import save_audio_driver  # noqa: PLC0415
+
+        idx = row.get_selected()
+        if 0 <= idx < len(self._AUDIO_VALUES):
+            save_audio_driver(self._AUDIO_VALUES[idx])
 
     # ------------------------------------------------------------------
     # Repo list management

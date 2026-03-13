@@ -378,46 +378,56 @@ def _install_gecko(
                 break
 
 
-def _apply_font_smoothing(prefix_path: Path) -> None:
-    """Enable ClearType font smoothing in the prefix's ``user.reg``.
-
-    Sets the four standard Windows font smoothing registry values under
-    ``[HKEY_CURRENT_USER\\Control Panel\\Desktop]``.
-    """
-    import re
-
-    reg_file = prefix_path / "user.reg"
+def _read_reg(prefix_path: Path, name: str) -> tuple[str, bool] | None:
+    """Read a Wine registry file, returning ``(text, is_utf16)`` or None."""
+    reg_file = prefix_path / name
     if not reg_file.is_file():
-        log.warning("user.reg not found at %s — skipping font smoothing", reg_file)
-        return
-
+        log.warning("%s not found at %s — skipping", name, reg_file)
+        return None
     raw = reg_file.read_bytes()
     is_utf16 = raw[:2] in (b"\xff\xfe", b"\xfe\xff")
     text = raw.decode("utf-16-le" if is_utf16 else "utf-8", errors="replace")
+    return text, is_utf16
 
-    keys = {
-        '"FontSmoothing"': '"FontSmoothing"="2"',
-        '"FontSmoothingType"': '"FontSmoothingType"=dword:00000002',
-        '"FontSmoothingGamma"': '"FontSmoothingGamma"=dword:00000578',
-        '"FontSmoothingOrientation"': '"FontSmoothingOrientation"=dword:00000001',
-    }
 
+def _write_reg(prefix_path: Path, name: str, text: str, is_utf16: bool) -> None:
+    """Write a Wine registry file, preserving original encoding."""
+    encoded = text.encode("utf-16-le" if is_utf16 else "utf-8")
+    if is_utf16 and encoded[:2] not in (b"\xff\xfe", b"\xfe\xff"):
+        encoded = b"\xff\xfe" + encoded
+    (prefix_path / name).write_bytes(encoded)
+
+
+def _set_reg_values(
+    text: str,
+    section: str,
+    values: dict[str, str],
+) -> str:
+    """Set registry values within a ``user.reg`` section.
+
+    *section* is the section header without brackets, e.g.
+    ``Control Panel\\\\Desktop``.  Wine's ``user.reg`` uses the short form
+    (implied ``HKEY_CURRENT_USER``), *not* the full hive path.
+
+    *values* maps quoted key names to full ``"Key"=value`` lines.
+    """
+    import re
+
+    # Match the section header — may have a trailing timestamp after the ].
     section_re = re.compile(
-        r"(\[HKEY_CURRENT_USER\\\\Control Panel\\\\Desktop\].*?\n)",
+        rf"(\[{re.escape(section)}\].*?\n)",
         re.IGNORECASE,
     )
     match = section_re.search(text)
     if match:
-        # Find the end of this section (next section header or EOF).
         rest = text[match.end():]
         next_section = re.search(r"^\[", rest, re.MULTILINE)
         section_end = match.end() + next_section.start() if next_section else len(text)
         section_body = text[match.end():section_end]
 
-        # Replace existing keys or collect ones to insert.
         new_body = section_body
         to_insert: list[str] = []
-        for key_name, key_line in keys.items():
+        for key_name, key_line in values.items():
             pattern = re.compile(rf"^{re.escape(key_name)}=.*$", re.MULTILINE)
             if pattern.search(new_body):
                 new_body = pattern.sub(key_line, new_body)
@@ -427,18 +437,53 @@ def _apply_font_smoothing(prefix_path: Path) -> None:
         if to_insert:
             new_body = new_body.rstrip("\n") + "\n" + "\n".join(to_insert) + "\n"
 
-        text = text[:match.end()] + new_body + text[section_end:]
-    else:
-        # Section doesn't exist — append it.
-        block = "\n[HKEY_CURRENT_USER\\\\Control Panel\\\\Desktop]\n"
-        block += "\n".join(keys.values()) + "\n"
-        text += block
+        return text[:match.end()] + new_body + text[section_end:]
 
-    encoded = text.encode("utf-16-le" if is_utf16 else "utf-8")
-    if is_utf16 and not encoded[:2] in (b"\xff\xfe", b"\xfe\xff"):
-        encoded = b"\xff\xfe" + encoded
-    reg_file.write_bytes(encoded)
-    log.info("Applied font smoothing to %s", reg_file)
+    # Section doesn't exist — append it.
+    return text + f"\n[{section}]\n" + "\n".join(values.values()) + "\n"
+
+
+def _apply_font_smoothing(prefix_path: Path) -> None:
+    """Enable ClearType font smoothing in the prefix's ``user.reg``."""
+    result = _read_reg(prefix_path, "user.reg")
+    if result is None:
+        return
+    text, is_utf16 = result
+
+    text = _set_reg_values(text, "Control Panel\\\\Desktop", {
+        '"FontSmoothing"': '"FontSmoothing"="2"',
+        '"FontSmoothingType"': '"FontSmoothingType"=dword:00000002',
+        '"FontSmoothingGamma"': '"FontSmoothingGamma"=dword:00000578',
+        '"FontSmoothingOrientation"': '"FontSmoothingOrientation"=dword:00000001',
+    })
+
+    _write_reg(prefix_path, "user.reg", text, is_utf16)
+    log.info("Applied font smoothing to %s", prefix_path / "user.reg")
+
+
+def _apply_wine_tweaks(prefix_path: Path) -> None:
+    """Disable winemenubuilder and file associations in the prefix.
+
+    Prevents Wine from creating unwanted ``.desktop`` files and file type
+    associations on the host system.
+    """
+    result = _read_reg(prefix_path, "user.reg")
+    if result is None:
+        return
+    text, is_utf16 = result
+
+    # Disable winemenubuilder.exe via DLL override.
+    text = _set_reg_values(text, "Software\\\\Wine\\\\DllOverrides", {
+        '"winemenubuilder.exe"': '"winemenubuilder.exe"=""',
+    })
+
+    # Disable file open associations.
+    text = _set_reg_values(text, "Software\\\\Wine\\\\FileOpenAssociations", {
+        '"Enable"': '"Enable"="N"',
+    })
+
+    _write_reg(prefix_path, "user.reg", text, is_utf16)
+    log.info("Applied Wine tweaks to %s", prefix_path / "user.reg")
 
 
 # -- Standard prefix setup ---------------------------------------------------
@@ -446,6 +491,7 @@ def _apply_font_smoothing(prefix_path: Path) -> None:
 _SETUP_STEPS: list[tuple[str, str]] = [
     ("Installing Wine Gecko…", "__gecko__"),
     ("Applying font smoothing…", "__fontsmoothing__"),
+    ("Applying Wine tweaks…", "__winetweaks__"),
     ("Installing core fonts…", "corefonts"),
     ("Installing msls31…", "msls31"),
     ("Installing DirectX 9…", "d3dx9"),
@@ -487,6 +533,8 @@ def setup_prefix(
                 _install_gecko(prefix_path, runner_name)
             elif verb == "__fontsmoothing__":
                 _apply_font_smoothing(prefix_path)
+            elif verb == "__winetweaks__":
+                _apply_wine_tweaks(prefix_path)
             else:
                 run_winetricks(
                     prefix_path, runner_name, [verb], timeout=timeout,

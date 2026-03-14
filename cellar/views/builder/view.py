@@ -2264,12 +2264,23 @@ class PackageBuilderView(Adw.Bin):
 
             # Remove old archive chunks before writing new ones — they share
             # the same filename pattern, so cleanup after would delete new files.
-            from cellar.backend.packager import _cleanup_old_archive
+            from cellar.backend.packager import (
+                _cleanup_chunks,
+                _cleanup_old_archive,
+            )
             _cleanup_old_archive(repo_root, entry)
 
-            _reset_phase("Compressing and uploading\u2026")
+            # Track what we've written so we can clean up on cancel.
+            _written_archive = False
+            _runner_upserted: tuple[str, object] | None = None  # (name, dest)
+            _base_upserted: tuple[str, object] | None = None    # (name, dest)
+            _partial_dest = None  # dest currently being compressed
+            _app_imported = False
+
             try:
+                _reset_phase("Compressing and uploading\u2026")
                 if project.project_type == "linux":
+                    _partial_dest = archive_dest
                     size, crc32, chunks = compress_prefix_zst(
                         _src_path,
                         archive_dest,
@@ -2285,6 +2296,7 @@ class PackageBuilderView(Adw.Bin):
                             "Install the base image before publishing."
                         )
                     _reset_phase("Scanning files\u2026")
+                    _partial_dest = archive_dest
                     size, crc32, chunks = compress_prefix_delta_zst(
                         _src_path,
                         base_path(project.runner),
@@ -2294,117 +2306,139 @@ class PackageBuilderView(Adw.Bin):
                         bytes_cb=_bytes_cb,
                     )
                     base_image = project.runner
-            except CancelledError:
-                # Clean up partial chunk files from the repo.
-                from cellar.backend.packager import _cleanup_chunks
-                try:
-                    _cleanup_chunks(archive_dest)
-                except Exception:
-                    pass
-                raise
+                _partial_dest = None
+                _written_archive = True
 
-            # ── Auto-publish base image + runner if missing from target repo ─
-            if base_image:
-                import json as _json
+                # ── Auto-publish base image + runner if missing ───────
+                if base_image:
+                    import json as _json
 
-                from cellar.backend.base_store import base_path
-                from cellar.backend.packager import (
-                    compress_runner_zst,
-                    upsert_base,
-                    upsert_runner,
-                )
-                from cellar.backend.umu import runners_dir
+                    from cellar.backend.base_store import base_path
+                    from cellar.backend.packager import (
+                        compress_runner_zst,
+                        upsert_base,
+                        upsert_runner,
+                    )
+                    from cellar.backend.umu import runners_dir
 
-                # Read target repo's catalogue to check existing bases/runners
-                _target_bases: dict[str, str] = {}
-                _target_runners: dict[str, str] = {}
-                _cat_path = repo_root / "catalogue.json"
-                try:
-                    if _cat_path.exists():
-                        with _cat_path.open("r") as _f:
-                            _cat_raw = _json.load(_f)
-                        if isinstance(_cat_raw, dict):
-                            _target_bases = _cat_raw.get("bases", {})
-                            _target_runners = _cat_raw.get("runners", {})
-                except Exception:
-                    pass
+                    _target_bases: dict[str, str] = {}
+                    _target_runners: dict[str, str] = {}
+                    _cat_path = repo_root / "catalogue.json"
+                    try:
+                        if _cat_path.exists():
+                            with _cat_path.open("r") as _f:
+                                _cat_raw = _json.load(_f)
+                            if isinstance(_cat_raw, dict):
+                                _target_bases = _cat_raw.get("bases", {})
+                                _target_runners = _cat_raw.get("runners", {})
+                    except Exception:
+                        pass
 
-                _need_base = base_image not in _target_bases
-                if _need_base:
-                    # Resolve the underlying runner name from any repo
-                    _runner_name = base_image  # fallback: assume same
-                    for _r in all_repos:
-                        try:
-                            _rb = _r.fetch_bases()
-                            if base_image in _rb:
-                                _runner_name = _rb[base_image].runner
-                                break
-                        except Exception:
-                            continue
+                    _need_base = base_image not in _target_bases
+                    if _need_base:
+                        _runner_name = base_image
+                        for _r in all_repos:
+                            try:
+                                _rb = _r.fetch_bases()
+                                if base_image in _rb:
+                                    _runner_name = _rb[base_image].runner
+                                    break
+                            except Exception:
+                                continue
 
-                    _need_runner = _runner_name not in _target_runners
+                        _need_runner = _runner_name not in _target_runners
 
-                    if _need_runner:
-                        _runner_src = runners_dir() / _runner_name
-                        _runner_rel = f"runners/{_runner_name}.tar.zst"
-                        _runner_dest = repo_root / _runner_rel
-                        _runner_dest.parent.mkdir(parents=True, exist_ok=True)
-                        _reset_phase("Uploading runner\u2026")
-                        try:
+                        if _need_runner:
+                            _runner_src = runners_dir() / _runner_name
+                            _runner_rel = f"runners/{_runner_name}.tar.zst"
+                            _runner_dest = repo_root / _runner_rel
+                            _runner_dest.parent.mkdir(parents=True, exist_ok=True)
+                            _reset_phase("Uploading runner\u2026")
+                            _partial_dest = _runner_dest
                             _rs, _rc, _rch = compress_runner_zst(
                                 _runner_src,
                                 _runner_dest,
                                 cancel_event=cancel_event,
                                 bytes_cb=_bytes_cb,
                             )
-                        except CancelledError:
-                            from cellar.backend.packager import _cleanup_chunks
-                            try:
-                                _cleanup_chunks(_runner_dest)
-                            except Exception:
-                                pass
-                            raise
-                        upsert_runner(repo_root, _runner_name, _runner_rel, _rc, _rs, _rch)
+                            _partial_dest = None
+                            upsert_runner(repo_root, _runner_name, _runner_rel, _rc, _rs, _rch)
+                            _runner_upserted = (_runner_name, _runner_dest)
 
-                    # Compress and upload the base image
-                    _base_rel = f"bases/{base_image}-base.tar.zst"
-                    _base_dest = repo_root / _base_rel
-                    _base_dest.parent.mkdir(parents=True, exist_ok=True)
-                    _reset_phase("Uploading base image\u2026")
-                    try:
+                        _base_rel = f"bases/{base_image}-base.tar.zst"
+                        _base_dest = repo_root / _base_rel
+                        _base_dest.parent.mkdir(parents=True, exist_ok=True)
+                        _reset_phase("Uploading base image\u2026")
+                        _partial_dest = _base_dest
                         _bs, _bc, _bch = compress_prefix_zst(
                             base_path(base_image),
                             _base_dest,
                             cancel_event=cancel_event,
                             bytes_cb=_bytes_cb,
                         )
-                    except CancelledError:
-                        from cellar.backend.packager import _cleanup_chunks
-                        try:
-                            _cleanup_chunks(_base_dest)
-                        except Exception:
-                            pass
-                        raise
-                    upsert_base(repo_root, base_image, _runner_name, _base_rel, _bc, _bs, _bch)
+                        _partial_dest = None
+                        upsert_base(repo_root, base_image, _runner_name, _base_rel, _bc, _bs, _bch)
+                        _base_upserted = (base_image, _base_dest)
 
-            GLib.idle_add(progress.set_label, "Finalizing\u2026")
-            GLib.idle_add(progress.set_stats, "")
-            GLib.idle_add(progress.start_pulse)
-            final_entry = _dc_replace(
-                entry,
-                archive_crc32=crc32,
-                archive_size=size,
-                archive_chunks=chunks,
-                base_image=base_image,
-            )
-            import_to_repo(
-                repo_root,
-                final_entry,
-                "",
-                images,
-                archive_in_place=True,
-                phase_cb=lambda s: GLib.idle_add(progress.set_label, s),
-            )
+                GLib.idle_add(progress.set_label, "Finalizing\u2026")
+                GLib.idle_add(progress.set_stats, "")
+                GLib.idle_add(progress.start_pulse)
+                final_entry = _dc_replace(
+                    entry,
+                    archive_crc32=crc32,
+                    archive_size=size,
+                    archive_chunks=chunks,
+                    base_image=base_image,
+                )
+                import_to_repo(
+                    repo_root,
+                    final_entry,
+                    "",
+                    images,
+                    archive_in_place=True,
+                    phase_cb=lambda s: GLib.idle_add(progress.set_label, s),
+                )
+                _app_imported = True
+
+            except CancelledError:
+                from cellar.backend.packager import (
+                    _remove_from_catalogue,
+                    _rmtree,
+                    remove_base,
+                    remove_runner,
+                )
+                # Clean up partial compression in progress.
+                if _partial_dest is not None:
+                    try:
+                        _cleanup_chunks(_partial_dest)
+                    except Exception:
+                        pass
+                # Reverse completed writes in LIFO order.
+                if _app_imported:
+                    try:
+                        _remove_from_catalogue(repo_root, entry.id)
+                    except Exception:
+                        pass
+                    try:
+                        _rmtree(repo_root / "apps" / entry.id, ignore_errors=True)
+                    except Exception:
+                        pass
+                if _base_upserted:
+                    try:
+                        remove_base(repo_root, _base_upserted[0])
+                    except Exception:
+                        pass
+                if _runner_upserted:
+                    try:
+                        remove_runner(repo_root, _runner_upserted[0])
+                    except Exception:
+                        pass
+                if _written_archive:
+                    try:
+                        _cleanup_chunks(archive_dest)
+                    except Exception:
+                        pass
+                raise
 
         def _done(_result) -> None:
             progress.force_close()

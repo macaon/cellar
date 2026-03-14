@@ -3087,7 +3087,10 @@ class _NewProjectDialog(Adw.Dialog):
             project.initialized = True
             if candidates:
                 project.entry_points = [
-                    {"name": c.name, "path": str(c.relative_to(content))}
+                    {
+                        "name": project.name if c.name == "start.sh" else c.name,
+                        "path": str(c.relative_to(content)),
+                    }
                     for c in candidates[:5]
                 ]
             save_project(project)

@@ -98,15 +98,13 @@ def fuzzy_search_games(query: str, limit: int = 10) -> list[dict]:
     if not results:
         return []
 
-    # Re-rank by fuzzy similarity to original query
+    # Re-rank by fuzzy similarity to original query without mutating dicts.
     query_lower = query.lower()
-    for r in results:
-        r["_score"] = fuzz.WRatio(query_lower, r["name"].lower())
-    results.sort(key=lambda r: r["_score"], reverse=True)
-
-    # Strip internal scoring key
-    for r in results:
-        del r["_score"]
+    results = sorted(
+        results,
+        key=lambda r: fuzz.WRatio(query_lower, r["name"].lower()),
+        reverse=True,
+    )
 
     return results[:limit]
 

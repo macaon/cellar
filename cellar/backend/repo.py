@@ -306,7 +306,7 @@ def _make_fetcher(
         return _SmbFetcher(
             uri,
             username=smb_username or parsed.username or None,
-            password=smb_password or parsed.password or None,
+            password=smb_password or None,
         )
 
     raise RepoError(

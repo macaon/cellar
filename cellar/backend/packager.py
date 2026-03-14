@@ -1057,7 +1057,7 @@ def _write_catalogue(
     category_icons: dict[str, str] | None = None,
 ) -> None:
     data: dict = {
-        "cellar_version": 1,
+        "cellar_version": 2,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "image_hashing": True,
         "apps": apps,
@@ -1479,7 +1479,7 @@ def add_catalogue_category(repo_root: Path, category: str) -> None:
     if cat_path.exists():
         raw = json.loads(cat_path.read_text())
     else:
-        raw = {"cellar_version": 1, "apps": []}
+        raw = {"cellar_version": 2, "apps": []}
     if not isinstance(raw, dict):
         return
     stored: list[str] = raw.get("categories") or []
@@ -1502,7 +1502,7 @@ def save_category_icon(repo_root: Path, category: str, icon_name: str) -> None:
     if cat_path.exists():
         raw = json.loads(cat_path.read_text())
     else:
-        raw = {"cellar_version": 1, "apps": []}
+        raw = {"cellar_version": 2, "apps": []}
     if not isinstance(raw, dict):
         return
     icons: dict[str, str] = dict(raw.get("category_icons") or {})

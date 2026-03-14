@@ -8,10 +8,13 @@ threading model explicit.
 
 from __future__ import annotations
 
+import logging
 import threading
 from typing import Callable
 
 from gi.repository import GLib
+
+log = logging.getLogger(__name__)
 
 
 def run_in_background(
@@ -42,6 +45,8 @@ def run_in_background(
         except Exception as exc:
             if on_error is not None:
                 GLib.idle_add(on_error, str(exc))
+            else:
+                log.debug("Background task raised unhandled exception: %s", exc)
         else:
             if on_done is not None:
                 GLib.idle_add(on_done, result)

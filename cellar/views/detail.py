@@ -473,10 +473,6 @@ class DetailView(Gtk.Box):
     ) -> None:
         self._is_installed = True
         self._installed_record = {
-            "prefix_dir": prefix_dir, "install_path": install_path, "install_size": install_size,
-        }
-        self._installed_record = {
-            **(self._installed_record or {}),
             "prefix_dir": prefix_dir,
             "install_path": install_path,
             "install_size": install_size,

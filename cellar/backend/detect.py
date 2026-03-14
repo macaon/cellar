@@ -24,6 +24,9 @@ _LAUNCH_EXCLUDE = {
     "postinst.sh",
     "preuninst.sh",
     "uninstall.sh",
+    "yad",
+    "yad32",
+    "yad64",
 }
 
 _ARCHIVE_EXTS = {

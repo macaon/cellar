@@ -13,7 +13,9 @@ from typing import Literal
 # ---------------------------------------------------------------------------
 
 _WIN_EXTS = {".exe", ".msi", ".bat", ".cmd", ".com", ".lnk"}
-_LIN_EXTS = {".sh", ".run"}
+_LIN_SCRIPT_EXTS = {".sh", ".run"}
+_LIN_BINARY_EXTS = {".x86_64", ".x86"}
+_LIN_EXTS = _LIN_SCRIPT_EXTS | _LIN_BINARY_EXTS
 _ELF_MAGIC = b"\x7fELF"
 
 _ARCHIVE_EXTS = {
@@ -115,7 +117,7 @@ def unsupported_reason(path: Path) -> str:
         combined = stem_suffix + suffix
         if combined in {".tar.gz", ".tar.bz2", ".tar.xz", ".tar.zst"} or suffix in _ARCHIVE_EXTS:
             return UNSUPPORTED_MESSAGES["archive"]
-        if suffix in _LIN_EXTS:
+        if suffix in _LIN_SCRIPT_EXTS:
             return UNSUPPORTED_MESSAGES["sh_run"]
     return UNSUPPORTED_MESSAGES["unknown_file"]
 
@@ -256,9 +258,9 @@ def _detect_file(path: Path) -> DetectResult:
         return "windows"
     if suffix in _ARCHIVE_EXTS:
         return "unsupported"
-    if suffix in _LIN_EXTS:
+    if suffix in _LIN_SCRIPT_EXTS:
         return "unsupported"  # single installer script — can't control install dir
-    if _is_elf(path):
+    if suffix in _LIN_BINARY_EXTS or _is_elf(path):
         return "linux"
     return "unsupported"
 

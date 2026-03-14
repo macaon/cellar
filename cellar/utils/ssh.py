@@ -74,10 +74,10 @@ def _get_sftp(
             try:
                 sftp.stat(".")
                 return sftp
-            except Exception:
+            except (EOFError, OSError, paramiko.SSHException):
                 try:
                     sftp.close()
-                except Exception:
+                except Exception:  # noqa: BLE001
                     pass
 
         # Get or create the shared SSH transport for this connection.

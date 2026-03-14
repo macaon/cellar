@@ -4,6 +4,7 @@ python_sources = files(
   'detail.py',
   'metadata_editor.py',
   'install_runner.py',
+  'launch_params.py',
   'settings.py',
   'screenshot_grid.py',
   'steam_picker.py',

@@ -37,6 +37,7 @@ class LaunchParamsDialog(Adw.Dialog):
         super().__init__(
             title=f"Launch Parameters — {entry.name}",
             content_width=560,
+            content_height=520,
         )
         self._entry = entry
         self._on_saved = on_saved
@@ -79,12 +80,8 @@ class LaunchParamsDialog(Adw.Dialog):
 
         toolbar.add_top_bar(header)
 
-        scroll = Gtk.ScrolledWindow(vexpand=True)
-        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-
         page = Adw.PreferencesPage()
-        scroll.set_child(page)
-        toolbar.set_content(scroll)
+        toolbar.set_content(page)
 
         self.set_child(toolbar)
 

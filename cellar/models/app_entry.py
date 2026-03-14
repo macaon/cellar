@@ -234,6 +234,14 @@ class AppEntry:
         if strategy not in ("safe", "full"):
             raise ValueError(f"Unknown update_strategy: {strategy!r}")
 
+        platform = data.get("platform", "windows")
+        if platform not in ("windows", "linux"):
+            raise ValueError(f"Unknown platform: {platform!r}")
+
+        audio = data.get("audio_driver", "auto")
+        if audio not in AUDIO_DRIVERS:
+            raise ValueError(f"Unknown audio_driver: {audio!r}")
+
         return cls(
             id=app_id,
             name=data["name"],
@@ -263,7 +271,7 @@ class AppEntry:
             update_strategy=strategy,
             base_image=data.get("base_image", ""),
             steam_appid=data.get("steam_appid"),
-            platform=data.get("platform", "windows"),
+            platform=platform,
             launch_targets=tuple(data.get("launch_targets", [])),
             compatibility_notes=data.get("compatibility_notes", ""),
             changelog=data.get("changelog", ""),
@@ -272,7 +280,7 @@ class AppEntry:
             vkd3d=bool(data.get("vkd3d", True)),
             debug=bool(data.get("debug", False)),
             direct_proton=bool(data.get("direct_proton", False)),
-            audio_driver=data.get("audio_driver", "auto"),
+            audio_driver=audio,
         )
 
     def to_index_dict(self) -> dict:

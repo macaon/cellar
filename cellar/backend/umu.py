@@ -312,7 +312,8 @@ def launch_app_monitored(
     for raw in proc.stderr:
         line = raw.rstrip("\n")
         if line:
-            log.debug("umu-run: %s", line)
+            _lvl = logging.INFO if "Downloading" in line or "SHA256" in line else logging.DEBUG
+            log.log(_lvl, "umu-run: %s", line)
             if line_cb:
                 line_cb(line)
         if not wine_seen and any(m in line for m in _SETUP):

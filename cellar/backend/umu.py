@@ -23,6 +23,20 @@ import sys
 from pathlib import Path
 from typing import Callable
 
+_REDACT_KEYWORDS = ("PASSWORD", "TOKEN", "KEY", "SECRET", "PASS", "CREDENTIAL")
+
+
+def _fmt_env(env: dict[str, str]) -> str:
+    """Format env vars for logging, redacting values whose keys look sensitive."""
+    parts = []
+    for k, v in env.items():
+        upper = k.upper()
+        if any(s in upper for s in _REDACT_KEYWORDS):
+            parts.append(f"{k}=***")
+        else:
+            parts.append(f"{k}={v}")
+    return " ".join(parts)
+
 log = logging.getLogger(__name__)
 
 _FLATPAK_INFO = Path("/.flatpak-info")
@@ -235,7 +249,7 @@ def launch_app(
         "Launching app %s via %s\n  WINEPREFIX=%s\n  PROTONPATH=%s\n  GAMEID=%s\n  EXE=%s%s",
         app_id, "proton direct" if direct_proton else "umu-run",
         umu_env["WINEPREFIX"], umu_env["PROTONPATH"], umu_env["GAMEID"], exe,
-        ("\n  EXTRA_ENV=" + " ".join(f"{k}={v}" for k, v in extra_env.items())) if extra_env else "",
+        ("\n  EXTRA_ENV=" + _fmt_env(extra_env)) if extra_env else "",
     )
     subprocess.Popen(cmd, env=env, start_new_session=True)
 
@@ -443,7 +457,7 @@ def launch_app_monitored(
         "\n  WINEPREFIX=%s\n  PROTONPATH=%s\n  GAMEID=%s\n  EXE=%s%s",
         app_id, "proton direct" if direct_proton else "umu-run",
         umu_env["WINEPREFIX"], umu_env["PROTONPATH"], umu_env["GAMEID"], exe,
-        ("\n  EXTRA_ENV=" + " ".join(f"{k}={v}" for k, v in extra_env.items())) if extra_env else "",
+        ("\n  EXTRA_ENV=" + _fmt_env(extra_env)) if extra_env else "",
     )
     proc = subprocess.Popen(
         cmd, env=env, start_new_session=True,

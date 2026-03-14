@@ -191,7 +191,7 @@ class CellarWindow(Adw.ApplicationWindow):
     # ── Catalogue loading ─────────────────────────────────────────────────
 
     def _load_catalogue(self) -> None:
-        from cellar.backend.config import load_repos, load_smb_password
+        from cellar.backend.config import load_repos, load_smb_password, load_ssh_password
         from cellar.backend.repo import Repo, RepoError, RepoManager  # noqa: F401
 
         manager = RepoManager()
@@ -224,7 +224,7 @@ class CellarWindow(Adw.ApplicationWindow):
                 smb_username = cfg.get("smb_username") or None
                 smb_password = load_smb_password(cfg["uri"]) if smb_username else None
                 ssh_username = cfg.get("ssh_username") or None
-                ssh_password = cfg.get("ssh_password") or None
+                ssh_password = load_ssh_password(cfg["uri"]) if ssh_username else None
                 r = Repo(
                     cfg["uri"],
                     cfg.get("name", ""),

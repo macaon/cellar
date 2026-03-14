@@ -1211,10 +1211,18 @@ def _overlay_delta(
     _check_cancel(cancel_event)
     delete_manifest = delta_src / ".cellar_delete"
     if delete_manifest.exists():
+        resolved_dest = prefix_dest.resolve()
         for line in delete_manifest.read_text().splitlines():
             rel = line.strip()
-            if rel:
-                (prefix_dest / rel).unlink(missing_ok=True)
+            if not rel:
+                continue
+            target = (prefix_dest / rel).resolve()
+            try:
+                target.relative_to(resolved_dest)
+            except ValueError:
+                log.warning("Skipping out-of-prefix delete entry: %r", rel)
+                continue
+            target.unlink(missing_ok=True)
 
 
 def _overlay_delta_python(

@@ -373,10 +373,20 @@ def update_app_safe(
             # previous version but removed in this one.
             delete_manifest = content_src / ".cellar_delete"
             if delete_manifest.exists():
+                resolved_prefix = prefix_path.resolve()
                 for line in delete_manifest.read_text().splitlines():
                     rel = line.strip()
-                    if rel and not _is_excluded(Path(rel)):
-                        (prefix_path / rel).unlink(missing_ok=True)
+                    if not rel or _is_excluded(Path(rel)):
+                        continue
+                    target = (prefix_path / rel).resolve()
+                    try:
+                        target.relative_to(resolved_prefix)
+                    except ValueError:
+                        log.warning(
+                            "Skipping out-of-prefix delete entry: %r", rel,
+                        )
+                        continue
+                    target.unlink(missing_ok=True)
 
         # ── Phase 7: Rewrite manifest with new package baseline ──────────────
         # Written before restoring user files so only package files are

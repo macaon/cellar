@@ -88,7 +88,7 @@ def _get_sftp(
 
         if transport is None:
             ssh = paramiko.SSHClient()
-            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            ssh.set_missing_host_key_policy(paramiko.WarningPolicy())
             connect_kw: dict = {
                 "hostname": host,
                 "port": port,

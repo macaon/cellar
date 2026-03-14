@@ -2941,6 +2941,7 @@ class _NewProjectDialog(Adw.Dialog):
         """Detect platform, parse name, and open MetadataEditorDialog pre-filled."""
         from cellar.backend.detect import (
             detect_platform,
+            find_gameinfo,
             parse_app_name,
             parse_version_hint,
             unsupported_reason,
@@ -2961,11 +2962,21 @@ class _NewProjectDialog(Adw.Dialog):
 
         app_name = parse_app_name(path)
         version = parse_version_hint(path)
+
+        # Check for GoG gameinfo inside dropped folders (WINEPREFIX)
+        if path.is_dir():
+            gi = find_gameinfo(path)
+            if gi:
+                if gi["name"]:
+                    app_name = gi["name"]
+                if gi["version"]:
+                    version = gi["version"]
+
         self._open_metadata_editor(path, platform, app_name, version)
 
     def _show_platform_picker(self, path: Path) -> None:
         """Show a small dialog to disambiguate platform."""
-        from cellar.backend.detect import parse_app_name, parse_version_hint
+        from cellar.backend.detect import find_gameinfo, parse_app_name, parse_version_hint
 
         dlg = Adw.AlertDialog(
             heading="Which platform?",
@@ -2981,6 +2992,13 @@ class _NewProjectDialog(Adw.Dialog):
             if response in ("windows", "linux"):
                 app_name = parse_app_name(path)
                 version = parse_version_hint(path)
+                if path.is_dir():
+                    gi = find_gameinfo(path)
+                    if gi:
+                        if gi["name"]:
+                            app_name = gi["name"]
+                        if gi["version"]:
+                            version = gi["version"]
                 self._open_metadata_editor(path, response, app_name, version)
 
         dlg.connect("response", _on_response)

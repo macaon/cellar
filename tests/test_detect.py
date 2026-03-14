@@ -324,9 +324,11 @@ class TestFindGameinfo:
         prefix = self._make_prefix(tmp_path)
         game_dir = prefix / "drive_c" / "GOG Games" / "Songs of Conquest"
         game_dir.mkdir(parents=True)
-        (game_dir / "gameinfo").write_text("Songs of Conquest\n1.9.1\nen-US\n")
+        (game_dir / "gameinfo").write_text(
+            "Songs of Conquest\n1.9.1\n85766\nen-US\n"
+        )
         result = find_gameinfo(prefix)
-        assert result == {"name": "Songs of Conquest", "version": "1.9.1"}
+        assert result == {"name": "Songs of Conquest", "version": "1.9.1 (85766)"}
 
     def test_not_found(self, tmp_path):
         prefix = self._make_prefix(tmp_path)
@@ -337,7 +339,13 @@ class TestFindGameinfo:
 
     def test_case_insensitive_filename(self, tmp_path):
         prefix = self._make_prefix(tmp_path)
-        (prefix / "drive_c" / "GameInfo").write_text("My Game\n2.0\n")
+        (prefix / "drive_c" / "GameInfo").write_text("My Game\n2.0\n12345\n")
+        result = find_gameinfo(prefix)
+        assert result == {"name": "My Game", "version": "2.0 (12345)"}
+
+    def test_version_without_build(self, tmp_path):
+        prefix = self._make_prefix(tmp_path)
+        (prefix / "drive_c" / "gameinfo").write_text("My Game\n2.0\n")
         result = find_gameinfo(prefix)
         assert result == {"name": "My Game", "version": "2.0"}
 

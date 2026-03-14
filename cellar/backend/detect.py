@@ -238,8 +238,10 @@ def find_gameinfo(prefix_path: Path) -> dict[str, str] | None:
             lines = candidate.read_text(encoding="utf-8", errors="replace").splitlines()
             name = lines[0].strip() if len(lines) > 0 else ""
             version = lines[1].strip() if len(lines) > 1 else ""
+            build = lines[2].strip() if len(lines) > 2 else ""
             if name:
-                return {"name": name, "version": version}
+                ver = f"{version} ({build})" if version and build else version
+                return {"name": name, "version": ver}
         except OSError:
             continue
 

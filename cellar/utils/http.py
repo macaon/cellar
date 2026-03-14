@@ -7,7 +7,11 @@ bearer-token auth, and SSL configuration are applied uniformly.
 
 from __future__ import annotations
 
+import logging
+
 import requests
+
+log = logging.getLogger(__name__)
 
 #: Browser-like User-Agent string.  Avoids CDN/WAF bot-protection rules
 #: that block Python's default ``User-Agent: python-requests/…``.
@@ -41,5 +45,9 @@ def make_session(
     if ca_cert:
         s.verify = ca_cert
     elif not ssl_verify:
+        log.warning(
+            "SSL certificate verification DISABLED — connections are vulnerable "
+            "to interception. Use ca_cert for self-signed certificates instead."
+        )
         s.verify = False
     return s

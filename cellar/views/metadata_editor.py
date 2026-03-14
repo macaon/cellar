@@ -1198,6 +1198,7 @@ class MetadataEditorDialog(Adw.Dialog):
         self._auto_steam_query = ""  # only auto-open once
 
     def _apply_steam_result(self, result: dict) -> None:
+        log.debug("Steam result: year=%r", result.get("year"))
         if result.get("name") and isinstance(self._title_widget, Adw.EntryRow):
             self._title_widget.set_text(result["name"])
         if result.get("developer"):

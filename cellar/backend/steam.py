@@ -153,16 +153,27 @@ def _strip_html(html: str) -> str:
 def _normalise(raw: dict) -> dict:
     """Convert raw Steam appdetails payload to a Cellar-friendly metadata dict."""
     import datetime
+    import locale
 
     year: int | None = None
     date_str = (raw.get("release_date") or {}).get("date", "")
     if date_str:
-        for fmt in ("%d %b, %Y", "%b %Y", "%Y"):
+        # Steam returns English month names regardless of system locale,
+        # so we must parse with the C locale.
+        prev_locale = locale.getlocale(locale.LC_TIME)
+        try:
+            locale.setlocale(locale.LC_TIME, "C")
+            for fmt in ("%d %b, %Y", "%b %Y", "%Y"):
+                try:
+                    year = datetime.datetime.strptime(date_str.strip(), fmt).year
+                    break
+                except ValueError:
+                    continue
+        finally:
             try:
-                year = datetime.datetime.strptime(date_str.strip(), fmt).year
-                break
-            except ValueError:
-                continue
+                locale.setlocale(locale.LC_TIME, prev_locale)
+            except locale.Error:
+                pass
 
     genres = [g.get("description", "") for g in (raw.get("genres") or []) if g.get("description")]
     category: str | None = None

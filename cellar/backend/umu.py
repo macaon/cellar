@@ -240,7 +240,6 @@ def launch_app(
     subprocess.Popen(cmd, env=env, start_new_session=True)
 
 
-
 def _exe_basename(entry_point: str) -> str:
     """Extract the executable basename from a Windows or Linux path.
 
@@ -252,16 +251,21 @@ def _exe_basename(entry_point: str) -> str:
     return ntpath.basename(entry_point)
 
 
-def _monitor_process_tree(
+def monitor_process_tree(
     entry_point: str,
     launch_event,  # threading.Event
     line_cb: Callable[[str], None] | None,
+    *,
+    timeout: float = 30.0,
 ) -> None:
     """Poll the host process list for the launch target executable.
 
     Sets *launch_event* when a process whose ``comm`` matches the
-    *entry_point* basename is found.  Polls until found or until
-    *launch_event* is set externally.
+    *entry_point* basename is found.  Polls until found, until
+    *launch_event* is set externally, or until *timeout* seconds elapse.
+
+    Linux truncates ``/proc/<pid>/comm`` to 15 bytes, so comparisons
+    use the first 15 characters of the target name.
 
     Inside a Flatpak sandbox, wine/game processes live in a different PID
     namespace (spawned by pressure-vessel) and are invisible from the
@@ -273,35 +277,45 @@ def _monitor_process_tree(
         return
 
     if is_cellar_sandboxed():
-        _monitor_via_host(target, launch_event, line_cb)
+        _monitor_via_host(target, launch_event, line_cb, timeout=timeout)
     else:
-        _monitor_via_proc(target, launch_event, line_cb)
+        _monitor_via_proc(target, launch_event, line_cb, timeout=timeout)
+
+
+_COMM_MAX = 15  # Linux truncates /proc/<pid>/comm to 15 bytes
 
 
 def _monitor_via_proc(
     target: str,
     launch_event,
     line_cb: Callable[[str], None] | None,
+    *,
+    timeout: float = 30.0,
 ) -> None:
     """Scan ``/proc/*/comm`` directly (non-Flatpak)."""
     import os
+    import time
 
-    log.debug("Launch monitor: scanning /proc for %r", target)
+    deadline = time.monotonic() + timeout
+    log.debug("Launch monitor: scanning /proc for %r (timeout=%.0fs)", target, timeout)
     while not launch_event.is_set():
         for entry in os.listdir("/proc"):
             if not entry.isdigit():
                 continue
             try:
-                with open(f"/proc/{entry}/comm") as f:
+                with open(f"/proc/{entry}/comm", encoding="ascii", errors="replace") as f:
                     comm = f.read().strip()
             except (FileNotFoundError, PermissionError):
                 continue
-            if comm.lower() == target:
+            if comm.lower() == target[:_COMM_MAX]:
                 log.info("Launch monitor: %s detected (pid %s)", comm, entry)
                 if line_cb:
                     line_cb(f"[pid] {comm}")
                 launch_event.set()
                 return
+        if time.monotonic() >= deadline:
+            log.debug("Launch monitor: timeout reached (%.0fs), detaching", timeout)
+            return
         launch_event.wait(timeout=1.0)
 
 
@@ -309,7 +323,7 @@ def _monitor_via_proc(
 # every second looking for a process whose name matches $1 (case-insensitive).
 # Prints "pid=<N> <comm>" and exits 0 on match; runs until killed otherwise.
 _HOST_MONITOR_SCRIPT = r"""
-target=$(echo "$1" | tr '[:upper:]' '[:lower:]')
+target=$(echo "$1" | tr '[:upper:]' '[:lower:]' | cut -c1-15)
 while true; do
   for f in /proc/*/comm; do
     read -r c < "$f" 2>/dev/null || continue
@@ -330,12 +344,15 @@ def _monitor_via_host(
     target: str,
     launch_event,
     line_cb: Callable[[str], None] | None,
+    *,
+    timeout: float = 30.0,
 ) -> None:
     """Scan host ``/proc`` via ``flatpak-spawn --host`` (Flatpak)."""
     import select as _sel
+    import time
 
-    log.debug("Launch monitor: scanning host /proc for %r via flatpak-spawn",
-              target)
+    log.debug("Launch monitor: scanning host /proc for %r via flatpak-spawn"
+              " (timeout=%.0fs)", target, timeout)
     try:
         proc = subprocess.Popen(
             ["flatpak-spawn", "--host", "bash", "-c",
@@ -347,10 +364,15 @@ def _monitor_via_host(
         return
 
     assert proc.stdout is not None
+    deadline = time.monotonic() + timeout
     try:
         fd = proc.stdout.fileno()
         while not launch_event.is_set():
-            ready, _, _ = _sel.select([fd], [], [], 1.0)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                log.debug("Launch monitor: timeout reached (%.0fs), detaching", timeout)
+                return
+            ready, _, _ = _sel.select([fd], [], [], min(remaining, 1.0))
             if ready:
                 line = proc.stdout.readline().strip()
                 if line:
@@ -451,7 +473,7 @@ def launch_app_monitored(
     stderr_thread.start()
 
     # PID-based launch detection — polls host /proc for the target exe.
-    _monitor_process_tree(entry_point, launch_event, line_cb)
+    monitor_process_tree(entry_point, launch_event, line_cb)
 
     # Signal stderr reader to stop and clean up.
     launch_event.set()

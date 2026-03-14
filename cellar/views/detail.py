@@ -619,7 +619,7 @@ class DetailView(Gtk.Box):
         import shlex as _shlex
 
         from cellar.backend.umu import (  # noqa: PLC0415
-            is_cellar_sandboxed, native_dir, _monitor_process_tree,
+            is_cellar_sandboxed, native_dir, monitor_process_tree,
         )
         from cellar.views.builder.progress import ProgressDialog  # noqa: PLC0415
 
@@ -640,7 +640,7 @@ class DetailView(Gtk.Box):
         def _work() -> None:
             _sp.Popen(cmd, cwd=str(exe.parent), start_new_session=True)
             launch_event = threading.Event()
-            _monitor_process_tree(entry_path, launch_event, _on_line)
+            monitor_process_tree(entry_path, launch_event, _on_line)
             GLib.idle_add(progress.force_close)
 
         threading.Thread(target=_work, daemon=True).start()

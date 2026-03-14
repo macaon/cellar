@@ -183,12 +183,19 @@ def find_exe_files(
     seen: set[Path] = set()
     result: list[Path] = []
 
+    # If folder is already drive_c, relative_to() will strip it from the
+    # path, but _is_wine_system expects paths like "drive_c/windows/…".
+    # Detect this and prepend the missing prefix when needed.
+    _rel_prefix = ""
+    if exclude_wine_system and folder.name.lower() == "drive_c":
+        _rel_prefix = "drive_c/"
+
     def _accept(p: Path) -> bool:
         if not p.is_file() or p.suffix.lower() not in {".exe", ".msi"}:
             return False
         if exclude_wine_system:
             try:
-                rel = str(p.relative_to(folder)).lower()
+                rel = _rel_prefix + str(p.relative_to(folder)).lower()
             except ValueError:
                 return False
             if _is_wine_system(rel):

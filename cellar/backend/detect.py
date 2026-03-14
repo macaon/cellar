@@ -49,8 +49,8 @@ _NOISE_SIG = (
 _NOISE_ANY = (
     r"(?:"
     r"\d+\.\d[\d.a-zA-Z]*"
-    r"|[0-9a-f]{7,}"
-    r"|\(\d+\)"
+    r"|[0-9a-f]{4,}"        # hex hash ≥4 chars (safe — only after a SIG anchor)
+    r"|\([^)]+\)"           # any parenthesised token: (89220), (64bit), (Installer)
     r"|build\d+"
     r"|v\d[\d.]*"
     r"|\d{4,}"              # bare 4+ digit IDs only allowed after a sig token

@@ -176,6 +176,11 @@ class TestParseAppName:
             ("gog_witcher_3_1.31.exe", "Witcher 3"),
             # GoG bare version + parenthesised build ID
             ("setup_wingspan_295_(88309).exe", "Wingspan"),
+            # Version + short hex + arch tag + build ID
+            (
+                "setup_core_keeper_1.2.0.5-1c0f_(64bit)_(89175).exe",
+                "Core Keeper",
+            ),
         ],
     )
     def test_parse(self, tmp_path, filename, expected):

@@ -990,8 +990,7 @@ class MetadataEditorDialog(Adw.Dialog):
         box.set_margin_start(24)
         box.set_margin_end(24)
 
-        spinner = Gtk.Spinner(spinning=True)
-        spinner.set_size_request(32, 32)
+        spinner = Adw.Spinner()
         spinner.set_halign(Gtk.Align.CENTER)
 
         self._spinner_label = Gtk.Label(label="Saving\u2026")

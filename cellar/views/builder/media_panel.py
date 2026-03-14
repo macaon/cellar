@@ -479,7 +479,7 @@ class MediaPanel(Gtk.Box):
             if getattr(dl_btn, "_downloading", False):
                 return  # already in progress
             dl_btn._downloading = True
-            spinner = Gtk.Spinner(spinning=True)
+            spinner = Adw.Spinner()
             dl_btn.set_child(spinner)
 
         def _work():
@@ -488,9 +488,13 @@ class MediaPanel(Gtk.Box):
             if not url:
                 return None
             import tempfile
-            ext = ".ico" if url.endswith(".ico") else Path(url).suffix or ".png"
+            from urllib.parse import urlparse
+            # Extract clean extension from URL path (ignore query string)
+            url_path = urlparse(url).path
+            ext = Path(url_path).suffix or ".png"
             dest = tempfile.NamedTemporaryFile(suffix=ext, delete=False).name
-            download_steam_image(url, dest, sgdb_key)
+            fallbacks = urls.get(f"{slot}_candidates", [])[1:]
+            download_steam_image(url, dest, sgdb_key, fallback_urls=fallbacks)
             return dest
 
         def _restore_btn():
@@ -498,6 +502,10 @@ class MediaPanel(Gtk.Box):
                 dl_btn._downloading = False
                 dl_btn.set_child(None)
                 dl_btn.set_icon_name("folder-download-symbolic")
+
+        def _error(msg):
+            _restore_btn()
+            log.warning("Steam %s download failed for appid %s: %s", slot, appid, msg)
 
         def _done(path):
             _restore_btn()
@@ -526,7 +534,7 @@ class MediaPanel(Gtk.Box):
                 if not self._hide_title_btn.get_active():
                     self._hide_title_btn.set_active(True)
 
-        run_in_background(_work, on_done=_done)
+        run_in_background(_work, on_done=_done, on_error=_error)
 
     # ------------------------------------------------------------------
     # Helpers

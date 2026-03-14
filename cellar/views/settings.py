@@ -95,9 +95,9 @@ class SettingsDialog(Adw.PreferencesDialog):
         group.add(self._sgdb_row)
 
         # Status indicator — spinner while validating, icon for result
-        self._sgdb_spinner = Gtk.Spinner(visible=False)
+        self._sgdb_spinner = Adw.Spinner()
+        self._sgdb_spinner.set_visible(False)
         self._sgdb_spinner.set_valign(Gtk.Align.CENTER)
-        self._sgdb_spinner.set_size_request(16, 16)
         self._sgdb_row.add_suffix(self._sgdb_spinner)
 
         self._sgdb_status = Gtk.Image(visible=bool(self._sgdb_saved))
@@ -123,7 +123,7 @@ class SettingsDialog(Adw.PreferencesDialog):
             save_sgdb_key("")
             self._sgdb_saved = ""
             self._sgdb_spinner.set_visible(False)
-            self._sgdb_spinner.set_spinning(False)
+            self._sgdb_spinner.set_visible(False)
             self._sgdb_status.set_visible(False)
             return
 
@@ -142,7 +142,7 @@ class SettingsDialog(Adw.PreferencesDialog):
         # Show spinner
         self._sgdb_status.set_visible(False)
         self._sgdb_spinner.set_visible(True)
-        self._sgdb_spinner.set_spinning(True)
+        self._sgdb_spinner.set_visible(True)
 
         from cellar.utils.async_work import run_in_background
 
@@ -158,7 +158,7 @@ class SettingsDialog(Adw.PreferencesDialog):
 
         def _done(valid):
             self._sgdb_spinner.set_visible(False)
-            self._sgdb_spinner.set_spinning(False)
+            self._sgdb_spinner.set_visible(False)
 
             # Guard against stale callback
             current = self._sgdb_row.get_text().strip()
@@ -184,7 +184,7 @@ class SettingsDialog(Adw.PreferencesDialog):
 
         def _error(_msg):
             self._sgdb_spinner.set_visible(False)
-            self._sgdb_spinner.set_spinning(False)
+            self._sgdb_spinner.set_visible(False)
             self._sgdb_status.remove_css_class("success")
             self._sgdb_status.remove_css_class("error")
             self._sgdb_status.set_from_icon_name("dialog-error-symbolic")
@@ -290,7 +290,8 @@ class SettingsDialog(Adw.PreferencesDialog):
                 self._on_repos_changed()
             return
 
-        spinner = Gtk.Spinner(spinning=True, margin_top=8)
+        spinner = Adw.Spinner()
+        spinner.set_margin_top(8)
         progress_dialog = Adw.AlertDialog(
             heading="Moving Install Data",
             body=f"Moving installs to {new_dir}\u2026",

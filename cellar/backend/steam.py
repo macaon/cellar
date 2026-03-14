@@ -230,11 +230,19 @@ def fetch_steam_images(appid: int, sgdb_key: str = "") -> dict:
     if sgdb_key:
         _game_id, platform_meta = _sgdb_resolve_game(session, appid, sgdb_key)
         if platform_meta:
-            return _steam_cdn_urls(appid, platform_meta)
+            result = _steam_cdn_urls(appid, platform_meta)
+            # Fall through to HEAD check for any slots still empty
+            if result["icon"] and result["cover"] and result["logo"]:
+                return result
 
-    # Fallback: blind Steam CDN HEAD check (no key needed)
-    for slot, path in (("cover", "library_600x900.jpg"), ("logo", "logo.png")):
-        url = f"{_STEAM_CDN}/{appid}/{path}"
+    # Fallback: blind Steam CDN HEAD check for empty slots
+    _cdn_fallbacks = {
+        "cover": f"{_STEAM_CDN}/{appid}/library_600x900.jpg",
+        "logo": f"{_STEAM_CDN_STORE}/{appid}/logo.png",
+    }
+    for slot, url in _cdn_fallbacks.items():
+        if result[slot]:
+            continue
         try:
             r = session.head(url, timeout=10, allow_redirects=True)
             if r.status_code == 200:
@@ -245,20 +253,40 @@ def fetch_steam_images(appid: int, sgdb_key: str = "") -> dict:
     return result
 
 
-def download_steam_image(url: str, dest: str, sgdb_key: str = "") -> str:
-    """Download an image URL to *dest* path.  Returns the path on success."""
+def download_steam_image(
+    url: str,
+    dest: str,
+    sgdb_key: str = "",
+    fallback_urls: list[str] | None = None,
+) -> str:
+    """Download an image URL to *dest* path.  Returns the path on success.
+
+    If *fallback_urls* is provided and the primary *url* returns a 4xx error,
+    each fallback is tried in order before raising.
+    """
     session = make_session()
     headers = {}
     if sgdb_key and _SGDB_API in url:
         headers["Authorization"] = f"Bearer {sgdb_key}"
-    resp = session.get(url, headers=headers, timeout=30, stream=True)
-    resp.raise_for_status()
-    from pathlib import Path
-    Path(dest).parent.mkdir(parents=True, exist_ok=True)
-    with open(dest, "wb") as f:
-        for chunk in resp.iter_content(8192):
-            f.write(chunk)
-    return dest
+
+    urls_to_try = [url] + (fallback_urls or [])
+    last_exc: Exception | None = None
+    for candidate in urls_to_try:
+        try:
+            resp = session.get(candidate, headers=headers, timeout=30, stream=True)
+            resp.raise_for_status()
+        except requests.HTTPError as exc:
+            last_exc = exc
+            log.debug("Steam image download failed for %s: %s", candidate, exc)
+            continue
+        from pathlib import Path
+        Path(dest).parent.mkdir(parents=True, exist_ok=True)
+        with open(dest, "wb") as f:
+            for chunk in resp.iter_content(8192):
+                f.write(chunk)
+        return dest
+
+    raise last_exc or requests.HTTPError(f"No valid URL for {url}")
 
 
 def _sgdb_resolve_game(
@@ -297,7 +325,12 @@ def _sgdb_resolve_game(
 
 
 def _steam_cdn_urls(appid: int, meta: dict) -> dict:
-    """Build original Steam CDN URLs from SGDB platform metadata."""
+    """Build original Steam CDN URLs from SGDB platform metadata.
+
+    For cover and logo, returns both 2x and 1x candidates so callers can
+    fall back when the preferred variant 404s.  The ``"_candidates"`` keys
+    hold ordered lists; the top-level slot holds the first candidate.
+    """
     result = {"icon": "", "cover": "", "logo": ""}
     mtime = meta.get("store_asset_mtime", "")
     ts = f"?t={mtime}" if mtime else ""
@@ -309,21 +342,27 @@ def _steam_cdn_urls(appid: int, meta: dict) -> dict:
             f"{_STEAM_CDN_COMMUNITY}/{appid}/{clienticon}.ico"
         )
 
-    # Cover — library capsule (prefer 2x)
+    # Cover — library capsule (prefer 2x, fall back to 1x)
     capsule = meta.get("library_capsule_full") or {}
-    capsule_file = _first_lang_value(capsule.get("image2x") or {})
-    if not capsule_file:
-        capsule_file = _first_lang_value(capsule.get("image") or {})
-    if capsule_file:
-        result["cover"] = f"{_STEAM_CDN_STORE}/{appid}/{capsule_file}{ts}"
+    cover_candidates: list[str] = []
+    for key in ("image2x", "image"):
+        f = _first_lang_value(capsule.get(key) or {})
+        if f:
+            cover_candidates.append(f"{_STEAM_CDN_STORE}/{appid}/{f}{ts}")
+    if cover_candidates:
+        result["cover"] = cover_candidates[0]
+    result["cover_candidates"] = cover_candidates
 
-    # Logo — library logo (prefer 2x)
+    # Logo — library logo (prefer 2x, fall back to 1x)
     logo = meta.get("library_logo_full") or {}
-    logo_file = _first_lang_value(logo.get("image2x") or {})
-    if not logo_file:
-        logo_file = _first_lang_value(logo.get("image") or {})
-    if logo_file:
-        result["logo"] = f"{_STEAM_CDN_STORE}/{appid}/{logo_file}{ts}"
+    logo_candidates: list[str] = []
+    for key in ("image2x", "image"):
+        f = _first_lang_value(logo.get(key) or {})
+        if f:
+            logo_candidates.append(f"{_STEAM_CDN_STORE}/{appid}/{f}{ts}")
+    if logo_candidates:
+        result["logo"] = logo_candidates[0]
+    result["logo_candidates"] = logo_candidates
 
     return result
 

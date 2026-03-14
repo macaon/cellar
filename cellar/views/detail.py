@@ -1103,7 +1103,7 @@ class DetailView(Gtk.Box):
             slot.set_margin_end(8)
             slot.set_margin_top(4)
             slot.set_margin_bottom(10)
-            spinner = Gtk.Spinner(spinning=True)
+            spinner = Adw.Spinner()
             spinner.set_halign(Gtk.Align.CENTER)
             spinner.set_valign(Gtk.Align.CENTER)
             slot.append(spinner)

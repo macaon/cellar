@@ -186,9 +186,8 @@ class DependencyPickerDialog(Adw.Dialog):
         stack.add_named(install_btn, "idle")
 
         # installing: spinner
-        spinner = Gtk.Spinner(spinning=True)
+        spinner = Adw.Spinner()
         spinner.set_valign(Gtk.Align.CENTER)
-        spinner.set_size_request(16, 16)
         stack.add_named(spinner, "installing")
 
         # installed: check icon only (winetricks has no reliable uninstall)

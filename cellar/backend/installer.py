@@ -24,9 +24,9 @@ from any thread (the UI layer wraps it in ``GLib.idle_add``).
 
 from __future__ import annotations
 
+import logging
 import shutil
 import subprocess
-import sys
 import tarfile
 import tempfile
 import threading
@@ -51,6 +51,40 @@ class InstallError(Exception):
 
 class InstallCancelled(Exception):
     """Raised when the user cancels a running install."""
+
+
+# ---------------------------------------------------------------------------
+# Safe tar extraction
+# ---------------------------------------------------------------------------
+
+log = logging.getLogger(__name__)
+
+
+def _safe_extract(
+    tf: tarfile.TarFile,
+    member: tarfile.TarInfo,
+    dest: str | Path,
+    *,
+    filter_name: str = "tar",
+) -> None:
+    """Extract *member* into *dest* with path-traversal protection.
+
+    On Python 3.12+ uses the built-in *filter* parameter.  On older versions
+    validates the member name manually to reject absolute paths, ``..``
+    components, and non-regular files (devices, fifos, etc.).
+    """
+    try:
+        tf.extract(member, dest, filter=filter_name)
+    except TypeError:
+        # Python < 3.12 — filter kwarg not supported; validate manually.
+        parts = Path(member.name).parts
+        if any(p == ".." for p in parts) or Path(member.name).is_absolute():
+            log.warning("Skipping unsafe tar member: %r", member.name)
+            return
+        if not (member.isreg() or member.isdir() or member.issym()):
+            log.warning("Skipping non-regular tar member: %r", member.name)
+            return
+        tf.extract(member, dest)  # noqa: S202
 
 
 # ---------------------------------------------------------------------------
@@ -298,7 +332,6 @@ def _stream_and_extract(
     Raises ``InstallError`` on extraction failure or checksum mismatch.
     Raises ``InstallCancelled`` if *cancel_event* is set mid-stream.
     """
-    use_filter = sys.version_info >= (3, 12)
     pipe = _PipedSource(chunks, total_bytes, progress_cb, stats_cb, cancel_event)
 
     def _extract_member(tf: tarfile.TarFile, member: tarfile.TarInfo) -> None:
@@ -309,10 +342,7 @@ def _stream_and_extract(
             member.name = str(Path(*parts[1:]))
         if name_cb:
             name_cb(Path(member.name).name or member.name)
-        if use_filter:
-            tf.extract(member, dest, filter="tar")
-        else:
-            tf.extract(member, dest)  # noqa: S202
+        _safe_extract(tf, member, dest)
 
     try:
         if is_zst:
@@ -852,11 +882,10 @@ def _extract_archive(
     each member is extracted so the UI can show the current file name.
     """
     _check_cancel(cancel_event)
-    use_filter = sys.version_info >= (3, 12)
     if str(archive_path).endswith(".tar.zst"):
-        _extract_zst(archive_path, dest, cancel_event, progress_cb, name_cb, use_filter)
+        _extract_zst(archive_path, dest, cancel_event, progress_cb, name_cb)
     else:
-        _extract_gz(archive_path, dest, cancel_event, progress_cb, name_cb, use_filter)
+        _extract_gz(archive_path, dest, cancel_event, progress_cb, name_cb)
 
 
 def _extract_gz(
@@ -865,7 +894,6 @@ def _extract_gz(
     cancel_event: threading.Event | None,
     progress_cb: Callable[[float], None] | None,
     name_cb: Callable[[str], None] | None,
-    use_filter: bool,
 ) -> None:
     """Extract a .tar.gz archive with progress via compressed file position."""
     try:
@@ -876,10 +904,7 @@ def _extract_gz(
                     _check_cancel(cancel_event)
                     if name_cb:
                         name_cb(Path(member.name).name or member.name)
-                    if use_filter:
-                        tf.extract(member, dest, filter="tar")
-                    else:
-                        tf.extract(member, dest)  # noqa: S202
+                    _safe_extract(tf, member, dest)
                     if progress_cb:
                         progress_cb(min(raw.tell() / total, 1.0))
     except tarfile.TarError as exc:
@@ -892,7 +917,6 @@ def _extract_zst(
     cancel_event: threading.Event | None,
     progress_cb: Callable[[float], None] | None,
     name_cb: Callable[[str], None] | None,
-    use_filter: bool,
 ) -> None:
     """Extract a .tar.zst archive with progress via compressed bytes read."""
     try:
@@ -925,10 +949,7 @@ def _extract_zst(
                         _check_cancel(cancel_event)
                         if name_cb:
                             name_cb(Path(member.name).name or member.name)
-                        if use_filter:
-                            tf.extract(member, dest, filter="tar")
-                        else:
-                            tf.extract(member, dest)  # noqa: S202
+                        _safe_extract(tf, member, dest)
                         if progress_cb:
                             progress_cb(min(reader.pos / total, 1.0))
     except tarfile.TarError as exc:

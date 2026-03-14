@@ -24,7 +24,6 @@ from __future__ import annotations
 import hashlib
 import logging
 import shutil
-import sys
 import tarfile
 import tempfile
 import threading
@@ -44,6 +43,30 @@ from cellar.utils.progress import trunc_middle as _trunc_filename
 from cellar.views.widgets import make_progress_page
 
 log = logging.getLogger(__name__)
+
+
+def _safe_extract_member(
+    tf: tarfile.TarFile,
+    member: tarfile.TarInfo,
+    dest: str | Path,
+) -> None:
+    """Extract *member* into *dest* with path-traversal protection.
+
+    Uses ``filter="data"`` on Python 3.12+.  On older versions validates
+    the member name manually to reject absolute paths, ``..`` components,
+    and non-regular files.
+    """
+    try:
+        tf.extract(member, dest, filter="data")
+    except TypeError:
+        parts = Path(member.name).parts
+        if any(p == ".." for p in parts) or Path(member.name).is_absolute():
+            log.warning("Skipping unsafe tar member: %r", member.name)
+            return
+        if not (member.isreg() or member.isdir() or member.issym()):
+            log.warning("Skipping non-regular tar member: %r", member.name)
+            return
+        tf.extract(member, dest)  # noqa: S202
 
 
 class InstallRunnerDialog(Adw.Dialog):
@@ -240,7 +263,6 @@ def _download_and_extract_runner(
         # ── Extract ───────────────────────────────────────────────────────
         phase_cb("Extracting\u2026")
         progress_cb(0.0)
-        use_filter = sys.version_info >= (3, 12)
         with tempfile.TemporaryDirectory(dir=_tmp_root) as extract_dir:
             archive_size = tmp_path.stat().st_size or 1
             with open(tmp_path, "rb") as raw:
@@ -250,10 +272,7 @@ def _download_and_extract_runner(
                             raise _Cancelled
                         if name_cb:
                             name_cb(Path(member.name).name or member.name)
-                        if use_filter:
-                            tar.extract(member, extract_dir, filter="data")
-                        else:
-                            tar.extract(member, extract_dir)  # noqa: S202
+                        _safe_extract_member(tar, member, extract_dir)
                         progress_cb(min(raw.tell() / archive_size, 1.0))
 
             if cancel_event.is_set():

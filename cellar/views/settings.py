@@ -457,11 +457,10 @@ class SettingsDialog(Adw.PreferencesDialog):
 
     def _on_repo_enabled_toggled(self, switch: Gtk.Switch, _pspec, uri: str) -> None:
         enabled = switch.get_active()
-        repos = load_repos()
-        for r in repos:
-            if r["uri"] == uri:
-                r["enabled"] = enabled
-                break
+        repos = [
+            {**r, "enabled": enabled} if r["uri"] == uri else r
+            for r in load_repos()
+        ]
         save_repos(repos)
         self._rebuild_repo_rows()
         if self._on_repos_changed:

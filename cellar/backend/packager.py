@@ -410,26 +410,27 @@ def compress_prefix_zst(
             except OSError:
                 pass
 
-    done = [0]
-    done_bytes = [0]
+    done = 0
+    done_bytes = 0
     start = time.monotonic()
 
     def _filter(ti: tarfile.TarInfo) -> tarfile.TarInfo | None:
+        nonlocal done, done_bytes
         if cancel_event and cancel_event.is_set():
             raise CancelledError("Cancelled")
         if (ti.issym() or ti.islnk()) and "drive_c/users/" in ti.name:
             return None
         if ti.isfile():
-            done[0] += 1
-            done_bytes[0] += ti.size
+            done += 1
+            done_bytes += ti.size
             if file_cb:
                 file_cb(ti.name.split("/")[-1])
             if progress_cb and total_files:
-                progress_cb(done[0] / total_files)
+                progress_cb(done / total_files)
             if stats_cb:
                 elapsed = time.monotonic() - start
-                speed = done_bytes[0] / elapsed if elapsed > 0.1 else 0.0
-                stats_cb(done[0], total_files, speed)
+                speed = done_bytes / elapsed if elapsed > 0.1 else 0.0
+                stats_cb(done, total_files, speed)
         return ti
 
     cctx = zstd.ZstdCompressor(level=3)
@@ -502,18 +503,19 @@ def compress_runner_zst(
     dest_path.parent.mkdir(parents=True, exist_ok=True)
 
     total_files = sum(1 for _ in runner_dir.rglob("*") if _.is_file())
-    done = [0]
+    done = 0
     top = runner_dir.name
 
     def _filter(ti: tarfile.TarInfo) -> tarfile.TarInfo | None:
+        nonlocal done
         if cancel_event and cancel_event.is_set():
             raise CancelledError("Cancelled")
         if ti.isfile():
-            done[0] += 1
+            done += 1
             if file_cb:
                 file_cb(ti.name.split("/")[-1])
             if progress_cb and total_files:
-                progress_cb(done[0] / total_files)
+                progress_cb(done / total_files)
         return ti
 
     cctx = zstd.ZstdCompressor(level=3)
@@ -658,8 +660,8 @@ def compress_prefix_delta_zst(
         phase_cb("Compressing and uploading\u2026")
 
     total_pack = len(delta_files)
-    done = [0]
-    done_bytes = [0]
+    done = 0
+    done_bytes = 0
     start = time.monotonic()
 
     cctx = zstd.ZstdCompressor(level=3)
@@ -673,14 +675,14 @@ def compress_prefix_delta_zst(
             if file_cb:
                 file_cb(src.name)
             tf.add(str(src), arcname=f"prefix/{rel}", recursive=False)
-            done[0] += 1
-            done_bytes[0] += src.stat().st_size
+            done += 1
+            done_bytes += src.stat().st_size
             if progress_cb and total_pack:
-                progress_cb(done[0] / total_pack)
+                progress_cb(done / total_pack)
             if stats_cb:
                 elapsed = time.monotonic() - start
-                speed = done_bytes[0] / elapsed if elapsed > 0.1 else 0.0
-                stats_cb(done[0], total_pack, speed)
+                speed = done_bytes / elapsed if elapsed > 0.1 else 0.0
+                stats_cb(done, total_pack, speed)
 
             if cw.should_rotate():
                 tf.close()

@@ -894,9 +894,7 @@ def run_in_prefix(
     """
     import os
     base_env = build_env("", runner_name, gameid, prefix_dir=prefix_path)
-    if extra_env:
-        base_env.update(extra_env)
-    env = {**os.environ, **base_env}
+    env = {**os.environ, **base_env, **(extra_env or {})}
     # Pass exe as positional arg — the primary documented umu-run form.
     cmd = _umu_cmd() + [exe_path]
     log.info(

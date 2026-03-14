@@ -26,6 +26,24 @@ from cellar.utils.images import content_hash as _content_hash
 from cellar.utils.images import optimize_image as _optimize_image
 
 
+def _atomic_write_json(path, data: dict) -> None:
+    """Write JSON to *path* atomically for local paths, directly for remote.
+
+    Local ``pathlib.Path`` objects use a write-to-tmp + rename pattern so a
+    crash mid-write never leaves a truncated file.  Remote path types
+    (``SshPath``, ``SmbPath``) lack ``replace``, so they fall back to a
+    direct ``write_text`` — acceptable since remote write errors surface as
+    transport exceptions rather than silent corruption.
+    """
+    text = json.dumps(data, indent=2, ensure_ascii=False)
+    if isinstance(path, Path):
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(text, encoding="utf-8")
+        tmp.replace(path)
+    else:
+        path.write_text(text)
+
+
 def _output_ext(src: str, role: str) -> str:
     """Predict the output file extension that :func:`optimize_image` will produce."""
     ext = Path(src).suffix.lower()
@@ -1053,7 +1071,7 @@ def _write_catalogue(
         data["bases"] = bases
     if category_icons is not None:
         data["category_icons"] = category_icons
-    cat_path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+    _atomic_write_json(cat_path, data)
 
 
 def upsert_runner(
@@ -1471,7 +1489,7 @@ def add_catalogue_category(repo_root: Path, category: str) -> None:
     stored.append(category)
     raw["categories"] = stored
     raw["generated_at"] = datetime.now(timezone.utc).isoformat()
-    cat_path.write_text(json.dumps(raw, indent=2, ensure_ascii=False))
+    _atomic_write_json(cat_path, raw)
 
 
 def save_category_icon(repo_root: Path, category: str, icon_name: str) -> None:
@@ -1494,7 +1512,7 @@ def save_category_icon(repo_root: Path, category: str, icon_name: str) -> None:
     icons[category] = icon_name
     raw["category_icons"] = icons
     raw["generated_at"] = datetime.now(timezone.utc).isoformat()
-    cat_path.write_text(json.dumps(raw, indent=2, ensure_ascii=False))
+    _atomic_write_json(cat_path, raw)
 
 
 class CancelledError(Exception):

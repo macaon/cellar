@@ -625,6 +625,7 @@ class MetadataEditorDialog(Adw.Dialog):
         on_changed: Callable | None = None,
         on_done: Callable | None = None,
         auto_steam_query: str = "",
+        auto_version: str = "",
     ) -> None:
         _new_titles = {"linux": "New Linux App", "base": "New Base Image"}
         if context.is_create:
@@ -645,6 +646,7 @@ class MetadataEditorDialog(Adw.Dialog):
         self._locally_installed = self._check_locally_installed()
         self._saved_result = None
         self._auto_steam_query = auto_steam_query
+        self._auto_version = auto_version
 
         # Launch target state (used only when context.show_launch_settings)
         self._launch_targets: list[dict] = []
@@ -653,6 +655,10 @@ class MetadataEditorDialog(Adw.Dialog):
         self._add_target_row_widget: Adw.ActionRow | None = None
 
         self._build_ui()
+
+        # Pre-fill version from smart import (gameinfo, filename, etc.)
+        if auto_version and hasattr(self, "_version_row"):
+            self._version_row.set_text(auto_version)
 
         # Auto-open Steam picker after dialog is presented
         if auto_steam_query:

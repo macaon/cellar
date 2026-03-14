@@ -3048,6 +3048,7 @@ class _NewProjectDialog(Adw.Dialog):
             context=ctx,
             on_created=_on_created,
             auto_steam_query=app_name,
+            auto_version=version or "",
         )
         dialog.present(self._parent_view)
 

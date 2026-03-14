@@ -547,7 +547,7 @@ class DetailView(Gtk.Box):
                 runner_name = base_entry.runner
 
         extra_env = _parse_launch_env(target.get("env", ""))
-        from cellar.backend.umu import dll_overrides  # noqa: PLC0415
+        from cellar.backend.umu import dll_overrides, proton_compat_env  # noqa: PLC0415
         from cellar.backend.config import load_audio_driver  # noqa: PLC0415
         audio = params["audio_driver"]
         if audio == "auto":
@@ -558,6 +558,9 @@ class DetailView(Gtk.Box):
         )
         if dll_overrides_str:
             extra_env["WINEDLLOVERRIDES"] = dll_overrides_str
+        extra_env.update(proton_compat_env(
+            dxvk=params["dxvk"], vkd3d=params["vkd3d"],
+        ))
         if params["debug"]:
             extra_env["PROTON_LOG"] = "1"
 

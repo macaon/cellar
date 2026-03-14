@@ -125,6 +125,25 @@ def dll_overrides(
     return ";".join(parts)
 
 
+def proton_compat_env(*, dxvk: bool = True, vkd3d: bool = True) -> dict[str, str]:
+    """Return Proton environment variables to disable DXVK or VKD3D.
+
+    GE-Proton enables DXVK and VKD3D by default.  ``WINEDLLOVERRIDES``
+    alone cannot disable them — Proton's own setup scripts re-enable them.
+    These Proton-specific env vars are the correct mechanism:
+
+    - ``PROTON_USE_WINED3D=1`` — fall back to WineD3D (OpenGL) instead of
+      DXVK (Vulkan) for D3D9–D3D11.
+    - ``PROTON_NO_D3D12=1`` — disable D3D12 (VKD3D-Proton) entirely.
+    """
+    env: dict[str, str] = {}
+    if not dxvk:
+        env["PROTON_USE_WINED3D"] = "1"
+    if not vkd3d:
+        env["PROTON_NO_D3D12"] = "1"
+    return env
+
+
 def build_env(
     app_id: str,
     runner_name: str,

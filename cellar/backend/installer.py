@@ -711,11 +711,14 @@ def install_app(
     write_manifest(prefix_dest)
 
     # Pre-download steamrt3 on first install so the first launch is instant.
-    from cellar.backend.umu import init_prefix, is_runtime_ready  # noqa: PLC0415
-    if not is_runtime_ready():
-        if phase_cb:
-            phase_cb("Initialising prefix\u2026")
-        init_prefix(prefix_dest, base_entry.runner, steam_appid=entry.steam_appid)
+    # Disabled: the prefix is already initialised during the build/package step,
+    # and the launch monitor (detail.py) shows progress if umu needs to download
+    # steamrt3 on first launch.  Re-enable if clean-system testing reveals issues.
+    # from cellar.backend.umu import init_prefix, is_runtime_ready  # noqa: PLC0415
+    # if not is_runtime_ready():
+    #     if phase_cb:
+    #         phase_cb("Initialising prefix\u2026")
+    #     init_prefix(prefix_dest, base_entry.runner, steam_appid=entry.steam_appid)
 
     if phase_cb:
         phase_cb("Done")

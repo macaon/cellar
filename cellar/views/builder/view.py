@@ -856,10 +856,9 @@ class PackageBuilderView(Adw.Bin):
             else:
                 # Flat layout: base list + Download button, no expander
                 self._sel_expander = sel_group
-                dl_btn = Gtk.Button(label="Download", valign=Gtk.Align.CENTER)
-                dl_btn.add_css_class("suggested-action")
-                dl_btn.connect("clicked", self._on_download_base_clicked)
-                self._sel_active_row.add_suffix(dl_btn)
+                self._dl_base_btn = Gtk.Button(label="Download", valign=Gtk.Align.CENTER)
+                self._dl_base_btn.connect("clicked", self._on_download_base_clicked)
+                self._sel_active_row.add_suffix(self._dl_base_btn)
                 sel_group.add(self._sel_active_row)
 
             page.add(sel_group)
@@ -1345,6 +1344,11 @@ class PackageBuilderView(Adw.Bin):
         shows only those that are also present on disk.
         """
         from cellar.backend.base_store import is_base_installed
+        from cellar.backend.database import get_all_installed_bases
+
+        # Build install-date index so we can sort by newest last
+        all_base_recs = get_all_installed_bases()  # ordered by installed_at
+        install_order = {rec["runner"]: i for i, rec in enumerate(all_base_recs)}
 
         seen: set[str] = set()
         base_images: list[str] = []
@@ -1353,16 +1357,22 @@ class PackageBuilderView(Adw.Bin):
                 if name not in seen and is_base_installed(name):
                     seen.add(name)
                     base_images.append(name)
-        base_images.sort()
+        # Sort by install date (newest last); fall back to alpha for unknowns
+        base_images.sort(key=lambda n: (install_order.get(n, -1), n))
+
+        # Toggle Download button accent: only highlight when no bases installed
+        if hasattr(self, "_dl_base_btn"):
+            if base_images:
+                self._dl_base_btn.remove_css_class("suggested-action")
+            else:
+                self._dl_base_btn.add_css_class("suggested-action")
 
         # Base images referenced by at least one published app (in the base's
         # source repo) cannot be deleted.  Scoped per-repo so that mirroring a
         # base to a second repo doesn't prevent cleanup on the first.
-        from cellar.backend.database import get_all_installed_bases
-
         repo_by_uri = {repo.uri: repo for repo in self._all_repos}
         bases_in_use: set[str] = set()
-        for rec in get_all_installed_bases():
+        for rec in all_base_recs:
             base_runner = rec["runner"]
             repo_source = rec.get("repo_source") or ""
             target_repo = repo_by_uri.get(repo_source)
@@ -1373,7 +1383,7 @@ class PackageBuilderView(Adw.Bin):
                     bases_in_use.add(base_runner)
                     break
 
-        # If no runner set yet, default to the latest installed base (last by installed_at)
+        # If no runner set yet, default to the newest installed base (last by install date)
         effective_runner = project.runner or (base_images[-1] if base_images else "")
         if effective_runner and not project.runner:
             project.runner = effective_runner
@@ -2793,10 +2803,15 @@ class _NewProjectDialog(Adw.Dialog):
         # ── Manual platform group ────────────────────────────────────────
         group = Adw.PreferencesGroup()
 
+        has_bases = any(repo._bases for repo in self._parent_view._all_repos)
         win_row = Adw.ActionRow(
             title="Proton Package",
-            subtitle="App running in Proton/Wine",
-            activatable=True,
+            subtitle=(
+                "App running in Proton/Wine" if has_bases
+                else "No base images available — add a repo with base images first"
+            ),
+            activatable=has_bases,
+            sensitive=has_bases,
         )
         win_row.add_prefix(Gtk.Image.new_from_icon_name("grid-large-symbolic"))
         win_row.add_suffix(Gtk.Image.new_from_icon_name("go-next-symbolic"))

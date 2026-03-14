@@ -240,6 +240,133 @@ def launch_app(
     subprocess.Popen(cmd, env=env, start_new_session=True)
 
 
+
+def _exe_basename(entry_point: str) -> str:
+    """Extract the executable basename from a Windows or Linux path.
+
+    ``C:\\Program Files\\Game\\game.exe`` → ``game.exe``
+    ``/path/to/game.exe`` → ``game.exe``
+    """
+    import ntpath
+
+    return ntpath.basename(entry_point)
+
+
+def _monitor_process_tree(
+    entry_point: str,
+    launch_event,  # threading.Event
+    line_cb: Callable[[str], None] | None,
+) -> None:
+    """Poll the host process list for the launch target executable.
+
+    Sets *launch_event* when a process whose ``comm`` matches the
+    *entry_point* basename is found.  Polls until found or until
+    *launch_event* is set externally.
+
+    Inside a Flatpak sandbox, wine/game processes live in a different PID
+    namespace (spawned by pressure-vessel) and are invisible from the
+    sandbox's ``/proc``.  In that case we use ``flatpak-spawn --host`` to
+    run the scan on the host where the processes are actually visible.
+    """
+    target = _exe_basename(entry_point).lower()
+    if not target:
+        return
+
+    if is_cellar_sandboxed():
+        _monitor_via_host(target, launch_event, line_cb)
+    else:
+        _monitor_via_proc(target, launch_event, line_cb)
+
+
+def _monitor_via_proc(
+    target: str,
+    launch_event,
+    line_cb: Callable[[str], None] | None,
+) -> None:
+    """Scan ``/proc/*/comm`` directly (non-Flatpak)."""
+    import os
+
+    log.debug("Launch monitor: scanning /proc for %r", target)
+    while not launch_event.is_set():
+        for entry in os.listdir("/proc"):
+            if not entry.isdigit():
+                continue
+            try:
+                with open(f"/proc/{entry}/comm") as f:
+                    comm = f.read().strip()
+            except (FileNotFoundError, PermissionError):
+                continue
+            if comm.lower() == target:
+                log.info("Launch monitor: %s detected (pid %s)", comm, entry)
+                if line_cb:
+                    line_cb(f"[pid] {comm}")
+                launch_event.set()
+                return
+        launch_event.wait(timeout=1.0)
+
+
+# Shell script executed on the host via flatpak-spawn.  Polls /proc/*/comm
+# every second looking for a process whose name matches $1 (case-insensitive).
+# Prints "pid=<N> <comm>" and exits 0 on match; runs until killed otherwise.
+_HOST_MONITOR_SCRIPT = r"""
+target=$(echo "$1" | tr '[:upper:]' '[:lower:]')
+while true; do
+  for f in /proc/*/comm; do
+    read -r c < "$f" 2>/dev/null || continue
+    lc=$(echo "$c" | tr '[:upper:]' '[:lower:]')
+    if [ "$lc" = "$target" ]; then
+      pid="${f#/proc/}"
+      pid="${pid%%/*}"
+      echo "pid=$pid $c"
+      exit 0
+    fi
+  done
+  sleep 1
+done
+"""
+
+
+def _monitor_via_host(
+    target: str,
+    launch_event,
+    line_cb: Callable[[str], None] | None,
+) -> None:
+    """Scan host ``/proc`` via ``flatpak-spawn --host`` (Flatpak)."""
+    import select as _sel
+
+    log.debug("Launch monitor: scanning host /proc for %r via flatpak-spawn",
+              target)
+    try:
+        proc = subprocess.Popen(
+            ["flatpak-spawn", "--host", "bash", "-c",
+             _HOST_MONITOR_SCRIPT, "bash", target],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+        )
+    except FileNotFoundError:
+        log.warning("flatpak-spawn not found — launch monitor disabled")
+        return
+
+    assert proc.stdout is not None
+    try:
+        fd = proc.stdout.fileno()
+        while not launch_event.is_set():
+            ready, _, _ = _sel.select([fd], [], [], 1.0)
+            if ready:
+                line = proc.stdout.readline().strip()
+                if line:
+                    log.info("Launch monitor: %s", line)
+                    if line_cb:
+                        line_cb(f"[pid] {line}")
+                    launch_event.set()
+                    return
+                else:
+                    log.debug("Launch monitor: host script exited")
+                    return
+    finally:
+        proc.kill()
+        proc.wait()
+
+
 def launch_app_monitored(
     app_id: str,
     entry_point: str,
@@ -252,26 +379,26 @@ def launch_app_monitored(
     line_cb: Callable[[str], None] | None = None,
     direct_proton: bool = False,
 ) -> None:
-    """Launch *entry_point* like :func:`launch_app`, but capture stderr.
+    """Launch *entry_point* and wait until the target process appears.
 
-    Reads umu-run's stderr line-by-line, calling *line_cb* for each line.
-    Returns once the game appears to have started (two-tier marker detection:
-    first Proton/container setup lines, then ``fsync:``/``esync:`` indicating
-    Wine is ready), after a 30 s timeout, or when stderr closes.  Wine keeps
-    stderr open for the lifetime of the process, so we must not wait for EOF.
+    Starts umu-run (or Proton directly), then uses :func:`_monitor_process_tree`
+    to poll the host process list for the launch target executable.  Returns
+    once the target process is detected.
+
+    umu-run's stderr is read in a background thread and forwarded to
+    *line_cb* for progress display (e.g. runtime download status) but is
+    **not** used for launch detection.
 
     *extra_env* is merged on top of the umu environment, useful for per-app
     Proton tweaks such as ``PROTON_USE_WINED3D=1``.
 
     If *direct_proton* is True, bypass umu-run and call the Proton ``proton``
-    script directly via ``python3 proton run <exe>``.  This sets
-    ``STEAM_COMPAT_DATA_PATH`` (pointing to the prefix) and
-    ``STEAM_COMPAT_CLIENT_INSTALL_PATH`` as Proton expects.  Useful for
-    debugging launch issues that might be caused by umu-launcher.
+    script directly via ``python3 proton run <exe>``.
     """
     import os
     import shlex
-    import time
+    import threading
+
     umu_env = build_env(app_id, runner_name, steam_appid, prefix_dir=prefix_dir)
     env = {**os.environ, **umu_env, **(extra_env or {})}
     exe = _win_to_linux_path(entry_point, umu_env["WINEPREFIX"])
@@ -281,7 +408,6 @@ def launch_app_monitored(
         wineprefix = prefix_dir if prefix_dir is not None else prefixes_dir() / app_id
         env["STEAM_COMPAT_DATA_PATH"] = str(wineprefix)
         env["STEAM_COMPAT_CLIENT_INSTALL_PATH"] = str(proton_dir)
-        # Proton script reads SteamGameId / SteamAppId, not GAMEID.
         appid_str = str(steam_appid) if steam_appid else "0"
         env["SteamGameId"] = appid_str
         env["SteamAppId"] = appid_str
@@ -297,40 +423,39 @@ def launch_app_monitored(
         umu_env["WINEPREFIX"], umu_env["PROTONPATH"], umu_env["GAMEID"], exe,
         ("\n  EXTRA_ENV=" + " ".join(f"{k}={v}" for k, v in extra_env.items())) if extra_env else "",
     )
-    # Tier 1: Proton/container is setting up — keep monitoring.
-    _SETUP = ("pressure-vessel", "Proton:", "wine: configuration")
-    # Tier 2: Wine sync is up — game is about to start.
-    _STARTED = ("fsync:", "esync:")
-    _MONITOR_TIMEOUT = 30  # seconds — never hold the dialog forever
     proc = subprocess.Popen(
         cmd, env=env, start_new_session=True,
         stderr=subprocess.PIPE, text=True, bufsize=1,
     )
     assert proc.stderr is not None
-    deadline = time.monotonic() + _MONITOR_TIMEOUT
-    wine_seen = False
-    downloading = False
-    for raw in proc.stderr:
-        line = raw.rstrip("\n")
-        if line:
+
+    # Read stderr in a background thread for logging and progress display
+    # (e.g. umu runtime downloads).  Not used for launch detection.
+    launch_event = threading.Event()
+
+    def _read_stderr() -> None:
+        assert proc.stderr is not None
+        for raw in proc.stderr:
+            if launch_event.is_set():
+                break
+            line = raw.rstrip("\n")
+            if not line:
+                continue
             _lvl = logging.INFO if "Downloading" in line or "SHA256" in line else logging.DEBUG
             log.log(_lvl, "umu-run: %s", line)
             if line_cb:
                 line_cb(line)
-            if "Downloading" in line:
-                downloading = True
-            elif downloading and ("Using steamrt3" in line or "is up to date" in line):
-                downloading = False
-                deadline = time.monotonic() + _MONITOR_TIMEOUT
-        if not wine_seen and any(m in line for m in _SETUP):
-            wine_seen = True
-        if wine_seen and any(m in line for m in _STARTED):
-            break
-        if not downloading and time.monotonic() > deadline:
-            log.debug("umu-run: monitor timeout reached, detaching")
-            break
-    # Detach — don't wait for process exit or read remaining stderr.
-    proc.stderr.close()
+        proc.stderr.close()
+
+    stderr_thread = threading.Thread(target=_read_stderr, daemon=True)
+    stderr_thread.start()
+
+    # PID-based launch detection — polls host /proc for the target exe.
+    _monitor_process_tree(entry_point, launch_event, line_cb)
+
+    # Signal stderr reader to stop and clean up.
+    launch_event.set()
+    stderr_thread.join(timeout=2)
 
 
 def merge_launch_params(entry, overrides: dict | None, *, installed_runner: str = "") -> dict:

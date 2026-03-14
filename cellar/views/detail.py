@@ -586,6 +586,8 @@ class DetailView(Gtk.Box):
                 label = "Initializing prefix\u2026"
             elif "Proton:" in line:
                 label = "Starting Proton\u2026"
+            elif line.startswith("[pid]"):
+                label = "App started"
             else:
                 return
             GLib.idle_add(progress.set_label, label)
@@ -610,20 +612,39 @@ class DetailView(Gtk.Box):
         progress.present(self.get_root())
 
     def _launch_linux_target(self, entry_path: str, entry_args: str) -> None:
-        """Launch a native Linux app target."""
+        """Launch a native Linux app target with PID-based launch detection."""
         import subprocess as _sp
         if not entry_path:
             return
         import shlex as _shlex
 
-        from cellar.backend.umu import is_cellar_sandboxed, native_dir
+        from cellar.backend.umu import (  # noqa: PLC0415
+            is_cellar_sandboxed, native_dir, _monitor_process_tree,
+        )
+        from cellar.views.builder.progress import ProgressDialog  # noqa: PLC0415
+
         exe = native_dir() / self._entry.id / entry_path
         cmd = [str(exe)]
         if entry_args:
             cmd += _shlex.split(entry_args)
         if is_cellar_sandboxed():
             cmd = ["flatpak-spawn", "--host"] + cmd
-        _sp.Popen(cmd, cwd=str(exe.parent), start_new_session=True)
+
+        progress = ProgressDialog(label="Launching\u2026")
+        progress.set_can_close(True)
+
+        def _on_line(line: str) -> None:
+            if line.startswith("[pid]"):
+                GLib.idle_add(progress.set_label, "App started")
+
+        def _work() -> None:
+            _sp.Popen(cmd, cwd=str(exe.parent), start_new_session=True)
+            launch_event = threading.Event()
+            _monitor_process_tree(entry_path, launch_event, _on_line)
+            GLib.idle_add(progress.force_close)
+
+        threading.Thread(target=_work, daemon=True).start()
+        progress.present(self.get_root())
 
     def _on_remove_clicked(self) -> None:
         prefix_path = None

@@ -137,8 +137,12 @@ def save_password(uri: str, password: str) -> None:
     _save(cfg)
     try:
         _config_path().chmod(0o600)
-    except OSError:
-        pass
+    except OSError as exc:
+        log.error(
+            "Could not restrict config.json permissions (%s). "
+            "Plaintext credentials may be readable by other users.",
+            exc,
+        )
 
 
 def load_password(uri: str) -> str | None:
@@ -228,10 +232,15 @@ def _load() -> dict:
 def _save(data: dict) -> None:
     dest = _config_path()
     tmp = dest.with_suffix(".tmp")
-    tmp.write_text(
-        json.dumps(data, indent=2, ensure_ascii=False),
-        encoding="utf-8",
-    )
+    # Open with restrictive permissions (0o600) so plaintext credentials
+    # in the fallback path are never briefly world-readable.
+    fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(json.dumps(data, indent=2, ensure_ascii=False))
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
     tmp.replace(dest)
 
 

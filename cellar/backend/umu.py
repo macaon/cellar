@@ -377,7 +377,8 @@ def _monitor_via_host(
         log.warning("flatpak-spawn not found — launch monitor disabled")
         return
 
-    assert proc.stdout is not None
+    if proc.stdout is None:
+        raise RuntimeError("Expected stdout pipe but got None")
     deadline = time.monotonic() + timeout
     try:
         fd = proc.stdout.fileno()
@@ -463,14 +464,16 @@ def launch_app_monitored(
         cmd, env=env, start_new_session=True,
         stderr=subprocess.PIPE, text=True, bufsize=1,
     )
-    assert proc.stderr is not None
+    if proc.stderr is None:
+        raise RuntimeError("Expected stderr pipe but got None")
 
     # Read stderr in a background thread for logging and progress display
     # (e.g. umu runtime downloads).  Not used for launch detection.
     launch_event = threading.Event()
 
     def _read_stderr() -> None:
-        assert proc.stderr is not None
+        if proc.stderr is None:
+            raise RuntimeError("Expected stderr pipe but got None")
         for raw in proc.stderr:
             if launch_event.is_set():
                 break
@@ -844,7 +847,8 @@ def run_winetricks(
             text=True,
             bufsize=1,
         ) as proc:
-            assert proc.stdout is not None
+            if proc.stdout is None:
+                raise RuntimeError("Expected stdout pipe but got None")
             for raw in proc.stdout:
                 # curl uses \r for in-place updates; treat each \r-segment as
                 # a separate line so callers see clean final-state lines.

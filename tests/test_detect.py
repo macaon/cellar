@@ -137,13 +137,11 @@ class TestDetectPlatformFolder:
         make_file(sub / "game.exe")
         assert detect_platform(tmp_path) == "windows"
 
-    def test_depth_limit(self, tmp_path):
-        # Three levels deep — should NOT be detected (depth limit = 2)
+    def test_deep_recursive_detection(self, tmp_path):
         deep = tmp_path / "a" / "b" / "c"
         deep.mkdir(parents=True)
         make_file(deep / "game.exe")
-        # Nothing at depth ≤ 2, so ambiguous
-        assert detect_platform(tmp_path) == "ambiguous"
+        assert detect_platform(tmp_path) == "windows"
 
 
 # ---------------------------------------------------------------------------
@@ -254,20 +252,21 @@ class TestFindExeFiles:
         found = find_exe_files(tmp_path)
         assert any(p.name == "game.exe" for p in found)
 
-    def test_top_level_first(self, tmp_path):
+    def test_finds_nested_and_top_level(self, tmp_path):
         sub = tmp_path / "sub"
         sub.mkdir()
         make_file(sub / "nested.exe")
         make_file(tmp_path / "top.exe")
         found = find_exe_files(tmp_path)
-        assert found[0].name == "top.exe"
+        names = {p.name for p in found}
+        assert names == {"top.exe", "nested.exe"}
 
-    def test_depth_limit(self, tmp_path):
+    def test_deep_recursive(self, tmp_path):
         deep = tmp_path / "a" / "b" / "c"
         deep.mkdir(parents=True)
         make_file(deep / "deep.exe")
         found = find_exe_files(tmp_path)
-        assert not any(p.name == "deep.exe" for p in found)
+        assert any(p.name == "deep.exe" for p in found)
 
     def test_no_duplicates(self, tmp_path):
         make_file(tmp_path / "game.exe")

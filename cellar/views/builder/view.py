@@ -1697,12 +1697,13 @@ class PackageBuilderView(Adw.Bin):
         drive_c = project.content_path / "drive_c"
         if not drive_c.is_dir():
             return
-        from cellar.backend.detect import find_exe_files
+        from cellar.backend.detect import scan_prefix_exes
         from cellar.utils.paths import to_win32_path
-        candidates = find_exe_files(drive_c, exclude_wine_system=True)
-        if not candidates:
+        all_exes = scan_prefix_exes(project.content_path)
+        if not all_exes:
             return
         # Prefer only exes the installer created
+        candidates = sorted(all_exes, key=lambda p: p.name.lower())
         if pre_install_exes is not None:
             new_exes = [c for c in candidates if c not in pre_install_exes]
             if new_exes:
@@ -1727,12 +1728,8 @@ class PackageBuilderView(Adw.Bin):
         exe_path = project.installer_path
 
         # Snapshot existing exes so we can detect what the installer adds
-        from cellar.backend.detect import find_exe_files
-        drive_c = project.content_path / "drive_c"
-        pre_exes = (
-            set(find_exe_files(drive_c, exclude_wine_system=True))
-            if drive_c.is_dir() else set()
-        )
+        from cellar.backend.detect import scan_prefix_exes
+        pre_exes = scan_prefix_exes(project.content_path)
 
         def _on_installer_done(ok: bool) -> None:
             log.info("Installer exited ok=%s", ok)
@@ -1828,14 +1825,16 @@ class PackageBuilderView(Adw.Bin):
         def _done(_ok):
             progress.force_close()
             # Detect exe candidates for entry points
-            from cellar.backend.detect import find_exe_files
-            candidates = find_exe_files(dest)
-            if candidates and not project.entry_points:
+            from cellar.backend.detect import scan_prefix_exes
+            from cellar.utils.paths import to_win32_path
+            drive_c = project.content_path / "drive_c"
+            all_exes = scan_prefix_exes(project.content_path)
+            if all_exes and not project.entry_points:
+                candidates = sorted(all_exes, key=lambda p: p.name.lower())
                 project.entry_points = [
                     {
-                        "name": c.name,
-                        "path": f"C:\\{src.name}\\{c.relative_to(dest)}"
-                               .replace("/", "\\"),
+                        "name": c.stem,
+                        "path": to_win32_path(str(c), str(drive_c)),
                     }
                     for c in candidates[:5]
                 ]
@@ -1892,12 +1891,8 @@ class PackageBuilderView(Adw.Bin):
         exe_path = chooser.get_file().get_path()
 
         # Snapshot existing exes so we can detect what the installer adds
-        from cellar.backend.detect import find_exe_files
-        drive_c = project.content_path / "drive_c"
-        pre_exes = (
-            set(find_exe_files(drive_c, exclude_wine_system=True))
-            if drive_c.is_dir() else set()
-        )
+        from cellar.backend.detect import scan_prefix_exes
+        pre_exes = scan_prefix_exes(project.content_path)
 
         def _on_manual_installer_done(ok: bool) -> None:
             log.info("Installer exited ok=%s", ok)

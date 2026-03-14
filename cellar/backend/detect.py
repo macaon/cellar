@@ -64,9 +64,6 @@ _STRIP_SUFFIX_RE = re.compile(
 
 _VERSION_RE = re.compile(r"\d+\.\d+(?:\.\d+)*")
 
-# How deep to recurse when scanning folders
-_MAX_DEPTH = 2
-
 DetectResult = Literal["windows", "linux", "ambiguous", "unsupported"]
 
 # Human-readable messages for each "unsupported" sub-case, keyed by reason tag
@@ -166,59 +163,40 @@ def parse_version_hint(path: Path) -> str | None:
     return m.group(0) if m else None
 
 
-def find_exe_files(
-    folder: Path, *, exclude_wine_system: bool = False
-) -> list[Path]:
-    """Return .exe and .msi files found in *folder*.
+def find_exe_files(folder: Path) -> list[Path]:
+    """Return .exe and .msi files found in *folder* (full recursive scan)."""
+    return [
+        p for p in folder.rglob("*")
+        if p.is_file() and p.suffix.lower() in {".exe", ".msi"}
+    ]
 
-    Top-level files are listed first; recursive results (up to depth 2)
-    are appended, deduplicated.
 
-    When *exclude_wine_system* is True, files under Wine/Proton system
-    directories (``drive_c/windows/``, etc.) are skipped.
+def scan_prefix_exes(prefix_path: Path) -> set[Path]:
+    """Return all .exe/.msi files in a WINEPREFIX, excluding Wine system dirs.
+
+    Unlike :func:`find_exe_files`, this does a full recursive walk with no
+    depth limit — suitable for snapshotting a prefix before/after an installer
+    to detect newly created executables.
     """
-    if exclude_wine_system:
-        from cellar.backend.manifest import _is_wine_system
+    from cellar.backend.manifest import _is_wine_system
 
-    seen: set[Path] = set()
-    result: list[Path] = []
+    drive_c = prefix_path / "drive_c"
+    if not drive_c.is_dir():
+        return set()
 
-    # If folder is already drive_c, relative_to() will strip it from the
-    # path, but _is_wine_system expects paths like "drive_c/windows/…".
-    # Detect this and prepend the missing prefix when needed.
-    _rel_prefix = ""
-    if exclude_wine_system and folder.name.lower() == "drive_c":
-        _rel_prefix = "drive_c/"
-
-    def _accept(p: Path) -> bool:
-        if not p.is_file() or p.suffix.lower() not in {".exe", ".msi"}:
-            return False
-        if exclude_wine_system:
-            try:
-                rel = _rel_prefix + str(p.relative_to(folder)).lower()
-            except ValueError:
-                return False
-            if _is_wine_system(rel):
-                return False
-        return True
-
-    # Top-level first
-    for p in folder.iterdir():
-        if _accept(p):
-            seen.add(p)
-            result.append(p)
-
-    # Recursive up to depth 2
-    for p in _rglob_depth(folder, depth=_MAX_DEPTH):
-        if p not in seen and _accept(p):
-            seen.add(p)
-            result.append(p)
-
+    result: set[Path] = set()
+    for fp in drive_c.rglob("*"):
+        if not fp.is_file() or fp.suffix.lower() not in {".exe", ".msi"}:
+            continue
+        rel = str(fp.relative_to(prefix_path)).lower()
+        if _is_wine_system(rel):
+            continue
+        result.add(fp)
     return result
 
 
 def find_linux_executables(folder: Path) -> list[Path]:
-    """Return Linux executable candidates found in *folder* (depth ≤ 2).
+    """Return Linux executable candidates found in *folder* (full recursive scan).
 
     Includes *.sh, *.run, and extension-less ELF binaries.
     These are valid *entry points* for an already-installed Linux app;
@@ -226,7 +204,7 @@ def find_linux_executables(folder: Path) -> list[Path]:
     """
     result: list[Path] = []
 
-    for p in _rglob_depth(folder, depth=_MAX_DEPTH):
+    for p in folder.rglob("*"):
         if not p.is_file():
             continue
         suffix = p.suffix.lower()
@@ -313,14 +291,3 @@ def _is_elf(path: Path) -> bool:
         return False
 
 
-def _rglob_depth(folder: Path, *, depth: int):
-    """Yield all files/dirs under *folder* up to *depth* levels deep."""
-    if depth <= 0:
-        return
-    try:
-        for child in folder.iterdir():
-            yield child
-            if child.is_dir():
-                yield from _rglob_depth(child, depth=depth - 1)
-    except OSError:
-        return

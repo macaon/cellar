@@ -81,7 +81,7 @@ def _safe_extract(
         if any(p == ".." for p in parts) or Path(member.name).is_absolute():
             log.warning("Skipping unsafe tar member: %r", member.name)
             return
-        if not (member.isreg() or member.isdir() or member.issym()):
+        if not (member.isreg() or member.isdir() or member.issym() or member.islnk()):
             log.warning("Skipping non-regular tar member: %r", member.name)
             return
         tf.extract(member, dest)  # noqa: S202

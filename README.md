@@ -650,6 +650,7 @@ Cellar is built on the work of many open-source projects:
 - **[paramiko](https://www.paramiko.org/)** — pure-Python SSHv2
 - **[smbprotocol](https://github.com/jborean93/smbprotocol)** — pure-Python SMBv2/v3
 - **[zstandard](https://github.com/indygreg/python-zstandard)** — Zstandard compression bindings
+- **[RapidFuzz](https://github.com/rapidfuzz/RapidFuzz)** — fuzzy string matching (MIT)
 - **[Requests](https://docs.python-requests.org/)** — HTTP client
 - **[PyGObject](https://pygobject.gnome.org/)** — Python bindings for GLib/GTK/GStreamer
 

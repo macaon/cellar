@@ -18,6 +18,14 @@ _LIN_BINARY_EXTS = {".x86_64", ".x86", ".x64"}
 _LIN_EXTS = _LIN_SCRIPT_EXTS | _LIN_BINARY_EXTS
 _ELF_MAGIC = b"\x7fELF"
 
+# Files that should never appear as launch target candidates.
+_LAUNCH_EXCLUDE = {
+    "gog-system-report.sh",
+    "postinst.sh",
+    "preuninst.sh",
+    "uninstall.sh",
+}
+
 _ARCHIVE_EXTS = {
     ".zip", ".tar", ".gz", ".bz2", ".xz", ".zst", ".7z", ".rar",
     ".tgz", ".tbz2", ".txz", ".tzst", ".lzma", ".lz4", ".cab",
@@ -206,6 +214,9 @@ def find_linux_executables(folder: Path) -> list[Path]:
 
     for p in folder.rglob("*"):
         if not p.is_file():
+            continue
+        name_lower = p.name.lower()
+        if name_lower in _LAUNCH_EXCLUDE or name_lower.startswith("uninstall-"):
             continue
         suffix = p.suffix.lower()
         if suffix in _LIN_EXTS:

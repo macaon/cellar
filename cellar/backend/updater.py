@@ -459,11 +459,16 @@ def _overlay_rsync(
         _overlay_python(src, dst, progress_cb=None, cancel_event=cancel_event)
         return
 
+    deadline = time.monotonic() + 3600  # 1 hour wall-clock limit
     while True:
         if cancel_event and cancel_event.is_set():
             proc.kill()
             proc.wait()
             raise UpdateCancelled
+        if time.monotonic() > deadline:
+            proc.kill()
+            proc.wait()
+            raise UpdateError("rsync timed out after 1 hour")
         try:
             proc.wait(timeout=0.5)
             break

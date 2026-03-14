@@ -17,7 +17,7 @@ from gi.repository import Adw, GLib, Gtk
 
 from cellar.models.app_entry import AppEntry
 from cellar.utils.paths import short_path as _short_path
-from cellar.utils.progress import fmt_stats
+from cellar.utils.progress import fmt_stats, user_facing_error
 from cellar.views.widgets import make_dialog_header, make_progress_page
 
 log = logging.getLogger(__name__)
@@ -237,7 +237,8 @@ class UpdateDialog(Adw.Dialog):
             except UpdateError as exc:
                 GLib.idle_add(self._on_error, str(exc))
             except Exception as exc:  # noqa: BLE001
-                GLib.idle_add(self._on_error, str(exc))
+                log.error("Update failed: %s", exc, exc_info=True)
+                GLib.idle_add(self._on_error, user_facing_error(exc))
 
         threading.Thread(target=_run, daemon=True).start()
 

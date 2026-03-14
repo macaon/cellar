@@ -2,6 +2,22 @@
 
 from __future__ import annotations
 
+import re
+
+
+def user_facing_error(exc: Exception) -> str:
+    """Return a user-friendly error string that strips internal file paths.
+
+    Raw exception strings from ``OSError``, ``FileNotFoundError``, etc. often
+    contain absolute paths like ``/home/user/.local/share/cellar/…`` that are
+    confusing in a GUI alert.  This helper strips path prefixes while keeping
+    the human-readable tail (e.g. ``No space left on device``).
+    """
+    msg = str(exc)
+    # Strip Unix absolute paths (keep the trailing description after ': ').
+    msg = re.sub(r"/[^\s:]+", "\u2026", msg)
+    return msg.strip() or type(exc).__name__
+
 
 def fmt_size(n: int) -> str:
     """Human-readable byte count using SI units: '1.4 MB', '3.20 GB', etc."""

@@ -40,6 +40,7 @@ from gi.repository import Adw, GLib
 from cellar.utils.http import DEFAULT_TIMEOUT, make_session
 from cellar.utils.progress import fmt_stats as _fmt_dl_stats
 from cellar.utils.progress import trunc_middle as _trunc_filename
+from cellar.utils.progress import user_facing_error
 from cellar.views.widgets import make_progress_page
 
 log = logging.getLogger(__name__)
@@ -155,7 +156,8 @@ class InstallRunnerDialog(Adw.Dialog):
             except _Cancelled:
                 GLib.idle_add(self.close)
             except Exception as exc:  # noqa: BLE001
-                GLib.idle_add(self._on_error, str(exc))
+                log.error("Runner install failed: %s", exc, exc_info=True)
+                GLib.idle_add(self._on_error, user_facing_error(exc))
 
         threading.Thread(target=_run, daemon=True).start()
 

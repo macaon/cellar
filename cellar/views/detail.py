@@ -20,6 +20,7 @@ from cellar.utils.async_work import run_in_background
 from cellar.utils.images import load_and_crop, load_and_fit, load_logo, to_texture
 from cellar.utils.paths import short_path as _short_path
 from cellar.utils.progress import fmt_stats as _fmt_dl_stats
+from cellar.utils.progress import user_facing_error
 from cellar.views.widgets import make_progress_page, set_margins
 
 log = logging.getLogger(__name__)
@@ -1924,7 +1925,8 @@ class InstallProgressDialog(Adw.Dialog):
             except InstallCancelled:
                 GLib.idle_add(self._on_cancelled)
             except Exception as exc:  # noqa: BLE001
-                GLib.idle_add(self._on_error, str(exc))
+                log.error("Install failed: %s", exc, exc_info=True)
+                GLib.idle_add(self._on_error, user_facing_error(exc))
 
         threading.Thread(target=_run, daemon=True).start()
 
@@ -1967,7 +1969,8 @@ class InstallProgressDialog(Adw.Dialog):
             except InstallCancelled:
                 GLib.idle_add(self._on_cancelled)
             except Exception as exc:  # noqa: BLE001
-                GLib.idle_add(self._on_error, str(exc))
+                log.error("Install failed: %s", exc, exc_info=True)
+                GLib.idle_add(self._on_error, user_facing_error(exc))
 
         threading.Thread(target=_run, daemon=True).start()
 

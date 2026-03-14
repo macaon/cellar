@@ -309,6 +309,7 @@ def launch_app_monitored(
     assert proc.stderr is not None
     deadline = time.monotonic() + _MONITOR_TIMEOUT
     wine_seen = False
+    downloading = False
     for raw in proc.stderr:
         line = raw.rstrip("\n")
         if line:
@@ -316,11 +317,16 @@ def launch_app_monitored(
             log.log(_lvl, "umu-run: %s", line)
             if line_cb:
                 line_cb(line)
+            if "Downloading" in line:
+                downloading = True
+            elif downloading and ("Using steamrt3" in line or "is up to date" in line):
+                downloading = False
+                deadline = time.monotonic() + _MONITOR_TIMEOUT
         if not wine_seen and any(m in line for m in _SETUP):
             wine_seen = True
         if wine_seen and any(m in line for m in _STARTED):
             break
-        if time.monotonic() > deadline:
+        if not downloading and time.monotonic() > deadline:
             log.debug("umu-run: monitor timeout reached, detaching")
             break
     # Detach — don't wait for process exit or read remaining stderr.

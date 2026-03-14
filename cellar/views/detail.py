@@ -570,8 +570,10 @@ class DetailView(Gtk.Box):
         def _on_line(line: str) -> None:
             if "Downloading" in line:
                 label = "Downloading runtime\u2026"
-            elif "Verifying integrity" in line or "SHA256 is OK" in line:
+            elif "SHA256 is OK" in line:
                 label = "Verifying runtime\u2026"
+            elif "mtree is OK" in line or "is up to date" in line:
+                label = "Runtime ready"
             elif "Setting up Unified Launcher" in line:
                 label = "Setting up\u2026"
             elif "pressure-vessel" in line:

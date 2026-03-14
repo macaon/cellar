@@ -13,6 +13,15 @@ log = logging.getLogger(__name__)
 _APPS_DIR = Path.home() / ".local/share/applications"
 _ICONS_DIR = Path.home() / ".local/share/icons/cellar"
 
+def _sanitize(value: str) -> str:
+    """Strip control characters that would corrupt a .desktop file.
+
+    Newlines and carriage returns act as field terminators in the .desktop
+    format — a crafted value could inject arbitrary keys like ``Exec=``.
+    """
+    return value.replace("\n", " ").replace("\r", " ")
+
+
 _CATEGORY_MAP: dict[str, str] = {
     "Games": "Game",
     "Productivity": "Office",
@@ -198,13 +207,13 @@ def create_desktop_entry(
     lines = [
         "[Desktop Entry]",
         "Type=Application",
-        f"Name={desktop_name}",
-        f"Comment={comment}",
-        f"Icon={icon_ref}",
-        f"Exec={exec_line}",
+        f"Name={_sanitize(desktop_name)}",
+        f"Comment={_sanitize(comment)}",
+        f"Icon={_sanitize(icon_ref)}",
+        f"Exec={_sanitize(exec_line)}",
         "Terminal=false",
         f"Categories={categories}",
-        f"StartupWMClass={entry.name}",
+        f"StartupWMClass={_sanitize(entry.name)}",
         f"X-Cellar-AppId={entry.id}",
         f"X-Cellar-Platform={platform}",
     ]

@@ -13,8 +13,14 @@ Catalogue v2 splits storage into two tiers:
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Literal
+
+# Allowed characters for app IDs: alphanumeric, hyphens, dots, underscores.
+# Prevents path traversal (../), glob injection (*?[), and .desktop field
+# injection (\n\r) when the ID is used in filesystem paths and glob patterns.
+_SAFE_ID_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$")
 
 # Fields included in the slim catalogue.json index (v2).  Everything else
 # lives only in the per-app ``apps/<id>/metadata.json``.
@@ -220,12 +226,16 @@ class AppEntry:
 
     @classmethod
     def from_dict(cls, data: dict) -> "AppEntry":
+        app_id = data["id"]
+        if not _SAFE_ID_RE.match(app_id):
+            raise ValueError(f"Invalid app id: {app_id!r}")
+
         strategy = data.get("update_strategy", "safe")
         if strategy not in ("safe", "full"):
             raise ValueError(f"Unknown update_strategy: {strategy!r}")
 
         return cls(
-            id=data["id"],
+            id=app_id,
             name=data["name"],
             version=data.get("version", ""),
             category=data["category"],

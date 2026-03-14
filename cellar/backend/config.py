@@ -196,7 +196,15 @@ def install_data_dir() -> Path:
     cfg = _load()
     base = cfg.get("install_base", "")
     if base:
-        d = Path(base).expanduser() / "Cellar"
+        resolved = Path(base).expanduser().resolve()
+        if not resolved.is_absolute():
+            log.warning("install_base %r is not absolute; ignoring", base)
+            d = data_dir()
+        elif ".." in Path(base).parts:
+            log.warning("install_base %r contains traversal; ignoring", base)
+            d = data_dir()
+        else:
+            d = resolved / "Cellar"
     else:
         d = data_dir()
     d.mkdir(parents=True, exist_ok=True)

@@ -180,9 +180,16 @@ class WinetricksProgressDialog(Adw.Dialog):
         # Append to log (skip noisy curl progress header rows)
         if not self._RE_CURL.match(line):
             self._log_lines.append(line)
-            if len(self._log_lines) > self._MAX_LOG_LINES:
+            # Incremental insert at end instead of rebuilding the full buffer.
+            end_iter = self._text_buffer.get_end_iter()
+            prefix = "\n" if self._text_buffer.get_char_count() > 0 else ""
+            self._text_buffer.insert(end_iter, prefix + line)
+            # Trim oldest lines if over the limit.
+            while len(self._log_lines) > self._MAX_LOG_LINES:
                 self._log_lines.pop(0)
-            self._text_buffer.set_text("\n".join(self._log_lines))
+                start = self._text_buffer.get_start_iter()
+                first_nl = self._text_buffer.get_iter_at_line(1)
+                self._text_buffer.delete(start, first_nl)
             # Auto-scroll to bottom
             end_iter = self._text_buffer.get_end_iter()
             self._text_buffer.place_cursor(end_iter)

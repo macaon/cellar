@@ -217,20 +217,28 @@ def find_linux_executables(folder: Path) -> list[Path]:
 
 
 def find_gameinfo(prefix_path: Path) -> dict[str, str] | None:
-    """Search a WINEPREFIX for a GoG *gameinfo* file and parse it.
+    """Search a folder for a GoG *gameinfo* file and parse it.
 
-    Returns ``{"name": str, "version": str}`` or ``None``.
+    Searches the folder itself first, then ``drive_c/`` if present
+    (WINEPREFIX layout).  Returns ``{"name": str, "version": str}``
+    or ``None``.
     """
+    search_roots = [prefix_path]
     drive_c = prefix_path / "drive_c"
-    if not drive_c.is_dir():
-        return None
+    if drive_c.is_dir():
+        search_roots.append(drive_c)
 
-    try:
-        candidates = [
-            p for p in drive_c.rglob("*")
-            if p.is_file() and p.name.lower() == "gameinfo"
-        ]
-    except OSError:
+    candidates: list[Path] = []
+    for root in search_roots:
+        try:
+            candidates.extend(
+                p for p in root.rglob("*")
+                if p.is_file() and p.name.lower() == "gameinfo"
+            )
+        except OSError:
+            continue
+
+    if not candidates:
         return None
 
     for candidate in candidates:

@@ -334,7 +334,13 @@ class TestFindGameinfo:
         prefix = self._make_prefix(tmp_path)
         assert find_gameinfo(prefix) is None
 
-    def test_no_drive_c(self, tmp_path):
+    def test_no_drive_c_with_gameinfo(self, tmp_path):
+        """Native Linux GOG game — gameinfo at folder root, no drive_c."""
+        (tmp_path / "gameinfo").write_text("Unpacking\n1.4\n85766\nen-US\n")
+        result = find_gameinfo(tmp_path)
+        assert result == {"name": "Unpacking", "version": "1.4 (85766)"}
+
+    def test_no_drive_c_no_gameinfo(self, tmp_path):
         assert find_gameinfo(tmp_path) is None
 
     def test_case_insensitive_filename(self, tmp_path):

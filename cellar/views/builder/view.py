@@ -1671,8 +1671,17 @@ class PackageBuilderView(Adw.Bin):
     # Signal handlers — files
     # ------------------------------------------------------------------
 
-    def _scan_entry_points_after_install(self, project: Project) -> None:
-        """Scan drive_c for exe files and auto-populate launch targets if empty."""
+    def _scan_entry_points_after_install(
+        self,
+        project: Project,
+        pre_install_exes: set[Path] | None = None,
+    ) -> None:
+        """Scan drive_c for exe files and auto-populate launch targets if empty.
+
+        When *pre_install_exes* is provided (a snapshot taken before the
+        installer ran), only newly created executables are used as
+        candidates.  Falls back to the full list if the diff is empty.
+        """
         if project.entry_points:
             return
         drive_c = project.content_path / "drive_c"
@@ -1680,9 +1689,14 @@ class PackageBuilderView(Adw.Bin):
             return
         from cellar.backend.detect import find_exe_files
         from cellar.utils.paths import to_win32_path
-        candidates = find_exe_files(drive_c)
+        candidates = find_exe_files(drive_c, exclude_wine_system=True)
         if not candidates:
             return
+        # Prefer only exes the installer created
+        if pre_install_exes is not None:
+            new_exes = [c for c in candidates if c not in pre_install_exes]
+            if new_exes:
+                candidates = new_exes
         project.entry_points = [
             {
                 "name": c.stem,
@@ -1702,11 +1716,19 @@ class PackageBuilderView(Adw.Bin):
         project = self._project
         exe_path = project.installer_path
 
+        # Snapshot existing exes so we can detect what the installer adds
+        from cellar.backend.detect import find_exe_files
+        drive_c = project.content_path / "drive_c"
+        pre_exes = (
+            set(find_exe_files(drive_c, exclude_wine_system=True))
+            if drive_c.is_dir() else set()
+        )
+
         def _on_installer_done(ok: bool) -> None:
             log.info("Installer exited ok=%s", ok)
             # Revert to normal "Choose…" button so user can run DLC/patches
             project.installer_path = ""
-            self._scan_entry_points_after_install(project)
+            self._scan_entry_points_after_install(project, pre_exes)
             save_project(project)
             if self._project is project:
                 self._show_project(project)
@@ -1858,16 +1880,25 @@ class PackageBuilderView(Adw.Bin):
         if response != Gtk.ResponseType.ACCEPT:
             return
         exe_path = chooser.get_file().get_path()
+
+        # Snapshot existing exes so we can detect what the installer adds
+        from cellar.backend.detect import find_exe_files
+        drive_c = project.content_path / "drive_c"
+        pre_exes = (
+            set(find_exe_files(drive_c, exclude_wine_system=True))
+            if drive_c.is_dir() else set()
+        )
+
         def _on_manual_installer_done(ok: bool) -> None:
             log.info("Installer exited ok=%s", ok)
-            self._scan_entry_points_after_install(project)
+            self._scan_entry_points_after_install(project, pre_exes)
             if self._project is project:
                 self._show_project(project)
 
         self._run_in_prefix_with_progress(
             project,
             exe=exe_path,
-            label=f"Running {Path(exe_path).name}…",
+            label=f"Running {Path(exe_path).name}\u2026",
             on_done=_on_manual_installer_done,
         )
 

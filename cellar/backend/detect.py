@@ -166,24 +166,44 @@ def parse_version_hint(path: Path) -> str | None:
     return m.group(0) if m else None
 
 
-def find_exe_files(folder: Path) -> list[Path]:
+def find_exe_files(
+    folder: Path, *, exclude_wine_system: bool = False
+) -> list[Path]:
     """Return .exe and .msi files found in *folder*.
 
     Top-level files are listed first; recursive results (up to depth 2)
     are appended, deduplicated.
+
+    When *exclude_wine_system* is True, files under Wine/Proton system
+    directories (``drive_c/windows/``, etc.) are skipped.
     """
+    if exclude_wine_system:
+        from cellar.backend.manifest import _is_wine_system
+
     seen: set[Path] = set()
     result: list[Path] = []
 
+    def _accept(p: Path) -> bool:
+        if not p.is_file() or p.suffix.lower() not in {".exe", ".msi"}:
+            return False
+        if exclude_wine_system:
+            try:
+                rel = str(p.relative_to(folder)).lower()
+            except ValueError:
+                return False
+            if _is_wine_system(rel):
+                return False
+        return True
+
     # Top-level first
     for p in folder.iterdir():
-        if p.is_file() and p.suffix.lower() in {".exe", ".msi"}:
+        if _accept(p):
             seen.add(p)
             result.append(p)
 
     # Recursive up to depth 2
     for p in _rglob_depth(folder, depth=_MAX_DEPTH):
-        if p.is_file() and p.suffix.lower() in {".exe", ".msi"} and p not in seen:
+        if p not in seen and _accept(p):
             seen.add(p)
             result.append(p)
 

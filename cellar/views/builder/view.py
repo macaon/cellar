@@ -2963,14 +2963,19 @@ class _NewProjectDialog(Adw.Dialog):
         app_name = parse_app_name(path)
         version = parse_version_hint(path)
 
-        # Check for GoG gameinfo inside dropped folders (WINEPREFIX)
+        # Check for GoG gameinfo — inside folders or GOG .sh installers
         if path.is_dir():
             gi = find_gameinfo(path)
-            if gi:
-                if gi["name"]:
-                    app_name = gi["name"]
-                if gi["version"]:
-                    version = gi["version"]
+        elif path.suffix.lower() == ".sh":
+            from cellar.utils.gog import read_gog_gameinfo
+            gi = read_gog_gameinfo(path)
+        else:
+            gi = None
+        if gi:
+            if gi["name"]:
+                app_name = gi["name"]
+            if gi["version"]:
+                version = gi["version"]
 
         self._open_metadata_editor(path, platform, app_name, version)
 
@@ -3020,6 +3025,10 @@ class _NewProjectDialog(Adw.Dialog):
                 # .exe import: store installer path
                 project.installer_path = str(path)
                 changed = True
+            elif platform == "linux" and path.is_file() and path.suffix.lower() == ".sh":
+                # GOG Linux installer: extract in background (can be multi-GB)
+                self._extract_gog_installer(project, path)
+                return  # _extract_gog_installer calls _on_import when done
             elif platform == "linux" and path.is_dir():
                 # Linux folder: set source_dir and detect entry points
                 project.source_dir = str(path)
@@ -3051,6 +3060,50 @@ class _NewProjectDialog(Adw.Dialog):
             auto_version=version or "",
         )
         dialog.present(self._parent_view)
+
+    # ── GOG Linux installer extraction ────────────────────────────────
+
+    def _extract_gog_installer(self, project, src_path: Path) -> None:
+        """Extract a GOG Linux .sh installer into the project in a background thread."""
+        from cellar.backend.detect import find_linux_executables
+        from cellar.utils.gog import extract_gog_game_data
+
+        content = project.content_path
+        content.mkdir(parents=True, exist_ok=True)
+
+        progress = ProgressDialog(label="Extracting GOG game\u2026")
+        progress.present(self._parent_view)
+
+        def _work():
+            def _on_progress(extracted, total):
+                if total > 0:
+                    GLib.idle_add(progress.set_fraction, extracted / total)
+            extract_gog_game_data(src_path, content, progress_cb=_on_progress)
+            return find_linux_executables(content)
+
+        def _done(candidates):
+            progress.force_close()
+            project.source_dir = str(content)
+            project.initialized = True
+            if candidates:
+                project.entry_points = [
+                    {"name": c.name, "path": str(c.relative_to(content))}
+                    for c in candidates[:5]
+                ]
+            save_project(project)
+            self._on_import(project)
+
+        def _error(msg):
+            progress.force_close()
+            log.error("GOG extraction failed: %s", msg)
+            err = Adw.AlertDialog(
+                heading="Extraction failed",
+                body=f"Could not extract GOG installer:\n{msg}",
+            )
+            err.add_response("ok", "OK")
+            err.present(self._parent_view)
+
+        run_in_background(work=_work, on_done=_done, on_error=_error)
 
     # ── Manual platform row handlers ────────────────────────────────────
 

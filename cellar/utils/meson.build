@@ -3,6 +3,7 @@ python_sources = files(
   '_remote_path.py',
   'async_work.py',
   'desktop.py',
+  'gog.py',
   'http.py',
   'images.py',
   'paths.py',

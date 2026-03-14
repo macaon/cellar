@@ -14,7 +14,7 @@ from typing import Literal
 
 _WIN_EXTS = {".exe", ".msi", ".bat", ".cmd", ".com", ".lnk"}
 _LIN_SCRIPT_EXTS = {".sh", ".run"}
-_LIN_BINARY_EXTS = {".x86_64", ".x86"}
+_LIN_BINARY_EXTS = {".x86_64", ".x86", ".x64"}
 _LIN_EXTS = _LIN_SCRIPT_EXTS | _LIN_BINARY_EXTS
 _ELF_MAGIC = b"\x7fELF"
 
@@ -274,6 +274,10 @@ def _detect_file(path: Path) -> DetectResult:
     if suffix in _ARCHIVE_EXTS:
         return "unsupported"
     if suffix in _LIN_SCRIPT_EXTS:
+        from cellar.utils.gog import is_gog_installer
+
+        if is_gog_installer(path):
+            return "linux"
         return "unsupported"  # single installer script — can't control install dir
     if suffix in _LIN_BINARY_EXTS or _is_elf(path):
         return "linux"

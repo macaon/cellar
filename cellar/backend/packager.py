@@ -67,9 +67,8 @@ def _optimize_and_hash(src: str, dest_dir, slot: str, role: str) -> str:
     SshPath) that supports ``.mkdir()`` and ``/`` operator.
     """
     ext = _output_ext(src, role)
-    with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tf:
-        tmp = Path(tf.name)
-    try:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp = Path(tmpdir) / f"optimised{ext}"
         _optimize_image(src, tmp, role)
         # optimize_image may have written with a different extension then
         # renamed back — the content at *tmp* is authoritative.
@@ -83,8 +82,6 @@ def _optimize_and_hash(src: str, dest_dir, slot: str, role: str) -> str:
             dest_dir.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(tmp.read_bytes())
         return hashed_name
-    finally:
-        tmp.unlink(missing_ok=True)
 
 
 def _rmtree(path, ignore_errors: bool = False) -> None:

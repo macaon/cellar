@@ -687,6 +687,18 @@ class Repo:
         cache_dir.mkdir(parents=True, exist_ok=True)
         self._cache_dir = cache_dir
 
+    def _resolve_cache_path(self, rel_path: str) -> Path | None:
+        """Resolve *rel_path* inside the asset cache, rejecting traversal."""
+        if self._cache_dir is None:
+            return None
+        dest = self._cache_dir.joinpath(*rel_path.lstrip("/").split("/"))
+        try:
+            dest.resolve().relative_to(self._cache_dir.resolve())
+        except ValueError:
+            log.warning("Rejected out-of-cache asset path: %r", rel_path)
+            return None
+        return dest
+
     def _fetch_to_cache(self, rel_path: str) -> str:
         """Download *rel_path* to the persistent asset cache and return its local path.
 
@@ -696,10 +708,9 @@ class Repo:
         """
         if self._cache_dir is None:
             self._init_asset_cache()
-        if self._cache_dir is None:
+        dest = self._resolve_cache_path(rel_path)
+        if dest is None:
             return ""
-        parts = rel_path.lstrip("/").split("/")
-        dest = self._cache_dir.joinpath(*parts)
         if dest.exists():
             if dest.stat().st_size > 0:
                 return str(dest)
@@ -735,7 +746,9 @@ class Repo:
             return ""
         if self._cache_dir is None:
             return ""
-        dest = self._cache_dir.joinpath(*repo_relative.lstrip("/").split("/"))
+        dest = self._resolve_cache_path(repo_relative)
+        if dest is None:
+            return ""
         return str(dest) if dest.exists() else ""
 
     def evict_asset_cache(self, repo_relative: str) -> None:
@@ -747,7 +760,9 @@ class Repo:
             return
         if self._cache_dir is None:
             return
-        dest = self._cache_dir.joinpath(*repo_relative.lstrip("/").split("/"))
+        dest = self._resolve_cache_path(repo_relative)
+        if dest is None:
+            return
         dest.unlink(missing_ok=True)
 
     def gc_asset_cache(self, entries) -> int:

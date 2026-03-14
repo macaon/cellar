@@ -513,12 +513,14 @@ def update_install_paths(old_base: str, new_base: str) -> None:
     new = new_base.rstrip("/")
     if not old or not new or old == new:
         return
+    # Escape LIKE wildcards so % and _ in paths are matched literally.
+    escaped = old.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     with _open_db() as conn:
         conn.execute(
             "UPDATE installed"
             " SET install_path = ? || SUBSTR(install_path, ?)"
-            " WHERE install_path LIKE ?",
-            (new, len(old) + 1, old + "/%"),
+            " WHERE install_path LIKE ? ESCAPE '\\'",
+            (new, len(old) + 1, escaped + "/%"),
         )
 
 

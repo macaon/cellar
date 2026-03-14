@@ -797,6 +797,28 @@ class PackageBuilderView(Adw.Bin):
             _slug_row.add_css_class("property")
             meta_group.add(_slug_row)
 
+            # Category — visible inline so users don't miss it
+            from cellar.backend.packager import BASE_CATEGORIES
+            _cat_strings = Gtk.StringList.new(BASE_CATEGORIES)
+            _cat_row = Adw.ComboRow(title="Category", model=_cat_strings)
+            try:
+                _cat_idx = BASE_CATEGORIES.index(project.category) if project.category else -1
+            except ValueError:
+                _cat_idx = -1
+            if _cat_idx >= 0:
+                _cat_row.set_selected(_cat_idx)
+            else:
+                _cat_row.set_selected(Gtk.INVALID_LIST_POSITION)
+
+            def _on_category_selected(row, _pspec):
+                idx = row.get_selected()
+                if self._project and idx != Gtk.INVALID_LIST_POSITION:
+                    self._project.category = BASE_CATEGORIES[idx]
+                    save_project(self._project)
+
+            _cat_row.connect("notify::selected", _on_category_selected)
+            meta_group.add(_cat_row)
+
             # Details summary row — opens MetadataEditorDialog
             _details_row = Adw.ActionRow(title="Details")
             _details_summary = self._make_metadata_summary(project)
@@ -884,44 +906,9 @@ class PackageBuilderView(Adw.Bin):
             prefix_group.add(self._prefix_status_row)
             page.add(prefix_group)
 
-        # ── 4. Dependencies (Windows packages only) ───────────────────────
-        if project.project_type != "linux":
-            dep_group = Adw.PreferencesGroup(title="Dependencies")
-            for verb in project.deps_installed:
-                row = Adw.ActionRow(title=verb)
-                dep_group.add(row)
-
-            add_dep_row = Adw.ActionRow(title="Add Dependencies\u2026")
-            add_dep_btn = Gtk.Button(label="Add\u2026", valign=Gtk.Align.CENTER)
-            add_dep_btn.add_css_class("suggested-action")
-            add_dep_btn.connect("clicked", self._on_add_dep_clicked)
-            add_dep_row.add_suffix(add_dep_btn)
-            add_dep_row.set_activatable_widget(add_dep_btn)
-            add_dep_row.set_sensitive(project.initialized)
-            dep_group.add(add_dep_row)
-            page.add(dep_group)
-
-        # ── 5. Files section (Windows app only) ───────────────────────────
+        # ── 4. Files section (Windows app only) ───────────────────────────
         if project.project_type == "app":
             files_group = Adw.PreferencesGroup(title="Files")
-
-            run_installer_row = Adw.ActionRow(
-                title="Run Installer",
-            )
-            if project.installer_path:
-                run_installer_row.set_subtitle(Path(project.installer_path).name)
-                run_btn = Gtk.Button(label="Launch")
-                run_btn.set_valign(Gtk.Align.CENTER)
-                run_btn.add_css_class("suggested-action")
-                run_btn.connect("clicked", self._on_launch_prefilled_installer)
-                run_installer_row.add_suffix(run_btn)
-            else:
-                run_installer_row.set_subtitle("Run an installer inside the prefix")
-                run_btn = Gtk.Button(label="Choose\u2026")
-                run_btn.set_valign(Gtk.Align.CENTER)
-                run_btn.connect("clicked", self._on_run_installer_clicked)
-                run_installer_row.add_suffix(run_btn)
-            run_installer_row.set_sensitive(project.initialized)
 
             # Import Data row — shown when a Windows folder was dropped via smart import
             if project.source_dir and not project.installer_path:
@@ -936,8 +923,26 @@ class PackageBuilderView(Adw.Bin):
                 _import_row.add_suffix(_import_btn)
                 _import_row.set_sensitive(project.initialized)
                 files_group.add(_import_row)
-
-            files_group.add(run_installer_row)
+            else:
+                # Run Installer — only shown when no source_dir (not a folder import)
+                run_installer_row = Adw.ActionRow(
+                    title="Run Installer",
+                )
+                if project.installer_path:
+                    run_installer_row.set_subtitle(Path(project.installer_path).name)
+                    run_btn = Gtk.Button(label="Launch")
+                    run_btn.set_valign(Gtk.Align.CENTER)
+                    run_btn.add_css_class("suggested-action")
+                    run_btn.connect("clicked", self._on_launch_prefilled_installer)
+                    run_installer_row.add_suffix(run_btn)
+                else:
+                    run_installer_row.set_subtitle("Run an installer inside the prefix")
+                    run_btn = Gtk.Button(label="Choose\u2026")
+                    run_btn.set_valign(Gtk.Align.CENTER)
+                    run_btn.connect("clicked", self._on_run_installer_clicked)
+                    run_installer_row.add_suffix(run_btn)
+                run_installer_row.set_sensitive(project.initialized)
+                files_group.add(run_installer_row)
 
             _browse_row = Adw.ActionRow(
                 title="Browse Prefix",
@@ -1042,6 +1047,23 @@ class PackageBuilderView(Adw.Bin):
 
             page.add(targets_group)
 
+        # ── 6. Dependencies (Windows / Base only) ─────────────────────────
+        if project.project_type != "linux":
+            dep_group = Adw.PreferencesGroup(title="Dependencies")
+            for verb in project.deps_installed:
+                row = Adw.ActionRow(title=verb)
+                dep_group.add(row)
+
+            add_dep_row = Adw.ActionRow(title="Add Dependencies\u2026")
+            add_dep_btn = Gtk.Button(label="Add\u2026", valign=Gtk.Align.CENTER)
+            add_dep_btn.add_css_class("suggested-action")
+            add_dep_btn.connect("clicked", self._on_add_dep_clicked)
+            add_dep_row.add_suffix(add_dep_btn)
+            add_dep_row.set_activatable_widget(add_dep_btn)
+            add_dep_row.set_sensitive(project.initialized)
+            dep_group.add(add_dep_row)
+            page.add(dep_group)
+
         # ── 7. Publish section ────────────────────────────────────────────
         # Browse Prefix for base projects (app projects have it in the Files section)
         if project.project_type == "base":
@@ -1080,12 +1102,21 @@ class PackageBuilderView(Adw.Bin):
                 else project.initialized
             )
 
+            # Build a list of missing prerequisites for informative subtitles
+            _missing: list[str] = []
+            if not _ready:
+                _missing.append("initialize prefix" if project.project_type != "linux"
+                                else "set source folder")
+            if not project.entry_points:
+                _missing.append("add a launch target")
+            if not project.category:
+                _missing.append("set a category")
+
             # Test launch
             test_row = Adw.ActionRow(
                 title="Test Launch",
                 subtitle="Launch the app to verify it works",
             )
-            test_row.set_sensitive(_ready)
             test_btn = Gtk.Button(label="Launch")
             test_btn.set_valign(Gtk.Align.CENTER)
             test_btn.connect("clicked", self._on_test_launch_clicked)
@@ -1100,11 +1131,14 @@ class PackageBuilderView(Adw.Bin):
                 origin_row.add_css_class("property")
                 pkg_group.add(origin_row)
 
+                _pub_subtitle = (
+                    "Needs: " + ", ".join(_missing) if _missing
+                    else "Re-archive and replace the catalogue entry"
+                )
                 pub_row = Adw.ActionRow(
                     title="Publish Update",
-                    subtitle="Re-archive and replace the catalogue entry",
+                    subtitle=_pub_subtitle,
                 )
-                pub_row.set_sensitive(_ready and bool(project.entry_points))
                 pub_btn = Gtk.Button(label="Publish\u2026")
                 pub_btn.set_valign(Gtk.Align.CENTER)
                 pub_btn.add_css_class("suggested-action")
@@ -1112,11 +1146,14 @@ class PackageBuilderView(Adw.Bin):
                 pub_row.add_suffix(pub_btn)
                 pkg_group.add(pub_row)
             else:
+                _pub_subtitle = (
+                    "Needs: " + ", ".join(_missing) if _missing
+                    else "Archive and upload to repository"
+                )
                 publish_row = Adw.ActionRow(
                     title="Publish App",
-                    subtitle="Archive and open Add to Catalogue dialog",
+                    subtitle=_pub_subtitle,
                 )
-                publish_row.set_sensitive(_ready and bool(project.entry_points))
                 pub_btn = Gtk.Button(label="Publish\u2026")
                 pub_btn.set_valign(Gtk.Align.CENTER)
                 pub_btn.add_css_class("suggested-action")
@@ -1540,6 +1577,14 @@ class PackageBuilderView(Adw.Bin):
             project.initialized = True
             save_project(project)
             self._show_project(project)
+            # Auto-trigger folder copy if a source_dir is pending import
+            if (
+                project.project_type == "app"
+                and project.source_dir
+                and not project.installer_path
+                and Path(project.source_dir).is_dir()
+            ):
+                self._on_import_folder_to_prefix(None)
 
     # ------------------------------------------------------------------
     # Signal handlers — metadata
@@ -1626,6 +1671,27 @@ class PackageBuilderView(Adw.Bin):
     # Signal handlers — files
     # ------------------------------------------------------------------
 
+    def _scan_entry_points_after_install(self, project: Project) -> None:
+        """Scan drive_c for exe files and auto-populate launch targets if empty."""
+        if project.entry_points:
+            return
+        drive_c = project.content_path / "drive_c"
+        if not drive_c.is_dir():
+            return
+        from cellar.backend.detect import find_exe_files
+        from cellar.utils.paths import to_win32_path
+        candidates = find_exe_files(drive_c)
+        if not candidates:
+            return
+        project.entry_points = [
+            {
+                "name": c.stem,
+                "path": to_win32_path(str(c), str(drive_c)),
+            }
+            for c in candidates[:5]
+        ]
+        save_project(project)
+
     def _on_launch_prefilled_installer(self, _btn) -> None:
         """Launch the pre-filled installer from smart import."""
         if self._project is None or not self._project.installer_path:
@@ -1640,6 +1706,7 @@ class PackageBuilderView(Adw.Bin):
             log.info("Installer exited ok=%s", ok)
             # Revert to normal "Choose…" button so user can run DLC/patches
             project.installer_path = ""
+            self._scan_entry_points_after_install(project)
             save_project(project)
             if self._project is project:
                 self._show_project(project)
@@ -1791,11 +1858,17 @@ class PackageBuilderView(Adw.Bin):
         if response != Gtk.ResponseType.ACCEPT:
             return
         exe_path = chooser.get_file().get_path()
+        def _on_manual_installer_done(ok: bool) -> None:
+            log.info("Installer exited ok=%s", ok)
+            self._scan_entry_points_after_install(project)
+            if self._project is project:
+                self._show_project(project)
+
         self._run_in_prefix_with_progress(
             project,
             exe=exe_path,
             label=f"Running {Path(exe_path).name}…",
-            on_done=lambda ok: log.info("Installer exited ok=%s", ok),
+            on_done=_on_manual_installer_done,
         )
 
     def _on_choose_source_dir_clicked(self, _btn) -> None:
@@ -1906,6 +1979,9 @@ class PackageBuilderView(Adw.Bin):
         if self._project is None:
             return
         project = self._project
+        if project.project_type != "linux" and not project.initialized:
+            self._show_toast("Initialize the prefix before test launching.")
+            return
         if not project.entry_points:
             self._show_toast("Add a launch target before test launching.")
             return
@@ -1983,6 +2059,9 @@ class PackageBuilderView(Adw.Bin):
         if self._project is None:
             return
         project = self._project
+        if project.project_type != "linux" and not project.initialized:
+            self._show_toast("Initialize the prefix before publishing.")
+            return
         if not project.entry_point:
             self._show_toast("Add a launch target before publishing.")
             return

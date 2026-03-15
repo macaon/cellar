@@ -872,9 +872,12 @@ class DetailView(Gtk.Box):
             self._add_toast("No DOSBox config folder found")
             return
 
+        install_path = Path(install_folder)
+        over_conf = config_dir / "dosbox-overrides.conf"
+
         dlg = Adw.Dialog(title="DOSBox Configuration")
-        dlg.set_content_width(420)
-        dlg.set_content_height(300)
+        dlg.set_content_width(440)
+        dlg.set_content_height(480)
 
         toolbar = Adw.ToolbarView()
         header = Adw.HeaderBar()
@@ -882,10 +885,55 @@ class DetailView(Gtk.Box):
 
         page = Adw.PreferencesPage()
 
-        group = Adw.PreferencesGroup(
-            description="Edit config files to customise DOSBox settings. "
-            "Changes take effect on next launch.",
+        # ── Quick settings ────────────────────────────────────────────
+        quick_group = Adw.PreferencesGroup(
+            title="Settings",
+            description="Changes take effect on next launch.",
         )
+
+        # Fullscreen toggle
+        fs_switch = Adw.SwitchRow(
+            title="Fullscreen",
+            subtitle="Start DOSBox in fullscreen mode",
+        )
+        fs_active = self._read_dosbox_override(over_conf, "sdl", "fullscreen") == "true"
+        fs_switch.set_active(fs_active)
+        fs_switch.connect(
+            "notify::active",
+            lambda row, _p, c=over_conf: self._write_dosbox_override(
+                c, "sdl", "fullscreen", "true" if row.get_active() else "false",
+            ),
+        )
+        quick_group.add(fs_switch)
+        page.add(quick_group)
+
+        # ── Audio assets ──────────────────────────────────────────────
+        assets_dir = install_path / "assets"
+        sf_dir = assets_dir / "soundfonts"
+        rom_dir = assets_dir / "mt32-roms"
+        has_sf = sf_dir.is_dir() and any(sf_dir.glob("*.sf[23]"))
+        has_rom = rom_dir.is_dir() and any(rom_dir.glob("*.rom"))
+
+        if has_sf or has_rom:
+            audio_group = Adw.PreferencesGroup(title="Audio Assets")
+            if has_sf:
+                for sf in sorted(sf_dir.glob("*.sf[23]")):
+                    row = Adw.ActionRow(title=sf.name, subtitle="SoundFont")
+                    row.add_prefix(Gtk.Image.new_from_icon_name("audio-x-generic-symbolic"))
+                    audio_group.add(row)
+            if has_rom:
+                roms = sorted(rom_dir.glob("*.rom"))
+                row = Adw.ActionRow(
+                    title=f"MT-32 ROMs ({len(roms)} files)",
+                    subtitle=", ".join(r.name for r in roms[:4])
+                    + ("\u2026" if len(roms) > 4 else ""),
+                )
+                row.add_prefix(Gtk.Image.new_from_icon_name("audio-x-generic-symbolic"))
+                audio_group.add(row)
+            page.add(audio_group)
+
+        # ── Config files ──────────────────────────────────────────────
+        files_group = Adw.PreferencesGroup(title="Config Files")
 
         base_conf = config_dir / "dosbox-staging.conf"
         if base_conf.is_file():
@@ -904,13 +952,12 @@ class DetailView(Gtk.Box):
                 ),
             )
             row.add_suffix(btn)
-            group.add(row)
+            files_group.add(row)
 
-        over_conf = config_dir / "dosbox-overrides.conf"
         if over_conf.is_file():
             row = Adw.ActionRow(
                 title="dosbox-overrides.conf",
-                subtitle="Game-specific settings (cycles, sound, autoexec)",
+                subtitle="Game-specific overrides",
             )
             btn = Gtk.Button(icon_name="document-edit-symbolic")
             btn.set_valign(Gtk.Align.CENTER)
@@ -923,7 +970,7 @@ class DetailView(Gtk.Box):
                 ),
             )
             row.add_suffix(btn)
-            group.add(row)
+            files_group.add(row)
 
         folder_row = Adw.ActionRow(
             title="Open Config Folder",
@@ -939,12 +986,72 @@ class DetailView(Gtk.Box):
             ),
         )
         folder_row.add_suffix(folder_btn)
-        group.add(folder_row)
+        files_group.add(folder_row)
 
-        page.add(group)
+        page.add(files_group)
         toolbar.set_content(page)
         dlg.set_child(toolbar)
         dlg.present(self.get_root())
+
+    @staticmethod
+    def _read_dosbox_override(conf_path: Path, section: str, key: str) -> str:
+        """Read a value from a DOSBox overrides conf file."""
+        if not conf_path.is_file():
+            return ""
+        import configparser
+        from cellar.backend.dosbox import _strip_autoexec
+        parser = configparser.ConfigParser(interpolation=None)
+        text = conf_path.read_text(encoding="utf-8", errors="replace")
+        parser.read_string(_strip_autoexec(text))
+        if parser.has_section(section) and parser.has_option(section, key):
+            return parser.get(section, key).strip()
+        return ""
+
+    @staticmethod
+    def _write_dosbox_override(conf_path: Path, section: str, key: str, value: str) -> None:
+        """Set a value in a DOSBox overrides conf file."""
+        if not conf_path.is_file():
+            return
+        text = conf_path.read_text(encoding="utf-8", errors="replace")
+        lines = text.splitlines()
+        new_lines: list[str] = []
+        in_target = False
+        key_written = False
+
+        for line in lines:
+            stripped = line.strip().lower()
+            if stripped.startswith("[") and stripped.endswith("]"):
+                if in_target and not key_written:
+                    new_lines.append(f"{key} = {value}")
+                    key_written = True
+                in_target = (stripped == f"[{section}]")
+                new_lines.append(line)
+                continue
+            if in_target and stripped.startswith(f"{key.lower()}"):
+                new_lines.append(f"{key} = {value}")
+                key_written = True
+                continue
+            new_lines.append(line)
+
+        if in_target and not key_written:
+            new_lines.append(f"{key} = {value}")
+            key_written = True
+
+        if not key_written:
+            # Section doesn't exist — add before [autoexec] or at end
+            autoexec_idx = None
+            for i, line in enumerate(new_lines):
+                if line.strip().lower() == "[autoexec]":
+                    autoexec_idx = i
+                    break
+            insert = [f"\n[{section}]", f"{key} = {value}"]
+            if autoexec_idx is not None:
+                for j, il in enumerate(insert):
+                    new_lines.insert(autoexec_idx + j, il)
+            else:
+                new_lines.extend(insert)
+
+        conf_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
 
     def _on_launch_params_clicked(self) -> None:
         from cellar.views.launch_params import LaunchParamsDialog  # noqa: PLC0415

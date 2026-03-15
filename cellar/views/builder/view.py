@@ -1060,6 +1060,15 @@ class PackageBuilderView(Adw.Bin):
 
             dos_group = Adw.PreferencesGroup(title="DOSBox Configuration")
 
+            # Fullscreen toggle
+            _fs_switch = Adw.SwitchRow(
+                title="Fullscreen",
+                subtitle="Start DOSBox in fullscreen mode",
+            )
+            _fs_switch.set_active(self._get_dosbox_override(project, "sdl", "fullscreen") == "true")
+            _fs_switch.connect("notify::active", self._on_dosbox_fullscreen_toggled)
+            dos_group.add(_fs_switch)
+
             # Base config row
             _base_conf = _config_dir / "dosbox-staging.conf" if _config_dir else None
             _base_row = Adw.ActionRow(
@@ -1113,6 +1122,81 @@ class PackageBuilderView(Adw.Bin):
             dos_group.add(_folder_row)
 
             page.add(dos_group)
+
+        # ── 5d. Audio Assets (DOS only) ──────────────────────────────────
+        if project.project_type == "dos" and project.source_dir:
+            _src = Path(project.source_dir)
+            assets_group = Adw.PreferencesGroup(
+                title="Audio Assets",
+                description="Add SoundFonts or MT-32 ROMs. "
+                "DOSBox config is updated automatically.",
+            )
+
+            # List existing soundfonts
+            _sf_dir = _src / "assets" / "soundfonts"
+            if _sf_dir.is_dir():
+                for sf in sorted(_sf_dir.iterdir()):
+                    if sf.suffix.lower() in (".sf2", ".sf3"):
+                        _sf_row = Adw.ActionRow(
+                            title=sf.name,
+                            subtitle="SoundFont",
+                        )
+                        _sf_row.add_prefix(Gtk.Image.new_from_icon_name("audio-x-generic-symbolic"))
+                        _rm_btn = Gtk.Button(icon_name="user-trash-symbolic")
+                        _rm_btn.set_valign(Gtk.Align.CENTER)
+                        _rm_btn.add_css_class("flat")
+                        _rm_btn.connect(
+                            "clicked",
+                            self._on_remove_dos_asset, project, sf,
+                        )
+                        _sf_row.add_suffix(_rm_btn)
+                        assets_group.add(_sf_row)
+
+            # List existing MT-32 ROMs
+            _rom_dir = _src / "assets" / "mt32-roms"
+            if _rom_dir.is_dir():
+                roms = sorted(
+                    f for f in _rom_dir.iterdir()
+                    if f.suffix.lower() == ".rom"
+                )
+                if roms:
+                    _rom_row = Adw.ActionRow(
+                        title=f"MT-32 ROMs ({len(roms)} files)",
+                        subtitle=", ".join(r.name for r in roms[:4])
+                        + ("\u2026" if len(roms) > 4 else ""),
+                    )
+                    _rom_row.add_prefix(Gtk.Image.new_from_icon_name("audio-x-generic-symbolic"))
+                    _open_rom_btn = Gtk.Button(icon_name="folder-open-symbolic")
+                    _open_rom_btn.set_valign(Gtk.Align.CENTER)
+                    _open_rom_btn.add_css_class("flat")
+                    _open_rom_btn.connect(
+                        "clicked",
+                        lambda _b, d=_rom_dir: self._open_folder(d),
+                    )
+                    _rom_row.add_suffix(_open_rom_btn)
+                    _rm_roms_btn = Gtk.Button(icon_name="user-trash-symbolic")
+                    _rm_roms_btn.set_valign(Gtk.Align.CENTER)
+                    _rm_roms_btn.add_css_class("flat")
+                    _rm_roms_btn.connect(
+                        "clicked",
+                        self._on_remove_dos_asset_dir, project, _rom_dir,
+                    )
+                    _rom_row.add_suffix(_rm_roms_btn)
+                    assets_group.add(_rom_row)
+
+            # Add button
+            _add_asset_row = Adw.ActionRow(
+                title="Add Audio Assets\u2026",
+                subtitle="Drop or browse for .sf2 SoundFonts or .rom MT-32 files",
+            )
+            _add_btn = Gtk.Button(label="Add\u2026", valign=Gtk.Align.CENTER)
+            _add_btn.add_css_class("suggested-action")
+            _add_btn.connect("clicked", self._on_add_dos_asset_clicked)
+            _add_asset_row.add_suffix(_add_btn)
+            _add_asset_row.set_activatable_widget(_add_btn)
+            assets_group.add(_add_asset_row)
+
+            page.add(assets_group)
 
         # ── 6. Dependencies (Windows / Base only) ─────────────────────────
         if project.project_type not in ("linux", "dos"):
@@ -2749,6 +2833,269 @@ class PackageBuilderView(Adw.Bin):
         win = self.get_root()
         if hasattr(win, "toast_overlay"):
             win.toast_overlay.add_toast(Adw.Toast(title=message))
+
+    # ── DOS config helpers ─────────────────────────────────────────
+
+    def _get_dosbox_override(self, project: Project, section: str, key: str) -> str:
+        """Read a value from dosbox-overrides.conf, or empty string."""
+        if not project.source_dir:
+            return ""
+        conf = Path(project.source_dir) / "config" / "dosbox-overrides.conf"
+        if not conf.is_file():
+            return ""
+        import configparser
+        text = conf.read_text(encoding="utf-8", errors="replace")
+        # Strip autoexec for configparser
+        from cellar.backend.dosbox import _strip_autoexec
+        parser = configparser.ConfigParser(interpolation=None)
+        parser.read_string(_strip_autoexec(text))
+        if parser.has_section(section) and parser.has_option(section, key):
+            return parser.get(section, key).strip()
+        return ""
+
+    def _set_dosbox_override(self, project: Project, section: str, key: str, value: str) -> None:
+        """Set a value in dosbox-overrides.conf, creating the section if needed."""
+        if not project.source_dir:
+            return
+        conf = Path(project.source_dir) / "config" / "dosbox-overrides.conf"
+        if not conf.is_file():
+            return
+        text = conf.read_text(encoding="utf-8", errors="replace")
+        lines = text.splitlines()
+        new_lines: list[str] = []
+        in_target = False
+        key_written = False
+
+        for line in lines:
+            stripped = line.strip().lower()
+            if stripped.startswith("[") and stripped.endswith("]"):
+                # Leaving a section — if we were in target and didn't write, insert now
+                if in_target and not key_written:
+                    new_lines.append(f"{key} = {value}")
+                    key_written = True
+                in_target = (stripped == f"[{section}]")
+                new_lines.append(line)
+                continue
+            if in_target and stripped.startswith(f"{key.lower()}"):
+                new_lines.append(f"{key} = {value}")
+                key_written = True
+                continue
+            new_lines.append(line)
+
+        if in_target and not key_written:
+            new_lines.append(f"{key} = {value}")
+            key_written = True
+
+        # Section doesn't exist yet — add it before [autoexec]
+        if not key_written:
+            autoexec_idx = None
+            for i, line in enumerate(new_lines):
+                if line.strip().lower() == "[autoexec]":
+                    autoexec_idx = i
+                    break
+            insert = [f"\n[{section}]", f"{key} = {value}"]
+            if autoexec_idx is not None:
+                for j, il in enumerate(insert):
+                    new_lines.insert(autoexec_idx + j, il)
+            else:
+                new_lines.extend(insert)
+
+        conf.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+
+    def _on_dosbox_fullscreen_toggled(self, row, _pspec) -> None:
+        if self._project is None:
+            return
+        self._set_dosbox_override(
+            self._project, "sdl", "fullscreen",
+            "true" if row.get_active() else "false",
+        )
+
+    # ── DOS audio asset management ──────────────────────────────────
+
+    def _on_add_dos_asset_clicked(self, _btn) -> None:
+        """Browse for SoundFont or MT-32 ROM files to add to the DOS project."""
+        if self._project is None or self._project.project_type != "dos":
+            return
+        chooser = Gtk.FileChooserNative(
+            title="Select SoundFont or MT-32 ROM Files",
+            transient_for=self.get_root(),
+            action=Gtk.FileChooserAction.OPEN,
+            accept_label="Add",
+        )
+        chooser.set_select_multiple(True)
+
+        audio_filter = Gtk.FileFilter()
+        audio_filter.set_name("SoundFonts & ROMs (*.sf2, *.sf3, *.rom)")
+        audio_filter.add_pattern("*.sf2")
+        audio_filter.add_pattern("*.SF2")
+        audio_filter.add_pattern("*.sf3")
+        audio_filter.add_pattern("*.SF3")
+        audio_filter.add_pattern("*.rom")
+        audio_filter.add_pattern("*.ROM")
+        chooser.add_filter(audio_filter)
+
+        all_filter = Gtk.FileFilter()
+        all_filter.set_name("All files")
+        all_filter.add_pattern("*")
+        chooser.add_filter(all_filter)
+
+        chooser.connect("response", self._on_dos_asset_chosen, chooser)
+        chooser.show()
+        self._asset_chooser = chooser
+
+    def _on_dos_asset_chosen(self, _c, response, chooser) -> None:
+        if response != Gtk.ResponseType.ACCEPT or self._project is None:
+            return
+        project = self._project
+        src_dir = Path(project.source_dir)
+        files = chooser.get_files()
+
+        added_sf = False
+        added_rom = False
+
+        for gfile in files:
+            path = Path(gfile.get_path())
+            suffix = path.suffix.lower()
+
+            if suffix in (".sf2", ".sf3"):
+                dest_dir = src_dir / "assets" / "soundfonts"
+                dest_dir.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(path, dest_dir / path.name)
+                added_sf = True
+            elif suffix == ".rom":
+                dest_dir = src_dir / "assets" / "mt32-roms"
+                dest_dir.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(path, dest_dir / path.name)
+                added_rom = True
+
+        # Auto-update DOSBox overrides config
+        if added_sf or added_rom:
+            self._update_dosbox_audio_config(project, added_sf, added_rom)
+            save_project(project)
+            self._show_project(project)
+
+        if added_sf and added_rom:
+            self._show_toast("Added SoundFont and MT-32 ROMs")
+        elif added_sf:
+            self._show_toast("Added SoundFont")
+        elif added_rom:
+            self._show_toast("Added MT-32 ROMs")
+
+    def _on_remove_dos_asset(self, _btn, project: Project, asset_path: Path) -> None:
+        """Remove a single audio asset file and update config."""
+        if not asset_path.is_file():
+            return
+        asset_path.unlink()
+        # Check if any soundfonts/roms remain
+        sf_dir = Path(project.source_dir) / "assets" / "soundfonts"
+        rom_dir = Path(project.source_dir) / "assets" / "mt32-roms"
+        has_sf = sf_dir.is_dir() and any(sf_dir.iterdir())
+        has_rom = rom_dir.is_dir() and any(rom_dir.iterdir())
+        self._update_dosbox_audio_config(project, has_sf, has_rom, remove_missing=True)
+        save_project(project)
+        self._show_project(project)
+        self._show_toast(f"Removed {asset_path.name}")
+
+    def _on_remove_dos_asset_dir(self, _btn, project: Project, dir_path: Path) -> None:
+        """Remove an entire asset directory (e.g. mt32-roms) and update config."""
+        if dir_path.is_dir():
+            shutil.rmtree(dir_path)
+        sf_dir = Path(project.source_dir) / "assets" / "soundfonts"
+        has_sf = sf_dir.is_dir() and any(sf_dir.iterdir())
+        self._update_dosbox_audio_config(project, has_sf, False, remove_missing=True)
+        save_project(project)
+        self._show_project(project)
+        self._show_toast("Removed MT-32 ROMs")
+
+    def _update_dosbox_audio_config(
+        self,
+        project: Project,
+        has_soundfont: bool,
+        has_mt32: bool,
+        *,
+        remove_missing: bool = False,
+    ) -> None:
+        """Update dosbox-overrides.conf with audio asset paths.
+
+        When *remove_missing* is True, removes config entries for asset types
+        that are no longer present.
+        """
+        overrides_path = Path(project.source_dir) / "config" / "dosbox-overrides.conf"
+        if not overrides_path.is_file():
+            return
+
+        text = overrides_path.read_text(encoding="utf-8")
+        lines = text.splitlines()
+        new_lines: list[str] = []
+
+        # Track which sections/keys we've seen
+        in_section = ""
+        midi_written = False
+        fluidsynth_written = False
+        mt32_written = False
+
+        # Strip existing audio config lines — we'll re-add them
+        for line in lines:
+            stripped = line.strip().lower()
+            if stripped.startswith("[") and stripped.endswith("]"):
+                in_section = stripped[1:-1]
+
+            # Remove existing midi/fluidsynth/mt32 lines we manage
+            if in_section == "midi" and stripped.startswith("mididevice"):
+                continue
+            if in_section == "fluidsynth" and stripped.startswith("soundfont"):
+                continue
+            if in_section == "mt32" and stripped.startswith("romdir"):
+                continue
+            # Remove empty section headers for sections we manage
+            if stripped in ("[fluidsynth]", "[mt32]"):
+                # Skip — we'll re-add if needed
+                continue
+            if stripped == "[midi]":
+                continue
+
+            new_lines.append(line)
+
+        # Remove trailing blank lines
+        while new_lines and not new_lines[-1].strip():
+            new_lines.pop()
+
+        # Add audio config at the end (before [autoexec] if present)
+        autoexec_idx = None
+        for i, line in enumerate(new_lines):
+            if line.strip().lower() == "[autoexec]":
+                autoexec_idx = i
+                break
+
+        audio_lines: list[str] = []
+
+        if has_soundfont:
+            sf_dir = Path(project.source_dir) / "assets" / "soundfonts"
+            sfs = sorted(sf_dir.glob("*.sf[23]")) if sf_dir.is_dir() else []
+            if sfs:
+                audio_lines.append("")
+                audio_lines.append("[midi]")
+                audio_lines.append("mididevice = fluidsynth")
+                audio_lines.append("")
+                audio_lines.append("[fluidsynth]")
+                audio_lines.append(f"soundfont = assets/soundfonts/{sfs[0].name}")
+        elif has_mt32:
+            audio_lines.append("")
+            audio_lines.append("[midi]")
+            audio_lines.append("mididevice = mt32")
+            audio_lines.append("")
+            audio_lines.append("[mt32]")
+            audio_lines.append("romdir = assets/mt32-roms")
+
+        if audio_lines:
+            if autoexec_idx is not None:
+                for i, al in enumerate(audio_lines):
+                    new_lines.insert(autoexec_idx + i, al)
+            else:
+                new_lines.extend(audio_lines)
+
+        new_lines.append("")  # trailing newline
+        overrides_path.write_text("\n".join(new_lines), encoding="utf-8")
 
     def _open_file_in_editor(self, path: Path | None) -> None:
         """Open a file in the default text editor via xdg-open."""

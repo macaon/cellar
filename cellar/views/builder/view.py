@@ -903,13 +903,32 @@ class PackageBuilderView(Adw.Bin):
                 "Directory exists (not initialized)" if prefix_exists else "Not initialized"
             )
             self._prefix_status_row = Adw.ActionRow(title="Status", subtitle=status_text)
-            self._init_btn = Gtk.Button(label="Initialize")
-            self._init_btn.set_valign(Gtk.Align.CENTER)
-            self._init_btn.add_css_class("suggested-action")
-            self._init_btn.set_sensitive(bool(project.runner) and not project.initialized)
-            self._init_btn.connect("clicked", self._on_init_prefix_clicked)
-            self._prefix_status_row.add_suffix(self._init_btn)
+            if project.initialized:
+                _browse_btn = Gtk.Button(icon_name="folder-open-symbolic")
+                _browse_btn.set_valign(Gtk.Align.CENTER)
+                _browse_btn.add_css_class("flat")
+                _browse_btn.connect("clicked", self._on_browse_prefix_clicked)
+                self._prefix_status_row.add_suffix(_browse_btn)
+            else:
+                self._init_btn = Gtk.Button(label="Initialize")
+                self._init_btn.set_valign(Gtk.Align.CENTER)
+                self._init_btn.add_css_class("suggested-action")
+                self._init_btn.set_sensitive(bool(project.runner))
+                self._init_btn.connect("clicked", self._on_init_prefix_clicked)
+                self._prefix_status_row.add_suffix(self._init_btn)
             prefix_group.add(self._prefix_status_row)
+
+            _winecfg_row = Adw.ActionRow(
+                title="Wine Configuration",
+                subtitle="Open winecfg (DLL overrides, Windows version, …)",
+            )
+            _winecfg_row.set_sensitive(project.initialized)
+            _winecfg_btn = Gtk.Button(label="Open")
+            _winecfg_btn.set_valign(Gtk.Align.CENTER)
+            _winecfg_btn.connect("clicked", self._on_winecfg_clicked)
+            _winecfg_row.add_suffix(_winecfg_btn)
+            prefix_group.add(_winecfg_row)
+
             page.add(prefix_group)
 
         # ── 4. Files section (Windows app only) ───────────────────────────
@@ -950,32 +969,11 @@ class PackageBuilderView(Adw.Bin):
                         hint="Drop installers for DLC or patches",
                         on_browse_file=self._on_run_installer_clicked,
                         on_browse_folder=self._on_browse_dlc_folder_clicked,
+                        show_browse_content=project.initialized,
+                        on_browse_content=self._on_browse_prefix_clicked,
                     )
                     drop_zone.set_sensitive(project.initialized)
                     files_group.add(drop_zone)
-
-            _browse_row = Adw.ActionRow(
-                title="Browse Prefix",
-                subtitle="Open drive_c in the file manager",
-            )
-            _browse_row.set_sensitive(project.initialized)
-            _browse_btn = Gtk.Button(icon_name="folder-open-symbolic")
-            _browse_btn.set_valign(Gtk.Align.CENTER)
-            _browse_btn.add_css_class("flat")
-            _browse_btn.connect("clicked", self._on_browse_prefix_clicked)
-            _browse_row.add_suffix(_browse_btn)
-            files_group.add(_browse_row)
-
-            _winecfg_row = Adw.ActionRow(
-                title="Wine Configuration",
-                subtitle="Open winecfg (DLL overrides, Windows version, …)",
-            )
-            _winecfg_row.set_sensitive(project.initialized)
-            _winecfg_btn = Gtk.Button(label="Open")
-            _winecfg_btn.set_valign(Gtk.Align.CENTER)
-            _winecfg_btn.connect("clicked", self._on_winecfg_clicked)
-            _winecfg_row.add_suffix(_winecfg_btn)
-            files_group.add(_winecfg_row)
 
             page.add(files_group)
 
@@ -1127,7 +1125,7 @@ class PackageBuilderView(Adw.Bin):
             page.add(dep_group)
 
         # ── 7. Publish section ────────────────────────────────────────────
-        # Browse Prefix for base projects (app projects have it in the Files section)
+        # Browse Prefix for base projects (app projects use the drop-zone browse button)
         if project.project_type == "base":
             base_files_group = Adw.PreferencesGroup(title="Files")
             _browse_row = Adw.ActionRow(
@@ -1141,17 +1139,6 @@ class PackageBuilderView(Adw.Bin):
             _browse_btn.connect("clicked", self._on_browse_prefix_clicked)
             _browse_row.add_suffix(_browse_btn)
             base_files_group.add(_browse_row)
-
-            _winecfg_row = Adw.ActionRow(
-                title="Wine Configuration",
-                subtitle="Open winecfg (DLL overrides, Windows version, …)",
-            )
-            _winecfg_row.set_sensitive(project.initialized)
-            _winecfg_btn = Gtk.Button(label="Open")
-            _winecfg_btn.set_valign(Gtk.Align.CENTER)
-            _winecfg_btn.connect("clicked", self._on_winecfg_clicked)
-            _winecfg_row.add_suffix(_winecfg_btn)
-            base_files_group.add(_winecfg_row)
 
             page.add(base_files_group)
 

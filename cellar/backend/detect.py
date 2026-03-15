@@ -19,20 +19,16 @@ _LIN_EXTS = _LIN_SCRIPT_EXTS | _LIN_BINARY_EXTS
 _ELF_MAGIC = b"\x7fELF"
 
 # Files that should never appear as launch target candidates.
-_LAUNCH_EXCLUDE = {
-    # Linux — GOG / installer helpers
-    "gog-system-report.sh",
-    "postinst.sh",
-    "preuninst.sh",
-    "uninstall.sh",
-    "yad",
-    "yad32",
-    "yad64",
-    # Windows — crash handlers / uninstallers
-    "crashpad_handler.exe",
-    "unins000.exe",
-    "unitycrashhandler64.exe",
-}
+# Loaded from launch_exclude.txt (one filename per line, case-insensitive).
+def _load_launch_exclude() -> frozenset[str]:
+    txt = (Path(__file__).parent / "launch_exclude.txt").read_text()
+    return frozenset(
+        line.strip().lower()
+        for line in txt.splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    )
+
+_LAUNCH_EXCLUDE = _load_launch_exclude()
 
 _ARCHIVE_EXTS = {
     ".zip", ".tar", ".gz", ".bz2", ".xz", ".zst", ".7z", ".rar",

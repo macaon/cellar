@@ -1,0 +1,20 @@
+# Files that should never appear as launch target candidates.
+# One filename per line (case-insensitive). Blank lines and #-comments are ignored.
+
+# Linux — GOG / installer helpers
+gog-system-report.sh
+postinst.sh
+preuninst.sh
+uninstall.sh
+yad
+yad32
+yad64
+
+# Windows — crash handlers / uninstallers / runtime setup
+crashpad_handler.exe
+crashreportclient.exe
+dxsetup.exe
+infinst.exe
+scriptinterpreter.exe
+unins000.exe
+unitycrashhandler64.exe

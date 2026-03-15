@@ -388,7 +388,8 @@ class TestGenerateOverridesConf:
         overrides = generate_overrides_conf(result, "DOSBOX")
         assert 'mount C "."' in overrides
         assert 'mount C "cloud_saves" -t overlay' in overrides
-        assert "fall.exe z.cfg" in overrides
+        # Game commands are NOT in the autoexec — they're passed via CLI
+        assert "fall.exe z.cfg" not in overrides
 
     def test_drops_exit_commands(self, tmp_path: Path) -> None:
         _write_conf(
@@ -429,7 +430,7 @@ class TestGenerateOverridesConf:
         assert "sbtype = sb16" in overrides
 
     def test_strips_gog_launcher_menu(self, tmp_path: Path) -> None:
-        """GOG launcher batch menu should be stripped, game commands kept."""
+        """GOG launcher batch menu should be stripped; game commands excluded from autoexec."""
         _write_conf(
             tmp_path,
             "game.conf",
@@ -461,8 +462,10 @@ class TestGenerateOverridesConf:
         assert "ECHO" not in overrides
         assert "errorlevel" not in overrides.lower()
 
-        # Game command should survive
-        assert "fall.exe z.cfg" in overrides
+        # Game commands are passed via CLI, not in autoexec
+        assert "fall.exe" not in overrides
+        # Mount commands should be preserved
+        assert 'mount C "."' in overrides
 
     def test_quiet_launch(self, tmp_path: Path) -> None:
         """Overrides should include startup_verbosity = quiet."""
@@ -481,7 +484,7 @@ class TestGenerateOverridesConf:
         assert "startup_verbosity = quiet" in overrides
 
     def test_nounivbe_injection(self, tmp_path: Path) -> None:
-        """NoUniVBE should be injected after mounts, before game command."""
+        """NoUniVBE should be injected after mounts in autoexec."""
         _write_conf(
             tmp_path,
             "game.conf",
@@ -495,16 +498,18 @@ class TestGenerateOverridesConf:
         result = parse_gog_confs([tmp_path / "game.conf"])
         overrides = generate_overrides_conf(result, "DOSBOX")
         lines = overrides.splitlines()
-        # Find positions
+        # NoUniVBE should be present after mount commands
         nounivbe_idx = next(
             (i for i, l in enumerate(lines) if "NOUNIVBE" in l.upper()), None
         )
-        game_idx = next(
-            (i for i, l in enumerate(lines) if "game.exe" in l), None
+        mount_idx = next(
+            (i for i, l in enumerate(lines) if l.strip().lower().startswith("mount ")), None
         )
         assert nounivbe_idx is not None, "NoUniVBE not found in overrides"
-        assert game_idx is not None, "game command not found in overrides"
-        assert nounivbe_idx < game_idx, "NoUniVBE should come before game command"
+        assert mount_idx is not None, "mount command not found in overrides"
+        assert nounivbe_idx > mount_idx, "NoUniVBE should come after mount commands"
+        # Game command should NOT be in autoexec
+        assert "game.exe" not in overrides
 
 
 # ---------------------------------------------------------------------------
@@ -600,9 +605,8 @@ class TestConvertGogDosbox:
         dest = tmp_path / "dest"
         entry_points = convert_gog_dosbox(source, dest, info)
 
-        # Verify structure
-        assert (dest / "launch.sh").is_file()
-        assert os.access(dest / "launch.sh", os.X_OK)
+        # Verify structure — no launch.sh (DOSBox invoked at launch time)
+        assert not (dest / "launch.sh").exists()
         assert (dest / "dosbox" / "dosbox").is_file()
         assert (dest / "dosbox" / "resources" / "CP_437.TXT").is_file()
         assert (dest / "dosbox" / "soundfonts" / "default.sf2").is_file()
@@ -617,27 +621,22 @@ class TestConvertGogDosbox:
         # Windows DOSBOX directory removed
         assert not (dest / "DOSBOX").exists()
 
-        # Entry points
-        assert len(entry_points) == 1
-        assert entry_points[0]["path"] == "launch.sh"
+        # Entry points — DOS exe files, not launch.sh
+        assert len(entry_points) >= 1
+        assert entry_points[0]["path"] == "fall.exe"
+        assert entry_points[0]["args"] == "z.cfg"
         assert entry_points[0]["name"] == "The Elder Scrolls II: Daggerfall"
 
         # NoUniVBE copied
         assert (dest / "nounivbe" / "NOUNIVBE.EXE").is_file()
 
-        # Overrides content
+        # Overrides content — mounts and NoUniVBE, but NOT game commands
         overrides = (dest / "config" / "dosbox-overrides.conf").read_text()
         assert "cycles = fixed 50000" in overrides
         assert 'mount C "."' in overrides
-        assert "fall.exe z.cfg" in overrides
         assert "startup_verbosity = quiet" in overrides
         assert "NOUNIVBE" in overrides
-
-        # Launch script content
-        launch = (dest / "launch.sh").read_text()
-        assert "dosbox/dosbox" in launch
-        assert "dosbox-staging.conf" in launch
-        assert "dosbox-overrides.conf" in launch
+        assert "fall.exe" not in overrides
 
 
 # Needed for the conversion test

@@ -526,7 +526,10 @@ class DetailView(Gtk.Box):
     def _launch_target(self, target: dict) -> None:
         entry_path = target.get("path", "")
         entry_args = target.get("args", "")
-        if self._entry.platform in ("linux", "dos"):
+        if self._entry.platform == "dos":
+            self._launch_dos_target(entry_path, entry_args)
+            return
+        if self._entry.platform == "linux":
             self._launch_linux_target(entry_path, entry_args)
             return
         from cellar.backend.umu import launch_app_monitored, merge_launch_params  # noqa: PLC0415
@@ -639,6 +642,58 @@ class DetailView(Gtk.Box):
             _sp.Popen(cmd, cwd=str(exe.parent), start_new_session=True)
             launch_event = threading.Event()
             monitor_process_tree(entry_path, launch_event, _on_line)
+            GLib.idle_add(progress.force_close)
+
+        threading.Thread(target=_work, daemon=True).start()
+        progress.present(self.get_root())
+
+    def _launch_dos_target(self, entry_path: str, entry_args: str) -> None:
+        """Launch a DOS game via the bundled DOSBox Staging binary.
+
+        Constructs the DOSBox command line with ``--noprimaryconf`` to avoid
+        loading the user's ``~/.config/dosbox/`` config.  The DOS executable
+        is passed as a positional argument so DOSBox runs it after processing
+        the autoexec (mounts, NoUniVBE, etc.).
+        """
+        import subprocess as _sp
+        import shlex as _shlex
+
+        from cellar.backend.umu import dos_dir, is_cellar_sandboxed, monitor_process_tree
+        from cellar.views.builder.progress import ProgressDialog
+
+        game_dir = dos_dir() / self._entry.id
+        dosbox_bin = game_dir / "dosbox" / "dosbox"
+        if not dosbox_bin.is_file():
+            self._add_toast("DOSBox Staging binary not found in package")
+            return
+
+        # Build DOSBox command
+        cmd = [
+            str(dosbox_bin),
+            "--noprimaryconf",
+            "-conf", str(game_dir / "config" / "dosbox-staging.conf"),
+            "-conf", str(game_dir / "config" / "dosbox-overrides.conf"),
+        ]
+        # Add the DOS executable as a positional argument if set
+        if entry_path:
+            cmd.append(entry_path)
+        if entry_args:
+            cmd += _shlex.split(entry_args)
+
+        if is_cellar_sandboxed():
+            cmd = ["flatpak-spawn", "--host"] + cmd
+
+        progress = ProgressDialog(label="Launching\u2026")
+        progress.set_can_close(True)
+
+        def _on_line(line: str) -> None:
+            if line.startswith("[pid]"):
+                GLib.idle_add(progress.set_label, "Game started")
+
+        def _work() -> None:
+            _sp.Popen(cmd, cwd=str(game_dir), start_new_session=True)
+            launch_event = threading.Event()
+            monitor_process_tree("dosbox", launch_event, _on_line)
             GLib.idle_add(progress.force_close)
 
         threading.Thread(target=_work, daemon=True).start()

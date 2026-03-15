@@ -503,25 +503,22 @@ def generate_overrides_conf(
     if autoexec.raw_lines:
         rewritten = _rewrite_autoexec(autoexec.raw_lines, dosbox_subdir)
         lines.append("[autoexec]")
-        # Inject NoUniVBE before game commands to bypass bundled UniVBE drivers
-        # Insert after mount commands, before the first game command
-        mount_done = False
-        nounivbe_injected = False
+        # Only include mount commands and drive changes — game commands are
+        # NOT included here because the game exe is passed on the DOSBox
+        # command line at launch time (handled by detail.py).
         for line in rewritten:
             lower = line.strip().lower()
-            # Track when we've passed the mount/drive-change section
+            # Keep mount commands and drive changes
             if lower.startswith("mount ") or (len(lower) == 2 and lower.endswith(":")):
-                mount_done = True
                 lines.append(line)
                 continue
-            # Inject NoUniVBE right before the first non-mount command
-            if mount_done and not nounivbe_injected and lower and not lower.startswith("#"):
-                lines.append("nounivbe\\NOUNIVBE.EXE")
-                nounivbe_injected = True
-            lines.append(line)
-        if not nounivbe_injected and rewritten:
-            # If no clear injection point, prepend before all commands
-            lines.append("nounivbe\\NOUNIVBE.EXE")
+            # Keep comments
+            if lower.startswith("#"):
+                lines.append(line)
+                continue
+            # Skip game commands — they'll be passed via CLI
+        # Inject NoUniVBE after mounts
+        lines.append("nounivbe\\NOUNIVBE.EXE")
         lines.append("")
 
     return "\n".join(lines) + "\n"
@@ -622,22 +619,30 @@ def convert_gog_dosbox(
         overrides, encoding="utf-8"
     )
 
-    # Step 5: Generate launch script
-    launch_script = dest / "launch.sh"
-    launch_script.write_text(
-        '#!/bin/bash\n'
-        'cd "$(dirname "$0")"\n'
-        'exec dosbox/dosbox'
-        ' -conf config/dosbox-staging.conf'
-        ' -conf config/dosbox-overrides.conf\n',
-        encoding="utf-8",
-    )
-    launch_script.chmod(
-        launch_script.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP
-    )
+    # Step 5: Return entry points — DOS exe files as launch targets.
+    # DOSBox invocation is handled at launch time by the app (detail.py),
+    # not by a shell script.  The entry_point path is the DOS executable
+    # relative to the game directory.
+    autoexec: AutoexecInfo = gog_settings.get("autoexec", AutoexecInfo())
+    entry_points: list[dict] = []
+    if autoexec.game_commands:
+        for i, cmd in enumerate(autoexec.game_commands):
+            parts = cmd.split(None, 1)
+            exe_name = parts[0]
+            exe_args = parts[1] if len(parts) > 1 else ""
+            entry_points.append({
+                "name": info.game_name if i == 0 else Path(exe_name).stem,
+                "path": exe_name,
+                "args": exe_args,
+            })
+    else:
+        entry_points.append({
+            "name": info.game_name or "Game",
+            "path": "",
+            "args": "",
+        })
 
-    # Step 6: Return entry points
-    return [{"name": info.game_name or "Game", "path": "launch.sh", "args": ""}]
+    return entry_points
 
 
 # ---------------------------------------------------------------------------

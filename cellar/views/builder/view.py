@@ -2089,7 +2089,33 @@ class PackageBuilderView(Adw.Bin):
         if not entry_path:
             self._show_toast("Launch target has no executable path.")
             return
-        if project.project_type in ("linux", "dos"):
+        if project.project_type == "dos":
+            if not project.source_dir:
+                self._show_toast("Set a source folder first.")
+                return
+            import shlex
+
+            from cellar.backend.umu import is_cellar_sandboxed
+            game_dir = Path(project.source_dir)
+            dosbox_bin = game_dir / "dosbox" / "dosbox"
+            if not dosbox_bin.is_file():
+                self._show_toast("DOSBox Staging binary not found. Re-convert the project.")
+                return
+            cmd = [
+                str(dosbox_bin),
+                "--noprimaryconf",
+                "-conf", str(game_dir / "config" / "dosbox-staging.conf"),
+                "-conf", str(game_dir / "config" / "dosbox-overrides.conf"),
+            ]
+            if entry_path:
+                cmd.append(entry_path)
+            if entry_args:
+                cmd += shlex.split(entry_args)
+            if is_cellar_sandboxed():
+                cmd = ["flatpak-spawn", "--host"] + cmd
+            subprocess.Popen(cmd, cwd=str(game_dir), start_new_session=True)
+            return
+        if project.project_type == "linux":
             if not project.source_dir:
                 self._show_toast("Set a source folder first.")
                 return

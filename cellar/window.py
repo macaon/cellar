@@ -895,6 +895,9 @@ class CellarWindow(Adw.ApplicationWindow):
         q._active_dl_done = downloaded
         q._active_dl_total = total
         q._active_dl_speed = speed
+        # Compute fraction from bytes — more reliable than the separate progress callback.
+        if total > 0:
+            q._active_fraction = min(downloaded / total, 1.0)
         self._refresh_active_detail_progress()
 
     def _refresh_active_detail_progress(self) -> None:

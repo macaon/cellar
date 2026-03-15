@@ -366,10 +366,8 @@ class DetailView(Gtk.Box):
         btn = self._install_btn
         for cls in ("suggested-action", "success", "destructive-action"):
             btn.remove_css_class(cls)
-        # Hide progress bar by default.
-        if hasattr(self, "_install_progress"):
-            self._install_progress.set_visible(False)
-            self._install_progress.set_fraction(0.0)
+        # Hide spinner button by default.
+        self._spinner_btn.set_visible(False)
         if self._is_installed:
             self._install_btn_label.set_label("Open")
             btn.add_css_class("suggested-action")
@@ -381,24 +379,12 @@ class DetailView(Gtk.Box):
                 if (self._has_update and not self._is_offline) else ""
             )
         elif self._is_install_pending():
-            is_active = (
-                self._install_queue is not None
-                and self._install_queue.is_active(self._entry.id)
-            )
             self._install_btn_label.set_label("Cancel")
-            btn.add_css_class("suggested-action")
+            btn.add_css_class("destructive-action")
             btn.set_sensitive(True)
+            btn.set_tooltip_text("")
             self._update_indicator.set_visible(False)
-            if is_active:
-                if hasattr(self, "_install_progress"):
-                    self._install_progress.set_visible(True)
-                    self._install_progress.set_fraction(self._install_queue.active_fraction)
-                stats = self._install_queue.active_stats_text
-                phase = self._install_queue.active_phase
-                tooltip = stats or phase or "Installing…"
-                btn.set_tooltip_text(tooltip)
-            else:
-                btn.set_tooltip_text("Queued — waiting for other installs")
+            self._spinner_btn.set_visible(True)
         elif self._is_offline:
             self._install_btn_label.set_label("Unavailable")
             btn.set_sensitive(False)
@@ -415,24 +401,70 @@ class DetailView(Gtk.Box):
             self._refresh_gear_menu()
 
     def _update_install_progress(self, queue) -> None:
-        """Update progress bar and tooltip from live queue stats.
+        """Update the spinner button tooltip with live stats.
 
         Called by the window on every progress/stats callback.
         """
         if not queue.is_active(self._entry.id):
             return
-        if not hasattr(self, "_install_progress"):
-            return
-        fraction = queue.active_fraction
-        self._install_progress.set_fraction(fraction)
-        self._install_progress.set_visible(True)
-        # Update tooltip with download stats.
         stats = queue.active_stats_text
         phase = queue.active_phase
         if stats:
-            self._install_btn.set_tooltip_text(f"{phase}\n{stats}" if phase else stats)
+            self._spinner_btn.set_tooltip_text(f"{phase}\n{stats}" if phase else stats)
         elif phase:
-            self._install_btn.set_tooltip_text(phase)
+            self._spinner_btn.set_tooltip_text(phase)
+
+    def _on_spinner_btn_clicked(self, _btn) -> None:
+        """Show a progress popover with live download stats."""
+        if self._install_queue is None:
+            return
+        self._show_progress_popover()
+
+    def _show_progress_popover(self) -> None:
+        """Show a popover anchored to the spinner button with live download progress."""
+        q = self._install_queue
+        popover = Gtk.Popover()
+        popover.set_parent(self._spinner_btn)
+        popover.set_position(Gtk.PositionType.BOTTOM)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        box.set_margin_top(12)
+        box.set_margin_bottom(12)
+        box.set_margin_start(12)
+        box.set_margin_end(12)
+
+        phase_label = Gtk.Label()
+        phase_label.set_halign(Gtk.Align.START)
+        phase_label.add_css_class("heading")
+        box.append(phase_label)
+
+        progress_bar = Gtk.ProgressBar()
+        progress_bar.set_show_text(False)
+        progress_bar.set_size_request(240, -1)
+        box.append(progress_bar)
+
+        stats_label = Gtk.Label()
+        stats_label.set_halign(Gtk.Align.START)
+        stats_label.add_css_class("dim-label")
+        stats_label.add_css_class("caption")
+        box.append(stats_label)
+
+        popover.set_child(box)
+
+        def _update() -> bool:
+            if not popover.is_visible():
+                return False
+            phase = q.active_phase or "Installing…"
+            phase_label.set_label(phase)
+            progress_bar.set_fraction(q.active_fraction)
+            stats = q.active_stats_text
+            stats_label.set_label(stats if stats else "")
+            stats_label.set_visible(bool(stats))
+            return True  # keep updating
+
+        _update()
+        GLib.timeout_add(250, _update)
+        popover.popup()
 
     def _on_install_clicked(self, _btn) -> None:
         if self._is_installed:
@@ -1189,13 +1221,18 @@ class DetailView(Gtk.Box):
         )
         box.append(action_row)
 
+        # Spinner button — visible only during active/queued installs.
+        self._spinner_btn = Gtk.Button()
+        self._spinner_btn.set_child(Adw.Spinner())
+        self._spinner_btn.add_css_class("flat")
+        self._spinner_btn.set_visible(False)
+        self._spinner_btn.set_tooltip_text("Show download progress")
+        self._spinner_btn.connect("clicked", self._on_spinner_btn_clicked)
+        action_row.append(self._spinner_btn)
+
         self._install_btn = Gtk.Button()
         self._install_btn.connect("clicked", self._on_install_clicked)
-        self._install_btn.set_overflow(Gtk.Overflow.HIDDEN)
         self._install_btn.add_css_class("install-btn")
-
-        # Overlay: label content + thin progress bar clipped to button bounds.
-        _overlay = Gtk.Overlay()
 
         # Inner box: warning icon (update indicator) + label.
         _btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4,
@@ -1205,18 +1242,7 @@ class DetailView(Gtk.Box):
         _btn_box.append(self._update_indicator)
         self._install_btn_label = Gtk.Label()
         _btn_box.append(self._install_btn_label)
-        _overlay.set_child(_btn_box)
-
-        # Thin progress bar pinned to the bottom of the button.
-        self._install_progress = Gtk.ProgressBar()
-        self._install_progress.set_visible(False)
-        self._install_progress.set_valign(Gtk.Align.END)
-        self._install_progress.set_hexpand(True)
-        self._install_progress.add_css_class("install-progress")
-        _overlay.add_overlay(self._install_progress)
-        _overlay.set_clip_overlay(self._install_progress, True)
-
-        self._install_btn.set_child(_overlay)
+        self._install_btn.set_child(_btn_box)
         action_row.append(self._install_btn)
 
         self._gear_btn = Gtk.MenuButton(icon_name="emblem-system-symbolic")

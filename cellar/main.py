@@ -154,20 +154,6 @@ class CellarApplication(Adw.Application):
                 "  padding-left: 24px;"
                 "  padding-right: 24px;"
                 "}"
-                ".install-progress,"
-                ".install-progress trough,"
-                ".install-progress trough progress {"
-                "  min-height: 3px;"
-                "}"
-                ".install-progress trough {"
-                "  background: transparent;"
-                "  border: none;"
-                "  border-radius: 0;"
-                "}"
-                ".install-progress trough progress {"
-                "  background-color: @accent_fg_color;"
-                "  border-radius: 0;"
-                "}"
             )
             # load_from_string was added in GTK 4.12; use load_from_data for
             # compatibility with older distros (e.g. Pop_OS / Ubuntu 22.04).

@@ -8,7 +8,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gtk
+from gi.repository import Adw, GLib, Gtk
 
 log = logging.getLogger(__name__)
 
@@ -78,7 +78,8 @@ class DownloadQueueDialog(Adw.Dialog):
             subtitle = f"{phase}  —  {stats}" if stats else phase
 
             row = self._make_row(
-                active.app_name, subtitle, spinning=True, app_id=active.app_id,
+                active.app_name, GLib.markup_escape_text(subtitle),
+                spinning=True, app_id=active.app_id,
             )
             self._active_row = row
 
@@ -120,7 +121,8 @@ class DownloadQueueDialog(Adw.Dialog):
         stats = self._queue.active_stats_text
         phase = self._queue.active_phase or "Installing…"
         subtitle = f"{phase}  —  {stats}" if stats else phase
-        self._active_row.set_subtitle(subtitle)
+        # Escape markup entities — phase text may contain '&'.
+        self._active_row.set_subtitle(GLib.markup_escape_text(subtitle))
         if self._active_progress is not None:
             self._active_progress.set_fraction(self._queue.active_fraction)
 

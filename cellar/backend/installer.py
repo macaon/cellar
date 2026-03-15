@@ -847,6 +847,89 @@ def install_linux_app(
     return entry.id, install_dest
 
 
+def install_dos_app(
+    entry,                          # AppEntry with platform == "dos"
+    archive_uri: str,
+    *,
+    download_cb: Callable[[float], None] | None = None,
+    download_stats_cb: Callable[[int, int, float], None] | None = None,
+    install_cb: Callable[[float], None] | None = None,
+    extract_name_cb: Callable[[str], None] | None = None,
+    phase_cb: Callable[[str], None] | None = None,
+    cancel_event: threading.Event | None = None,
+    token: str | None = None,
+    ssl_verify: bool = True,
+    ca_cert: str | None = None,
+    ssh_identity: str | None = None,
+) -> tuple[str, Path]:
+    """Download, verify, extract, and install a DOS game.
+
+    Installs to ``~/.local/share/cellar/dos/<entry.id>/``.
+
+    Returns ``(entry.id, install_dest)``.
+
+    The caller is responsible for writing the DB record via
+    ``database.mark_installed`` with ``platform="dos"``.
+    """
+    from cellar.backend.umu import dos_dir  # noqa: PLC0415
+    _check_cancel(cancel_event)
+
+    install_dest = dos_dir() / entry.id
+
+    # ── Steps 1-3: Stream, verify CRC32, extract directly ──────────────
+    if phase_cb:
+        phase_cb("Downloading & extracting package\u2026")
+    if download_cb:
+        download_cb(0.0)
+    if install_cb:
+        install_cb(0.0)
+    _check_cancel(cancel_event)
+
+    _transport_kw = dict(token=token, ssl_verify=ssl_verify, ca_cert=ca_cert,
+                         ssh_identity=ssh_identity)
+
+    install_dest.mkdir(parents=True, exist_ok=True)
+    try:
+        if entry.archive_chunks:
+            _install_chunks(
+                archive_uri, entry.archive_chunks, install_dest,
+                strip_top_dir=True,
+                cancel_event=cancel_event,
+                progress_cb=download_cb, stats_cb=download_stats_cb,
+                name_cb=extract_name_cb, **_transport_kw,
+            )
+        else:
+            chunks, total = _build_source(
+                archive_uri, expected_size=entry.archive_size, **_transport_kw)
+            _stream_and_extract(
+                chunks, total,
+                is_zst=archive_uri.endswith(".tar.zst"),
+                dest=install_dest,
+                expected_crc32=entry.archive_crc32,
+                cancel_event=cancel_event,
+                progress_cb=download_cb,
+                stats_cb=download_stats_cb,
+                name_cb=extract_name_cb,
+                strip_top_dir=True,
+            )
+    except Exception:
+        shutil.rmtree(install_dest, ignore_errors=True)
+        raise
+
+    # ── Step 4: Ensure launch script is executable ───────────────────────
+    if entry.entry_point:
+        ep = install_dest / entry.entry_point
+        if ep.is_file():
+            ep.chmod(ep.stat().st_mode | 0o111)
+
+    from cellar.backend.manifest import write_manifest  # noqa: PLC0415
+    write_manifest(install_dest)
+
+    if install_cb:
+        install_cb(1.0)
+    return entry.id, install_dest
+
+
 def _safe_linux_name(dir_name: str, base_path: Path) -> str:
     """Return an install directory name that does not collide with existing dirs."""
     if not (base_path / dir_name).exists():

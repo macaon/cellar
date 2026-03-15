@@ -526,7 +526,7 @@ class DetailView(Gtk.Box):
     def _launch_target(self, target: dict) -> None:
         entry_path = target.get("path", "")
         entry_args = target.get("args", "")
-        if self._entry.platform == "linux":
+        if self._entry.platform in ("linux", "dos"):
             self._launch_linux_target(entry_path, entry_args)
             return
         from cellar.backend.umu import launch_app_monitored, merge_launch_params  # noqa: PLC0415
@@ -650,6 +650,11 @@ class DetailView(Gtk.Box):
             candidate = native_dir() / self._entry.id
             if candidate.is_dir():
                 prefix_path = candidate
+        elif self._entry.platform == "dos":
+            from cellar.backend.umu import dos_dir
+            candidate = dos_dir() / self._entry.id
+            if candidate.is_dir():
+                prefix_path = candidate
         else:
             from cellar.backend.umu import prefixes_dir
             candidate = prefixes_dir() / self._entry.id
@@ -675,6 +680,9 @@ class DetailView(Gtk.Box):
 
         if self._entry.platform == "linux":
             prefix_path = native_dir() / self._entry.id
+        elif self._entry.platform == "dos":
+            from cellar.backend.umu import dos_dir
+            prefix_path = dos_dir() / self._entry.id
         else:
             prefix_path = prefixes_dir() / self._entry.id
         if not prefix_path.is_dir():
@@ -717,9 +725,13 @@ class DetailView(Gtk.Box):
 
         from cellar.backend import database
 
-        if self._entry.platform == "linux":
-            from cellar.backend.umu import native_dir
-            candidate = native_dir() / self._entry.id
+        if self._entry.platform in ("linux", "dos"):
+            if self._entry.platform == "dos":
+                from cellar.backend.umu import dos_dir
+                candidate = dos_dir() / self._entry.id
+            else:
+                from cellar.backend.umu import native_dir
+                candidate = native_dir() / self._entry.id
             if candidate.is_dir():
                 try:
                     shutil.rmtree(candidate)
@@ -857,6 +869,10 @@ class DetailView(Gtk.Box):
             from cellar.backend.umu import native_dir
             p = native_dir() / self._entry.id
             return str(p) if p.is_dir() else None
+        if self._entry.platform == "dos":
+            from cellar.backend.umu import dos_dir
+            p = dos_dir() / self._entry.id
+            return str(p) if p.is_dir() else None
         # Windows app — prefix is at umu prefixes_dir / app_id
         from cellar.backend.umu import prefixes_dir
         p = prefixes_dir() / self._entry.id
@@ -884,6 +900,9 @@ class DetailView(Gtk.Box):
         if self._entry.platform == "linux":
             from cellar.backend.umu import native_dir
             kwargs["install_path"] = str(native_dir())
+        elif self._entry.platform == "dos":
+            from cellar.backend.umu import dos_dir
+            kwargs["install_path"] = str(dos_dir())
         try:
             create_desktop_entry(**kwargs)
         except Exception as exc:
@@ -1337,6 +1356,8 @@ class DetailView(Gtk.Box):
 
         if e.platform == "linux":
             _add(_simple_card("penguin-alt-symbolic", "Native", "Linux")[0])
+        elif e.platform == "dos":
+            _add(_simple_card("terminal-symbolic", "DOSBox", "DOS")[0])
         else:
             _add(self._make_wine_card())
             self._resolve_base_async()
@@ -1878,7 +1899,7 @@ class InstallProgressDialog(Adw.Dialog):
     # ── Install thread ────────────────────────────────────────────────────
 
     def _start_install(self) -> None:
-        if self._entry.platform == "linux":
+        if self._entry.platform in ("linux", "dos"):
             self._start_linux_install()
             return
         from cellar.backend.installer import InstallCancelled, install_app
@@ -1927,8 +1948,9 @@ class InstallProgressDialog(Adw.Dialog):
         threading.Thread(target=_run, daemon=True).start()
 
     def _start_linux_install(self) -> None:
-        """Background install for Linux native apps."""
-        from cellar.backend.installer import InstallCancelled, install_linux_app
+        """Background install for Linux native and DOS apps."""
+        from cellar.backend.installer import InstallCancelled, install_dos_app, install_linux_app
+        _installer = install_dos_app if self._entry.platform == "dos" else install_linux_app
 
         self._pulse_id: int | None = None
 
@@ -1946,7 +1968,7 @@ class InstallProgressDialog(Adw.Dialog):
 
         def _run() -> None:
             try:
-                _app_id, install_dest = install_linux_app(
+                _app_id, install_dest = _installer(
                     self._entry,
                     self._archive_uri,
                     download_cb=_dl_progress,

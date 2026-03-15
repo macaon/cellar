@@ -20,7 +20,7 @@ from typing import Literal
 
 log = logging.getLogger(__name__)
 
-ProjectType = Literal["app", "base", "linux"]
+ProjectType = Literal["app", "base", "linux", "dos"]
 
 
 def _parse_entry_points(data: dict) -> list[dict]:

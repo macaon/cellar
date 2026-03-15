@@ -70,7 +70,7 @@ class AddLaunchTargetDialog(Adw.Dialog):
         )
 
     def _on_browse_clicked(self, _btn) -> None:
-        if self._platform == "linux":
+        if self._platform in ("linux", "dos"):
             browse_root = self._content_path
             title = "Select Executable"
         else:
@@ -84,7 +84,7 @@ class AddLaunchTargetDialog(Adw.Dialog):
         )
         if browse_root.is_dir():
             chooser.set_current_folder(Gio.File.new_for_path(str(browse_root)))
-        if self._platform != "linux":
+        if self._platform not in ("linux", "dos"):
             exe_filter = Gtk.FileFilter()
             exe_filter.set_name("Windows executables")
             for ext in ("exe", "msi", "bat", "cmd", "com", "lnk"):
@@ -103,7 +103,7 @@ class AddLaunchTargetDialog(Adw.Dialog):
         if response != Gtk.ResponseType.ACCEPT:
             return
         abs_path = chooser.get_file().get_path()
-        if self._platform == "linux":
+        if self._platform in ("linux", "dos"):
             try:
                 display_path = os.path.relpath(abs_path, str(self._content_path))
             except ValueError:

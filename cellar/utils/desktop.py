@@ -148,10 +148,14 @@ def create_desktop_entry(
 
     # Exec — branch on platform
     platform = getattr(entry, "platform", "windows")
-    if platform == "linux":
+    if platform in ("linux", "dos"):
         if exe_path:
-            from cellar.backend.umu import native_dir
-            exe = native_dir() / entry.id / exe_path
+            if platform == "dos":
+                from cellar.backend.umu import dos_dir
+                exe = dos_dir() / entry.id / exe_path
+            else:
+                from cellar.backend.umu import native_dir
+                exe = native_dir() / entry.id / exe_path
             exec_line = f'"{exe}"'
             if launch_args:
                 exec_line += f" {launch_args}"

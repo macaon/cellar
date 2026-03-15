@@ -47,16 +47,21 @@ def _reconcile_installed_record(entry) -> dict | None:
         return None
     prefix_dir = rec.get("prefix_dir", "")
     stored_install_path = rec.get("install_path") or ""
-    if entry.platform == "linux":
+    if entry.platform in ("linux", "dos"):
+        if entry.platform == "dos":
+            from cellar.backend.umu import dos_dir  # noqa: PLC0415
+            _default_dir = dos_dir()
+        else:
+            _default_dir = native_dir()
         app_dir = (
             Path(stored_install_path) / entry.id
             if stored_install_path
-            else native_dir() / entry.id
+            else _default_dir / entry.id
         )
         if not app_dir.is_dir():
             log.info(
-                "Linux app dir %r gone from disk; removing stale record for %r",
-                str(app_dir), entry.id,
+                "%s app dir %r gone from disk; removing stale record for %r",
+                entry.platform.upper(), str(app_dir), entry.id,
             )
             database.remove_installed(entry.id)
             return None

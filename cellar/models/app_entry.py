@@ -177,9 +177,10 @@ class AppEntry:
     # Steam App ID — used to set GAMEID=umu-<id> for umu-launcher / protonfixes.
     # None means GAMEID=0 (no protonfixes applied).
     steam_appid: int | None = None
-    # Platform: "windows" (umu/Wine) or "linux" (native Linux app).
-    # For Linux apps, entry_point is the executable
-    # path relative to the installed app directory (e.g. "bin/mygame").
+    # Platform: "windows" (umu/Wine), "linux" (native), or "dos" (DOSBox Staging).
+    # For Linux and DOS apps, entry_point is relative to the installed app dir.
+    # DOS apps use DOSBox Staging as a transparent runtime; the entry_point is
+    # typically a launch.sh wrapper that invokes dosbox with the right config.
     platform: str = "windows"
     # Launch targets — each dict has {"name": str, "path": str, "args": str}.
     # For Windows: path is relative to drive_c (e.g. "Program Files/App/app.exe").
@@ -235,7 +236,7 @@ class AppEntry:
             raise ValueError(f"Unknown update_strategy: {strategy!r}")
 
         platform = data.get("platform", "windows")
-        if platform not in ("windows", "linux"):
+        if platform not in ("windows", "linux", "dos"):
             raise ValueError(f"Unknown platform: {platform!r}")
 
         audio = data.get("audio_driver", "auto")

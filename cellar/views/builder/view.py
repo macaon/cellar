@@ -297,6 +297,7 @@ class PackageBuilderView(Adw.Bin):
         dialog = _NewProjectDialog(
             on_windows=self._on_new_windows,
             on_linux=lambda: self._on_new_linux_clicked(None),
+            on_dos=lambda: self._on_new_dos_clicked(None),
             on_base=lambda: self._on_new_base_clicked(None),
             on_import=self._on_project_created,
             parent_view=self,
@@ -313,6 +314,12 @@ class PackageBuilderView(Adw.Bin):
     def _on_new_linux_clicked(self, _btn) -> None:
         dialog = MetadataEditorDialog(
             context=ProjectContext(project_type="linux"), on_created=self._on_project_created,
+        )
+        dialog.present(self)
+
+    def _on_new_dos_clicked(self, _btn) -> None:
+        dialog = MetadataEditorDialog(
+            context=ProjectContext(project_type="dos"), on_created=self._on_project_created,
         )
         dialog.present(self)
 
@@ -466,7 +473,7 @@ class PackageBuilderView(Adw.Bin):
                     project = Project(
                         name=entry.name,
                         slug=slug,
-                        project_type="app" if entry.platform == "windows" else "linux",
+                        project_type={"windows": "app", "linux": "linux", "dos": "dos"}.get(entry.platform, "app"),
                         runner=entry.base_image,
                         entry_points=[dict(t) for t in entry.launch_targets],
                         steam_appid=entry.steam_appid,
@@ -1970,12 +1977,12 @@ class PackageBuilderView(Adw.Bin):
         if self._project is None:
             return
         project = self._project
-        if project.project_type == "linux":
+        if project.project_type in ("linux", "dos"):
             if not project.source_dir:
                 self._show_toast("Choose a source folder first.")
                 return
             content_path = Path(project.source_dir)
-            platform = "linux"
+            platform = project.project_type
         else:
             content_path = project.content_path
             platform = "windows"
@@ -2159,7 +2166,7 @@ class PackageBuilderView(Adw.Bin):
             archive=f"apps/{_slug}/{_slug}.tar.zst",
             launch_targets=tuple(project.entry_points),
             update_strategy="safe",
-            platform="linux" if project.project_type == "linux" else "windows",
+            platform={"linux": "linux", "dos": "dos"}.get(project.project_type, "windows"),
         )
         images: dict = {}
         if project.icon_path:
@@ -2685,9 +2692,10 @@ _ICON_MARGIN = 22
 _TYPE_ICONS = {
     "base": "package-x-generic-symbolic",
     "linux": "penguin-alt-symbolic",
+    "dos": "terminal-symbolic",
     "app": "grid-large-symbolic",
 }
-_TYPE_LABELS = {"app": "Proton App", "linux": "Native App", "base": "Base Image"}
+_TYPE_LABELS = {"app": "Proton App", "linux": "Native App", "dos": "DOS App", "base": "Base Image"}
 
 # Map internal project_type / kind values to filter-pill identifiers.
 _FILTER_TYPE_PROTON = "proton"
@@ -2698,7 +2706,7 @@ def _resolve_filter_type(project_type: str, platform: str = "windows") -> str:
     """Return the filter-pill type id for a project type + platform combo."""
     if project_type == "base":
         return _FILTER_TYPE_BASE
-    if project_type == "linux" or platform == "linux":
+    if project_type in ("linux", "dos") or platform in ("linux", "dos"):
         return _FILTER_TYPE_NATIVE
     return _FILTER_TYPE_PROTON
 
@@ -2711,6 +2719,7 @@ class _NewProjectDialog(Adw.Dialog):
         *,
         on_windows: Callable[[], None],
         on_linux: Callable[[], None],
+        on_dos: Callable[[], None],
         on_base: Callable[[], None],
         on_import: Callable,
         parent_view,
@@ -2718,6 +2727,7 @@ class _NewProjectDialog(Adw.Dialog):
         super().__init__(title="New Project", content_width=420, content_height=520)
         self._on_windows = on_windows
         self._on_linux = on_linux
+        self._on_dos = on_dos
         self._on_base = on_base
         self._on_import = on_import
         self._parent_view = parent_view
@@ -2857,6 +2867,16 @@ class _NewProjectDialog(Adw.Dialog):
         linux_row.connect("activated", self._on_linux_activated)
         group.add(linux_row)
 
+        dos_row = Adw.ActionRow(
+            title="DOS Package",
+            subtitle="DOS game with DOSBox Staging",
+            activatable=True,
+        )
+        dos_row.add_prefix(Gtk.Image.new_from_icon_name("terminal-symbolic"))
+        dos_row.add_suffix(Gtk.Image.new_from_icon_name("go-next-symbolic"))
+        dos_row.connect("activated", self._on_dos_activated)
+        group.add(dos_row)
+
         base_row = Adw.ActionRow(
             title="Base Image",
             subtitle="Reusable Wine runtime for Proton packages",
@@ -2963,6 +2983,17 @@ class _NewProjectDialog(Adw.Dialog):
         app_name = parse_app_name(path)
         version = parse_version_hint(path)
 
+        # Check for GOG DOSBox game — auto-convert to DOS platform
+        self._dosbox_info = None
+        if platform == "windows" and path.is_dir():
+            from cellar.backend.dosbox import detect_gog_dosbox
+            dosbox_info = detect_gog_dosbox(path)
+            if dosbox_info is not None:
+                platform = "dos"
+                self._dosbox_info = dosbox_info
+                if dosbox_info.game_name:
+                    app_name = dosbox_info.game_name
+
         # Check for GoG gameinfo — inside folders or GOG .sh installers
         if path.is_dir():
             gi = find_gameinfo(path)
@@ -3015,13 +3046,17 @@ class _NewProjectDialog(Adw.Dialog):
         """Open the standard MetadataEditorDialog with smart-import pre-fill."""
         from cellar.backend.detect import find_linux_executables
 
-        project_type = "linux" if platform == "linux" else "app"
+        project_type = {"linux": "linux", "dos": "dos"}.get(platform, "app")
         ctx = ProjectContext(project_type=project_type)
 
         def _on_created(project):
             # Post-creation: set import-specific fields on the project
             changed = False
-            if platform == "windows" and path.is_file():
+            if platform == "dos" and path.is_dir() and hasattr(self, '_dosbox_info') and self._dosbox_info:
+                # GOG DOSBox game: convert to native Linux DOSBox in background
+                self._convert_dosbox_game(project, path, self._dosbox_info)
+                return  # _convert_dosbox_game calls _on_import when done
+            elif platform == "windows" and path.is_file():
                 # .exe import: store installer path
                 project.installer_path = str(path)
                 changed = True
@@ -3029,8 +3064,8 @@ class _NewProjectDialog(Adw.Dialog):
                 # GOG Linux installer: extract in background (can be multi-GB)
                 self._extract_gog_installer(project, path)
                 return  # _extract_gog_installer calls _on_import when done
-            elif platform == "linux" and path.is_dir():
-                # Linux folder: set source_dir and detect entry points
+            elif platform in ("linux", "dos") and path.is_dir():
+                # Linux/DOS folder: set source_dir and detect entry points
                 project.source_dir = str(path)
                 project.initialized = True
                 candidates = find_linux_executables(path)
@@ -3108,6 +3143,47 @@ class _NewProjectDialog(Adw.Dialog):
 
         run_in_background(work=_work, on_done=_done, on_error=_error)
 
+    # ── GOG DOSBox game conversion ────────────────────────────────────
+
+    def _convert_dosbox_game(self, project, src_path: Path, dosbox_info) -> None:
+        """Convert a GOG DOSBox Windows game to native Linux DOSBox Staging."""
+        from cellar.backend.dosbox import convert_gog_dosbox
+
+        content = project.content_path
+        content.mkdir(parents=True, exist_ok=True)
+
+        progress = ProgressDialog(label="Setting up DOS game\u2026")
+        progress.present(self._parent_view)
+
+        def _work():
+            def _on_progress(downloaded, total):
+                if total > 0:
+                    GLib.idle_add(progress.set_fraction, downloaded / total)
+            return convert_gog_dosbox(
+                src_path, content, dosbox_info, progress_cb=_on_progress,
+            )
+
+        def _done(entry_points):
+            progress.force_close()
+            project.source_dir = str(content)
+            project.initialized = True
+            if entry_points:
+                project.entry_points = entry_points
+            save_project(project)
+            self._on_import(project)
+
+        def _error(msg):
+            progress.force_close()
+            log.error("DOSBox conversion failed: %s", msg)
+            err = Adw.AlertDialog(
+                heading="Conversion failed",
+                body=f"Could not convert DOSBox game:\n{msg}",
+            )
+            err.add_response("ok", "OK")
+            err.present(self._parent_view)
+
+        run_in_background(work=_work, on_done=_done, on_error=_error)
+
     # ── Manual platform row handlers ────────────────────────────────────
 
     def _on_windows_activated(self, _row) -> None:
@@ -3117,6 +3193,10 @@ class _NewProjectDialog(Adw.Dialog):
     def _on_linux_activated(self, _row) -> None:
         self.close()
         self._on_linux()
+
+    def _on_dos_activated(self, _row) -> None:
+        self.close()
+        self._on_dos()
 
     def _on_base_activated(self, _row) -> None:
         self.close()
@@ -3289,8 +3369,8 @@ class _CatalogueCard(Gtk.FlowBoxChild):
             type_label = "Base Image"
         else:
             platform = getattr(entry, "platform", "windows")
-            icon_name = "penguin-alt-symbolic" if platform == "linux" else "grid-large-symbolic"
-            type_label = "Native App" if platform == "linux" else "Proton App"
+            icon_name = _TYPE_ICONS.get({"linux": "linux", "dos": "dos"}.get(platform, "app"), "grid-large-symbolic")
+            type_label = {"linux": "Native App", "dos": "DOS App"}.get(platform, "Proton App")
 
         icon = Gtk.Image.new_from_icon_name(icon_name)
         icon.set_pixel_size(_ICON_SIZE)

@@ -79,6 +79,14 @@ def native_dir() -> Path:
     return d
 
 
+def dos_dir() -> Path:
+    """Return (and create if needed) the Cellar DOS games directory."""
+    from cellar.backend.config import install_data_dir
+    d = install_data_dir() / "dos"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def resolve_runner_path(runner_name: str) -> Path | None:
     """Return the path for *runner_name* if installed, else None."""
     p = runners_dir() / runner_name

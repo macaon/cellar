@@ -281,7 +281,7 @@ class LaunchParamsDialog(Adw.Dialog):
 
     def _on_browse_target(self, _btn, idx: int) -> None:
         entry = self._entry
-        if entry.platform == "linux":
+        if entry.platform in ("linux", "dos"):
             from cellar.backend.database import get_installed
             rec = get_installed(entry.id)
             has_path = rec and rec.get("install_path")
@@ -300,7 +300,7 @@ class LaunchParamsDialog(Adw.Dialog):
             accept_label="Select",
         )
         chooser.set_current_folder(Gio.File.new_for_path(str(browse_root)))
-        if entry.platform != "linux":
+        if entry.platform not in ("linux", "dos"):
             exe_filter = Gtk.FileFilter()
             exe_filter.set_name("Windows executables")
             for ext in ("exe", "msi", "bat", "cmd", "com", "lnk"):
@@ -322,7 +322,7 @@ class LaunchParamsDialog(Adw.Dialog):
         if response != Gtk.ResponseType.ACCEPT:
             return
         abs_path = chooser.get_file().get_path()
-        if platform == "linux":
+        if platform in ("linux", "dos"):
             import os
             try:
                 formatted = os.path.relpath(abs_path, str(browse_root))

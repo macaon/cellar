@@ -489,12 +489,10 @@ def generate_overrides_conf(
     lines.append("# DOSBox overrides — extracted from GOG configuration")
     lines.append("# Edit this file to customise game-specific settings.\n")
 
-    # Quiet launch — no splash or banners
-    lines.append("[dosbox]")
-    lines.append("startup_verbosity = quiet")
-    lines.append("")
-
     settings = gog_settings.get("settings", {})
+
+    # Inject startup_verbosity into the dosbox section (avoid duplicate sections)
+    settings.setdefault("dosbox", {})["startup_verbosity"] = "quiet"
     for section in sorted(settings):
         lines.append(f"[{section}]")
         for key in sorted(settings[section]):
@@ -652,15 +650,25 @@ def read_override(conf_path: Path, section: str, key: str) -> str:
     """Read a single value from a DOSBox overrides conf file.
 
     Returns the value as a string, or empty string if not found.
+    Handles duplicate sections (common in generated overrides) by
+    manual parsing instead of relying on configparser.
     """
     if not conf_path.is_file():
         return ""
     text = conf_path.read_text(encoding="utf-8", errors="replace")
-    parser = configparser.ConfigParser(interpolation=None)
-    parser.read_string(_strip_autoexec(text))
-    if parser.has_section(section) and parser.has_option(section, key):
-        return parser.get(section, key).strip()
-    return ""
+    in_section = False
+    result = ""
+    for line in text.splitlines():
+        stripped = line.strip()
+        lower = stripped.lower()
+        if lower.startswith("[") and lower.endswith("]"):
+            in_section = (lower == f"[{section.lower()}]")
+            continue
+        if in_section and "=" in stripped:
+            k, _, v = stripped.partition("=")
+            if k.strip().lower() == key.lower():
+                result = v.strip()  # last value wins (matches DOSBox behavior)
+    return result
 
 
 def write_override(conf_path: Path, section: str, key: str, value: str) -> None:

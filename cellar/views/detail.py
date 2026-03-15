@@ -648,17 +648,11 @@ class DetailView(Gtk.Box):
         progress.present(self.get_root())
 
     def _launch_dos_target(self, entry_path: str, entry_args: str) -> None:
-        """Launch a DOS game via the bundled DOSBox Staging binary.
-
-        Constructs the DOSBox command line with ``--noprimaryconf`` to avoid
-        loading the user's ``~/.config/dosbox/`` config.  The DOS executable
-        is passed as a positional argument so DOSBox runs it after processing
-        the autoexec (mounts, NoUniVBE, etc.).
-        """
+        """Launch a DOS game via the bundled DOSBox Staging binary."""
         import subprocess as _sp
-        import shlex as _shlex
 
-        from cellar.backend.umu import dos_dir, is_cellar_sandboxed, monitor_process_tree
+        from cellar.backend.dosbox import build_dos_launch_cmd
+        from cellar.backend.umu import dos_dir, monitor_process_tree
         from cellar.views.builder.progress import ProgressDialog
 
         game_dir = dos_dir() / self._entry.id
@@ -667,46 +661,7 @@ class DetailView(Gtk.Box):
             self._add_toast("DOSBox Staging binary not found in package")
             return
 
-        # Build DOSBox command.  The overrides conf autoexec has mounts,
-        # NoUniVBE, and the primary game command.  For any launch target,
-        # we generate a tiny extra conf that overwrites the autoexec with
-        # the specific game command.  This ensures each target runs in
-        # isolation without modifying the shared config.
-        import tempfile
-
-        cmd = [
-            str(dosbox_bin),
-            "--noprimaryconf",
-            "-conf", str(game_dir / "config" / "dosbox-staging.conf"),
-            "-conf", str(game_dir / "config" / "dosbox-overrides.conf"),
-        ]
-
-        # Generate a target-specific conf that replaces the autoexec
-        # game command (autoexec_section = overwrite).
-        tmp_conf = None
-        if entry_path:
-            game_cmd = entry_path
-            if entry_args:
-                game_cmd += f" {entry_args}"
-            tmp = tempfile.NamedTemporaryFile(
-                mode="w", suffix=".conf", prefix="cellar-dos-",
-                delete=False, dir=str(game_dir / "config"),
-            )
-            tmp.write("[dosbox]\nautoexec_section = overwrite\n\n")
-            tmp.write("[autoexec]\n")
-            tmp.write('mount C "."\n')
-            tmp.write("C:\n")
-            nounivbe = game_dir / "nounivbe" / "NOUNIVBE.EXE"
-            if nounivbe.is_file():
-                tmp.write("nounivbe\\NOUNIVBE.EXE\n")
-            tmp.write(f"{game_cmd}\n")
-            tmp.write("EXIT\n")
-            tmp.close()
-            tmp_conf = Path(tmp.name)
-            cmd += ["-conf", str(tmp_conf)]
-
-        if is_cellar_sandboxed():
-            cmd = ["flatpak-spawn", "--host"] + cmd
+        cmd, tmp_conf = build_dos_launch_cmd(game_dir, entry_path, entry_args)
 
         progress = ProgressDialog(label="Launching\u2026")
         progress.set_can_close(True)
@@ -719,7 +674,6 @@ class DetailView(Gtk.Box):
             _sp.Popen(cmd, cwd=str(game_dir), start_new_session=True)
             launch_event = threading.Event()
             monitor_process_tree("dosbox", launch_event, _on_line)
-            # Clean up temp conf
             if tmp_conf and tmp_conf.is_file():
                 tmp_conf.unlink(missing_ok=True)
             GLib.idle_add(progress.force_close)

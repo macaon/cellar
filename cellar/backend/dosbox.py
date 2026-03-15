@@ -666,6 +666,61 @@ def convert_gog_dosbox(
 
 
 # ---------------------------------------------------------------------------
+# Launch helpers (shared by builder + detail view)
+# ---------------------------------------------------------------------------
+
+
+def build_dos_launch_cmd(
+    game_dir: Path,
+    entry_path: str,
+    entry_args: str,
+) -> tuple[list[str], Path | None]:
+    """Build the DOSBox Staging command line for launching a DOS game.
+
+    Returns ``(cmd, tmp_conf_path)`` where *tmp_conf_path* is a temporary
+    config file that the caller must delete after DOSBox has read it, or
+    ``None`` if no target-specific override was needed.
+    """
+    import tempfile
+
+    from cellar.backend.umu import is_cellar_sandboxed
+
+    dosbox_bin = game_dir / "dosbox" / "dosbox"
+    cmd = [
+        str(dosbox_bin),
+        "--noprimaryconf",
+        "-conf", str(game_dir / "config" / "dosbox-staging.conf"),
+        "-conf", str(game_dir / "config" / "dosbox-overrides.conf"),
+    ]
+
+    tmp_conf: Path | None = None
+    if entry_path:
+        game_cmd = entry_path
+        if entry_args:
+            game_cmd += f" {entry_args}"
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".conf", prefix="cellar-dos-",
+            delete=False, dir=str(game_dir / "config"),
+        )
+        tmp.write("[dosbox]\nautoexec_section = overwrite\n\n")
+        tmp.write("[autoexec]\n")
+        tmp.write('mount C "."\n')
+        tmp.write("C:\n")
+        nounivbe = game_dir / "nounivbe" / "NOUNIVBE.EXE"
+        if nounivbe.is_file():
+            tmp.write("nounivbe\\NOUNIVBE.EXE\n")
+        tmp.write(f"{game_cmd}\n")
+        tmp.write("EXIT\n")
+        tmp.close()
+        tmp_conf = Path(tmp.name)
+        cmd += ["-conf", str(tmp_conf)]
+
+    if is_cellar_sandboxed():
+        cmd = ["flatpak-spawn", "--host"] + cmd
+
+    return cmd, tmp_conf
+
+
 # ---------------------------------------------------------------------------
 # Config file read/write helpers (shared by builder + detail view)
 # ---------------------------------------------------------------------------

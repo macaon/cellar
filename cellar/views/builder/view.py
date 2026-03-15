@@ -2093,51 +2093,22 @@ class PackageBuilderView(Adw.Bin):
             if not project.source_dir:
                 self._show_toast("Set a source folder first.")
                 return
-            import shlex
-
-            from cellar.backend.umu import is_cellar_sandboxed
+            from cellar.backend.dosbox import build_dos_launch_cmd
             game_dir = Path(project.source_dir)
             dosbox_bin = game_dir / "dosbox" / "dosbox"
             if not dosbox_bin.is_file():
                 self._show_toast("DOSBox Staging binary not found. Re-convert the project.")
                 return
-            cmd = [
-                str(dosbox_bin),
-                "--noprimaryconf",
-                "-conf", str(game_dir / "config" / "dosbox-staging.conf"),
-                "-conf", str(game_dir / "config" / "dosbox-overrides.conf"),
-            ]
-            # Generate target-specific conf to override autoexec game command
-            tmp_conf = None
-            if entry_path:
-                import tempfile
-                game_cmd = entry_path
-                if entry_args:
-                    game_cmd += f" {entry_args}"
-                tmp = tempfile.NamedTemporaryFile(
-                    mode="w", suffix=".conf", prefix="cellar-dos-",
-                    delete=False, dir=str(game_dir / "config"),
-                )
-                tmp.write("[dosbox]\nautoexec_section = overwrite\n\n")
-                tmp.write("[autoexec]\n")
-                tmp.write('mount C "."\n')
-                tmp.write("C:\n")
-                nounivbe = game_dir / "nounivbe" / "NOUNIVBE.EXE"
-                if nounivbe.is_file():
-                    tmp.write("nounivbe\\NOUNIVBE.EXE\n")
-                tmp.write(f"{game_cmd}\n")
-                tmp.write("EXIT\n")
-                tmp.close()
-                tmp_conf = Path(tmp.name)
-                cmd += ["-conf", str(tmp_conf)]
-            if is_cellar_sandboxed():
-                cmd = ["flatpak-spawn", "--host"] + cmd
+            cmd, tmp_conf = build_dos_launch_cmd(game_dir, entry_path, entry_args)
             subprocess.Popen(cmd, cwd=str(game_dir), start_new_session=True)
-            # Clean up temp conf after a delay (DOSBox has read it by then)
+            # Clean up temp conf after DOSBox has read it
             if tmp_conf:
-                import time
+                from cellar.backend.umu import monitor_process_tree
                 threading.Thread(
-                    target=lambda p=tmp_conf: (time.sleep(5), p.unlink(missing_ok=True)),
+                    target=lambda p=tmp_conf: (
+                        monitor_process_tree("dosbox", threading.Event(), lambda _: None),
+                        p.unlink(missing_ok=True),
+                    ),
                     daemon=True,
                 ).start()
             return

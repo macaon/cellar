@@ -88,7 +88,7 @@ def _get_sftp(
 
         if transport is None:
             ssh = paramiko.SSHClient()
-            ssh.set_missing_host_key_policy(paramiko.WarningPolicy())
+            ssh.set_missing_host_key_policy(paramiko.RejectPolicy())
             connect_kw: dict = {
                 "hostname": host,
                 "port": port,
@@ -104,6 +104,17 @@ def _get_sftp(
             ssh.load_system_host_keys()
             try:
                 ssh.connect(**connect_kw)
+            except paramiko.SSHException as exc:
+                if "not found in known_hosts" in str(exc) or "Unknown server" in str(exc):
+                    raise OSError(
+                        f"SSH host key for {host}:{port} is not trusted.\n\n"
+                        f"To verify and accept the key, run:\n"
+                        f"  ssh-keyscan -p {port} {host} >> ~/.ssh/known_hosts\n\n"
+                        f"Or connect once manually:\n"
+                        f"  ssh -p {port} {host}\n\n"
+                        f"and confirm the fingerprint when prompted."
+                    ) from exc
+                raise OSError(f"SSH connection to {host}:{port} failed: {exc}") from exc
             except Exception as exc:
                 raise OSError(f"SSH connection to {host}:{port} failed: {exc}") from exc
             transport = ssh.get_transport()

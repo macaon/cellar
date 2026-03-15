@@ -1552,18 +1552,6 @@ class DetailView(Gtk.Box):
                 _add(dl_card)
                 self._resolve_base_async(dl_val_lbl)
 
-            _disk_estimate = e.install_size_estimate
-            if e.delta_size and e.base_image:
-                from cellar.utils.paths import is_cow_filesystem as _is_cow
-                from cellar.backend.umu import prefixes_dir as _prefixes_dir
-                if _is_cow(str(_prefixes_dir())):
-                    _disk_estimate = e.delta_size
-            if _disk_estimate > 0:
-                _add(_simple_card(
-                    "drive-harddisk-symbolic",
-                    _fmt_bytes(_disk_estimate),
-                    "Disk space",
-                )[0])
 
         if e.platform == "linux":
             _add(_simple_card("penguin-alt-symbolic", "Native", "Linux")[0])

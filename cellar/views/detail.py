@@ -616,11 +616,12 @@ class DetailView(Gtk.Box):
         import shlex as _shlex
 
         from cellar.backend.umu import (  # noqa: PLC0415
-            is_cellar_sandboxed, native_dir, monitor_process_tree,
+            is_cellar_sandboxed, native_dir, dos_dir, monitor_process_tree,
         )
         from cellar.views.builder.progress import ProgressDialog  # noqa: PLC0415
 
-        exe = native_dir() / self._entry.id / entry_path
+        base = dos_dir() if self._entry.platform == "dos" else native_dir()
+        exe = base / self._entry.id / entry_path
         cmd = [str(exe)]
         if entry_args:
             cmd += _shlex.split(entry_args)

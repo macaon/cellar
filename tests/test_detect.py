@@ -62,13 +62,29 @@ class TestDetectPlatformFile:
         f = make_elf(tmp_path / "game")
         assert detect_platform(f) == "linux"
 
-    def test_sh_is_unsupported(self, tmp_path):
+    def test_sh_detected_as_linux_with_bwrap(self, tmp_path):
         f = make_file(tmp_path / "install.sh")
-        assert detect_platform(f) == "unsupported"
+        from unittest.mock import patch
+        with patch("cellar.backend.sandbox.is_bwrap_available", return_value=True):
+            assert detect_platform(f) == "linux"
 
-    def test_run_is_unsupported(self, tmp_path):
+    def test_sh_unsupported_without_bwrap(self, tmp_path):
+        f = make_file(tmp_path / "install.sh")
+        from unittest.mock import patch
+        with patch("cellar.backend.sandbox.is_bwrap_available", return_value=False):
+            assert detect_platform(f) == "unsupported"
+
+    def test_run_detected_as_linux_with_bwrap(self, tmp_path):
         f = make_file(tmp_path / "setup.run")
-        assert detect_platform(f) == "unsupported"
+        from unittest.mock import patch
+        with patch("cellar.backend.sandbox.is_bwrap_available", return_value=True):
+            assert detect_platform(f) == "linux"
+
+    def test_run_unsupported_without_bwrap(self, tmp_path):
+        f = make_file(tmp_path / "setup.run")
+        from unittest.mock import patch
+        with patch("cellar.backend.sandbox.is_bwrap_available", return_value=False):
+            assert detect_platform(f) == "unsupported"
 
     def test_zip_is_unsupported(self, tmp_path):
         f = make_file(tmp_path / "game.zip")

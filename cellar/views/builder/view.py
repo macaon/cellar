@@ -931,24 +931,28 @@ class PackageBuilderView(Adw.Bin):
                 files_group.add(_import_row)
             else:
                 # Run Installer — only shown when no source_dir (not a folder import)
-                run_installer_row = Adw.ActionRow(
-                    title="Run Installer",
-                )
                 if project.installer_path:
-                    run_installer_row.set_subtitle(Path(project.installer_path).name)
+                    # First-time: prefilled installer from smart import
+                    run_installer_row = Adw.ActionRow(
+                        title="Run Installer",
+                        subtitle=Path(project.installer_path).name,
+                    )
                     run_btn = Gtk.Button(label="Launch")
                     run_btn.set_valign(Gtk.Align.CENTER)
                     run_btn.add_css_class("suggested-action")
                     run_btn.connect("clicked", self._on_launch_prefilled_installer)
                     run_installer_row.add_suffix(run_btn)
+                    run_installer_row.set_sensitive(project.initialized)
+                    files_group.add(run_installer_row)
                 else:
-                    run_installer_row.set_subtitle("Run an installer inside the prefix")
-                    run_btn = Gtk.Button(label="Choose\u2026")
-                    run_btn.set_valign(Gtk.Align.CENTER)
-                    run_btn.connect("clicked", self._on_run_installer_clicked)
-                    run_installer_row.add_suffix(run_btn)
-                run_installer_row.set_sensitive(project.initialized)
-                files_group.add(run_installer_row)
+                    # Post-first-install: drop zone for DLC / patches
+                    drop_zone = self._build_installer_drop_zone(
+                        hint="Drop installers for DLC or patches",
+                        on_browse_file=self._on_run_installer_clicked,
+                        on_browse_folder=self._on_browse_dlc_folder_clicked,
+                    )
+                    drop_zone.set_sensitive(project.initialized)
+                    files_group.add(drop_zone)
 
             _browse_row = Adw.ActionRow(
                 title="Browse Prefix",
@@ -1005,26 +1009,59 @@ class PackageBuilderView(Adw.Bin):
         # ── 5b. Source Folder + Launch Targets (Linux / DOS) ──────────────
         elif project.project_type in ("linux", "dos"):
             _linux_ready = bool(project.source_dir) and Path(project.source_dir).is_dir()
-            src_group = Adw.PreferencesGroup(title="Source Folder")
+            _is_installer_project = bool(project.installer_type)
 
-            src_row = Adw.ActionRow(title="Folder")
-            src_row.set_subtitle(project.source_dir or "Not set")
-            src_row.set_subtitle_selectable(True)
+            if _is_installer_project:
+                # Installer-based Linux project — mirror the Windows "Files" layout
+                if project.installer_path:
+                    # First-time: prefilled installer from smart import
+                    inst_group = Adw.PreferencesGroup(title="Files")
+                    run_installer_row = Adw.ActionRow(
+                        title="Run Installer",
+                        subtitle=Path(project.installer_path).name,
+                    )
+                    run_btn = Gtk.Button(label="Launch")
+                    run_btn.set_valign(Gtk.Align.CENTER)
+                    run_btn.add_css_class("suggested-action")
+                    run_btn.connect("clicked", self._on_rerun_isolated_installer)
+                    run_installer_row.add_suffix(run_btn)
+                    inst_group.add(run_installer_row)
+                    page.add(inst_group)
+                else:
+                    # Post-first-install: drop zone + browse content
+                    drop_zone = self._build_installer_drop_zone(
+                        hint="Drop installers for DLC or patches",
+                        on_browse_file=self._on_run_linux_installer_clicked,
+                        on_browse_folder=self._on_browse_dlc_folder_clicked,
+                        show_browse_content=_linux_ready,
+                        on_browse_content=self._on_browse_prefix_clicked,
+                    )
+                    drop_zone.set_sensitive(_linux_ready)
+                    dz_group = Adw.PreferencesGroup()
+                    dz_group.add(drop_zone)
+                    page.add(dz_group)
+            else:
+                # Folder-based Linux/DOS project — source folder picker
+                src_group = Adw.PreferencesGroup(title="Source Folder")
 
-            if _linux_ready:
-                _open_btn = Gtk.Button(icon_name="folder-open-symbolic")
-                _open_btn.set_valign(Gtk.Align.CENTER)
-                _open_btn.add_css_class("flat")
-                _open_btn.connect("clicked", self._on_browse_prefix_clicked)
-                src_row.add_suffix(_open_btn)
+                src_row = Adw.ActionRow(title="Folder")
+                src_row.set_subtitle(project.source_dir or "Not set")
+                src_row.set_subtitle_selectable(True)
 
-            _choose_btn = Gtk.Button(label="Choose\u2026")
-            _choose_btn.set_valign(Gtk.Align.CENTER)
-            _choose_btn.connect("clicked", self._on_choose_source_dir_clicked)
-            src_row.add_suffix(_choose_btn)
+                if _linux_ready:
+                    _open_btn = Gtk.Button(icon_name="folder-open-symbolic")
+                    _open_btn.set_valign(Gtk.Align.CENTER)
+                    _open_btn.add_css_class("flat")
+                    _open_btn.connect("clicked", self._on_browse_prefix_clicked)
+                    src_row.add_suffix(_open_btn)
 
-            src_group.add(src_row)
-            page.add(src_group)
+                _choose_btn = Gtk.Button(label="Choose\u2026")
+                _choose_btn.set_valign(Gtk.Align.CENTER)
+                _choose_btn.connect("clicked", self._on_choose_source_dir_clicked)
+                src_row.add_suffix(_choose_btn)
+
+                src_group.add(src_row)
+                page.add(src_group)
 
             # Launch Targets (Linux)
             targets_group = Adw.PreferencesGroup(title="Launch Targets")
@@ -1972,6 +2009,517 @@ class PackageBuilderView(Adw.Bin):
         project.source_dir = path
         save_project(project)
         self._show_project(project)
+
+    def _on_run_linux_installer_clicked(self, _btn) -> None:
+        """Open a file chooser for a Linux installer to run in bwrap sandbox."""
+        if self._project is None:
+            return
+        project = self._project
+        chooser = Gtk.FileChooserNative(
+            title="Select Linux Installer",
+            action=Gtk.FileChooserAction.OPEN,
+            accept_label="Run",
+        )
+        win = self.get_root()
+        if isinstance(win, Gtk.Window):
+            chooser.set_transient_for(win)
+        f = Gtk.FileFilter()
+        f.set_name("Linux installers")
+        for ext in ("sh", "run"):
+            f.add_pattern(f"*.{ext}")
+            f.add_pattern(f"*.{ext.upper()}")
+        chooser.add_filter(f)
+        all_filter = Gtk.FileFilter()
+        all_filter.set_name("All files")
+        all_filter.add_pattern("*")
+        chooser.add_filter(all_filter)
+        chooser.connect(
+            "response",
+            lambda c, r: self._on_linux_installer_chosen(c, r, project),
+        )
+        chooser.show()
+        self._linux_installer_chooser = chooser
+
+    def _on_linux_installer_chosen(
+        self, chooser: Gtk.FileChooserNative, response: int, project: Project,
+    ) -> None:
+        if response != Gtk.ResponseType.ACCEPT:
+            return
+        src_path = Path(chooser.get_file().get_path())
+
+        # Route GOG installers through ZIP extraction, others through bwrap
+        from cellar.utils.gog import is_gog_installer
+
+        if is_gog_installer(src_path):
+            self._extract_gog_dlc(project, src_path)
+        else:
+            self._run_isolated_installer(project, src_path)
+
+    def _on_browse_dlc_folder_clicked(self, _btn) -> None:
+        """Open a folder chooser to install all DLC from a directory."""
+        if self._project is None:
+            return
+        project = self._project
+        chooser = Gtk.FileChooserNative(
+            title="Select DLC Folder",
+            action=Gtk.FileChooserAction.SELECT_FOLDER,
+            accept_label="Open",
+        )
+        win = self.get_root()
+        if isinstance(win, Gtk.Window):
+            chooser.set_transient_for(win)
+        chooser.connect(
+            "response",
+            lambda c, r: self._on_dlc_folder_chosen(c, r, project),
+        )
+        chooser.show()
+        self._dlc_folder_chooser = chooser
+
+    def _on_dlc_folder_chosen(
+        self, chooser: Gtk.FileChooserNative, response: int, project: Project,
+    ) -> None:
+        if response != Gtk.ResponseType.ACCEPT:
+            return
+        folder = Path(chooser.get_file().get_path())
+        self._install_dlc_from_folder(project, folder)
+
+    def _on_rerun_isolated_installer(self, _btn) -> None:
+        """Re-run the stored installer path in a bwrap sandbox."""
+        if self._project is None or not self._project.installer_path:
+            return
+        src_path = Path(self._project.installer_path)
+        if not src_path.is_file():
+            self._show_toast("Installer file no longer exists.")
+            return
+        self._run_isolated_installer(self._project, src_path)
+
+    def _run_isolated_installer(self, project: Project, src_path: Path) -> None:
+        """Run a Linux installer in a bwrap sandbox.
+
+        The installer runs interactively — the user sees and interacts with
+        its GUI (MojoSetup, etc.).  Same flow as running a Windows installer
+        in a WINEPREFIX: run, wait for exit, scan for results.
+        """
+        from cellar.backend.detect import find_linux_executables
+        from cellar.backend.sandbox import (
+            cleanup_captured_install,
+            run_isolated_installer,
+        )
+
+        content = project.content_path
+        content.mkdir(parents=True, exist_ok=True)
+
+        progress = ProgressDialog(label=f"Running {src_path.name}\u2026")
+        progress.present(self.get_root())
+
+        def _work():
+            exit_code = run_isolated_installer(src_path, content)
+            if exit_code != 0:
+                log.warning("Isolated installer exited with code %d", exit_code)
+            root = cleanup_captured_install(content)
+            return find_linux_executables(root)
+
+        def _done(candidates):
+            progress.force_close()
+            root = content / "root"
+            effective = root if root.is_dir() else content
+            project.source_dir = str(effective)
+            project.initialized = True
+            if candidates:
+                base = Path(project.source_dir)
+                project.entry_points = [
+                    {
+                        "name": project.name if c.name == "start.sh" else c.name,
+                        "path": str(c.relative_to(base)),
+                    }
+                    for c in candidates[:5]
+                ]
+            # Clear installer_path so the button reverts to "Choose…" for DLC/patches
+            project.installer_path = ""
+            save_project(project)
+            if self._project is project:
+                self._show_project(project)
+            self._show_toast(f"Installer finished — {len(candidates)} executable(s) found.")
+
+        def _error(msg):
+            progress.force_close()
+            log.error("Isolated installer failed: %s", msg)
+            self._show_toast(f"Installer failed: {msg}")
+
+        run_in_background(work=_work, on_done=_done, on_error=_error)
+
+    # ── Installer drop zone (shared by Windows + Linux detail views) ──
+
+    _DROP_ZONE_CSS = b"""
+.installer-drop-zone {
+    border: 2px dashed alpha(@borders, 0.8);
+    border-radius: 12px;
+    min-height: 110px;
+}
+.installer-drop-zone.drag-hover {
+    border-color: @accent_color;
+    background-color: alpha(@accent_color, 0.08);
+}
+"""
+    _drop_zone_css_loaded = False
+
+    def _build_installer_drop_zone(
+        self,
+        hint: str,
+        on_browse_file: Callable,
+        on_browse_folder: Callable,
+        *,
+        show_browse_content: bool = False,
+        on_browse_content: Callable | None = None,
+    ) -> Gtk.Box:
+        """Build a drop zone + browse buttons for additional installers (DLC, patches).
+
+        Returns a ``Gtk.Box`` containing a dashed-border drop frame (matching
+        the New Project dialog's style) and Browse File / Browse Folder pill
+        buttons underneath.
+
+        Dropped files/folders are dispatched to the appropriate installer flow
+        based on the current project type.
+        """
+        if not PackageBuilderView._drop_zone_css_loaded:
+            provider = Gtk.CssProvider()
+            provider.load_from_data(self._DROP_ZONE_CSS)
+            Gtk.StyleContext.add_provider_for_display(
+                Gdk.Display.get_default(), provider,
+                Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+            )
+            PackageBuilderView._drop_zone_css_loaded = True
+
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+
+        # ── Drop zone frame ──────────────────────────────────────────
+        frame = Gtk.Frame()
+        frame.add_css_class("installer-drop-zone")
+
+        drop_inner = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=6,
+            halign=Gtk.Align.CENTER,
+            valign=Gtk.Align.CENTER,
+            margin_top=18,
+            margin_bottom=18,
+            margin_start=12,
+            margin_end=12,
+        )
+
+        icon = Gtk.Image.new_from_icon_name("document-open-symbolic")
+        icon.set_pixel_size(36)
+        icon.add_css_class("dim-label")
+        drop_inner.append(icon)
+
+        heading = Gtk.Label(label=hint)
+        heading.add_css_class("heading")
+        drop_inner.append(heading)
+
+        caption = Gtk.Label(label="Already-installed content is skipped automatically")
+        caption.add_css_class("dim-label")
+        caption.add_css_class("caption")
+        drop_inner.append(caption)
+
+        frame.set_child(drop_inner)
+        outer.append(frame)
+
+        # Drag-and-drop
+        drop = Gtk.DropTarget.new(Gdk.FileList, Gdk.DragAction.COPY)
+        drop.connect("drop", self._on_installer_drop)
+        drop.connect("enter", lambda t, *_: frame.add_css_class("drag-hover") or Gdk.DragAction.COPY)
+        drop.connect("leave", lambda *_: frame.remove_css_class("drag-hover"))
+        frame.add_controller(drop)
+
+        # ── Browse buttons ───────────────────────────────────────────
+        browse_box = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=8,
+            homogeneous=True,
+        )
+        file_btn = Gtk.Button(label="Browse File\u2026")
+        file_btn.add_css_class("pill")
+        file_btn.connect("clicked", on_browse_file)
+        folder_btn = Gtk.Button(label="Browse Folder\u2026")
+        folder_btn.add_css_class("pill")
+        folder_btn.connect("clicked", on_browse_folder)
+        browse_box.append(file_btn)
+        browse_box.append(folder_btn)
+        outer.append(browse_box)
+
+        # Optional "Browse Content" row below the buttons
+        if show_browse_content and on_browse_content is not None:
+            content_btn = Gtk.Button()
+            content_btn.add_css_class("flat")
+            btn_box = Gtk.Box(
+                orientation=Gtk.Orientation.HORIZONTAL,
+                spacing=6,
+                halign=Gtk.Align.CENTER,
+            )
+            btn_box.append(Gtk.Image.new_from_icon_name("folder-open-symbolic"))
+            btn_box.append(Gtk.Label(label="Browse Content"))
+            content_btn.set_child(btn_box)
+            content_btn.connect("clicked", on_browse_content)
+            outer.append(content_btn)
+
+        return outer
+
+    def _on_installer_drop(self, _target, value, _x, _y) -> bool:
+        """Handle file or folder drops onto the installer drop zone."""
+        if self._project is None:
+            return False
+        gfiles = value.get_files() if hasattr(value, "get_files") else []
+        if not gfiles:
+            return False
+
+        paths = [Path(f.get_path()) for f in gfiles]
+
+        # Single folder drop → scan the folder for installers
+        if len(paths) == 1 and paths[0].is_dir():
+            self._install_dlc_from_folder(self._project, paths[0])
+            return True
+
+        # Single file → install directly
+        installers = [p for p in paths if p.is_file()]
+        if len(installers) == 1:
+            self._install_single_dlc(self._project, installers[0])
+            return True
+
+        # Multiple files → filter, confirm, and queue
+        if installers:
+            skipped = self._filter_already_installed(self._project, installers)
+            remaining = [p for p in installers if p not in skipped]
+            if not remaining:
+                self._show_toast("All dropped installers have already been applied.")
+                return True
+            self._confirm_and_queue_dlc(self._project, remaining, len(skipped))
+        return True
+
+    def _confirm_and_queue_dlc(
+        self, project: Project, installers: list[Path], skipped_count: int,
+    ) -> None:
+        """Show a confirmation dialog for multiple DLC installers, then queue them."""
+        skip_msg = f" ({skipped_count} skipped)" if skipped_count else ""
+        names = "\n".join(f"  \u2022 {p.name}" for p in installers)
+        dlg = Adw.AlertDialog(
+            heading=f"Install {len(installers)} item(s){skip_msg}",
+            body=names,
+        )
+        dlg.add_response("cancel", "Cancel")
+        dlg.add_response("install", "Install All")
+        dlg.set_response_appearance("install", Adw.ResponseAppearance.SUGGESTED)
+        dlg.set_default_response("install")
+        dlg.set_close_response("cancel")
+
+        def _on_response(_dlg, response):
+            if response == "install":
+                self._run_dlc_queue(project, list(installers))
+
+        dlg.connect("response", _on_response)
+        dlg.present(self.get_root())
+
+    def _install_single_dlc(self, project: Project, path: Path) -> None:
+        """Route a single DLC installer file to the appropriate handler."""
+        if project.project_type == "app":
+            # Windows project — run exe/msi in prefix
+            from cellar.backend.detect import scan_prefix_exes
+            pre_exes = scan_prefix_exes(project.content_path)
+
+            def _on_done(ok: bool) -> None:
+                self._scan_entry_points_after_install(project, pre_exes)
+                if self._project is project:
+                    self._show_project(project)
+
+            self._run_in_prefix_with_progress(
+                project, exe=str(path),
+                label=f"Running {path.name}\u2026",
+                on_done=_on_done,
+            )
+        elif project.installer_type == "isolated":
+            self._run_isolated_installer(project, path)
+        else:
+            from cellar.utils.gog import is_gog_installer
+            if is_gog_installer(path):
+                self._extract_gog_dlc(project, path)
+            else:
+                self._run_isolated_installer(project, path)
+
+    def _install_dlc_from_folder(self, project: Project, folder: Path) -> None:
+        """Find all installers in *folder*, skip already-installed ones, and queue the rest."""
+        if project.project_type == "app":
+            exts = {".exe", ".msi"}
+        else:
+            exts = {".sh", ".run"}
+
+        candidates = sorted(
+            p for p in folder.iterdir()
+            if p.is_file() and p.suffix.lower() in exts
+        )
+
+        if not candidates:
+            self._show_toast(f"No installers found in {folder.name}")
+            return
+
+        skipped = self._filter_already_installed(project, candidates)
+        remaining = [c for c in candidates if c not in skipped]
+
+        if not remaining:
+            self._show_toast("All installers in this folder have already been applied.")
+            return
+
+        self._confirm_and_queue_dlc(project, remaining, len(skipped))
+
+    def _filter_already_installed(
+        self, project: Project, candidates: list[Path],
+    ) -> set[Path]:
+        """Return the subset of *candidates* that appear to be already installed.
+
+        For GOG Linux projects, compares installer stems against the project
+        name and existing content.  For Windows projects, checks if the exe
+        was the original smart-import installer.
+        """
+        skipped: set[Path] = set()
+        # The original installer that created this project
+        orig = Path(project.installer_path).name.lower() if project.installer_path else ""
+        project_name = project.name.lower().replace(" ", "_")
+
+        for c in candidates:
+            name_lower = c.name.lower()
+            # Skip if it's the exact same file as the original installer
+            if orig and name_lower == orig:
+                skipped.add(c)
+                continue
+            # Skip if the installer name matches the project name closely
+            # (e.g. "dead_cells_1_26_0.sh" matches project "Dead Cells")
+            stem = c.stem.lower()
+            if project_name and len(project_name) >= 3 and stem.startswith(project_name):
+                skipped.add(c)
+                continue
+
+        return skipped
+
+    def _run_dlc_queue(self, project: Project, queue: list[Path]) -> None:
+        """Install DLC files one at a time from *queue*."""
+        if not queue:
+            self._show_toast("All DLC installed.")
+            if self._project is project:
+                self._show_project(project)
+            return
+
+        current = queue.pop(0)
+        remaining = queue
+
+        # After each DLC finishes, run the next one
+        orig_done = None
+
+        if project.project_type == "app":
+            from cellar.backend.detect import scan_prefix_exes
+            pre_exes = scan_prefix_exes(project.content_path)
+
+            def _on_done(ok: bool) -> None:
+                self._scan_entry_points_after_install(project, pre_exes)
+                save_project(project)
+                self._run_dlc_queue(project, remaining)
+
+            self._run_in_prefix_with_progress(
+                project, exe=str(current),
+                label=f"Running {current.name}\u2026",
+                on_done=_on_done,
+            )
+        elif project.installer_type == "gog":
+            self._extract_gog_dlc_queued(project, current, remaining)
+        else:
+            # bwrap — sequential (each one is interactive)
+            self._run_isolated_installer(project, current)
+            # Can't easily queue interactive installers — just do one at a time
+
+    def _extract_gog_dlc_queued(
+        self, project: Project, src_path: Path, remaining: list[Path],
+    ) -> None:
+        """Extract a GOG DLC and then continue with the remaining queue."""
+        from cellar.backend.detect import find_linux_executables
+        from cellar.utils.gog import extract_gog_game_data
+
+        dest = Path(project.source_dir) if project.source_dir else project.content_path
+        dest.mkdir(parents=True, exist_ok=True)
+
+        progress = ProgressDialog(label=f"Extracting {src_path.name}\u2026")
+        progress.present(self.get_root())
+
+        def _work():
+            last_pct = -1
+
+            def _on_progress(extracted, total):
+                nonlocal last_pct
+                if total <= 0:
+                    return
+                pct = int(extracted * 100 / total)
+                if pct != last_pct:
+                    last_pct = pct
+                    GLib.idle_add(progress.set_fraction, extracted / total)
+
+            extract_gog_game_data(src_path, dest, progress_cb=_on_progress)
+            return find_linux_executables(dest)
+
+        def _done(candidates):
+            progress.force_close()
+            save_project(project)
+            self._show_toast(f"Extracted {src_path.name}")
+            self._run_dlc_queue(project, remaining)
+
+        def _error(msg):
+            progress.force_close()
+            self._show_toast(f"Extraction failed: {msg}")
+
+        run_in_background(work=_work, on_done=_done, on_error=_error)
+
+    def _extract_gog_dlc(self, project: Project, src_path: Path) -> None:
+        """Extract a GOG DLC .sh installer into the project's source dir."""
+        from cellar.backend.detect import find_linux_executables
+        from cellar.utils.gog import extract_gog_game_data
+
+        dest = Path(project.source_dir) if project.source_dir else project.content_path
+        dest.mkdir(parents=True, exist_ok=True)
+
+        progress = ProgressDialog(label=f"Extracting {src_path.name}\u2026")
+        progress.present(self.get_root())
+
+        def _work():
+            last_pct = -1
+
+            def _on_progress(extracted, total):
+                nonlocal last_pct
+                if total <= 0:
+                    return
+                pct = int(extracted * 100 / total)
+                if pct != last_pct:
+                    last_pct = pct
+                    GLib.idle_add(progress.set_fraction, extracted / total)
+
+            extract_gog_game_data(src_path, dest, progress_cb=_on_progress)
+            return find_linux_executables(dest)
+
+        def _done(candidates):
+            progress.force_close()
+            if candidates and not project.entry_points:
+                base = Path(project.source_dir) if project.source_dir else project.content_path
+                project.entry_points = [
+                    {
+                        "name": project.name if c.name == "start.sh" else c.name,
+                        "path": str(c.relative_to(base)),
+                    }
+                    for c in candidates[:5]
+                ]
+            save_project(project)
+            if self._project is project:
+                self._show_project(project)
+            self._show_toast(f"Extracted {src_path.name}")
+
+        def _error(msg):
+            progress.force_close()
+            self._show_toast(f"Extraction failed: {msg}")
+
+        run_in_background(work=_work, on_done=_done, on_error=_error)
 
     def _on_browse_prefix_clicked(self, _btn) -> None:
         if self._project is None:
@@ -3367,10 +3915,17 @@ class _NewProjectDialog(Adw.Dialog):
                 # .exe import: store installer path
                 project.installer_path = str(path)
                 changed = True
-            elif platform == "linux" and path.is_file() and path.suffix.lower() == ".sh":
-                # GOG Linux installer: extract in background (can be multi-GB)
-                self._extract_gog_installer(project, path)
-                return  # _extract_gog_installer calls _on_import when done
+            elif platform == "linux" and path.is_file() and path.suffix.lower() in (".sh", ".run"):
+                from cellar.utils.gog import is_gog_installer
+
+                if is_gog_installer(path):
+                    # GOG installer: extract game data from embedded ZIP
+                    self._extract_gog_installer(project, path)
+                    return  # _extract_gog_installer calls _on_import when done
+                # Non-GOG installer: store path, user runs from detail view
+                project.installer_path = str(path)
+                project.installer_type = "isolated"
+                changed = True
             elif platform in ("linux", "dos") and path.is_dir():
                 # Linux/DOS folder: set source_dir and detect entry points
                 project.source_dir = str(path)
@@ -3417,16 +3972,14 @@ class _NewProjectDialog(Adw.Dialog):
         progress.present(self._parent_view)
 
         def _work():
-            def _on_progress(extracted, total):
-                if total > 0:
-                    GLib.idle_add(progress.set_fraction, extracted / total)
-            extract_gog_game_data(src_path, content, progress_cb=_on_progress)
+            extract_gog_game_data(src_path, content)
             return find_linux_executables(content)
 
         def _done(candidates):
             progress.force_close()
             project.source_dir = str(content)
             project.initialized = True
+            project.installer_type = "gog"
             if candidates:
                 project.entry_points = [
                     {

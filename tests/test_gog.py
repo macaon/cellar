@@ -271,8 +271,20 @@ class TestDetectPlatformGogInstaller:
         sh = _make_gog_sh(tmp_path, gameinfo="Test Game\n1.0\n99999\n")
         assert detect_platform(sh) == "linux"
 
-    def test_plain_sh_still_unsupported(self, tmp_path):
+    def test_plain_sh_unsupported_without_bwrap(self, tmp_path):
+        from unittest.mock import patch
+
         from cellar.backend.detect import detect_platform
 
         sh = _make_plain_sh(tmp_path)
-        assert detect_platform(sh) == "unsupported"
+        with patch("cellar.backend.sandbox.is_bwrap_available", return_value=False):
+            assert detect_platform(sh) == "unsupported"
+
+    def test_plain_sh_linux_with_bwrap(self, tmp_path):
+        from unittest.mock import patch
+
+        from cellar.backend.detect import detect_platform
+
+        sh = _make_plain_sh(tmp_path)
+        with patch("cellar.backend.sandbox.is_bwrap_available", return_value=True):
+            assert detect_platform(sh) == "linux"

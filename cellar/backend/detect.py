@@ -85,8 +85,8 @@ DetectResult = Literal["windows", "linux", "ambiguous", "unsupported"]
 # Human-readable messages for each "unsupported" sub-case, keyed by reason tag
 UNSUPPORTED_MESSAGES: dict[str, str] = {
     "sh_run": (
-        "Linux installer scripts are not supported. "
-        "Drop or browse for the already-installed application folder instead."
+        "Linux installer scripts require bubblewrap (bwrap) for isolated execution. "
+        "Install bubblewrap, or drop the already-installed application folder instead."
     ),
     "archive": (
         "Archives are not supported. "
@@ -301,7 +301,12 @@ def _detect_file(path: Path) -> DetectResult:
 
         if is_gog_installer(path):
             return "linux"
-        return "unsupported"  # single installer script — can't control install dir
+
+        from cellar.backend.sandbox import is_bwrap_available
+
+        if is_bwrap_available():
+            return "linux"
+        return "unsupported"  # bwrap not available — can't isolate installer
     if suffix in _LIN_BINARY_EXTS or _is_elf(path):
         return "linux"
     return "unsupported"

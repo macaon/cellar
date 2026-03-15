@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import subprocess
+import time
 import zipfile
 from pathlib import Path, PurePosixPath
 from typing import Callable
@@ -144,6 +145,10 @@ def extract_gog_game_data(
                     if not chunk:
                         break
                     dst_f.write(chunk)
+                    # Yield the GIL so the UI thread can process events
+                    # (pulse animation, progress bar updates).  Without this,
+                    # pure-Python ZIP decompression starves the main loop.
+                    time.sleep(0)
 
             # Preserve executable bits from the ZIP external attributes.
             unix_mode = info.external_attr >> 16

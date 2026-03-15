@@ -49,7 +49,8 @@ class Project:
     initialized: bool = False
     origin_app_id: str = ""    # set when project was imported from a catalogue entry
     source_dir: str = ""       # Linux projects only: path to the pre-installed app directory
-    installer_path: str = ""   # Smart import: path to .exe/.msi to run in prefix
+    installer_path: str = ""   # Smart import: path to .exe/.msi/.sh/.run to run in prefix
+    installer_type: str = ""   # "", "isolated" (bwrap sandbox), "folder" (direct copy)
 
     # ── Catalogue metadata (App only) ─────────────────────────────────────
     version: str = "1.0"
@@ -113,6 +114,7 @@ class Project:
             origin_app_id=data.get("origin_app_id", ""),
             source_dir=data.get("source_dir", ""),
             installer_path=data.get("installer_path", ""),
+            installer_type=data.get("installer_type", ""),
             version=data.get("version", "1.0"),
             category=data.get("category", ""),
             developer=data.get("developer", ""),
@@ -157,6 +159,8 @@ class Project:
             d["source_dir"] = self.source_dir
         if self.installer_path:
             d["installer_path"] = self.installer_path
+        if self.installer_type:
+            d["installer_type"] = self.installer_type
         if self.version and self.version != "1.0":
             d["version"] = self.version
         if self.category:

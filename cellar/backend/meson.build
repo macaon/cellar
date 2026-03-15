@@ -12,6 +12,7 @@ python_sources = files(
   'project.py',
   'repo.py',
   'runners.py',
+  'sandbox.py',
   'steam.py',
   'umu.py',
   'updater.py',

@@ -469,13 +469,15 @@ class DetailView(Gtk.Box):
         dialog.present(self.get_root())
 
     def _on_install_success(
-        self, prefix_dir: str, install_path: str = "", runner: str = "", install_size: int = 0
+        self, prefix_dir: str, install_path: str = "", runner: str = "",
+        install_size: int = 0, delta_size: int = 0,
     ) -> None:
         self._is_installed = True
         self._installed_record = {
             "prefix_dir": prefix_dir,
             "install_path": install_path,
             "install_size": install_size,
+            "delta_size": delta_size,
             "runner": runner,
         }
         self._resolved_runner = runner
@@ -484,7 +486,7 @@ class DetailView(Gtk.Box):
         self._update_install_button()
         self._rebuild_info_cards()
         if self._on_install_done:
-            self._on_install_done(prefix_dir, install_path, runner, install_size)
+            self._on_install_done(prefix_dir, install_path, runner, install_size, delta_size)
 
     def _effective_launch_targets(self) -> list[dict]:
         """Return the launch targets to use, honouring local overrides."""
@@ -749,14 +751,18 @@ class DetailView(Gtk.Box):
         )
         dialog.present(self.get_root())
 
-    def _on_update_success(self, install_size: int = 0) -> None:
+    def _on_update_success(self, install_size: int = 0, delta_size: int = 0) -> None:
         self._has_update = False
         if self._installed_record is not None and install_size:
-            self._installed_record = {**self._installed_record, "install_size": install_size}
+            self._installed_record = {
+                **self._installed_record,
+                "install_size": install_size,
+                "delta_size": delta_size,
+            }
         self._update_install_button()
         self._rebuild_info_cards()
         if self._on_update_done:
-            self._on_update_done(install_size)
+            self._on_update_done(install_size, delta_size)
 
     def _on_remove_confirmed(self) -> None:
         import shutil
@@ -1390,9 +1396,22 @@ class DetailView(Gtk.Box):
 
         if self._is_installed:
             stored_size = (self._installed_record or {}).get("install_size") or 0
+            delta_size = (self._installed_record or {}).get("delta_size") or 0
             if stored_size:
+                display_size = stored_size
+                # On CoW filesystems, delta apps share base files via reflinks —
+                # show the delta-only size which reflects actual unique disk usage.
+                if delta_size:
+                    from cellar.utils.paths import is_cow_filesystem as _is_cow
+                    _rec = self._installed_record or {}
+                    _install_path = _rec.get("install_path", "")
+                    if not _install_path:
+                        from cellar.backend.umu import prefixes_dir as _prefixes_dir
+                        _install_path = str(_prefixes_dir())
+                    if _is_cow(_install_path):
+                        display_size = delta_size
                 _add(_simple_card(
-                    "drive-harddisk-symbolic", _fmt_bytes(stored_size), "Install size",
+                    "drive-harddisk-symbolic", _fmt_bytes(display_size), "Install size",
                 )[0])
         else:
             if e.archive_size > 0:
@@ -1410,10 +1429,16 @@ class DetailView(Gtk.Box):
                 _add(dl_card)
                 self._resolve_base_async(dl_val_lbl)
 
-            if e.install_size_estimate > 0:
+            _disk_estimate = e.install_size_estimate
+            if e.delta_size and e.base_image:
+                from cellar.utils.paths import is_cow_filesystem as _is_cow
+                from cellar.backend.umu import prefixes_dir as _prefixes_dir
+                if _is_cow(str(_prefixes_dir())):
+                    _disk_estimate = e.delta_size
+            if _disk_estimate > 0:
                 _add(_simple_card(
                     "drive-harddisk-symbolic",
-                    _fmt_bytes(e.install_size_estimate),
+                    _fmt_bytes(_disk_estimate),
                     "Disk space",
                 )[0])
 
@@ -1910,7 +1935,7 @@ class InstallProgressDialog(Adw.Dialog):
         *,
         entry: AppEntry,
         archive_uri: str,
-        on_success: Callable,  # (prefix_dir, install_path, runner, install_size) -> None
+        on_success: Callable,  # (prefix_dir, install_path, runner, install_size, delta_size) -> None
         token: str | None = None,
         ssh_identity: str | None = None,
         base_entry=None,            # BaseEntry | None — for delta installs
@@ -2001,7 +2026,10 @@ class InstallProgressDialog(Adw.Dialog):
                 from cellar.backend.umu import prefixes_dir as _prefixes_dir
                 from cellar.utils.paths import dir_size_bytes as _dir_size
                 _install_size = _dir_size(_prefixes_dir() / prefix_dir)
-                GLib.idle_add(self._on_done, prefix_dir, str(_prefixes_dir()), "", _install_size)
+                GLib.idle_add(
+                    self._on_done, prefix_dir, str(_prefixes_dir()), "",
+                    _install_size, self._entry.delta_size,
+                )
             except InstallCancelled:
                 GLib.idle_add(self._on_cancelled)
             except Exception as exc:  # noqa: BLE001
@@ -2045,7 +2073,8 @@ class InstallProgressDialog(Adw.Dialog):
                 from cellar.utils.paths import dir_size_bytes as _dir_size
                 _install_size = _dir_size(install_dest)
                 GLib.idle_add(
-                    self._on_done, self._entry.id, str(install_dest.parent), "", _install_size,
+                    self._on_done, self._entry.id, str(install_dest.parent), "",
+                    _install_size, 0,
                 )
             except InstallCancelled:
                 GLib.idle_add(self._on_cancelled)
@@ -2081,10 +2110,11 @@ class InstallProgressDialog(Adw.Dialog):
         return True  # keep calling
 
     def _on_done(
-        self, prefix_dir: str, install_path: str = "", runner: str = "", install_size: int = 0
+        self, prefix_dir: str, install_path: str = "", runner: str = "",
+        install_size: int = 0, delta_size: int = 0,
     ) -> None:
         self.close()
-        self._on_success(prefix_dir, install_path, runner, install_size)
+        self._on_success(prefix_dir, install_path, runner, install_size, delta_size)
 
     def _on_cancelled(self) -> None:
         self.close()

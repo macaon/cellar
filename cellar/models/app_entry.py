@@ -170,6 +170,10 @@ class AppEntry:
     archive_crc32: str = ""
     archive_chunks: tuple[dict, ...] = ()
     install_size_estimate: int = 0
+    # Uncompressed size of the delta-only content (excluding shared base files).
+    # On CoW filesystems (btrfs, XFS) this reflects actual unique disk usage.
+    # Zero for non-delta apps or when not yet measured.
+    delta_size: int = 0
     update_strategy: Literal["safe", "full"] = "safe"
     # Delta packaging — when set, this archive is a delta against the named
     # base image; the installer must seed the prefix from that base first.
@@ -269,6 +273,7 @@ class AppEntry:
             archive_crc32=data.get("archive_crc32", ""),
             archive_chunks=tuple(data.get("archive_chunks", [])),
             install_size_estimate=int(data.get("install_size_estimate", 0)),
+            delta_size=int(data.get("delta_size", 0)),
             update_strategy=strategy,
             base_image=data.get("base_image", ""),
             steam_appid=data.get("steam_appid"),
@@ -353,6 +358,8 @@ class AppEntry:
             d["archive_chunks"] = [dict(c) for c in self.archive_chunks]
         if self.install_size_estimate:
             d["install_size_estimate"] = self.install_size_estimate
+        if self.delta_size:
+            d["delta_size"] = self.delta_size
         d["update_strategy"] = self.update_strategy
         _opt_str(d, "base_image", self.base_image)
         if self.steam_appid is not None:

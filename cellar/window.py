@@ -679,7 +679,8 @@ class CellarWindow(Adw.ApplicationWindow):
         is_installed = rec is not None
 
         def _on_install_done(
-            prefix_dir: str, install_path: str = "", runner: str = "", install_size: int = 0
+            prefix_dir: str, install_path: str = "", runner: str = "",
+            install_size: int = 0, delta_size: int = 0,
         ) -> None:
             repo_uri = str(self._first_repo.uri) if self._first_repo else ""
             database.mark_installed(
@@ -690,6 +691,7 @@ class CellarWindow(Adw.ApplicationWindow):
                 steam_appid=entry.steam_appid,
                 archive_crc32=entry.archive_crc32,
                 install_size=install_size,
+                delta_size=delta_size,
             )
             self._show_toast(f"{entry.name} installed successfully")
             self._load_catalogue()
@@ -698,7 +700,7 @@ class CellarWindow(Adw.ApplicationWindow):
             self._show_toast(f"{entry.name} removed")
             self._load_catalogue()
 
-        def _on_update_done(install_size: int = 0) -> None:
+        def _on_update_done(install_size: int = 0, delta_size: int = 0) -> None:
             repo_uri = str(self._first_repo.uri) if self._first_repo else ""
             existing_rec = database.get_installed(entry.id) or {}
             database.mark_installed(
@@ -707,6 +709,7 @@ class CellarWindow(Adw.ApplicationWindow):
                 steam_appid=entry.steam_appid,
                 archive_crc32=entry.archive_crc32,
                 install_size=install_size,
+                delta_size=delta_size,
             )
             self._show_toast(f"{entry.name} updated successfully")
             self._load_catalogue()

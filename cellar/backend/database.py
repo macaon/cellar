@@ -12,7 +12,7 @@ every DB open :func:`_open_db` reads the version and runs any pending
 migrations in order, then stamps the new version.  A fresh install creates
 the current schema directly (no migration required).
 
-Schema v4 (current)
+Schema v5 (current)
 -------------------
 ::
 
@@ -30,6 +30,7 @@ Schema v4 (current)
         steam_appid     INTEGER,
         install_path    TEXT,
         install_size    INTEGER,
+        delta_size      INTEGER,
         repo_source     TEXT,
         installed_at    TEXT,
         last_updated    TEXT
@@ -65,7 +66,7 @@ from cellar.backend.config import data_dir
 
 log = logging.getLogger(__name__)
 
-_CURRENT_VERSION = 4
+_CURRENT_VERSION = 5
 
 
 # ---------------------------------------------------------------------------
@@ -132,6 +133,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
         _migrate_v2_to_v3(conn)
     if current < 4:
         _migrate_v3_to_v4(conn)
+    if current < 5:
+        _migrate_v4_to_v5(conn)
 
 
 def _create_schema_v1(conn: sqlite3.Connection) -> None:
@@ -151,6 +154,7 @@ def _create_schema_v1(conn: sqlite3.Connection) -> None:
             steam_appid     INTEGER,
             install_path    TEXT,
             install_size    INTEGER,
+            delta_size      INTEGER,
             repo_source     TEXT,
             installed_at    TEXT,
             last_updated    TEXT
@@ -308,6 +312,27 @@ def _migrate_v3_to_v4(conn: sqlite3.Connection) -> None:
         raise
 
 
+def _migrate_v4_to_v5(conn: sqlite3.Connection) -> None:
+    """Add ``delta_size`` column to the ``installed`` table.
+
+    Stores the uncompressed size of the delta-only content (excluding shared
+    base files).  On CoW filesystems this reflects actual unique disk usage.
+    """
+    log.info("Migrating cellar.db from v4 to v5")
+    try:
+        with conn:
+            conn.execute(
+                "ALTER TABLE installed ADD COLUMN delta_size INTEGER"
+            )
+            conn.execute(
+                "INSERT OR REPLACE INTO schema_version (version) VALUES (?)",
+                (5,),
+            )
+    except Exception:
+        log.exception("v4→v5 migration failed; database left unchanged")
+        raise
+
+
 # ---------------------------------------------------------------------------
 # Public API — installed apps
 # ---------------------------------------------------------------------------
@@ -323,6 +348,7 @@ def mark_installed(
     steam_appid: int | None = None,
     archive_crc32: str = "",
     install_size: int = 0,
+    delta_size: int = 0,
 ) -> None:
     """Record (or update) an installed app.
 
@@ -359,6 +385,10 @@ def mark_installed(
         On-disk size of the installed prefix in bytes, measured after
         extraction.  0 means not yet measured; use :func:`set_install_size`
         to update lazily.
+    delta_size:
+        Uncompressed size of the delta-only content (excluding shared base
+        files) in bytes.  On CoW filesystems this reflects actual unique
+        disk usage.  0 for non-delta apps or when not yet measured.
     """
     now = datetime.now(timezone.utc).isoformat()
     with _open_db() as conn:
@@ -366,9 +396,9 @@ def mark_installed(
             """
             INSERT INTO installed
                 (id, prefix_dir, platform, version, archive_crc32, runner,
-                 steam_appid, install_path, install_size, repo_source,
-                 installed_at, last_updated)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 steam_appid, install_path, install_size, delta_size,
+                 repo_source, installed_at, last_updated)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 prefix_dir    = excluded.prefix_dir,
                 platform      = excluded.platform,
@@ -378,12 +408,13 @@ def mark_installed(
                 steam_appid   = excluded.steam_appid,
                 install_path  = excluded.install_path,
                 install_size  = COALESCE(excluded.install_size, install_size),
+                delta_size    = COALESCE(excluded.delta_size, delta_size),
                 repo_source   = excluded.repo_source,
                 last_updated  = excluded.last_updated
             """,
             (app_id, prefix_dir, platform, version, archive_crc32 or None,
              runner or None, steam_appid, install_path or None,
-             install_size or None, repo_source, now, now),
+             install_size or None, delta_size or None, repo_source, now, now),
         )
 
 

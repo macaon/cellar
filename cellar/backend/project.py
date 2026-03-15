@@ -67,6 +67,7 @@ class Project:
     hide_title: bool = False   # True when logo already contains the app name
     screenshot_paths: list[str] = field(default_factory=list)   # local file paths
     screenshot_sources: dict[str, str] = field(default_factory=dict)  # {local_path: steam_url}
+    delta_size: int = 0            # uncompressed delta-only size (bytes); 0 = not measured
     steam_screenshots: list[dict] = field(default_factory=list) # [{"full": url, "thumbnail": url}]
     selected_steam_urls: list[str] = field(default_factory=list) # full URLs the user checked
 
@@ -127,6 +128,7 @@ class Project:
             hide_title=bool(data.get("hide_title", False)),
             screenshot_paths=list(data.get("screenshot_paths", [])),
             screenshot_sources=dict(data.get("screenshot_sources", {})),
+            delta_size=int(data.get("delta_size", 0)),
             steam_screenshots=list(data.get("steam_screenshots", [])),
             selected_steam_urls=list(data.get("selected_steam_urls", [])),
         )
@@ -185,6 +187,8 @@ class Project:
             d["screenshot_paths"] = list(self.screenshot_paths)
         if self.screenshot_sources:
             d["screenshot_sources"] = dict(self.screenshot_sources)
+        if self.delta_size:
+            d["delta_size"] = self.delta_size
         if self.steam_screenshots:
             d["steam_screenshots"] = list(self.steam_screenshots)
         if self.selected_steam_urls:

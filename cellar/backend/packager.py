@@ -571,7 +571,7 @@ def compress_prefix_delta_zst(
     stats_cb: Callable[[int, int, float], None] | None = None,
     file_cb: Callable[[str], None] | None = None,
     bytes_cb: Callable[[int], None] | None = None,
-) -> tuple[int, str, tuple[dict, ...]]:
+) -> tuple[int, str, tuple[dict, ...], int]:
     """Create a delta ``.tar.zst`` from *prefix_path* relative to *base_dir*.
 
     The archive is split into ~1 GB independently extractable chunks.
@@ -584,7 +584,9 @@ def compress_prefix_delta_zst(
     The archive is ``prefix/``-rooted, compatible with :func:`compress_prefix_zst`
     and the installer's :func:`~cellar.backend.installer._overlay_delta`.
 
-    Returns ``(total_size_bytes, total_crc32_hex, chunk_metadata)``.
+    Returns ``(total_size_bytes, total_crc32_hex, chunk_metadata, delta_uncompressed_size)``.
+    The fourth element is the sum of file sizes in the delta (excluding base),
+    representing the actual unique disk usage on CoW filesystems.
     """
     import hashlib
     import io
@@ -705,7 +707,7 @@ def compress_prefix_delta_zst(
         _cleanup_chunks(dest_path)
         raise RuntimeError(f"Failed to create delta archive: {exc}") from exc
 
-    return cw.total_written, cw.total_crc_hex, tuple(cw.chunks)
+    return cw.total_written, cw.total_crc_hex, tuple(cw.chunks), done_bytes
 
 
 # ---------------------------------------------------------------------------

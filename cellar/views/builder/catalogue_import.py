@@ -548,6 +548,12 @@ class CatalogueEntriesDialog(Adw.Dialog):
                     else:
                         content_src = _find_top_dir(extract_dir)
 
+                    # Measure delta-only size from the extracted content (which IS
+                    # the delta for delta-packaged apps).  This lets us display
+                    # accurate install size on CoW filesystems when republishing.
+                    from cellar.utils.paths import dir_size_bytes as _dir_size
+                    _delta_size = _dir_size(content_src) if entry.base_image else 0
+
                     from cellar.backend.packager import slugify
                     slug = slugify(entry.id)
                     existing = {p.slug for p in load_projects()}
@@ -576,6 +582,7 @@ class CatalogueEntriesDialog(Adw.Dialog):
                         summary=entry.summary or "",
                         description=entry.description or "",
                         hide_title=entry.hide_title,
+                        delta_size=_delta_size,
                     )
 
                     GLib.idle_add(progress.set_label, "Copying content\u2026")

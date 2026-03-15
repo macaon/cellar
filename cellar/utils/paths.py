@@ -1,7 +1,12 @@
 """Resolve paths to data files for both development and installed contexts."""
 
+import logging
 import os
+import subprocess
+import tempfile
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 # When running from the source tree, data/ sits two levels above this file.
 _SRC_DATA = Path(__file__).parent.parent.parent / "data"
@@ -59,6 +64,73 @@ def dir_size_bytes(path: Path | str) -> int:
     except OSError:
         pass
     return total
+
+
+# ---------------------------------------------------------------------------
+# CoW / reflink filesystem detection
+# ---------------------------------------------------------------------------
+
+# Cache per st_dev so we check at most once per mount per session.
+_cow_cache: dict[int, bool] = {}
+
+
+def is_cow_filesystem(path: Path | str) -> bool:
+    """Return ``True`` if *path* resides on a filesystem that supports reflinks.
+
+    Detects btrfs (always CoW) and tests other filesystems (XFS, bcachefs)
+    by attempting a real ``cp --reflink=always`` on a temporary file pair.
+    Results are cached per device so the check runs at most once per mount.
+    Returns ``False`` on any error (safe default — overestimates disk usage).
+    """
+    try:
+        dev = os.stat(path).st_dev
+    except OSError:
+        return False
+
+    if dev in _cow_cache:
+        return _cow_cache[dev]
+
+    result = _detect_cow(path, dev)
+    _cow_cache[dev] = result
+    return result
+
+
+def _detect_cow(path: Path | str, dev: int) -> bool:
+    """Probe whether the filesystem at *path* supports reflinks."""
+    # Fast path: check filesystem type name via stat -f.
+    try:
+        out = subprocess.run(
+            ["stat", "-f", "-c", "%T", str(path)],
+            capture_output=True, text=True, timeout=5,
+        )
+        if out.returncode == 0:
+            fstype = out.stdout.strip().lower()
+            if fstype == "btrfs":
+                return True
+            # ext2/3/4, tmpfs, etc. — definitely no reflink.
+            if fstype in ("ext2/ext3", "tmpfs", "nfs", "fuse"):
+                return False
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+    # Slow path for XFS, bcachefs, or unknown fs: try an actual reflink.
+    try:
+        target = Path(path) if not isinstance(path, Path) else path
+        if not target.is_dir():
+            target = target.parent
+        with tempfile.TemporaryDirectory(dir=target) as td:
+            src = Path(td) / "cow_test_src"
+            dst = Path(td) / "cow_test_dst"
+            src.write_bytes(b"\x00" * 4096)
+            cp = subprocess.run(
+                ["cp", "--reflink=always", str(src), str(dst)],
+                capture_output=True, timeout=5,
+            )
+            return cp.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+    return False
 
 
 def short_path(path) -> str:

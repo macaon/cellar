@@ -2338,6 +2338,7 @@ class PackageBuilderView(Adw.Bin):
 
             try:
                 _reset_phase("Compressing and uploading\u2026")
+                _delta_uncompressed = 0
                 if project.project_type in ("linux", "dos"):
                     _partial_dest = archive_dest
                     size, crc32, chunks = compress_prefix_zst(
@@ -2356,7 +2357,7 @@ class PackageBuilderView(Adw.Bin):
                         )
                     _reset_phase("Scanning files\u2026")
                     _partial_dest = archive_dest
-                    size, crc32, chunks = compress_prefix_delta_zst(
+                    size, crc32, chunks, _delta_uncompressed = compress_prefix_delta_zst(
                         _src_path,
                         base_path(project.runner),
                         archive_dest,
@@ -2448,6 +2449,7 @@ class PackageBuilderView(Adw.Bin):
                     archive_size=size,
                     archive_chunks=chunks,
                     base_image=base_image,
+                    delta_size=_delta_uncompressed,
                 )
                 import_to_repo(
                     repo_root,

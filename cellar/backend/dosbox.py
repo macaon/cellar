@@ -219,14 +219,6 @@ def dosbox_staging_dir() -> Path:
     return d
 
 
-def dos_dir() -> Path:
-    """Return (and create if needed) the Cellar DOS games directory."""
-    from cellar.backend.config import data_dir
-
-    d = data_dir() / "dos"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
-
 
 def ensure_dosbox_staging(
     *,
@@ -1055,7 +1047,11 @@ def _download_and_extract(
                     log.warning("Skipping path-traversal member: %s", member.name)
                     continue
 
-                tf.extract(member, dest, filter="data")
+                try:
+                    tf.extract(member, dest, filter="data")
+                except TypeError:
+                    # Python < 3.11.2 lacks the filter parameter
+                    tf.extract(member, dest)
 
         # Write version stamp
         (dest / ".version").write_text(tag + "\n", encoding="utf-8")

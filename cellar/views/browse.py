@@ -357,6 +357,20 @@ class BrowseView(Gtk.Box):
         self._resolve_asset = None
         self._show_status(title, description)
 
+    def show_loading(self) -> None:
+        """Show a spinner status page while the catalogue loads."""
+        self._entries = []
+        self._resolve_asset = None
+        self._status.set_title("Loading…")
+        self._status.set_description("")
+        self._status.set_icon_name("")
+        self._stack.set_visible_child_name("status")
+
+    def _restore_status_icon(self) -> None:
+        """Ensure the status page icon is set for non-loading states."""
+        if not self._status.get_icon_name():
+            self._status.set_icon_name("package-x-generic-symbolic")
+
     def set_search_text(self, text: str) -> None:
         self._search_text = text
         self._apply_filter()
@@ -398,6 +412,7 @@ class BrowseView(Gtk.Box):
             self._stack.set_visible_child_name("grid")
 
     def _show_status(self, title: str, description: str) -> None:
+        self._restore_status_icon()
         self._status.set_title(title)
         self._status.set_description(description)
         self._stack.set_visible_child_name("status")

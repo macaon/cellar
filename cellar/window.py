@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import gi
@@ -75,6 +76,134 @@ def _reconcile_installed_record(entry) -> dict | None:
             database.remove_installed(entry.id)
             return None
     return rec
+
+
+@dataclass
+class _CatalogueData:
+    """Result of a background catalogue fetch — pure data, no GTK objects."""
+
+    repos: list = field(default_factory=list)
+    first_repo: object | None = None
+    writable_repos: list = field(default_factory=list)
+    entries: list = field(default_factory=list)
+    entry_repos: dict = field(default_factory=dict)        # app_id → list[Repo]
+    distinct_repos: list = field(default_factory=list)
+    entry_repo_uris: dict = field(default_factory=dict)    # app_id → set[str]
+    offline_repos: list = field(default_factory=list)
+    offline_entry_ids: set = field(default_factory=set)
+    installed_records: dict = field(default_factory=dict)   # app_id → dict
+    error: str = ""
+
+
+def _fetch_catalogue_data() -> _CatalogueData:
+    """Build repos, fetch catalogues, reconcile installs — all off the UI thread."""
+    from cellar.backend.config import load_repos, load_smb_password, load_ssh_password
+    from cellar.backend.repo import Repo, RepoError, RepoManager
+
+    manager = RepoManager()
+    first_repo = None
+
+    env_uri = os.environ.get("CELLAR_REPO", "")
+    if env_uri:
+        try:
+            r = Repo(env_uri)
+            manager.add(r)
+            first_repo = first_repo or r
+        except RepoError as exc:
+            log.warning("CELLAR_REPO %r is invalid: %s", env_uri, exc)
+
+    for cfg in load_repos():
+        if not cfg.get("enabled", True):
+            continue
+        try:
+            ca_cert_name = cfg.get("ca_cert") or None
+            ca_cert_path: str | None = None
+            if ca_cert_name:
+                from cellar.backend.config import certs_dir
+                resolved = certs_dir() / ca_cert_name
+                ca_cert_path = str(resolved) if resolved.exists() else None
+                if not ca_cert_path:
+                    log.warning("CA cert %r not found in certs dir; ignoring", ca_cert_name)
+            smb_username = cfg.get("smb_username") or None
+            smb_password = load_smb_password(cfg["uri"]) if smb_username else None
+            ssh_username = cfg.get("ssh_username") or None
+            ssh_password = load_ssh_password(cfg["uri"]) if ssh_username else None
+            r = Repo(
+                cfg["uri"],
+                cfg.get("name", ""),
+                ssh_identity=cfg.get("ssh_identity"),
+                ssh_username=ssh_username,
+                ssh_password=ssh_password,
+                ssl_verify=cfg.get("ssl_verify", True),
+                ca_cert=ca_cert_path,
+                token=cfg.get("token") or None,
+                smb_username=smb_username,
+                smb_password=smb_password,
+            )
+            manager.add(r)
+            first_repo = first_repo or r
+        except RepoError as exc:
+            log.warning("Configured repo %r invalid: %s", cfg["uri"], exc)
+
+    repos = list(manager)
+    if not repos:
+        return _CatalogueData()
+
+    writable_repos = [r for r in manager if r.is_writable]
+
+    # Fetch each repo individually to track which repo carries each entry.
+    entry_repos: dict = {}
+    all_entries: dict = {}
+    for repo in manager:
+        try:
+            for e in repo.fetch_catalogue():
+                all_entries[e.id] = e
+                entry_repos.setdefault(e.id, []).append(repo)
+        except RepoError as exc:
+            log.warning("Failed to fetch from %s: %s", repo.uri, exc)
+    entries = list(all_entries.values())
+
+    # Detect distinct repos (vs mirrors).
+    _repo_ids: dict[str, set[str]] = {}
+    for app_id, app_repos in entry_repos.items():
+        for repo in app_repos:
+            _repo_ids.setdefault(repo.uri, set()).add(app_id)
+    _seen: dict[frozenset[str], object] = {}
+    for repo in manager:
+        key = frozenset(_repo_ids.get(repo.uri, ()))
+        if key not in _seen:
+            _seen[key] = repo
+    distinct_repos = list(_seen.values())
+
+    entry_repo_uris: dict[str, set[str]] = {
+        app_id: {r.uri for r in app_repos}
+        for app_id, app_repos in entry_repos.items()
+    }
+
+    offline_repos = [r for r in manager if r.is_offline and not r.is_catalogue_missing]
+    offline_entry_ids = {
+        e.id for e in entries
+        if all(r.is_offline for r in entry_repos.get(e.id, []))
+    }
+
+    installed_records: dict[str, dict] = {}
+    for e in entries:
+        rec = _reconcile_installed_record(e)
+        if rec is not None:
+            installed_records[e.id] = rec
+
+    return _CatalogueData(
+        repos=repos,
+        first_repo=first_repo,
+        writable_repos=writable_repos,
+        entries=entries,
+        entry_repos=entry_repos,
+        distinct_repos=distinct_repos,
+        entry_repo_uris=entry_repo_uris,
+        offline_repos=offline_repos,
+        offline_entry_ids=offline_entry_ids,
+        installed_records=installed_records,
+    )
 
 
 @Gtk.Template(filename=ui_file("window.ui"))
@@ -196,64 +325,41 @@ class CellarWindow(Adw.ApplicationWindow):
     # ── Catalogue loading ─────────────────────────────────────────────────
 
     def _load_catalogue(self) -> None:
-        from cellar.backend.config import load_repos, load_smb_password, load_ssh_password
-        from cellar.backend.repo import Repo, RepoError, RepoManager  # noqa: F401
-
-        manager = RepoManager()
-        self._first_repo = None
-        self._writable_repos = []
+        """Kick off a background catalogue fetch and apply results on the UI thread."""
         self._category_btns = {}
         self._active_categories = set()
+        self.refresh_button.set_sensitive(False)
+        self._browse_explore.show_loading()
 
-        env_uri = os.environ.get("CELLAR_REPO", "")
-        if env_uri:
-            try:
-                r = Repo(env_uri)
-                manager.add(r)
-                self._first_repo = self._first_repo or r
-            except RepoError as exc:
-                log.warning("CELLAR_REPO %r is invalid: %s", env_uri, exc)
+        run_in_background(
+            work=_fetch_catalogue_data,
+            on_done=self._apply_catalogue,
+            on_error=self._on_catalogue_error,
+        )
 
-        for cfg in load_repos():
-            if not cfg.get("enabled", True):
-                continue
-            try:
-                ca_cert_name = cfg.get("ca_cert") or None
-                ca_cert_path: str | None = None
-                if ca_cert_name:
-                    from cellar.backend.config import certs_dir
-                    resolved = certs_dir() / ca_cert_name
-                    ca_cert_path = str(resolved) if resolved.exists() else None
-                    if not ca_cert_path:
-                        log.warning("CA cert %r not found in certs dir; ignoring", ca_cert_name)
-                smb_username = cfg.get("smb_username") or None
-                smb_password = load_smb_password(cfg["uri"]) if smb_username else None
-                ssh_username = cfg.get("ssh_username") or None
-                ssh_password = load_ssh_password(cfg["uri"]) if ssh_username else None
-                r = Repo(
-                    cfg["uri"],
-                    cfg.get("name", ""),
-                    ssh_identity=cfg.get("ssh_identity"),
-                    ssh_username=ssh_username,
-                    ssh_password=ssh_password,
-                    ssl_verify=cfg.get("ssl_verify", True),
-                    ca_cert=ca_cert_path,
-                    token=cfg.get("token") or None,
-                    smb_username=smb_username,
-                    smb_password=smb_password,
-                )
-                manager.add(r)
-                self._first_repo = self._first_repo or r
-            except RepoError as exc:
-                log.warning("Configured repo %r invalid: %s", cfg["uri"], exc)
+    def _on_catalogue_error(self, message: str) -> None:
+        """Handle a background fetch that raised an exception."""
+        log.error("Catalogue fetch failed: %s", message)
+        self._browse_explore.show_error("Could Not Load Repository", message)
+        self._browse_installed.load_entries([])
+        self._browse_updates.load_entries([])
+        self.updates_page.set_badge_number(0)
+        self._rebuild_filter_popover([])
+        self.refresh_button.set_sensitive(True)
 
-        self._writable_repos = [r for r in manager if r.is_writable]
-        self._all_repos = list(manager)
-        self.builder_page.set_visible(bool(self._writable_repos))
-        self._package_builder.update_repos(self._writable_repos, all_repos=self._all_repos)
+    def _apply_catalogue(self, data: _CatalogueData) -> None:
+        """Apply fetched catalogue data to the UI — runs on the main thread."""
+        self._first_repo = data.first_repo
+        self._writable_repos = data.writable_repos
+        self._all_repos = data.repos
+        self._entry_repos = data.entry_repos
+        self._offline_entry_ids = data.offline_entry_ids
+
+        self.builder_page.set_visible(bool(data.writable_repos))
+        self._package_builder.update_repos(data.writable_repos, all_repos=data.repos)
         self._set_filter_active(False)
 
-        if not list(manager):
+        if not data.repos:
             self._browse_explore.show_error(
                 "No Repository Configured",
                 "Open Preferences (the menu in the top-right corner) "
@@ -263,69 +369,34 @@ class CellarWindow(Adw.ApplicationWindow):
             self._browse_updates.load_entries([])
             self.updates_page.set_badge_number(0)
             self._rebuild_filter_popover([])
+            self.refresh_button.set_sensitive(True)
             return
 
-        self.refresh_button.set_sensitive(False)
+        self._distinct_repos = data.distinct_repos
 
-        # Fetch each repo individually so we can track which repo carries each
-        # entry (for the source selector in the detail view).
-        self._entry_repos = {}
-        all_entries: dict = {}
-        for repo in manager:
-            try:
-                for e in repo.fetch_catalogue():
-                    all_entries[e.id] = e  # last-repo-wins
-                    self._entry_repos.setdefault(e.id, []).append(repo)
-            except RepoError as exc:
-                log.warning("Failed to fetch from %s: %s", repo.uri, exc)
-        entries = list(all_entries.values())
-
-        # Build per-repo app-ID sets to detect distinct repos (vs mirrors).
-        _repo_ids: dict[str, set[str]] = {}
-        for app_id, repos in self._entry_repos.items():
-            for repo in repos:
-                _repo_ids.setdefault(repo.uri, set()).add(app_id)
-        _seen: dict[frozenset[str], object] = {}
-        for repo in manager:
-            key = frozenset(_repo_ids.get(repo.uri, ()))
-            if key not in _seen:
-                _seen[key] = repo
-        self._distinct_repos = list(_seen.values())
-
-        # Map app_id → set of repo URIs for filter matching.
-        entry_repo_uris: dict[str, set[str]] = {
-            app_id: {r.uri for r in repos}
-            for app_id, repos in self._entry_repos.items()
-        }
-
-        # Determine offline repos and show/hide the banner.
-        # Exclude repos whose catalogue.json was removed (not a network issue).
-        offline_repos = [r for r in manager if r.is_offline and not r.is_catalogue_missing]
-        if offline_repos:
-            names = ", ".join(r.name for r in offline_repos)
-            noun = "Repository" if len(offline_repos) == 1 else "Repositories"
-            self.offline_banner.set_title(f"{noun} offline — showing installed apps only: {names}")
+        # Offline banner.
+        if data.offline_repos:
+            names = ", ".join(r.name for r in data.offline_repos)
+            noun = "Repository" if len(data.offline_repos) == 1 else "Repositories"
+            self.offline_banner.set_title(
+                f"{noun} offline — showing installed apps only: {names}",
+            )
             self.offline_banner.set_revealed(True)
         else:
             self.offline_banner.set_revealed(False)
 
-        # Track entries reachable only via offline repos.
-        self._offline_entry_ids = {
-            e.id for e in entries
-            if all(r.is_offline for r in self._entry_repos.get(e.id, []))
-        }
-
         try:
-            if entries:
-                # Build a resolver that picks the correct repo per asset.
-                # Asset paths are "apps/<app_id>/...", so we extract the app ID
-                # and look up the repo that actually carries it.
+            if data.entries:
                 _fallback_repo = (
-                    next((r for r in manager if not r.is_offline), None) or self._first_repo
+                    next((r for r in data.repos if not r.is_offline), None)
+                    or data.first_repo
                 )
 
                 def resolver(
-                    rel_path: str, *, _entry_repos=self._entry_repos, _fb=_fallback_repo,
+                    rel_path: str,
+                    *,
+                    _entry_repos=data.entry_repos,
+                    _fb=_fallback_repo,
                 ) -> str:
                     if not rel_path:
                         return ""
@@ -333,7 +404,6 @@ class CellarWindow(Adw.ApplicationWindow):
                     if len(parts) >= 2 and parts[0] == "apps":
                         app_id = parts[1]
                         repos = _entry_repos.get(app_id, [])
-                        # Prefer an online repo for this specific app.
                         repo = (
                             next((r for r in repos if not r.is_offline), None)
                             or (repos[0] if repos else _fb)
@@ -342,37 +412,31 @@ class CellarWindow(Adw.ApplicationWindow):
                         repo = _fb
                     return repo.resolve_asset_uri(rel_path) if repo else ""
 
-                installed_records: dict[str, dict] = {}
-                for e in entries:
-                    rec = _reconcile_installed_record(e)
-                    if rec is not None:
-                        installed_records[e.id] = rec
-
-                installed_entries = [e for e in entries if e.id in installed_records]
-                # Updates only for entries reachable online (can actually download).
+                installed_entries = [
+                    e for e in data.entries if e.id in data.installed_records
+                ]
                 update_entries = [
                     e for e in installed_entries
-                    if _has_update(installed_records[e.id], e)
-                    and e.id not in self._offline_entry_ids
+                    if _has_update(data.installed_records[e.id], e)
+                    and e.id not in data.offline_entry_ids
                 ]
-
-                # Explore: show all reachable entries + installed-from-offline entries.
                 explore_entries = [
-                    e for e in entries
-                    if e.id not in self._offline_entry_ids or e.id in installed_records
+                    e for e in data.entries
+                    if e.id not in data.offline_entry_ids
+                    or e.id in data.installed_records
                 ]
 
-                installed_ids = set(installed_records.keys())
+                installed_ids = set(data.installed_records.keys())
                 _load_kw = dict(
                     resolve_asset=resolver,
                     installed_ids=installed_ids,
-                    entry_repo_uris=entry_repo_uris,
+                    entry_repo_uris=data.entry_repo_uris,
                 )
                 self._browse_explore.load_entries(explore_entries, **_load_kw)
                 self._browse_installed.load_entries(installed_entries, **_load_kw)
                 self._browse_updates.load_entries(update_entries, **_load_kw)
                 self.updates_page.set_badge_number(len(update_entries))
-                self._rebuild_filter_popover(explore_entries, self._distinct_repos)
+                self._rebuild_filter_popover(explore_entries, data.distinct_repos)
             else:
                 self._browse_explore.show_error(
                     "Empty Catalogue",

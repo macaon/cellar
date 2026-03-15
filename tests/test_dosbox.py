@@ -13,6 +13,7 @@ from cellar.backend.dosbox import (
     GogDosboxInfo,
     MountCmd,
     detect_gog_dosbox,
+    detect_gog_dosbox_in_prefix,
     generate_overrides_conf,
     parse_gog_confs,
 )
@@ -140,6 +141,32 @@ class TestDetectGogDosbox:
         result = detect_gog_dosbox(tmp_path)
         assert result is not None
         assert result.game_name == "The Elder Scrolls II: Daggerfall"
+
+    def test_detects_dosbox_in_wineprefix(self, tmp_path: Path) -> None:
+        """detect_gog_dosbox_in_prefix should find DOSBox games inside drive_c."""
+        prefix = tmp_path / "prefix"
+        game_dir = prefix / "drive_c" / "GOG Games" / "Daggerfall"
+        game_dir.mkdir(parents=True)
+        _write_goggame_info(game_dir)
+        result = detect_gog_dosbox_in_prefix(prefix)
+        assert result is not None
+        folder, info = result
+        assert folder == game_dir
+        assert info.game_name == "The Elder Scrolls II: Daggerfall"
+
+    def test_prefix_without_dosbox_returns_none(self, tmp_path: Path) -> None:
+        """Non-DOSBox games in a prefix should return None."""
+        prefix = tmp_path / "prefix"
+        game_dir = prefix / "drive_c" / "GOG Games" / "SomeGame"
+        game_dir.mkdir(parents=True)
+        _write_goggame_info(
+            game_dir, game_id="999", dosbox_path="Game\\game.exe",
+            arguments="", working_dir="Game",
+        )
+        assert detect_gog_dosbox_in_prefix(prefix) is None
+
+    def test_prefix_no_drive_c_returns_none(self, tmp_path: Path) -> None:
+        assert detect_gog_dosbox_in_prefix(tmp_path) is None
 
     def test_url_tasks_ignored(self, tmp_path: Path) -> None:
         """URLTask entries (like support links) should not be considered."""

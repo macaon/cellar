@@ -205,6 +205,29 @@ def update_dosbox_staging(
 # ---------------------------------------------------------------------------
 
 
+def detect_gog_dosbox_in_prefix(prefix_path: Path) -> tuple[Path, GogDosboxInfo] | None:
+    """Scan a WINEPREFIX's ``drive_c`` for a GOG DOSBox game.
+
+    Searches all immediate subdirectories of common GOG install locations
+    (``drive_c/GOG Games/``, ``drive_c/Program Files/``, etc.) for
+    ``goggame-*.info`` files referencing DOSBox.
+
+    Returns ``(game_folder, info)`` or ``None``.
+    """
+    drive_c = prefix_path / "drive_c"
+    if not drive_c.is_dir():
+        return None
+
+    # Search all goggame-*.info files anywhere under drive_c
+    for info_file in drive_c.rglob("goggame-*.info"):
+        game_folder = info_file.parent
+        result = detect_gog_dosbox(game_folder)
+        if result is not None:
+            return (game_folder, result)
+
+    return None
+
+
 def detect_gog_dosbox(folder: Path) -> GogDosboxInfo | None:
     """Detect a GOG game that uses DOSBox from ``goggame-*.info`` files.
 

@@ -1742,6 +1742,11 @@ class PackageBuilderView(Adw.Bin):
             log.info("Installer exited ok=%s", ok)
             # Revert to normal "Choose…" button so user can run DLC/patches
             project.installer_path = ""
+
+            # Check if the installed game is a DOSBox game — offer conversion
+            if ok and self._check_dosbox_after_install(project):
+                return  # conversion flow takes over
+
             self._scan_entry_points_after_install(project, pre_exes)
             save_project(project)
             if self._project is project:
@@ -1831,6 +1836,11 @@ class PackageBuilderView(Adw.Bin):
 
         def _done(_ok):
             progress.force_close()
+
+            # Check if the imported folder is a DOSBox game — offer conversion
+            if self._check_dosbox_after_install(project):
+                return  # conversion flow takes over
+
             # Detect exe candidates for entry points
             from cellar.backend.detect import scan_prefix_exes
             from cellar.utils.paths import to_win32_path
@@ -3143,7 +3153,111 @@ class _NewProjectDialog(Adw.Dialog):
 
         run_in_background(work=_work, on_done=_done, on_error=_error)
 
-    # ── GOG DOSBox game conversion ────────────────────────────────────
+    # ── GOG DOSBox game detection and conversion ─────────────────────
+
+    def _check_dosbox_after_install(self, project: Project) -> bool:
+        """Check a WINEPREFIX for a GOG DOSBox game after installer/import.
+
+        If found, prompts the user and converts the project from Windows to
+        DOS.  Returns ``True`` if a DOSBox game was detected (conversion may
+        be pending user confirmation), ``False`` otherwise.
+        """
+        from cellar.backend.dosbox import detect_gog_dosbox_in_prefix
+
+        result = detect_gog_dosbox_in_prefix(project.content_path)
+        if result is None:
+            return False
+
+        game_folder, dosbox_info = result
+
+        dlg = Adw.AlertDialog(
+            heading="DOSBox game detected",
+            body=(
+                f""{dosbox_info.game_name}" uses DOSBox.\n\n"
+                "Convert to a native DOS package with DOSBox Staging? "
+                "This avoids running DOSBox through Wine."
+            ),
+        )
+        dlg.add_response("cancel", "Keep as Windows")
+        dlg.add_response("convert", "Convert to DOS")
+        dlg.set_response_appearance("convert", Adw.ResponseAppearance.SUGGESTED)
+        dlg.set_default_response("convert")
+        dlg.set_close_response("cancel")
+
+        def _on_response(_dlg, response):
+            if response == "convert":
+                self._convert_prefix_to_dos(project, game_folder, dosbox_info)
+            else:
+                # User chose to keep as Windows — proceed normally
+                from cellar.backend.detect import scan_prefix_exes
+                self._scan_entry_points_after_install(project)
+                save_project(project)
+                if self._project is project:
+                    self._show_project(project)
+
+        dlg.connect("response", _on_response)
+        dlg.present(self)
+        return True
+
+    def _convert_prefix_to_dos(
+        self, project: Project, game_folder: Path, dosbox_info,
+    ) -> None:
+        """Convert a Windows WINEPREFIX project to a DOS project.
+
+        Extracts the game files from the WINEPREFIX, strips Wine artifacts,
+        and runs the standard DOSBox conversion pipeline.
+        """
+        import tempfile
+
+        # The game files are inside the prefix at game_folder.
+        # We convert from that folder (not the whole prefix).
+        progress = ProgressDialog(label="Converting to DOS package\u2026")
+        progress.present(self)
+
+        def _work():
+            from cellar.backend.dosbox import convert_gog_dosbox
+
+            # Use a temp dir for the converted output, then replace the prefix
+            with tempfile.TemporaryDirectory() as tmp:
+                tmp_dest = Path(tmp) / "converted"
+                def _on_progress(downloaded, total):
+                    if total > 0:
+                        GLib.idle_add(progress.set_fraction, downloaded / total)
+                entry_points = convert_gog_dosbox(
+                    game_folder, tmp_dest, dosbox_info, progress_cb=_on_progress,
+                )
+
+                # Replace the prefix content with the converted game
+                content = project.content_path
+                shutil.rmtree(content, ignore_errors=True)
+                shutil.move(str(tmp_dest), str(content))
+
+            return entry_points
+
+        def _done(entry_points):
+            progress.force_close()
+            project.project_type = "dos"
+            project.source_dir = str(project.content_path)
+            project.initialized = True
+            project.runner = ""  # No Wine runner needed
+            if entry_points:
+                project.entry_points = entry_points
+            save_project(project)
+            if self._project is project:
+                self._show_project(project)
+            self._show_toast("Converted to DOS package")
+
+        def _error(msg):
+            progress.force_close()
+            log.error("DOSBox conversion failed: %s", msg)
+            err = Adw.AlertDialog(
+                heading="Conversion failed",
+                body=f"Could not convert to DOS package:\n{msg}",
+            )
+            err.add_response("ok", "OK")
+            err.present(self)
+
+        run_in_background(work=_work, on_done=_done, on_error=_error)
 
     def _convert_dosbox_game(self, project, src_path: Path, dosbox_info) -> None:
         """Convert a GOG DOSBox Windows game to native Linux DOSBox Staging."""

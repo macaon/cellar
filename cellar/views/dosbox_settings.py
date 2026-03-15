@@ -199,7 +199,7 @@ class DosboxSettingsDialog(Adw.Dialog):
         # GUS
         gus = Adw.SwitchRow(
             title="Gravis UltraSound",
-            subtitle="Enable GUS emulation",
+            subtitle="Requires UltraSound patches in the game directory",
         )
         gus.set_active(self._read("gus", "gus") == "true")
         gus.connect("notify::active", lambda r, _: self._set(
@@ -326,9 +326,7 @@ class DosboxSettingsDialog(Adw.Dialog):
             btn = Gtk.Button(icon_name="document-edit-symbolic", valign=Gtk.Align.CENTER)
             btn.add_css_class("flat")
             btn.set_tooltip_text("Open in text editor")
-            btn.connect("clicked", lambda _: Gio.AppInfo.launch_default_for_uri(
-                self._conf.as_uri(), None,
-            ))
+            btn.connect("clicked", self._on_edit_overrides_clicked)
             row.add_suffix(btn)
             group.add(row)
 
@@ -393,8 +391,10 @@ class DosboxSettingsDialog(Adw.Dialog):
         """Show/hide SoundFont and MT-32 rows based on MIDI device."""
         if not hasattr(self, "_sf_row"):
             return
-        show_sf = device in ("auto", "fluidsynth")
-        show_rom = device in ("auto", "mt32")
+        # Empty string = no override = DOSBox defaults to "auto"
+        effective = device if device else "auto"
+        show_sf = effective in ("auto", "fluidsynth")
+        show_rom = effective in ("auto", "mt32")
         self._sf_row.set_visible(show_sf)
         self._rom_row.set_visible(show_rom)
 
@@ -402,13 +402,28 @@ class DosboxSettingsDialog(Adw.Dialog):
     # Save
     # ------------------------------------------------------------------
 
-    def _on_save_clicked(self, _btn) -> None:
+    def _flush_pending(self) -> None:
+        """Write any staged changes to disk immediately."""
         if self._pending:
             write_overrides_batch(self._conf, self._pending)
             self._pending.clear()
+
+    def _on_save_clicked(self, _btn) -> None:
+        self._flush_pending()
         self.close()
         if self._on_saved:
             self._on_saved()
+
+    def _on_edit_overrides_clicked(self, _btn) -> None:
+        """Flush pending changes, then open overrides conf in text editor.
+
+        This ensures the file reflects the current dialog state before the
+        user edits it manually.  After this point the dialog's Save button
+        becomes a no-op (nothing pending), and any further GUI changes will
+        layer on top of the manual edits.
+        """
+        self._flush_pending()
+        Gio.AppInfo.launch_default_for_uri(self._conf.as_uri(), None)
 
     # ------------------------------------------------------------------
     # Asset management

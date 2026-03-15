@@ -78,6 +78,21 @@ def to_win32_path(abs_path: str, drive_c: str) -> str:
         return abs_path
 
 
+def dosbox_conf() -> Path:
+    """Return the path to the base DOSBox Staging configuration file.
+
+    Checked in the source tree first, then installed data directories.
+    """
+    candidates = (
+        [_SRC_DATA / "dosbox-staging.conf", _PKG_DATA / "dosbox-staging.conf"]
+        + [d / "dosbox-staging.conf" for d in _installed_data_dirs()]
+    )
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return _SRC_DATA / "dosbox-staging.conf"
+
+
 def ui_file(name: str) -> str:
     """Return the absolute path string for a UI template file.
 

@@ -297,6 +297,7 @@ class PackageBuilderView(Adw.Bin):
         dialog = _NewProjectDialog(
             on_windows=self._on_new_windows,
             on_linux=lambda: self._on_new_linux_clicked(None),
+            on_dos=lambda: self._on_new_dos_clicked(None),
             on_base=lambda: self._on_new_base_clicked(None),
             on_import=self._on_project_created,
             parent_view=self,
@@ -313,6 +314,12 @@ class PackageBuilderView(Adw.Bin):
     def _on_new_linux_clicked(self, _btn) -> None:
         dialog = MetadataEditorDialog(
             context=ProjectContext(project_type="linux"), on_created=self._on_project_created,
+        )
+        dialog.present(self)
+
+    def _on_new_dos_clicked(self, _btn) -> None:
+        dialog = MetadataEditorDialog(
+            context=ProjectContext(project_type="dos"), on_created=self._on_project_created,
         )
         dialog.present(self)
 
@@ -466,7 +473,7 @@ class PackageBuilderView(Adw.Bin):
                     project = Project(
                         name=entry.name,
                         slug=slug,
-                        project_type="app" if entry.platform == "windows" else "linux",
+                        project_type={"windows": "app", "linux": "linux", "dos": "dos"}.get(entry.platform, "app"),
                         runner=entry.base_image,
                         entry_points=[dict(t) for t in entry.launch_targets],
                         steam_appid=entry.steam_appid,
@@ -527,7 +534,7 @@ class PackageBuilderView(Adw.Bin):
                             log.warning("Could not download screenshot %s", ss_rel)
                     project.screenshot_paths = screenshot_paths
 
-                    if project.project_type == "linux":
+                    if project.project_type in ("linux", "dos"):
                         project.source_dir = str(project.content_path)
 
                     save_project(project)
@@ -736,7 +743,7 @@ class PackageBuilderView(Adw.Bin):
 
     def _show_project(self, project: Project, *, expand_sel: bool = False) -> None:
         """Build a detail page for *project* and push it onto the nav stack."""
-        _type_labels = {"app": "Windows App", "linux": "Linux App", "base": "Base Image"}
+        _type_labels = {"app": "Windows App", "linux": "Linux App", "dos": "DOS App", "base": "Base Image"}
 
         # Build toolbar with header
         toolbar = Adw.ToolbarView()
@@ -833,7 +840,7 @@ class PackageBuilderView(Adw.Bin):
             page.add(meta_group)
 
         # ── 2. Runner / Base Image (Windows packages only) ────────────────
-        if project.project_type != "linux":
+        if project.project_type not in ("linux", "dos"):
             sel_group = Adw.PreferencesGroup()
             if project.project_type == "base":
                 sel_group_title = "Runner"
@@ -889,7 +896,7 @@ class PackageBuilderView(Adw.Bin):
             page.add(name_group)
 
         # ── 3. Prefix (Windows / Base only) ───────────────────────────────
-        if project.project_type != "linux":
+        if project.project_type not in ("linux", "dos"):
             prefix_group = Adw.PreferencesGroup(title="Prefix")
             prefix_exists = project.content_path.is_dir()
             status_text = "Initialized" if (prefix_exists and project.initialized) else (
@@ -995,8 +1002,8 @@ class PackageBuilderView(Adw.Bin):
 
             page.add(targets_group)
 
-        # ── 5b. Source Folder + Launch Targets (Linux only) ───────────────
-        elif project.project_type == "linux":
+        # ── 5b. Source Folder + Launch Targets (Linux / DOS) ──────────────
+        elif project.project_type in ("linux", "dos"):
             _linux_ready = bool(project.source_dir) and Path(project.source_dir).is_dir()
             src_group = Adw.PreferencesGroup(title="Source Folder")
 
@@ -1046,8 +1053,27 @@ class PackageBuilderView(Adw.Bin):
 
             page.add(targets_group)
 
+        # ── 5c. DOSBox Settings (DOS only) ───────────────────────────────
+        if project.project_type == "dos" and project.source_dir:
+            _src = Path(project.source_dir)
+            dos_group = Adw.PreferencesGroup(title="DOSBox Staging")
+
+            _settings_row = Adw.ActionRow(
+                title="DOSBox Settings\u2026",
+                subtitle="Display, CPU, sound, MIDI, mixer effects, and config files",
+                activatable=True,
+            )
+            _settings_btn = Gtk.Button(label="Open\u2026", valign=Gtk.Align.CENTER)
+            _settings_btn.connect("clicked", self._on_dosbox_settings_clicked)
+            _settings_row.add_suffix(_settings_btn)
+            _settings_row.add_suffix(Gtk.Image.new_from_icon_name("go-next-symbolic"))
+            _settings_row.set_activatable_widget(_settings_btn)
+            dos_group.add(_settings_row)
+
+            page.add(dos_group)
+
         # ── 6. Dependencies (Windows / Base only) ─────────────────────────
-        if project.project_type != "linux":
+        if project.project_type not in ("linux", "dos"):
             dep_group = Adw.PreferencesGroup(title="Dependencies")
             for verb in project.deps_installed:
                 row = Adw.ActionRow(title=verb)
@@ -1094,17 +1120,17 @@ class PackageBuilderView(Adw.Bin):
 
         pkg_group = Adw.PreferencesGroup(title="Publish")
 
-        if project.project_type in ("app", "linux"):
+        if project.project_type in ("app", "linux", "dos"):
             _ready = (
                 bool(project.source_dir) and Path(project.source_dir).is_dir()
-                if project.project_type == "linux"
+                if project.project_type in ("linux", "dos")
                 else project.initialized
             )
 
             # Build a list of missing prerequisites for informative subtitles
             _missing: list[str] = []
             if not _ready:
-                _missing.append("initialize prefix" if project.project_type != "linux"
+                _missing.append("initialize prefix" if project.project_type not in ("linux", "dos")
                                 else "set source folder")
             if not project.entry_points:
                 _missing.append("add a launch target")
@@ -1495,7 +1521,7 @@ class PackageBuilderView(Adw.Bin):
         if self._project is None:
             return
         project = self._project
-        if project.project_type == "linux":
+        if project.project_type in ("linux", "dos"):
             project.content_path.mkdir(parents=True, exist_ok=True)
             self._on_init_done(project, True)
             return
@@ -1735,6 +1761,11 @@ class PackageBuilderView(Adw.Bin):
             log.info("Installer exited ok=%s", ok)
             # Revert to normal "Choose…" button so user can run DLC/patches
             project.installer_path = ""
+
+            # Check if the installed game is a DOSBox game — offer conversion
+            if ok and self._check_dosbox_after_install(project):
+                return  # conversion flow takes over
+
             self._scan_entry_points_after_install(project, pre_exes)
             save_project(project)
             if self._project is project:
@@ -1824,6 +1855,11 @@ class PackageBuilderView(Adw.Bin):
 
         def _done(_ok):
             progress.force_close()
+
+            # Check if the imported folder is a DOSBox game — offer conversion
+            if self._check_dosbox_after_install(project):
+                return  # conversion flow takes over
+
             # Detect exe candidates for entry points
             from cellar.backend.detect import scan_prefix_exes
             from cellar.utils.paths import to_win32_path
@@ -1940,7 +1976,7 @@ class PackageBuilderView(Adw.Bin):
     def _on_browse_prefix_clicked(self, _btn) -> None:
         if self._project is None:
             return
-        if self._project.project_type == "linux":
+        if self._project.project_type in ("linux", "dos"):
             target = Path(self._project.source_dir) if self._project.source_dir else None
         else:
             target = self._project.content_path / "drive_c"
@@ -1970,12 +2006,12 @@ class PackageBuilderView(Adw.Bin):
         if self._project is None:
             return
         project = self._project
-        if project.project_type == "linux":
+        if project.project_type in ("linux", "dos"):
             if not project.source_dir:
                 self._show_toast("Choose a source folder first.")
                 return
             content_path = Path(project.source_dir)
-            platform = "linux"
+            platform = project.project_type
         else:
             content_path = project.content_path
             platform = "windows"
@@ -2015,7 +2051,7 @@ class PackageBuilderView(Adw.Bin):
         if self._project is None:
             return
         project = self._project
-        if project.project_type != "linux" and not project.initialized:
+        if project.project_type not in ("linux", "dos") and not project.initialized:
             self._show_toast("Initialize the prefix before test launching.")
             return
         if not project.entry_points:
@@ -2052,6 +2088,58 @@ class PackageBuilderView(Adw.Bin):
         entry_args = ep.get("args", "")
         if not entry_path:
             self._show_toast("Launch target has no executable path.")
+            return
+        if project.project_type == "dos":
+            if not project.source_dir:
+                self._show_toast("Set a source folder first.")
+                return
+            import shlex
+
+            from cellar.backend.umu import is_cellar_sandboxed
+            game_dir = Path(project.source_dir)
+            dosbox_bin = game_dir / "dosbox" / "dosbox"
+            if not dosbox_bin.is_file():
+                self._show_toast("DOSBox Staging binary not found. Re-convert the project.")
+                return
+            cmd = [
+                str(dosbox_bin),
+                "--noprimaryconf",
+                "-conf", str(game_dir / "config" / "dosbox-staging.conf"),
+                "-conf", str(game_dir / "config" / "dosbox-overrides.conf"),
+            ]
+            # Generate target-specific conf to override autoexec game command
+            tmp_conf = None
+            if entry_path:
+                import tempfile
+                game_cmd = entry_path
+                if entry_args:
+                    game_cmd += f" {entry_args}"
+                tmp = tempfile.NamedTemporaryFile(
+                    mode="w", suffix=".conf", prefix="cellar-dos-",
+                    delete=False, dir=str(game_dir / "config"),
+                )
+                tmp.write("[dosbox]\nautoexec_section = overwrite\n\n")
+                tmp.write("[autoexec]\n")
+                tmp.write('mount C "."\n')
+                tmp.write("C:\n")
+                nounivbe = game_dir / "nounivbe" / "NOUNIVBE.EXE"
+                if nounivbe.is_file():
+                    tmp.write("nounivbe\\NOUNIVBE.EXE\n")
+                tmp.write(f"{game_cmd}\n")
+                tmp.write("EXIT\n")
+                tmp.close()
+                tmp_conf = Path(tmp.name)
+                cmd += ["-conf", str(tmp_conf)]
+            if is_cellar_sandboxed():
+                cmd = ["flatpak-spawn", "--host"] + cmd
+            subprocess.Popen(cmd, cwd=str(game_dir), start_new_session=True)
+            # Clean up temp conf after a delay (DOSBox has read it by then)
+            if tmp_conf:
+                import time
+                threading.Thread(
+                    target=lambda p=tmp_conf: (time.sleep(5), p.unlink(missing_ok=True)),
+                    daemon=True,
+                ).start()
             return
         if project.project_type == "linux":
             if not project.source_dir:
@@ -2095,16 +2183,16 @@ class PackageBuilderView(Adw.Bin):
         if self._project is None:
             return
         project = self._project
-        if project.project_type != "linux" and not project.initialized:
+        if project.project_type not in ("linux", "dos") and not project.initialized:
             self._show_toast("Initialize the prefix before publishing.")
             return
         if not project.entry_point:
             self._show_toast("Add a launch target before publishing.")
             return
-        if project.project_type == "linux" and not project.source_dir:
+        if project.project_type in ("linux", "dos") and not project.source_dir:
             self._show_toast("Choose a source folder before publishing.")
             return
-        if project.project_type != "linux" and not project.runner:
+        if project.project_type not in ("linux", "dos") and not project.runner:
             what = "a base image" if project.project_type == "app" else "a runner"
             self._show_toast(f"Select {what} before publishing.")
             return
@@ -2126,7 +2214,7 @@ class PackageBuilderView(Adw.Bin):
 
     def _do_publish_app(self, project: Project, repo) -> None:
         _src_path = (
-            Path(project.source_dir) if project.project_type == "linux" else project.content_path
+            Path(project.source_dir) if project.project_type in ("linux", "dos") else project.content_path
         )
 
         # Build AppEntry from project metadata.
@@ -2159,7 +2247,7 @@ class PackageBuilderView(Adw.Bin):
             archive=f"apps/{_slug}/{_slug}.tar.zst",
             launch_targets=tuple(project.entry_points),
             update_strategy="safe",
-            platform="linux" if project.project_type == "linux" else "windows",
+            platform={"linux": "linux", "dos": "dos"}.get(project.project_type, "windows"),
         )
         images: dict = {}
         if project.icon_path:
@@ -2279,7 +2367,7 @@ class PackageBuilderView(Adw.Bin):
 
             try:
                 _reset_phase("Compressing and uploading\u2026")
-                if project.project_type == "linux":
+                if project.project_type in ("linux", "dos"):
                     _partial_dest = archive_dest
                     size, crc32, chunks = compress_prefix_zst(
                         _src_path,
@@ -2672,6 +2760,397 @@ class PackageBuilderView(Adw.Bin):
         if hasattr(win, "toast_overlay"):
             win.toast_overlay.add_toast(Adw.Toast(title=message))
 
+    def _on_dosbox_settings_clicked(self, _btn) -> None:
+        """Open the DOSBox Settings dialog for the current DOS project."""
+        if self._project is None or not self._project.source_dir:
+            return
+        from cellar.views.dosbox_settings import DosboxSettingsDialog
+
+        src = Path(self._project.source_dir)
+        DosboxSettingsDialog(
+            config_dir=src / "config",
+            assets_dir=src / "assets",
+            on_saved=lambda: self._show_project(self._project) if self._project else None,
+        ).present(self)
+
+    # ── DOS config helpers ─────────────────────────────────────────
+
+    def _get_dosbox_override(self, project: Project, section: str, key: str) -> str:
+        """Read a value from dosbox-overrides.conf, or empty string."""
+        if not project.source_dir:
+            return ""
+        conf = Path(project.source_dir) / "config" / "dosbox-overrides.conf"
+        if not conf.is_file():
+            return ""
+        import configparser
+        text = conf.read_text(encoding="utf-8", errors="replace")
+        # Strip autoexec for configparser
+        from cellar.backend.dosbox import _strip_autoexec
+        parser = configparser.ConfigParser(interpolation=None)
+        parser.read_string(_strip_autoexec(text))
+        if parser.has_section(section) and parser.has_option(section, key):
+            return parser.get(section, key).strip()
+        return ""
+
+    def _set_dosbox_override(self, project: Project, section: str, key: str, value: str) -> None:
+        """Set a value in dosbox-overrides.conf, creating the section if needed."""
+        if not project.source_dir:
+            return
+        conf = Path(project.source_dir) / "config" / "dosbox-overrides.conf"
+        if not conf.is_file():
+            return
+        text = conf.read_text(encoding="utf-8", errors="replace")
+        lines = text.splitlines()
+        new_lines: list[str] = []
+        in_target = False
+        key_written = False
+
+        for line in lines:
+            stripped = line.strip().lower()
+            if stripped.startswith("[") and stripped.endswith("]"):
+                # Leaving a section — if we were in target and didn't write, insert now
+                if in_target and not key_written:
+                    new_lines.append(f"{key} = {value}")
+                    key_written = True
+                in_target = (stripped == f"[{section}]")
+                new_lines.append(line)
+                continue
+            if in_target and stripped.startswith(f"{key.lower()}"):
+                new_lines.append(f"{key} = {value}")
+                key_written = True
+                continue
+            new_lines.append(line)
+
+        if in_target and not key_written:
+            new_lines.append(f"{key} = {value}")
+            key_written = True
+
+        # Section doesn't exist yet — add it before [autoexec]
+        if not key_written:
+            autoexec_idx = None
+            for i, line in enumerate(new_lines):
+                if line.strip().lower() == "[autoexec]":
+                    autoexec_idx = i
+                    break
+            insert = [f"\n[{section}]", f"{key} = {value}"]
+            if autoexec_idx is not None:
+                for j, il in enumerate(insert):
+                    new_lines.insert(autoexec_idx + j, il)
+            else:
+                new_lines.extend(insert)
+
+        conf.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+
+    def _on_dosbox_fullscreen_toggled(self, row, _pspec) -> None:
+        if self._project is None:
+            return
+        self._set_dosbox_override(
+            self._project, "sdl", "fullscreen",
+            "true" if row.get_active() else "false",
+        )
+
+    # ── DOS audio asset management ──────────────────────────────────
+
+    def _on_add_dos_asset_clicked(self, _btn) -> None:
+        """Browse for SoundFont or MT-32 ROM files to add to the DOS project."""
+        if self._project is None or self._project.project_type != "dos":
+            return
+        chooser = Gtk.FileChooserNative(
+            title="Select SoundFont or MT-32 ROM Files",
+            transient_for=self.get_root(),
+            action=Gtk.FileChooserAction.OPEN,
+            accept_label="Add",
+        )
+        chooser.set_select_multiple(True)
+
+        audio_filter = Gtk.FileFilter()
+        audio_filter.set_name("SoundFonts & ROMs (*.sf2, *.sf3, *.rom)")
+        audio_filter.add_pattern("*.sf2")
+        audio_filter.add_pattern("*.SF2")
+        audio_filter.add_pattern("*.sf3")
+        audio_filter.add_pattern("*.SF3")
+        audio_filter.add_pattern("*.rom")
+        audio_filter.add_pattern("*.ROM")
+        chooser.add_filter(audio_filter)
+
+        all_filter = Gtk.FileFilter()
+        all_filter.set_name("All files")
+        all_filter.add_pattern("*")
+        chooser.add_filter(all_filter)
+
+        chooser.connect("response", self._on_dos_asset_chosen, chooser)
+        chooser.show()
+        self._asset_chooser = chooser
+
+    def _on_dos_asset_chosen(self, _c, response, chooser) -> None:
+        if response != Gtk.ResponseType.ACCEPT or self._project is None:
+            return
+        project = self._project
+        src_dir = Path(project.source_dir)
+        files = chooser.get_files()
+
+        added_sf = False
+        added_rom = False
+
+        for gfile in files:
+            path = Path(gfile.get_path())
+            suffix = path.suffix.lower()
+
+            if suffix in (".sf2", ".sf3"):
+                dest_dir = src_dir / "assets" / "soundfonts"
+                dest_dir.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(path, dest_dir / path.name)
+                added_sf = True
+            elif suffix == ".rom":
+                dest_dir = src_dir / "assets" / "mt32-roms"
+                dest_dir.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(path, dest_dir / path.name)
+                added_rom = True
+
+        # Auto-update DOSBox overrides config
+        if added_sf or added_rom:
+            self._update_dosbox_audio_config(project, added_sf, added_rom)
+            save_project(project)
+            self._show_project(project)
+
+        if added_sf and added_rom:
+            self._show_toast("Added SoundFont and MT-32 ROMs")
+        elif added_sf:
+            self._show_toast("Added SoundFont")
+        elif added_rom:
+            self._show_toast("Added MT-32 ROMs")
+
+    def _on_remove_dos_asset(self, _btn, project: Project, asset_path: Path) -> None:
+        """Remove a single audio asset file and update config."""
+        if not asset_path.is_file():
+            return
+        asset_path.unlink()
+        # Check if any soundfonts/roms remain
+        sf_dir = Path(project.source_dir) / "assets" / "soundfonts"
+        rom_dir = Path(project.source_dir) / "assets" / "mt32-roms"
+        has_sf = sf_dir.is_dir() and any(sf_dir.iterdir())
+        has_rom = rom_dir.is_dir() and any(rom_dir.iterdir())
+        self._update_dosbox_audio_config(project, has_sf, has_rom, remove_missing=True)
+        save_project(project)
+        self._show_project(project)
+        self._show_toast(f"Removed {asset_path.name}")
+
+    def _on_remove_dos_asset_dir(self, _btn, project: Project, dir_path: Path) -> None:
+        """Remove an entire asset directory (e.g. mt32-roms) and update config."""
+        if dir_path.is_dir():
+            shutil.rmtree(dir_path)
+        sf_dir = Path(project.source_dir) / "assets" / "soundfonts"
+        has_sf = sf_dir.is_dir() and any(sf_dir.iterdir())
+        self._update_dosbox_audio_config(project, has_sf, False, remove_missing=True)
+        save_project(project)
+        self._show_project(project)
+        self._show_toast("Removed MT-32 ROMs")
+
+    def _update_dosbox_audio_config(
+        self,
+        project: Project,
+        has_soundfont: bool,
+        has_mt32: bool,
+        *,
+        remove_missing: bool = False,
+    ) -> None:
+        """Update dosbox-overrides.conf with audio asset paths.
+
+        When *remove_missing* is True, removes config entries for asset types
+        that are no longer present.
+        """
+        overrides_path = Path(project.source_dir) / "config" / "dosbox-overrides.conf"
+        if not overrides_path.is_file():
+            return
+
+        text = overrides_path.read_text(encoding="utf-8")
+        lines = text.splitlines()
+        new_lines: list[str] = []
+
+        # Track which sections/keys we've seen
+        in_section = ""
+        midi_written = False
+        fluidsynth_written = False
+        mt32_written = False
+
+        # Strip existing audio config lines — we'll re-add them
+        for line in lines:
+            stripped = line.strip().lower()
+            if stripped.startswith("[") and stripped.endswith("]"):
+                in_section = stripped[1:-1]
+
+            # Remove existing midi/fluidsynth/mt32 lines we manage
+            if in_section == "midi" and stripped.startswith("mididevice"):
+                continue
+            if in_section == "fluidsynth" and stripped.startswith("soundfont"):
+                continue
+            if in_section == "mt32" and stripped.startswith("romdir"):
+                continue
+            # Remove empty section headers for sections we manage
+            if stripped in ("[fluidsynth]", "[mt32]"):
+                # Skip — we'll re-add if needed
+                continue
+            if stripped == "[midi]":
+                continue
+
+            new_lines.append(line)
+
+        # Remove trailing blank lines
+        while new_lines and not new_lines[-1].strip():
+            new_lines.pop()
+
+        # Add audio config at the end (before [autoexec] if present)
+        autoexec_idx = None
+        for i, line in enumerate(new_lines):
+            if line.strip().lower() == "[autoexec]":
+                autoexec_idx = i
+                break
+
+        audio_lines: list[str] = []
+
+        if has_soundfont:
+            sf_dir = Path(project.source_dir) / "assets" / "soundfonts"
+            sfs = sorted(sf_dir.glob("*.sf[23]")) if sf_dir.is_dir() else []
+            if sfs:
+                audio_lines.append("")
+                audio_lines.append("[midi]")
+                audio_lines.append("mididevice = fluidsynth")
+                audio_lines.append("")
+                audio_lines.append("[fluidsynth]")
+                audio_lines.append(f"soundfont = assets/soundfonts/{sfs[0].name}")
+        elif has_mt32:
+            audio_lines.append("")
+            audio_lines.append("[midi]")
+            audio_lines.append("mididevice = mt32")
+            audio_lines.append("")
+            audio_lines.append("[mt32]")
+            audio_lines.append("romdir = assets/mt32-roms")
+
+        if audio_lines:
+            if autoexec_idx is not None:
+                for i, al in enumerate(audio_lines):
+                    new_lines.insert(autoexec_idx + i, al)
+            else:
+                new_lines.extend(audio_lines)
+
+        new_lines.append("")  # trailing newline
+        overrides_path.write_text("\n".join(new_lines), encoding="utf-8")
+
+    def _open_file_in_editor(self, path: Path | None) -> None:
+        """Open a file in the default text editor via xdg-open."""
+        if path is None or not path.is_file():
+            return
+        Gio.AppInfo.launch_default_for_uri(path.as_uri(), None)
+
+    def _open_folder(self, path: Path | None) -> None:
+        """Open a folder in the default file manager."""
+        if path is None or not path.is_dir():
+            return
+        Gio.AppInfo.launch_default_for_uri(path.as_uri(), None)
+
+    # ── GOG DOSBox game detection and conversion ─────────────────────
+
+    def _check_dosbox_after_install(self, project: Project) -> bool:
+        """Check a WINEPREFIX for a GOG DOSBox game after installer/import.
+
+        If found, prompts the user and converts the project from Windows to
+        DOS.  Returns ``True`` if a DOSBox game was detected (conversion may
+        be pending user confirmation), ``False`` otherwise.
+        """
+        from cellar.backend.dosbox import detect_gog_dosbox_in_prefix
+
+        result = detect_gog_dosbox_in_prefix(project.content_path)
+        if result is None:
+            return False
+
+        game_folder, dosbox_info = result
+
+        dlg = Adw.AlertDialog(
+            heading="DOSBox game detected",
+            body=(
+                f'"{dosbox_info.game_name}" uses DOSBox.\n\n'
+                "Convert to a native DOS package with DOSBox Staging? "
+                "This avoids running DOSBox through Wine."
+            ),
+        )
+        dlg.add_response("cancel", "Keep as Windows")
+        dlg.add_response("convert", "Convert to DOS")
+        dlg.set_response_appearance("convert", Adw.ResponseAppearance.SUGGESTED)
+        dlg.set_default_response("convert")
+        dlg.set_close_response("cancel")
+
+        def _on_response(_dlg, response):
+            if response == "convert":
+                self._convert_prefix_to_dos(project, game_folder, dosbox_info)
+            else:
+                # User chose to keep as Windows — proceed normally
+                self._scan_entry_points_after_install(project)
+                save_project(project)
+                if self._project is project:
+                    self._show_project(project)
+
+        dlg.connect("response", _on_response)
+        dlg.present(self)
+        return True
+
+    def _convert_prefix_to_dos(
+        self, project: Project, game_folder: Path, dosbox_info,
+    ) -> None:
+        """Convert a Windows WINEPREFIX project to a DOS project.
+
+        Extracts the game files from the WINEPREFIX, strips Wine artifacts,
+        and runs the standard DOSBox conversion pipeline.
+        """
+        import tempfile
+
+        progress = ProgressDialog(label="Converting to DOS package\u2026")
+        progress.present(self)
+
+        def _work():
+            from cellar.backend.dosbox import convert_gog_dosbox
+
+            with tempfile.TemporaryDirectory() as tmp:
+                tmp_dest = Path(tmp) / "converted"
+                def _on_progress(downloaded, total):
+                    if total > 0:
+                        GLib.idle_add(progress.set_fraction, downloaded / total)
+                entry_points = convert_gog_dosbox(
+                    game_folder, tmp_dest, dosbox_info, progress_cb=_on_progress,
+                )
+
+                content = project.content_path
+                shutil.rmtree(content, ignore_errors=True)
+                shutil.move(str(tmp_dest), str(content))
+
+            return entry_points
+
+        def _done(entry_points):
+            progress.force_close()
+            project.project_type = "dos"
+            project.source_dir = str(project.content_path)
+            project.initialized = True
+            project.runner = ""
+            if entry_points:
+                project.entry_points = entry_points
+            save_project(project)
+            # Reload project list so the card icon/label updates
+            self._reload_projects()
+            if self._project is project:
+                self._show_project(project)
+            self._show_toast("Converted to DOS package")
+
+        def _error(msg):
+            progress.force_close()
+            log.error("DOSBox conversion failed: %s", msg)
+            err = Adw.AlertDialog(
+                heading="Conversion failed",
+                body=f"Could not convert to DOS package:\n{msg}",
+            )
+            err.add_response("ok", "OK")
+            err.present(self)
+
+        run_in_background(work=_work, on_done=_done, on_error=_error)
+
 
 # ---------------------------------------------------------------------------
 # Helper widgets
@@ -2685,9 +3164,10 @@ _ICON_MARGIN = 22
 _TYPE_ICONS = {
     "base": "package-x-generic-symbolic",
     "linux": "penguin-alt-symbolic",
+    "dos": "floppy-symbolic",
     "app": "grid-large-symbolic",
 }
-_TYPE_LABELS = {"app": "Proton App", "linux": "Native App", "base": "Base Image"}
+_TYPE_LABELS = {"app": "Proton App", "linux": "Native App", "dos": "DOS App", "base": "Base Image"}
 
 # Map internal project_type / kind values to filter-pill identifiers.
 _FILTER_TYPE_PROTON = "proton"
@@ -2698,7 +3178,7 @@ def _resolve_filter_type(project_type: str, platform: str = "windows") -> str:
     """Return the filter-pill type id for a project type + platform combo."""
     if project_type == "base":
         return _FILTER_TYPE_BASE
-    if project_type == "linux" or platform == "linux":
+    if project_type in ("linux", "dos") or platform in ("linux", "dos"):
         return _FILTER_TYPE_NATIVE
     return _FILTER_TYPE_PROTON
 
@@ -2711,6 +3191,7 @@ class _NewProjectDialog(Adw.Dialog):
         *,
         on_windows: Callable[[], None],
         on_linux: Callable[[], None],
+        on_dos: Callable[[], None],
         on_base: Callable[[], None],
         on_import: Callable,
         parent_view,
@@ -2718,6 +3199,7 @@ class _NewProjectDialog(Adw.Dialog):
         super().__init__(title="New Project", content_width=420, content_height=520)
         self._on_windows = on_windows
         self._on_linux = on_linux
+        self._on_dos = on_dos
         self._on_base = on_base
         self._on_import = on_import
         self._parent_view = parent_view
@@ -2857,6 +3339,16 @@ class _NewProjectDialog(Adw.Dialog):
         linux_row.connect("activated", self._on_linux_activated)
         group.add(linux_row)
 
+        dos_row = Adw.ActionRow(
+            title="DOS Package",
+            subtitle="DOS game with DOSBox Staging",
+            activatable=True,
+        )
+        dos_row.add_prefix(Gtk.Image.new_from_icon_name("floppy-symbolic"))
+        dos_row.add_suffix(Gtk.Image.new_from_icon_name("go-next-symbolic"))
+        dos_row.connect("activated", self._on_dos_activated)
+        group.add(dos_row)
+
         base_row = Adw.ActionRow(
             title="Base Image",
             subtitle="Reusable Wine runtime for Proton packages",
@@ -2963,6 +3455,17 @@ class _NewProjectDialog(Adw.Dialog):
         app_name = parse_app_name(path)
         version = parse_version_hint(path)
 
+        # Check for GOG DOSBox game — auto-convert to DOS platform
+        self._dosbox_info = None
+        if platform == "windows" and path.is_dir():
+            from cellar.backend.dosbox import detect_gog_dosbox
+            dosbox_info = detect_gog_dosbox(path)
+            if dosbox_info is not None:
+                platform = "dos"
+                self._dosbox_info = dosbox_info
+                if dosbox_info.game_name:
+                    app_name = dosbox_info.game_name
+
         # Check for GoG gameinfo — inside folders or GOG .sh installers
         if path.is_dir():
             gi = find_gameinfo(path)
@@ -3015,13 +3518,17 @@ class _NewProjectDialog(Adw.Dialog):
         """Open the standard MetadataEditorDialog with smart-import pre-fill."""
         from cellar.backend.detect import find_linux_executables
 
-        project_type = "linux" if platform == "linux" else "app"
+        project_type = {"linux": "linux", "dos": "dos"}.get(platform, "app")
         ctx = ProjectContext(project_type=project_type)
 
         def _on_created(project):
             # Post-creation: set import-specific fields on the project
             changed = False
-            if platform == "windows" and path.is_file():
+            if platform == "dos" and path.is_dir() and hasattr(self, '_dosbox_info') and self._dosbox_info:
+                # GOG DOSBox game: convert to native Linux DOSBox in background
+                self._convert_dosbox_game(project, path, self._dosbox_info)
+                return  # _convert_dosbox_game calls _on_import when done
+            elif platform == "windows" and path.is_file():
                 # .exe import: store installer path
                 project.installer_path = str(path)
                 changed = True
@@ -3029,8 +3536,8 @@ class _NewProjectDialog(Adw.Dialog):
                 # GOG Linux installer: extract in background (can be multi-GB)
                 self._extract_gog_installer(project, path)
                 return  # _extract_gog_installer calls _on_import when done
-            elif platform == "linux" and path.is_dir():
-                # Linux folder: set source_dir and detect entry points
+            elif platform in ("linux", "dos") and path.is_dir():
+                # Linux/DOS folder: set source_dir and detect entry points
                 project.source_dir = str(path)
                 project.initialized = True
                 candidates = find_linux_executables(path)
@@ -3108,6 +3615,45 @@ class _NewProjectDialog(Adw.Dialog):
 
         run_in_background(work=_work, on_done=_done, on_error=_error)
 
+    def _convert_dosbox_game(self, project, src_path: Path, dosbox_info) -> None:
+        """Convert a GOG DOSBox Windows game to native Linux DOSBox Staging."""
+        from cellar.backend.dosbox import convert_gog_dosbox
+
+        content = project.content_path
+        content.mkdir(parents=True, exist_ok=True)
+
+        progress = ProgressDialog(label="Setting up DOS game\u2026")
+        progress.present(self._parent_view)
+
+        def _work():
+            def _on_progress(downloaded, total):
+                if total > 0:
+                    GLib.idle_add(progress.set_fraction, downloaded / total)
+            return convert_gog_dosbox(
+                src_path, content, dosbox_info, progress_cb=_on_progress,
+            )
+
+        def _done(entry_points):
+            progress.force_close()
+            project.source_dir = str(content)
+            project.initialized = True
+            if entry_points:
+                project.entry_points = entry_points
+            save_project(project)
+            self._on_import(project)
+
+        def _error(msg):
+            progress.force_close()
+            log.error("DOSBox conversion failed: %s", msg)
+            err = Adw.AlertDialog(
+                heading="Conversion failed",
+                body=f"Could not convert DOSBox game:\n{msg}",
+            )
+            err.add_response("ok", "OK")
+            err.present(self._parent_view)
+
+        run_in_background(work=_work, on_done=_done, on_error=_error)
+
     # ── Manual platform row handlers ────────────────────────────────────
 
     def _on_windows_activated(self, _row) -> None:
@@ -3117,6 +3663,10 @@ class _NewProjectDialog(Adw.Dialog):
     def _on_linux_activated(self, _row) -> None:
         self.close()
         self._on_linux()
+
+    def _on_dos_activated(self, _row) -> None:
+        self.close()
+        self._on_dos()
 
     def _on_base_activated(self, _row) -> None:
         self.close()
@@ -3289,8 +3839,8 @@ class _CatalogueCard(Gtk.FlowBoxChild):
             type_label = "Base Image"
         else:
             platform = getattr(entry, "platform", "windows")
-            icon_name = "penguin-alt-symbolic" if platform == "linux" else "grid-large-symbolic"
-            type_label = "Native App" if platform == "linux" else "Proton App"
+            icon_name = _TYPE_ICONS.get({"linux": "linux", "dos": "dos"}.get(platform, "app"), "grid-large-symbolic")
+            type_label = {"linux": "Native App", "dos": "DOS App"}.get(platform, "Proton App")
 
         icon = Gtk.Image.new_from_icon_name(icon_name)
         icon.set_pixel_size(_ICON_SIZE)

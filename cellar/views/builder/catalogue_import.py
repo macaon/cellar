@@ -559,7 +559,7 @@ class CatalogueEntriesDialog(Adw.Dialog):
                     project = Project(
                         name=entry.name,
                         slug=slug,
-                        project_type="app" if entry.platform == "windows" else "linux",
+                        project_type={"windows": "app", "linux": "linux", "dos": "dos"}.get(entry.platform, "app"),
                         runner=entry.base_image,
                         entry_points=[dict(t) for t in entry.launch_targets],
                         steam_appid=entry.steam_appid,

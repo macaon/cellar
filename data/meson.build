@@ -6,4 +6,8 @@ install_subdir('icons/hicolor',
   install_dir: get_option('datadir') / 'icons',
 )
 
+install_data('dosbox-staging.conf',
+  install_dir: get_option('datadir') / 'cellar',
+)
+
 subdir('ui')

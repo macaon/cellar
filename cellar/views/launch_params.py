@@ -281,12 +281,20 @@ class LaunchParamsDialog(Adw.Dialog):
 
     def _on_browse_target(self, _btn, idx: int) -> None:
         entry = self._entry
-        if entry.platform == "linux":
+        if entry.platform in ("linux", "dos"):
             from cellar.backend.database import get_installed
             rec = get_installed(entry.id)
             has_path = rec and rec.get("install_path")
-            install_path = Path(rec["install_path"]) / entry.id if has_path else Path.home()
-            browse_root = install_path
+            if has_path:
+                browse_root = Path(rec["install_path"]) / entry.id
+            elif entry.platform == "dos":
+                from cellar.backend.umu import dos_dir
+                browse_root = dos_dir() / entry.id
+            else:
+                from cellar.backend.umu import native_dir
+                browse_root = native_dir() / entry.id
+            if not browse_root.is_dir():
+                browse_root = Path.home()
         else:
             from cellar.backend.umu import prefixes_dir
             prefix = prefixes_dir() / entry.id / "drive_c"
@@ -300,7 +308,7 @@ class LaunchParamsDialog(Adw.Dialog):
             accept_label="Select",
         )
         chooser.set_current_folder(Gio.File.new_for_path(str(browse_root)))
-        if entry.platform != "linux":
+        if entry.platform not in ("linux", "dos"):
             exe_filter = Gtk.FileFilter()
             exe_filter.set_name("Windows executables")
             for ext in ("exe", "msi", "bat", "cmd", "com", "lnk"):
@@ -322,7 +330,7 @@ class LaunchParamsDialog(Adw.Dialog):
         if response != Gtk.ResponseType.ACCEPT:
             return
         abs_path = chooser.get_file().get_path()
-        if platform == "linux":
+        if platform in ("linux", "dos"):
             import os
             try:
                 formatted = os.path.relpath(abs_path, str(browse_root))

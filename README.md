@@ -11,6 +11,8 @@ else browses the catalogue and installs with one click.
 Windows apps run via [umu-launcher](https://github.com/Open-Wine-Components/umu-launcher)
 with [GE-Proton](https://github.com/GloriousEggroll/proton-ge-custom).
 Linux native apps are extracted and launched directly.
+DOS games run via [DOSBox Staging](https://dosbox-staging.github.io/)
+(auto-downloaded on first use).
 
 ---
 
@@ -26,6 +28,7 @@ Linux native apps are extracted and launched directly.
 - Copy-on-write disk optimisation on btrfs/XFS (reflinks for base image seeding)
 - Runner management — GE-Proton versions listed from GitHub Releases
 - Linux native app support alongside Windows apps
+- **DOS game support (early testing)** — GOG DOSBox games auto-detected and converted to native DOSBox Staging packages; DOSBox Settings dialog for CPU speed, video, sound, MIDI (FluidSynth/MT-32), and mixer effects
 - Multi-target launch — apps can define multiple entry points (e.g. main game, editor, launcher)
 - Desktop shortcut creation for installed apps
 - Offline mode — cached catalogue allows browsing and launching when the repo is unreachable
@@ -74,6 +77,12 @@ runner for the app is always derived by looking up `bases[base_image].runner`
 Linux native apps skip this hierarchy entirely — they have no runner, no base,
 and no WINEPREFIX. The archive is extracted directly and the entry point is
 launched as a regular process.
+
+DOS games (early testing) also skip the Runner → Base chain. They bundle a
+[DOSBox Staging](https://dosbox-staging.github.io/) binary and configuration
+alongside the game files. GOG Windows games that use DOSBox are auto-detected
+during import and converted to native DOS packages. DOSBox Staging is
+downloaded once from GitHub Releases and managed as a transparent runtime.
 
 ---
 
@@ -182,6 +191,10 @@ manifest → write file manifest → record in SQLite database
 **Linux app:**
 download archive (chunked) → extract to `native/<id>/` → `chmod +x` entry
 point → write manifest → record in database
+
+**DOS game:**
+download archive (chunked) → extract to `dos/<id>/` (includes bundled DOSBox
+Staging binary, configs, and game files) → record in database
 
 ---
 
@@ -392,7 +405,7 @@ This keeps the initial catalogue fetch small even for repos with many apps.
 | `steam_appid` | Sets `GAMEID=umu-<id>` for umu-launcher, enabling [protonfixes](https://github.com/Open-Wine-Components/umu-protonfixes). Omit or `null` for `GAMEID=0`. |
 | `update_strategy` | `"safe"` (rsync overlay, preserves user data) or `"full"` (complete replacement with warning). |
 | `launch_targets` | Array of `{"name", "path", "args"}`. First target is primary (desktop shortcut, single-click launch). Multiple targets show a picker dialog. |
-| `platform` | `"windows"` (default, omitted from JSON) or `"linux"` for native apps. |
+| `platform` | `"windows"` (default, omitted from JSON), `"linux"` for native apps, or `"dos"` for DOS games (early testing). |
 | `hide_title` | Suppress app name in detail view when a transparent `logo` image is provided. |
 | `lock_runner` | Prevent the user from changing the runner for this app. |
 | `category_icons` | Top-level map of category name → Adwaita symbolic icon name. |
@@ -436,6 +449,7 @@ Credentials are stored per-repo via libsecret (system keyring) with a
 - **Language:** Python 3.10+
 - **UI toolkit:** GTK4 + libadwaita 1.4+ (GNOME 45+)
 - **Windows compatibility:** [umu-launcher](https://github.com/Open-Wine-Components/umu-launcher) + GE-Proton
+- **DOS compatibility:** [DOSBox Staging](https://dosbox-staging.github.io/) (auto-downloaded runtime)
 - **Runner index:** GitHub Releases API (GloriousEggroll/proton-ge-custom), cached in memory
 - **Local data:** SQLite via `sqlite3` stdlib
 - **Network I/O:** `requests` for HTTP/HTTPS; `paramiko` (pure Python) for SFTP/SSH; `smbprotocol` for SMB
@@ -543,6 +557,9 @@ PYTHONPATH=. python3 -m pytest tests/ -v
     <app-id>/           WINEPREFIX for each installed Windows app
   native/
     <app-id>/           Installed Linux native apps
+  dos/
+    <app-id>/           Installed DOS games (bundled DOSBox Staging + configs)
+  dosbox-staging/       Shared DOSBox Staging runtime (auto-downloaded)
   projects/
     <slug>/             Package Builder working area
       project.json
@@ -568,6 +585,7 @@ cellar/
     views/
       browse.py           Explore / Installed / Updates grid; search; category filter
       detail.py           App detail — icon/logo, screenshots, info cards, install/update/remove
+      dosbox_settings.py  Reusable DOSBox Staging settings dialog (display, CPU, sound, MIDI, mixer)
       edit_app.py         Edit / delete catalogue entries
       update_app.py       Safe update dialog — rsync overlay
       install_runner.py   GE-Proton download + extract dialog
@@ -589,6 +607,7 @@ cellar/
       installer.py        Download → verify → extract → install pipeline; delta install
       updater.py          Safe rsync overlay update; prefix backup
       base_store.py       Delta base image store — install, remove, path helpers
+      dosbox.py           DOSBox Staging runtime, GOG detection, config parsing, conversion
       umu.py              umu-launcher detection, launch, prefix init, winetricks
       runners.py          GE-Proton release listing (GitHub API) and install management
       project.py          Package Builder project CRUD and packaging
@@ -646,6 +665,8 @@ Cellar is built on the work of many open-source projects:
 - **[GTK](https://gtk.org/)** and **[libadwaita](https://gnome.pages.gitlab.gnome.org/libadwaita/)** — UI toolkit and GNOME platform library
 - **[umu-launcher](https://github.com/Open-Wine-Components/umu-launcher)** — unified Wine/Proton launcher
 - **[GE-Proton](https://github.com/GloriousEggroll/proton-ge-custom)** — custom Proton builds by GloriousEggroll
+- **[DOSBox Staging](https://dosbox-staging.github.io/)** — modern DOS emulator (transparent runtime for DOS games)
+- **[NoUniVBE](https://github.com/LowLevelMahn/NoUniVBE)** — UniVBE bypass for GOG DOS games
 - **[Pillow](https://python-pillow.org/)** — image processing
 - **[paramiko](https://www.paramiko.org/)** — pure-Python SSHv2
 - **[smbprotocol](https://github.com/jborean93/smbprotocol)** — pure-Python SMBv2/v3

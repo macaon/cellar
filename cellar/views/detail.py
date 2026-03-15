@@ -526,6 +526,9 @@ class DetailView(Gtk.Box):
     def _launch_target(self, target: dict) -> None:
         entry_path = target.get("path", "")
         entry_args = target.get("args", "")
+        if self._entry.platform == "dos":
+            self._launch_dos_target(entry_path, entry_args)
+            return
         if self._entry.platform == "linux":
             self._launch_linux_target(entry_path, entry_args)
             return
@@ -616,11 +619,12 @@ class DetailView(Gtk.Box):
         import shlex as _shlex
 
         from cellar.backend.umu import (  # noqa: PLC0415
-            is_cellar_sandboxed, native_dir, monitor_process_tree,
+            is_cellar_sandboxed, native_dir, dos_dir, monitor_process_tree,
         )
         from cellar.views.builder.progress import ProgressDialog  # noqa: PLC0415
 
-        exe = native_dir() / self._entry.id / entry_path
+        base = dos_dir() if self._entry.platform == "dos" else native_dir()
+        exe = base / self._entry.id / entry_path
         cmd = [str(exe)]
         if entry_args:
             cmd += _shlex.split(entry_args)
@@ -643,11 +647,96 @@ class DetailView(Gtk.Box):
         threading.Thread(target=_work, daemon=True).start()
         progress.present(self.get_root())
 
+    def _launch_dos_target(self, entry_path: str, entry_args: str) -> None:
+        """Launch a DOS game via the bundled DOSBox Staging binary.
+
+        Constructs the DOSBox command line with ``--noprimaryconf`` to avoid
+        loading the user's ``~/.config/dosbox/`` config.  The DOS executable
+        is passed as a positional argument so DOSBox runs it after processing
+        the autoexec (mounts, NoUniVBE, etc.).
+        """
+        import subprocess as _sp
+        import shlex as _shlex
+
+        from cellar.backend.umu import dos_dir, is_cellar_sandboxed, monitor_process_tree
+        from cellar.views.builder.progress import ProgressDialog
+
+        game_dir = dos_dir() / self._entry.id
+        dosbox_bin = game_dir / "dosbox" / "dosbox"
+        if not dosbox_bin.is_file():
+            self._add_toast("DOSBox Staging binary not found in package")
+            return
+
+        # Build DOSBox command.  The overrides conf autoexec has mounts,
+        # NoUniVBE, and the primary game command.  For any launch target,
+        # we generate a tiny extra conf that overwrites the autoexec with
+        # the specific game command.  This ensures each target runs in
+        # isolation without modifying the shared config.
+        import tempfile
+
+        cmd = [
+            str(dosbox_bin),
+            "--noprimaryconf",
+            "-conf", str(game_dir / "config" / "dosbox-staging.conf"),
+            "-conf", str(game_dir / "config" / "dosbox-overrides.conf"),
+        ]
+
+        # Generate a target-specific conf that replaces the autoexec
+        # game command (autoexec_section = overwrite).
+        tmp_conf = None
+        if entry_path:
+            game_cmd = entry_path
+            if entry_args:
+                game_cmd += f" {entry_args}"
+            tmp = tempfile.NamedTemporaryFile(
+                mode="w", suffix=".conf", prefix="cellar-dos-",
+                delete=False, dir=str(game_dir / "config"),
+            )
+            tmp.write("[dosbox]\nautoexec_section = overwrite\n\n")
+            tmp.write("[autoexec]\n")
+            tmp.write('mount C "."\n')
+            tmp.write("C:\n")
+            nounivbe = game_dir / "nounivbe" / "NOUNIVBE.EXE"
+            if nounivbe.is_file():
+                tmp.write("nounivbe\\NOUNIVBE.EXE\n")
+            tmp.write(f"{game_cmd}\n")
+            tmp.write("EXIT\n")
+            tmp.close()
+            tmp_conf = Path(tmp.name)
+            cmd += ["-conf", str(tmp_conf)]
+
+        if is_cellar_sandboxed():
+            cmd = ["flatpak-spawn", "--host"] + cmd
+
+        progress = ProgressDialog(label="Launching\u2026")
+        progress.set_can_close(True)
+
+        def _on_line(line: str) -> None:
+            if line.startswith("[pid]"):
+                GLib.idle_add(progress.set_label, "Game started")
+
+        def _work() -> None:
+            _sp.Popen(cmd, cwd=str(game_dir), start_new_session=True)
+            launch_event = threading.Event()
+            monitor_process_tree("dosbox", launch_event, _on_line)
+            # Clean up temp conf
+            if tmp_conf and tmp_conf.is_file():
+                tmp_conf.unlink(missing_ok=True)
+            GLib.idle_add(progress.force_close)
+
+        threading.Thread(target=_work, daemon=True).start()
+        progress.present(self.get_root())
+
     def _on_remove_clicked(self) -> None:
         prefix_path = None
         if self._entry.platform == "linux":
             from cellar.backend.umu import native_dir
             candidate = native_dir() / self._entry.id
+            if candidate.is_dir():
+                prefix_path = candidate
+        elif self._entry.platform == "dos":
+            from cellar.backend.umu import dos_dir
+            candidate = dos_dir() / self._entry.id
             if candidate.is_dir():
                 prefix_path = candidate
         else:
@@ -675,6 +764,9 @@ class DetailView(Gtk.Box):
 
         if self._entry.platform == "linux":
             prefix_path = native_dir() / self._entry.id
+        elif self._entry.platform == "dos":
+            from cellar.backend.umu import dos_dir
+            prefix_path = dos_dir() / self._entry.id
         else:
             prefix_path = prefixes_dir() / self._entry.id
         if not prefix_path.is_dir():
@@ -717,9 +809,13 @@ class DetailView(Gtk.Box):
 
         from cellar.backend import database
 
-        if self._entry.platform == "linux":
-            from cellar.backend.umu import native_dir
-            candidate = native_dir() / self._entry.id
+        if self._entry.platform in ("linux", "dos"):
+            if self._entry.platform == "dos":
+                from cellar.backend.umu import dos_dir
+                candidate = dos_dir() / self._entry.id
+            else:
+                from cellar.backend.umu import native_dir
+                candidate = native_dir() / self._entry.id
             if candidate.is_dir():
                 try:
                     shutil.rmtree(candidate)
@@ -804,6 +900,10 @@ class DetailView(Gtk.Box):
         launch_params_act.connect("activate", lambda *_: self._on_launch_params_clicked())
         ag.add_action(launch_params_act)
 
+        dosbox_config_act = Gio.SimpleAction.new("dosbox-config", None)
+        dosbox_config_act.connect("activate", lambda *_: self._on_dosbox_config_clicked())
+        ag.add_action(dosbox_config_act)
+
         uninstall_act = Gio.SimpleAction.new("uninstall", None)
         uninstall_act.connect("activate", lambda *_: self._on_remove_clicked())
         ag.add_action(uninstall_act)
@@ -828,6 +928,9 @@ class DetailView(Gtk.Box):
         else:
             main_section.append("Create Desktop Shortcut", "detail.create-shortcut")
 
+        if self._entry.platform == "dos":
+            main_section.append("DOSBox Configuration\u2026", "detail.dosbox-config")
+
         main_section.append("Open Install Folder", "detail.open-folder")
 
         danger_section = Gio.Menu()
@@ -843,6 +946,24 @@ class DetailView(Gtk.Box):
         if folder:
             Gio.AppInfo.launch_default_for_uri(f"file://{folder}", None)
 
+    def _on_dosbox_config_clicked(self) -> None:
+        """Show DOSBox settings dialog for installed DOS games."""
+        install_folder = self._get_install_folder()
+        if not install_folder:
+            return
+        install_path = Path(install_folder)
+        config_dir = install_path / "config"
+        if not config_dir.is_dir():
+            self._add_toast("No DOSBox config folder found")
+            return
+
+        from cellar.views.dosbox_settings import DosboxSettingsDialog
+        DosboxSettingsDialog(
+            config_dir=config_dir,
+            assets_dir=install_path / "assets",
+            allow_assets=True,
+        ).present(self.get_root())
+
     def _on_launch_params_clicked(self) -> None:
         from cellar.views.launch_params import LaunchParamsDialog  # noqa: PLC0415
         LaunchParamsDialog(
@@ -856,6 +977,10 @@ class DetailView(Gtk.Box):
         if self._entry.platform == "linux":
             from cellar.backend.umu import native_dir
             p = native_dir() / self._entry.id
+            return str(p) if p.is_dir() else None
+        if self._entry.platform == "dos":
+            from cellar.backend.umu import dos_dir
+            p = dos_dir() / self._entry.id
             return str(p) if p.is_dir() else None
         # Windows app — prefix is at umu prefixes_dir / app_id
         from cellar.backend.umu import prefixes_dir
@@ -884,6 +1009,9 @@ class DetailView(Gtk.Box):
         if self._entry.platform == "linux":
             from cellar.backend.umu import native_dir
             kwargs["install_path"] = str(native_dir())
+        elif self._entry.platform == "dos":
+            from cellar.backend.umu import dos_dir
+            kwargs["install_path"] = str(dos_dir())
         try:
             create_desktop_entry(**kwargs)
         except Exception as exc:
@@ -1337,6 +1465,8 @@ class DetailView(Gtk.Box):
 
         if e.platform == "linux":
             _add(_simple_card("penguin-alt-symbolic", "Native", "Linux")[0])
+        elif e.platform == "dos":
+            _add(_simple_card("floppy-symbolic", "DOSBox", "DOS")[0])
         else:
             _add(self._make_wine_card())
             self._resolve_base_async()
@@ -1878,7 +2008,7 @@ class InstallProgressDialog(Adw.Dialog):
     # ── Install thread ────────────────────────────────────────────────────
 
     def _start_install(self) -> None:
-        if self._entry.platform == "linux":
+        if self._entry.platform in ("linux", "dos"):
             self._start_linux_install()
             return
         from cellar.backend.installer import InstallCancelled, install_app
@@ -1927,8 +2057,9 @@ class InstallProgressDialog(Adw.Dialog):
         threading.Thread(target=_run, daemon=True).start()
 
     def _start_linux_install(self) -> None:
-        """Background install for Linux native apps."""
-        from cellar.backend.installer import InstallCancelled, install_linux_app
+        """Background install for Linux native and DOS apps."""
+        from cellar.backend.installer import InstallCancelled, install_dos_app, install_linux_app
+        _installer = install_dos_app if self._entry.platform == "dos" else install_linux_app
 
         self._pulse_id: int | None = None
 
@@ -1946,7 +2077,7 @@ class InstallProgressDialog(Adw.Dialog):
 
         def _run() -> None:
             try:
-                _app_id, install_dest = install_linux_app(
+                _app_id, install_dest = _installer(
                     self._entry,
                     self._archive_uri,
                     download_cb=_dl_progress,

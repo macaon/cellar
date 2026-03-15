@@ -1382,7 +1382,7 @@ class DetailView(Gtk.Box):
         if e.platform == "linux":
             _add(_simple_card("penguin-alt-symbolic", "Native", "Linux")[0])
         elif e.platform == "dos":
-            _add(_simple_card("terminal-symbolic", "DOSBox", "DOS")[0])
+            _add(_simple_card("floppy-symbolic", "DOSBox", "DOS")[0])
         else:
             _add(self._make_wine_card())
             self._resolve_base_async()

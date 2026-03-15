@@ -3112,7 +3112,7 @@ _ICON_MARGIN = 22
 _TYPE_ICONS = {
     "base": "package-x-generic-symbolic",
     "linux": "penguin-alt-symbolic",
-    "dos": "terminal-symbolic",
+    "dos": "floppy-symbolic",
     "app": "grid-large-symbolic",
 }
 _TYPE_LABELS = {"app": "Proton App", "linux": "Native App", "dos": "DOS App", "base": "Base Image"}
@@ -3292,7 +3292,7 @@ class _NewProjectDialog(Adw.Dialog):
             subtitle="DOS game with DOSBox Staging",
             activatable=True,
         )
-        dos_row.add_prefix(Gtk.Image.new_from_icon_name("terminal-symbolic"))
+        dos_row.add_prefix(Gtk.Image.new_from_icon_name("floppy-symbolic"))
         dos_row.add_suffix(Gtk.Image.new_from_icon_name("go-next-symbolic"))
         dos_row.connect("activated", self._on_dos_activated)
         group.add(dos_row)

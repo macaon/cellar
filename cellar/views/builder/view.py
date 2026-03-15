@@ -3173,7 +3173,7 @@ class _NewProjectDialog(Adw.Dialog):
         dlg = Adw.AlertDialog(
             heading="DOSBox game detected",
             body=(
-                f""{dosbox_info.game_name}" uses DOSBox.\n\n"
+                f'"{dosbox_info.game_name}" uses DOSBox.\n\n'
                 "Convert to a native DOS package with DOSBox Staging? "
                 "This avoids running DOSBox through Wine."
             ),

@@ -1053,6 +1053,67 @@ class PackageBuilderView(Adw.Bin):
 
             page.add(targets_group)
 
+        # ── 5c. DOSBox Configuration (DOS only) ──────────────────────────
+        if project.project_type == "dos":
+            _config_dir = Path(project.source_dir) / "config" if project.source_dir else None
+            _has_config = _config_dir is not None and _config_dir.is_dir()
+
+            dos_group = Adw.PreferencesGroup(title="DOSBox Configuration")
+
+            # Base config row
+            _base_conf = _config_dir / "dosbox-staging.conf" if _config_dir else None
+            _base_row = Adw.ActionRow(
+                title="dosbox-staging.conf",
+                subtitle="Base DOSBox Staging defaults (edit to change global settings)",
+            )
+            _base_row.set_sensitive(_has_config and _base_conf.is_file())
+            _edit_base_btn = Gtk.Button(icon_name="document-edit-symbolic")
+            _edit_base_btn.set_valign(Gtk.Align.CENTER)
+            _edit_base_btn.add_css_class("flat")
+            _edit_base_btn.set_tooltip_text("Open in text editor")
+            _edit_base_btn.connect(
+                "clicked",
+                lambda _b, p=_base_conf: self._open_file_in_editor(p),
+            )
+            _base_row.add_suffix(_edit_base_btn)
+            dos_group.add(_base_row)
+
+            # Overrides config row
+            _over_conf = _config_dir / "dosbox-overrides.conf" if _config_dir else None
+            _over_row = Adw.ActionRow(
+                title="dosbox-overrides.conf",
+                subtitle="Game-specific settings (cycles, sound, autoexec)",
+            )
+            _over_row.set_sensitive(_has_config and _over_conf.is_file())
+            _edit_over_btn = Gtk.Button(icon_name="document-edit-symbolic")
+            _edit_over_btn.set_valign(Gtk.Align.CENTER)
+            _edit_over_btn.add_css_class("flat")
+            _edit_over_btn.set_tooltip_text("Open in text editor")
+            _edit_over_btn.connect(
+                "clicked",
+                lambda _b, p=_over_conf: self._open_file_in_editor(p),
+            )
+            _over_row.add_suffix(_edit_over_btn)
+            dos_group.add(_over_row)
+
+            # Open config folder row
+            _folder_row = Adw.ActionRow(
+                title="Open Config Folder",
+                subtitle=str(_config_dir) if _config_dir else "",
+            )
+            _folder_row.set_sensitive(_has_config)
+            _folder_btn = Gtk.Button(icon_name="folder-open-symbolic")
+            _folder_btn.set_valign(Gtk.Align.CENTER)
+            _folder_btn.add_css_class("flat")
+            _folder_btn.connect(
+                "clicked",
+                lambda _b, d=_config_dir: self._open_folder(d),
+            )
+            _folder_row.add_suffix(_folder_btn)
+            dos_group.add(_folder_row)
+
+            page.add(dos_group)
+
         # ── 6. Dependencies (Windows / Base only) ─────────────────────────
         if project.project_type not in ("linux", "dos"):
             dep_group = Adw.PreferencesGroup(title="Dependencies")
@@ -2688,6 +2749,18 @@ class PackageBuilderView(Adw.Bin):
         win = self.get_root()
         if hasattr(win, "toast_overlay"):
             win.toast_overlay.add_toast(Adw.Toast(title=message))
+
+    def _open_file_in_editor(self, path: Path | None) -> None:
+        """Open a file in the default text editor via xdg-open."""
+        if path is None or not path.is_file():
+            return
+        Gio.AppInfo.launch_default_for_uri(path.as_uri(), None)
+
+    def _open_folder(self, path: Path | None) -> None:
+        """Open a folder in the default file manager."""
+        if path is None or not path.is_dir():
+            return
+        Gio.AppInfo.launch_default_for_uri(path.as_uri(), None)
 
     # ── GOG DOSBox game detection and conversion ─────────────────────
 

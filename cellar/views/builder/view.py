@@ -2815,7 +2815,7 @@ class PackageBuilderView(Adw.Bin):
                 in_target = (stripped == f"[{section}]")
                 new_lines.append(line)
                 continue
-            if in_target and stripped.startswith(f"{key.lower()}"):
+            if in_target and (stripped.startswith(f"{key.lower()} ") or stripped.startswith(f"{key.lower()}=")):
                 new_lines.append(f"{key} = {value}")
                 key_written = True
                 continue

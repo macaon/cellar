@@ -100,7 +100,7 @@ class DetailView(Gtk.Box):
         source_repos: list | None = None,
         is_installed: bool = False,
         installed_record: dict | None = None,
-        on_install_done: Callable | None = None,
+        install_queue=None,
         on_remove_done: Callable | None = None,
         on_update_done: Callable | None = None,
         on_genre_filter: Callable[[str], None] | None = None,
@@ -120,7 +120,7 @@ class DetailView(Gtk.Box):
         self._ssh_identity = _first.ssh_identity if _first else None
         self._is_installed = is_installed
         self._installed_record = installed_record
-        self._on_install_done = on_install_done
+        self._install_queue = install_queue
         self._on_remove_done = on_remove_done
         self._on_update_done = on_update_done
         _cat_crc = entry.archive_crc32 or ""
@@ -356,10 +356,19 @@ class DetailView(Gtk.Box):
     # Install helpers
     # ------------------------------------------------------------------
 
+    def _is_install_pending(self) -> bool:
+        """Return True if this app is actively installing or queued."""
+        if self._install_queue is None:
+            return False
+        return self._install_queue.is_pending(self._entry.id)
+
     def _update_install_button(self) -> None:
         btn = self._install_btn
         for cls in ("suggested-action", "success", "destructive-action"):
             btn.remove_css_class(cls)
+        # Hide spinner by default.
+        if hasattr(self, "_install_spinner"):
+            self._install_spinner.set_visible(False)
         if self._is_installed:
             self._install_btn_label.set_label("Open")
             btn.add_css_class("suggested-action")
@@ -370,6 +379,15 @@ class DetailView(Gtk.Box):
                 "Update available — see Options menu"
                 if (self._has_update and not self._is_offline) else ""
             )
+        elif self._is_install_pending():
+            self._install_btn_label.set_label("Cancel")
+            btn.add_css_class("destructive-action")
+            btn.set_sensitive(True)
+            btn.set_tooltip_text("")
+            self._update_indicator.set_visible(False)
+            # Show spinner for active install (not just queued).
+            if hasattr(self, "_install_spinner") and self._install_queue.is_active(self._entry.id):
+                self._install_spinner.set_visible(True)
         elif self._is_offline:
             self._install_btn_label.set_label("Unavailable")
             btn.set_sensitive(False)
@@ -388,6 +406,11 @@ class DetailView(Gtk.Box):
     def _on_install_clicked(self, _btn) -> None:
         if self._is_installed:
             self._on_open_clicked()
+            return
+        # Cancel if already installing/queued.
+        if self._is_install_pending():
+            self._install_queue.cancel(self._entry.id)
+            self._update_install_button()
             return
         if len(self._source_repos) > 1:
             self._pick_source_then_install()
@@ -455,6 +478,31 @@ class DetailView(Gtk.Box):
             self._find_runner_entry(runner_name) if runner_name else (None, "")
         )
 
+        if self._install_queue is not None:
+            from cellar.backend.install_queue import InstallJob
+
+            job = InstallJob(
+                app_id=entry.id,
+                app_name=entry.name,
+                entry=entry,
+                archive_uri=archive_uri,
+                platform=entry.platform,
+                token=self._token,
+                ssh_identity=self._ssh_identity,
+                base_entry=base_entry,
+                base_archive_uri=base_archive_uri,
+                runner_entry=runner_entry,
+                runner_archive_uri=runner_archive_uri,
+            )
+            # Register the entry for DB write on completion.
+            window = self.get_root()
+            if hasattr(window, "_pending_entries"):
+                window._pending_entries[entry.id] = entry
+            self._install_queue.enqueue(job)
+            self._update_install_button()
+            return
+
+        # Fallback: legacy dialog (should not be reached).
         dialog = InstallProgressDialog(
             entry=entry,
             archive_uri=archive_uri,
@@ -472,6 +520,7 @@ class DetailView(Gtk.Box):
         self, prefix_dir: str, install_path: str = "", runner: str = "",
         install_size: int = 0, delta_size: int = 0,
     ) -> None:
+        """Legacy callback for InstallProgressDialog fallback path."""
         self._is_installed = True
         self._installed_record = {
             "prefix_dir": prefix_dir,
@@ -485,8 +534,6 @@ class DetailView(Gtk.Box):
             self._runner_label.set_label(runner)
         self._update_install_button()
         self._rebuild_info_cards()
-        if self._on_install_done:
-            self._on_install_done(prefix_dir, install_path, runner, install_size, delta_size)
 
     def _effective_launch_targets(self) -> list[dict]:
         """Return the launch targets to use, honouring local overrides."""
@@ -1113,9 +1160,13 @@ class DetailView(Gtk.Box):
 
         self._install_btn = Gtk.Button()
         self._install_btn.connect("clicked", self._on_install_clicked)
-        # Inner box: warning icon (update indicator) + label.
+        # Inner box: spinner + warning icon (update indicator) + label.
         _btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4,
                            halign=Gtk.Align.CENTER)
+        self._install_spinner = Gtk.Spinner()
+        self._install_spinner.set_visible(False)
+        self._install_spinner.set_spinning(True)
+        _btn_box.append(self._install_spinner)
         self._update_indicator = Gtk.Image.new_from_icon_name("software-update-urgent-symbolic")
         self._update_indicator.set_visible(False)
         _btn_box.append(self._update_indicator)

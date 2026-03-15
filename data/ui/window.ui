@@ -138,6 +138,10 @@
   <menu id="main_menu">
     <section>
       <item>
+        <attribute name="label" translatable="yes">Downloads</attribute>
+        <attribute name="action">win.downloads</attribute>
+      </item>
+      <item>
         <attribute name="label" translatable="yes">Preferences</attribute>
         <attribute name="action">win.preferences</attribute>
       </item>

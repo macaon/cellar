@@ -260,6 +260,17 @@ class CellarWindow(Adw.ApplicationWindow):
         # Entry IDs that are only reachable via offline repos.
         self._offline_entry_ids: set[str] = set()
 
+        # Install queue — shared across all detail views.
+        from cellar.backend.install_queue import InstallQueue
+        self._install_queue = InstallQueue(
+            on_complete=self._on_queue_install_complete,
+            on_error=self._on_queue_install_error,
+            on_cancelled=self._on_queue_install_cancelled,
+            on_queue_changed=self._on_queue_changed,
+        )
+        # Map app_id → entry for DB writes on completion.
+        self._pending_entries: dict = {}
+
         self.search_bar.set_key_capture_widget(self)
         self.search_button.connect("toggled", self._on_search_toggled)
         self.search_bar.connect(
@@ -268,6 +279,11 @@ class CellarWindow(Adw.ApplicationWindow):
         self.search_entry.connect("search-changed", self._on_search_changed)
         self.refresh_button.connect("clicked", self._on_refresh_clicked)
         self.view_stack.connect("notify::visible-child", self._on_view_switched)
+
+        downloads_action = Gio.SimpleAction.new("downloads", None)
+        downloads_action.connect("activate", self._on_downloads_activated)
+        downloads_action.set_enabled(False)
+        self.add_action(downloads_action)
 
         prefs_action = Gio.SimpleAction.new("preferences", None)
         prefs_action.connect("activate", self._on_preferences_activated)
@@ -742,24 +758,6 @@ class CellarWindow(Adw.ApplicationWindow):
         rec = _reconcile_installed_record(entry)
         is_installed = rec is not None
 
-        def _on_install_done(
-            prefix_dir: str, install_path: str = "", runner: str = "",
-            install_size: int = 0, delta_size: int = 0,
-        ) -> None:
-            repo_uri = str(self._first_repo.uri) if self._first_repo else ""
-            database.mark_installed(
-                entry.id, prefix_dir, entry.version, repo_uri,
-                platform=entry.platform,
-                install_path=install_path,
-                runner=runner,
-                steam_appid=entry.steam_appid,
-                archive_crc32=entry.archive_crc32,
-                install_size=install_size,
-                delta_size=delta_size,
-            )
-            self._show_toast(f"{entry.name} installed successfully")
-            self._load_catalogue()
-
         def _on_remove_done() -> None:
             self._show_toast(f"{entry.name} removed")
             self._load_catalogue()
@@ -787,7 +785,7 @@ class CellarWindow(Adw.ApplicationWindow):
             source_repos=source_repos,
             is_installed=is_installed,
             installed_record=rec,
-            on_install_done=_on_install_done,
+            install_queue=self._install_queue,
             on_remove_done=_on_remove_done,
             on_update_done=_on_update_done,
             on_genre_filter=_on_genre_filter,
@@ -795,6 +793,12 @@ class CellarWindow(Adw.ApplicationWindow):
         )
         page = Adw.NavigationPage(title=entry.name, child=detail)
         self.nav_view.push(page)
+
+    def _on_downloads_activated(self, _action, _param) -> None:
+        from cellar.views.download_queue import DownloadQueueDialog
+
+        dialog = DownloadQueueDialog(self._install_queue)
+        dialog.present(self)
 
     def _on_preferences_activated(self, _action, _param) -> None:
         from cellar.views.settings import SettingsDialog
@@ -814,6 +818,57 @@ class CellarWindow(Adw.ApplicationWindow):
 
     def _show_toast(self, message: str) -> None:
         self.toast_overlay.add_toast(Adw.Toast(title=message))
+
+    # ── Install queue callbacks ───────────────────────────────────────────
+
+    def _on_queue_install_complete(self, result) -> None:
+        from cellar.backend import database
+        from cellar.backend.install_queue import InstallResult
+
+        entry = self._pending_entries.pop(result.app_id, None)
+        if entry is not None:
+            repo_uri = str(self._first_repo.uri) if self._first_repo else ""
+            database.mark_installed(
+                entry.id, result.prefix_dir, entry.version, repo_uri,
+                platform=entry.platform,
+                install_path=result.install_path,
+                runner=result.runner,
+                steam_appid=entry.steam_appid,
+                archive_crc32=entry.archive_crc32,
+                install_size=result.install_size,
+                delta_size=result.delta_size,
+            )
+            self._show_toast(f"\u201c{entry.name}\u201d installed successfully")
+        else:
+            self._show_toast(f"\u201c{result.app_id}\u201d installed successfully")
+        self._load_catalogue()
+
+    def _on_queue_install_error(self, app_id: str, message: str) -> None:
+        entry = self._pending_entries.pop(app_id, None)
+        name = entry.name if entry else app_id
+        self._show_toast(f"Installation of \u201c{name}\u201d failed")
+        log.error("Install queue error for %s: %s", app_id, message)
+
+    def _on_queue_install_cancelled(self, app_id: str) -> None:
+        self._pending_entries.pop(app_id, None)
+
+    def _on_queue_changed(self) -> None:
+        """Update UI elements that depend on queue state."""
+        # Update the downloads action visibility.
+        downloads_action = self.lookup_action("downloads")
+        if downloads_action:
+            downloads_action.set_enabled(not self._install_queue.is_empty)
+        # Refresh the active detail view's install button if visible.
+        self._refresh_active_detail_button()
+
+    def _refresh_active_detail_button(self) -> None:
+        """If a DetailView is currently visible, refresh its install button."""
+        from cellar.views.detail import DetailView
+        page = self.nav_view.get_visible_page()
+        if page is not None:
+            child = page.get_child()
+            if isinstance(child, DetailView):
+                child._update_install_button()
 
     def _on_view_switched(self, stack: Adw.ViewStack, _param) -> None:
         in_builder = stack.get_visible_child_name() == "builder"

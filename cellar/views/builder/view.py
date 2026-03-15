@@ -2775,79 +2775,13 @@ class PackageBuilderView(Adw.Bin):
 
     # ── DOS config helpers ─────────────────────────────────────────
 
-    def _get_dosbox_override(self, project: Project, section: str, key: str) -> str:
-        """Read a value from dosbox-overrides.conf, or empty string."""
-        if not project.source_dir:
-            return ""
-        conf = Path(project.source_dir) / "config" / "dosbox-overrides.conf"
-        if not conf.is_file():
-            return ""
-        import configparser
-        text = conf.read_text(encoding="utf-8", errors="replace")
-        # Strip autoexec for configparser
-        from cellar.backend.dosbox import _strip_autoexec
-        parser = configparser.ConfigParser(interpolation=None)
-        parser.read_string(_strip_autoexec(text))
-        if parser.has_section(section) and parser.has_option(section, key):
-            return parser.get(section, key).strip()
-        return ""
-
-    def _set_dosbox_override(self, project: Project, section: str, key: str, value: str) -> None:
-        """Set a value in dosbox-overrides.conf, creating the section if needed."""
-        if not project.source_dir:
-            return
-        conf = Path(project.source_dir) / "config" / "dosbox-overrides.conf"
-        if not conf.is_file():
-            return
-        text = conf.read_text(encoding="utf-8", errors="replace")
-        lines = text.splitlines()
-        new_lines: list[str] = []
-        in_target = False
-        key_written = False
-
-        for line in lines:
-            stripped = line.strip().lower()
-            if stripped.startswith("[") and stripped.endswith("]"):
-                # Leaving a section — if we were in target and didn't write, insert now
-                if in_target and not key_written:
-                    new_lines.append(f"{key} = {value}")
-                    key_written = True
-                in_target = (stripped == f"[{section}]")
-                new_lines.append(line)
-                continue
-            if in_target and (stripped.startswith(f"{key.lower()} ") or stripped.startswith(f"{key.lower()}=")):
-                new_lines.append(f"{key} = {value}")
-                key_written = True
-                continue
-            new_lines.append(line)
-
-        if in_target and not key_written:
-            new_lines.append(f"{key} = {value}")
-            key_written = True
-
-        # Section doesn't exist yet — add it before [autoexec]
-        if not key_written:
-            autoexec_idx = None
-            for i, line in enumerate(new_lines):
-                if line.strip().lower() == "[autoexec]":
-                    autoexec_idx = i
-                    break
-            insert = [f"\n[{section}]", f"{key} = {value}"]
-            if autoexec_idx is not None:
-                for j, il in enumerate(insert):
-                    new_lines.insert(autoexec_idx + j, il)
-            else:
-                new_lines.extend(insert)
-
-        conf.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
-
     def _on_dosbox_fullscreen_toggled(self, row, _pspec) -> None:
-        if self._project is None:
+        if self._project is None or not self._project.source_dir:
             return
-        self._set_dosbox_override(
-            self._project, "sdl", "fullscreen",
-            "true" if row.get_active() else "false",
-        )
+        from cellar.backend.dosbox import write_override
+        conf = Path(self._project.source_dir) / "config" / "dosbox-overrides.conf"
+        write_override(conf, "sdl", "fullscreen",
+                       "true" if row.get_active() else "false")
 
     # ── DOS audio asset management ──────────────────────────────────
 

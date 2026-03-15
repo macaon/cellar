@@ -20,6 +20,7 @@ _ELF_MAGIC = b"\x7fELF"
 
 # Files that should never appear as launch target candidates.
 _LAUNCH_EXCLUDE = {
+    # Linux — GOG / installer helpers
     "gog-system-report.sh",
     "postinst.sh",
     "preuninst.sh",
@@ -27,6 +28,10 @@ _LAUNCH_EXCLUDE = {
     "yad",
     "yad32",
     "yad64",
+    # Windows — crash handlers / uninstallers
+    "crashpad_handler.exe",
+    "unins000.exe",
+    "unitycrashhandler64.exe",
 }
 
 _ARCHIVE_EXTS = {
@@ -178,7 +183,9 @@ def find_exe_files(folder: Path) -> list[Path]:
     """Return .exe and .msi files found in *folder* (full recursive scan)."""
     return [
         p for p in folder.rglob("*")
-        if p.is_file() and p.suffix.lower() in {".exe", ".msi"}
+        if p.is_file()
+        and p.suffix.lower() in {".exe", ".msi"}
+        and p.name.lower() not in _LAUNCH_EXCLUDE
     ]
 
 
@@ -198,6 +205,8 @@ def scan_prefix_exes(prefix_path: Path) -> set[Path]:
     result: set[Path] = set()
     for fp in drive_c.rglob("*"):
         if not fp.is_file() or fp.suffix.lower() not in {".exe", ".msi"}:
+            continue
+        if fp.name.lower() in _LAUNCH_EXCLUDE:
             continue
         rel = str(fp.relative_to(prefix_path)).lower()
         if _is_wine_system(rel):

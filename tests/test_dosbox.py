@@ -213,7 +213,8 @@ class TestParseGogConfs:
         )
         result = parse_gog_confs([tmp_path / "game.conf"])
         settings = result["settings"]
-        assert settings["cpu"]["cycles"] == "fixed 50000"
+        # 'cycles' is translated to 'cpu_cycles' (deprecated key)
+        assert settings["cpu"]["cpu_cycles"] == "fixed 50000"
         assert settings["sblaster"]["sbtype"] == "sb16"
         assert settings["dosbox"]["memsize"] == "63"
 
@@ -290,8 +291,8 @@ class TestParseGogConfs:
         result = parse_gog_confs(
             [tmp_path / "base.conf", tmp_path / "game.conf"]
         )
-        # Later conf wins for the same key
-        assert result["settings"]["cpu"]["cycles"] == "fixed 50000"
+        # Later conf wins; 'cycles' translated to 'cpu_cycles'
+        assert result["settings"]["cpu"]["cpu_cycles"] == "fixed 50000"
         # Earlier conf's unique keys are preserved
         assert result["settings"]["sblaster"]["sbtype"] == "sb16"
 

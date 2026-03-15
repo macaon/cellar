@@ -2108,9 +2108,10 @@ class PackageBuilderView(Adw.Bin):
                 "-conf", str(game_dir / "config" / "dosbox-overrides.conf"),
             ]
             if entry_path:
-                cmd.append(entry_path)
-            if entry_args:
-                cmd += shlex.split(entry_args)
+                game_cmd = entry_path
+                if entry_args:
+                    game_cmd += f" {entry_args}"
+                cmd += ["-c", game_cmd]
             if is_cellar_sandboxed():
                 cmd = ["flatpak-spawn", "--host"] + cmd
             subprocess.Popen(cmd, cwd=str(game_dir), start_new_session=True)

@@ -429,9 +429,9 @@ _EXTRACT_SECTIONS = {
     "dosbox": {"machine", "memsize"},
     "sblaster": {"sbtype", "sbbase", "irq", "dma", "hdma", "oplmode"},
     "gus": {"gus", "gusbase", "gusirq", "gusdma"},
-    "midi": {"mpu401", "mididevice", "midiconfig"},
+    "midi": {"mpu401", "mididevice"},
     "mixer": {"rate", "blocksize"},
-    "render": {"aspect", "scaler"},
+    "render": {"aspect"},  # scaler is deprecated in DOSBox Staging
 }
 
 
@@ -472,6 +472,18 @@ def parse_gog_confs(conf_paths: list[Path]) -> dict:
                     if val:
                         settings.setdefault(section, {})[key] = val
 
+    # Post-process: translate deprecated settings
+    cpu = settings.get("cpu", {})
+    if "cycles" in cpu and "cpu_cycles" not in cpu:
+        cpu["cpu_cycles"] = cpu.pop("cycles")
+    elif "cycles" in cpu:
+        del cpu["cycles"]
+
+    # Fix invalid mididevice values
+    midi = settings.get("midi", {})
+    if midi.get("mididevice", "").lower() in ("default", "win32"):
+        midi["mididevice"] = "auto"
+
     return {"settings": settings, "autoexec": autoexec}
 
 
@@ -503,21 +515,19 @@ def generate_overrides_conf(
     if autoexec.raw_lines:
         rewritten = _rewrite_autoexec(autoexec.raw_lines, dosbox_subdir)
         lines.append("[autoexec]")
-        # Only include mount commands and drive changes — game commands are
-        # NOT included here because the game exe is passed on the DOSBox
-        # command line at launch time (handled by detail.py).
+        # Autoexec contains ONLY mount commands, drive changes, and NoUniVBE.
+        # NO game commands — the game exe is injected at launch time via -c
+        # flags, allowing different launch targets to run different executables
+        # without modifying the config file.
         for line in rewritten:
             lower = line.strip().lower()
-            # Keep mount commands and drive changes
             if lower.startswith("mount ") or (len(lower) == 2 and lower.endswith(":")):
                 lines.append(line)
                 continue
-            # Keep comments
             if lower.startswith("#"):
                 lines.append(line)
                 continue
-            # Skip game commands — they'll be passed via CLI
-        # Inject NoUniVBE after mounts
+            # Skip all game commands
         lines.append("nounivbe\\NOUNIVBE.EXE")
         lines.append("")
 

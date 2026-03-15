@@ -158,9 +158,10 @@ def create_desktop_entry(
             f' -conf "{game_dir / "config" / "dosbox-overrides.conf"}"'
         )
         if exe_path:
-            exec_line += f" {exe_path}"
-        if launch_args:
-            exec_line += f" {launch_args}"
+            game_cmd = exe_path
+            if launch_args:
+                game_cmd += f" {launch_args}"
+            exec_line += f' -c "{game_cmd}"'
         comment = (entry.summary or f"Launch {entry.name}.").replace("\n", " ")
     elif platform == "linux":
         if exe_path:

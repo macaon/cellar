@@ -667,18 +667,19 @@ class DetailView(Gtk.Box):
             self._add_toast("DOSBox Staging binary not found in package")
             return
 
-        # Build DOSBox command
+        # Build DOSBox command.  The game exe is injected via -c so it runs
+        # at the end of the autoexec (after mounts and NoUniVBE).
         cmd = [
             str(dosbox_bin),
             "--noprimaryconf",
             "-conf", str(game_dir / "config" / "dosbox-staging.conf"),
             "-conf", str(game_dir / "config" / "dosbox-overrides.conf"),
         ]
-        # Add the DOS executable as a positional argument if set
         if entry_path:
-            cmd.append(entry_path)
-        if entry_args:
-            cmd += _shlex.split(entry_args)
+            game_cmd = entry_path
+            if entry_args:
+                game_cmd += f" {entry_args}"
+            cmd += ["-c", game_cmd]
 
         if is_cellar_sandboxed():
             cmd = ["flatpak-spawn", "--host"] + cmd

@@ -827,7 +827,6 @@ class CellarWindow(Adw.ApplicationWindow):
 
     def _on_queue_install_complete(self, result) -> None:
         from cellar.backend import database
-        from cellar.backend.install_queue import InstallResult
 
         entry = self._pending_entries.pop(result.app_id, None)
         if entry is not None:
@@ -845,6 +844,26 @@ class CellarWindow(Adw.ApplicationWindow):
             self._show_toast(f"\u201c{entry.name}\u201d installed successfully")
         else:
             self._show_toast(f"\u201c{result.app_id}\u201d installed successfully")
+
+        # Update the active detail view immediately so the button shows "Open".
+        from cellar.views.detail import DetailView
+        page = self.nav_view.get_visible_page()
+        if page is not None:
+            child = page.get_child()
+            if isinstance(child, DetailView) and child._entry.id == result.app_id:
+                child._is_installed = True
+                child._installed_record = {
+                    "prefix_dir": result.prefix_dir,
+                    "install_path": result.install_path,
+                    "install_size": result.install_size,
+                    "delta_size": result.delta_size,
+                    "runner": result.runner,
+                }
+                if result.runner and child._runner_label:
+                    child._runner_label.set_label(result.runner)
+                child._update_install_button()
+                child._rebuild_info_cards()
+
         self._load_catalogue()
 
     def _on_queue_install_error(self, app_id: str, message: str) -> None:

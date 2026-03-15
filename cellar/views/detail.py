@@ -816,6 +816,10 @@ class DetailView(Gtk.Box):
         launch_params_act.connect("activate", lambda *_: self._on_launch_params_clicked())
         ag.add_action(launch_params_act)
 
+        dosbox_config_act = Gio.SimpleAction.new("dosbox-config", None)
+        dosbox_config_act.connect("activate", lambda *_: self._on_dosbox_config_clicked())
+        ag.add_action(dosbox_config_act)
+
         uninstall_act = Gio.SimpleAction.new("uninstall", None)
         uninstall_act.connect("activate", lambda *_: self._on_remove_clicked())
         ag.add_action(uninstall_act)
@@ -840,6 +844,9 @@ class DetailView(Gtk.Box):
         else:
             main_section.append("Create Desktop Shortcut", "detail.create-shortcut")
 
+        if self._entry.platform == "dos":
+            main_section.append("DOSBox Configuration\u2026", "detail.dosbox-config")
+
         main_section.append("Open Install Folder", "detail.open-folder")
 
         danger_section = Gio.Menu()
@@ -854,6 +861,90 @@ class DetailView(Gtk.Box):
         folder = self._get_install_folder()
         if folder:
             Gio.AppInfo.launch_default_for_uri(f"file://{folder}", None)
+
+    def _on_dosbox_config_clicked(self) -> None:
+        """Show DOSBox configuration dialog for installed DOS games."""
+        install_folder = self._get_install_folder()
+        if not install_folder:
+            return
+        config_dir = Path(install_folder) / "config"
+        if not config_dir.is_dir():
+            self._add_toast("No DOSBox config folder found")
+            return
+
+        dlg = Adw.Dialog(title="DOSBox Configuration")
+        dlg.set_content_width(420)
+        dlg.set_content_height(300)
+
+        toolbar = Adw.ToolbarView()
+        header = Adw.HeaderBar()
+        toolbar.add_top_bar(header)
+
+        page = Adw.PreferencesPage()
+
+        group = Adw.PreferencesGroup(
+            description="Edit config files to customise DOSBox settings. "
+            "Changes take effect on next launch.",
+        )
+
+        base_conf = config_dir / "dosbox-staging.conf"
+        if base_conf.is_file():
+            row = Adw.ActionRow(
+                title="dosbox-staging.conf",
+                subtitle="Base DOSBox Staging defaults",
+            )
+            btn = Gtk.Button(icon_name="document-edit-symbolic")
+            btn.set_valign(Gtk.Align.CENTER)
+            btn.add_css_class("flat")
+            btn.set_tooltip_text("Open in text editor")
+            btn.connect(
+                "clicked",
+                lambda _b, p=base_conf: Gio.AppInfo.launch_default_for_uri(
+                    p.as_uri(), None
+                ),
+            )
+            row.add_suffix(btn)
+            group.add(row)
+
+        over_conf = config_dir / "dosbox-overrides.conf"
+        if over_conf.is_file():
+            row = Adw.ActionRow(
+                title="dosbox-overrides.conf",
+                subtitle="Game-specific settings (cycles, sound, autoexec)",
+            )
+            btn = Gtk.Button(icon_name="document-edit-symbolic")
+            btn.set_valign(Gtk.Align.CENTER)
+            btn.add_css_class("flat")
+            btn.set_tooltip_text("Open in text editor")
+            btn.connect(
+                "clicked",
+                lambda _b, p=over_conf: Gio.AppInfo.launch_default_for_uri(
+                    p.as_uri(), None
+                ),
+            )
+            row.add_suffix(btn)
+            group.add(row)
+
+        folder_row = Adw.ActionRow(
+            title="Open Config Folder",
+            subtitle=str(config_dir),
+        )
+        folder_btn = Gtk.Button(icon_name="folder-open-symbolic")
+        folder_btn.set_valign(Gtk.Align.CENTER)
+        folder_btn.add_css_class("flat")
+        folder_btn.connect(
+            "clicked",
+            lambda _b: Gio.AppInfo.launch_default_for_uri(
+                config_dir.as_uri(), None
+            ),
+        )
+        folder_row.add_suffix(folder_btn)
+        group.add(folder_row)
+
+        page.add(group)
+        toolbar.set_content(page)
+        dlg.set_child(toolbar)
+        dlg.present(self.get_root())
 
     def _on_launch_params_clicked(self) -> None:
         from cellar.views.launch_params import LaunchParamsDialog  # noqa: PLC0415

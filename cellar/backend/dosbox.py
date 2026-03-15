@@ -41,6 +41,130 @@ _ASSET_PATTERN = re.compile(
     r"dosbox-staging-linux-x86_64-.*\.tar\.xz$", re.IGNORECASE
 )
 
+# ---------------------------------------------------------------------------
+# UI option constants — used by DosboxSettingsDialog
+# ---------------------------------------------------------------------------
+
+CPU_PRESETS: tuple[tuple[str, str], ...] = (
+    ("Auto (recommended)", "auto"),
+    ("8088 4.77 MHz", "240"),
+    ("286 12 MHz", "1510"),
+    ("386SX 16 MHz", "3000"),
+    ("386DX 33 MHz", "6075"),
+    ("486DX 33 MHz", "12000"),
+    ("486DX2 66 MHz", "23880"),
+    ("Pentium 100 MHz", "60000"),
+    ("Pentium II 300 MHz", "200000"),
+    ("Athlon 600 MHz", "306000"),
+    ("Max", "max"),
+)
+
+MACHINE_OPTIONS: tuple[tuple[str, str], ...] = (
+    # Monochrome
+    ("Hercules", "hercules"),
+    ("CGA Mono", "cga_mono"),
+    # Color
+    ("CGA", "cga"),
+    ("EGA", "ega"),
+    ("Tandy", "tandy"),
+    ("PCjr", "pcjr"),
+    # VGA / SVGA
+    ("S3 Trio (default)", "svga_s3"),
+    ("Tseng ET3000", "svga_et3000"),
+    ("Tseng ET4000", "svga_et4000"),
+    ("Paradise PVGA1A", "svga_paradise"),
+    ("VESA (no LFB)", "vesa_nolfb"),
+    ("VESA (old VBE)", "vesa_oldvbe"),
+)
+
+RENDERER_OPTIONS: tuple[tuple[str, str], ...] = (
+    ("OpenGL (recommended)", "opengl"),
+    ("Texture (bilinear)", "texture"),
+    ("Texture (nearest)", "texturenb"),
+)
+
+SHADER_OPTIONS: tuple[tuple[str, str], ...] = (
+    ("CRT Auto", "crt-auto"),
+    ("CRT Auto (per machine)", "crt-auto-machine"),
+    ("CRT Arcade", "crt-auto-arcade"),
+    ("CRT Arcade (sharp)", "crt-auto-arcade-sharp"),
+    ("Sharp", "sharp"),
+    ("Bilinear", "bilinear"),
+    ("Nearest Neighbour", "nearest"),
+    ("None", "none"),
+)
+
+ASPECT_OPTIONS: tuple[tuple[str, str], ...] = (
+    ("Auto", "auto"),
+    ("On", "on"),
+    ("Square Pixels", "square-pixels"),
+    ("Off", "off"),
+    ("Stretch", "stretch"),
+)
+
+MEMSIZE_OPTIONS: tuple[tuple[str, str], ...] = (
+    ("4 MB", "4"),
+    ("8 MB", "8"),
+    ("16 MB (default)", "16"),
+    ("32 MB", "32"),
+    ("64 MB", "64"),
+)
+
+SBTYPE_OPTIONS: tuple[tuple[str, str], ...] = (
+    ("None", "none"),
+    ("Sound Blaster 1.0", "sb1"),
+    ("Sound Blaster 2.0", "sb2"),
+    ("Sound Blaster Pro", "sbpro1"),
+    ("Sound Blaster Pro 2", "sbpro2"),
+    ("Sound Blaster 16 (default)", "sb16"),
+    ("ESS AudioDrive", "ess"),
+)
+
+OPLMODE_OPTIONS: tuple[tuple[str, str], ...] = (
+    ("Auto", "auto"),
+    ("OPL2", "opl2"),
+    ("Dual OPL2", "dualopl2"),
+    ("OPL3", "opl3"),
+    ("OPL3 Gold", "opl3gold"),
+    ("ESFM", "esfm"),
+    ("None", "none"),
+)
+
+MIDIDEVICE_OPTIONS: tuple[tuple[str, str], ...] = (
+    ("Auto", "auto"),
+    ("FluidSynth (SoundFont)", "fluidsynth"),
+    ("MT-32 / CM-32L", "mt32"),
+    ("None", "none"),
+)
+
+CROSSFEED_OPTIONS: tuple[tuple[str, str], ...] = (
+    ("Off", "off"),
+    ("Light", "light"),
+    ("Normal", "normal"),
+    ("Strong", "strong"),
+)
+
+REVERB_OPTIONS: tuple[tuple[str, str], ...] = (
+    ("Off", "off"),
+    ("Tiny", "tiny"),
+    ("Small", "small"),
+    ("Medium", "medium"),
+    ("Large", "large"),
+    ("Huge", "huge"),
+)
+
+CHORUS_OPTIONS: tuple[tuple[str, str], ...] = (
+    ("Off", "off"),
+    ("Light", "light"),
+    ("Normal", "normal"),
+    ("Strong", "strong"),
+)
+
+
+# ---------------------------------------------------------------------------
+# Internal state
+# ---------------------------------------------------------------------------
+
 _cache: tuple[float, dict] | None = None
 _cache_lock = threading.Lock()
 _fetch_lock = threading.Lock()
@@ -301,7 +425,7 @@ def detect_gog_dosbox(folder: Path) -> GogDosboxInfo | None:
 
 # Settings we extract from GOG configs to put in overrides.
 _EXTRACT_SECTIONS = {
-    "cpu": {"cycles", "core", "cputype"},
+    "cpu": {"cycles", "cpu_cycles", "core", "cputype"},
     "dosbox": {"machine", "memsize"},
     "sblaster": {"sbtype", "sbbase", "irq", "dma", "hdma", "oplmode"},
     "gus": {"gus", "gusbase", "gusirq", "gusdma"},
@@ -516,6 +640,126 @@ def convert_gog_dosbox(
 
     # Step 6: Return entry points
     return [{"name": info.game_name or "Game", "path": "launch.sh", "args": ""}]
+
+
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Config file read/write helpers (shared by builder + detail view)
+# ---------------------------------------------------------------------------
+
+
+def read_override(conf_path: Path, section: str, key: str) -> str:
+    """Read a single value from a DOSBox overrides conf file.
+
+    Returns the value as a string, or empty string if not found.
+    """
+    if not conf_path.is_file():
+        return ""
+    text = conf_path.read_text(encoding="utf-8", errors="replace")
+    parser = configparser.ConfigParser(interpolation=None)
+    parser.read_string(_strip_autoexec(text))
+    if parser.has_section(section) and parser.has_option(section, key):
+        return parser.get(section, key).strip()
+    return ""
+
+
+def write_override(conf_path: Path, section: str, key: str, value: str) -> None:
+    """Set a single value in a DOSBox overrides conf file.
+
+    Creates the section if it doesn't exist.  Preserves ``[autoexec]``.
+    """
+    write_overrides_batch(conf_path, {(section, key): value})
+
+
+def write_overrides_batch(
+    conf_path: Path,
+    changes: dict[tuple[str, str], str],
+) -> None:
+    """Write multiple values to a DOSBox overrides conf file in one pass.
+
+    *changes* maps ``(section, key)`` → ``value``.
+    Creates sections as needed.  Preserves ``[autoexec]`` and comments.
+    """
+    if not conf_path.is_file():
+        return
+
+    text = conf_path.read_text(encoding="utf-8", errors="replace")
+    lines = text.splitlines()
+
+    # Group changes by section for efficient processing
+    by_section: dict[str, dict[str, str]] = {}
+    for (sec, key), val in changes.items():
+        by_section.setdefault(sec, {})[key] = val
+
+    new_lines: list[str] = []
+    current_section = ""
+    written_keys: dict[str, set[str]] = {}  # section → set of written keys
+
+    for line in lines:
+        stripped = line.strip()
+        lower = stripped.lower()
+
+        # Detect section headers
+        if lower.startswith("[") and lower.endswith("]"):
+            # Before leaving current section, write any unwritten keys
+            if current_section in by_section:
+                for k, v in by_section[current_section].items():
+                    if k not in written_keys.get(current_section, set()):
+                        new_lines.append(f"{k} = {v}")
+                        written_keys.setdefault(current_section, set()).add(k)
+            current_section = lower[1:-1]
+            new_lines.append(line)
+            continue
+
+        # Check if this line is a key we want to overwrite
+        if current_section in by_section:
+            for k in by_section[current_section]:
+                if lower.startswith(f"{k.lower()} ") or lower.startswith(f"{k.lower()}="):
+                    new_lines.append(f"{k} = {by_section[current_section][k]}")
+                    written_keys.setdefault(current_section, set()).add(k)
+                    break
+            else:
+                new_lines.append(line)
+            continue
+
+        new_lines.append(line)
+
+    # Write remaining keys for the last section
+    if current_section in by_section:
+        for k, v in by_section[current_section].items():
+            if k not in written_keys.get(current_section, set()):
+                new_lines.append(f"{k} = {v}")
+                written_keys.setdefault(current_section, set()).add(k)
+
+    # Add entirely new sections (before [autoexec] if present)
+    autoexec_idx = None
+    for i, line in enumerate(new_lines):
+        if line.strip().lower() == "[autoexec]":
+            autoexec_idx = i
+            break
+
+    new_sections: list[str] = []
+    for sec, keys in by_section.items():
+        unwritten = {k: v for k, v in keys.items() if k not in written_keys.get(sec, set())}
+        if unwritten:
+            new_sections.append("")
+            new_sections.append(f"[{sec}]")
+            for k, v in unwritten.items():
+                new_sections.append(f"{k} = {v}")
+
+    if new_sections:
+        if autoexec_idx is not None:
+            for i, sl in enumerate(new_sections):
+                new_lines.insert(autoexec_idx + i, sl)
+        else:
+            new_lines.extend(new_sections)
+
+    # Ensure trailing newline
+    while new_lines and not new_lines[-1].strip():
+        new_lines.pop()
+    new_lines.append("")
+
+    conf_path.write_text("\n".join(new_lines), encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------

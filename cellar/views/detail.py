@@ -863,195 +863,22 @@ class DetailView(Gtk.Box):
             Gio.AppInfo.launch_default_for_uri(f"file://{folder}", None)
 
     def _on_dosbox_config_clicked(self) -> None:
-        """Show DOSBox configuration dialog for installed DOS games."""
+        """Show DOSBox settings dialog for installed DOS games."""
         install_folder = self._get_install_folder()
         if not install_folder:
             return
-        config_dir = Path(install_folder) / "config"
+        install_path = Path(install_folder)
+        config_dir = install_path / "config"
         if not config_dir.is_dir():
             self._add_toast("No DOSBox config folder found")
             return
 
-        install_path = Path(install_folder)
-        over_conf = config_dir / "dosbox-overrides.conf"
-
-        dlg = Adw.Dialog(title="DOSBox Configuration")
-        dlg.set_content_width(440)
-        dlg.set_content_height(480)
-
-        toolbar = Adw.ToolbarView()
-        header = Adw.HeaderBar()
-        toolbar.add_top_bar(header)
-
-        page = Adw.PreferencesPage()
-
-        # ── Quick settings ────────────────────────────────────────────
-        quick_group = Adw.PreferencesGroup(
-            title="Settings",
-            description="Changes take effect on next launch.",
-        )
-
-        # Fullscreen toggle
-        fs_switch = Adw.SwitchRow(
-            title="Fullscreen",
-            subtitle="Start DOSBox in fullscreen mode",
-        )
-        fs_active = self._read_dosbox_override(over_conf, "sdl", "fullscreen") == "true"
-        fs_switch.set_active(fs_active)
-        fs_switch.connect(
-            "notify::active",
-            lambda row, _p, c=over_conf: self._write_dosbox_override(
-                c, "sdl", "fullscreen", "true" if row.get_active() else "false",
-            ),
-        )
-        quick_group.add(fs_switch)
-        page.add(quick_group)
-
-        # ── Audio assets ──────────────────────────────────────────────
-        assets_dir = install_path / "assets"
-        sf_dir = assets_dir / "soundfonts"
-        rom_dir = assets_dir / "mt32-roms"
-        has_sf = sf_dir.is_dir() and any(sf_dir.glob("*.sf[23]"))
-        has_rom = rom_dir.is_dir() and any(rom_dir.glob("*.rom"))
-
-        if has_sf or has_rom:
-            audio_group = Adw.PreferencesGroup(title="Audio Assets")
-            if has_sf:
-                for sf in sorted(sf_dir.glob("*.sf[23]")):
-                    row = Adw.ActionRow(title=sf.name, subtitle="SoundFont")
-                    row.add_prefix(Gtk.Image.new_from_icon_name("audio-x-generic-symbolic"))
-                    audio_group.add(row)
-            if has_rom:
-                roms = sorted(rom_dir.glob("*.rom"))
-                row = Adw.ActionRow(
-                    title=f"MT-32 ROMs ({len(roms)} files)",
-                    subtitle=", ".join(r.name for r in roms[:4])
-                    + ("\u2026" if len(roms) > 4 else ""),
-                )
-                row.add_prefix(Gtk.Image.new_from_icon_name("audio-x-generic-symbolic"))
-                audio_group.add(row)
-            page.add(audio_group)
-
-        # ── Config files ──────────────────────────────────────────────
-        files_group = Adw.PreferencesGroup(title="Config Files")
-
-        base_conf = config_dir / "dosbox-staging.conf"
-        if base_conf.is_file():
-            row = Adw.ActionRow(
-                title="dosbox-staging.conf",
-                subtitle="Base DOSBox Staging defaults",
-            )
-            btn = Gtk.Button(icon_name="document-edit-symbolic")
-            btn.set_valign(Gtk.Align.CENTER)
-            btn.add_css_class("flat")
-            btn.set_tooltip_text("Open in text editor")
-            btn.connect(
-                "clicked",
-                lambda _b, p=base_conf: Gio.AppInfo.launch_default_for_uri(
-                    p.as_uri(), None
-                ),
-            )
-            row.add_suffix(btn)
-            files_group.add(row)
-
-        if over_conf.is_file():
-            row = Adw.ActionRow(
-                title="dosbox-overrides.conf",
-                subtitle="Game-specific overrides",
-            )
-            btn = Gtk.Button(icon_name="document-edit-symbolic")
-            btn.set_valign(Gtk.Align.CENTER)
-            btn.add_css_class("flat")
-            btn.set_tooltip_text("Open in text editor")
-            btn.connect(
-                "clicked",
-                lambda _b, p=over_conf: Gio.AppInfo.launch_default_for_uri(
-                    p.as_uri(), None
-                ),
-            )
-            row.add_suffix(btn)
-            files_group.add(row)
-
-        folder_row = Adw.ActionRow(
-            title="Open Config Folder",
-            subtitle=str(config_dir),
-        )
-        folder_btn = Gtk.Button(icon_name="folder-open-symbolic")
-        folder_btn.set_valign(Gtk.Align.CENTER)
-        folder_btn.add_css_class("flat")
-        folder_btn.connect(
-            "clicked",
-            lambda _b: Gio.AppInfo.launch_default_for_uri(
-                config_dir.as_uri(), None
-            ),
-        )
-        folder_row.add_suffix(folder_btn)
-        files_group.add(folder_row)
-
-        page.add(files_group)
-        toolbar.set_content(page)
-        dlg.set_child(toolbar)
-        dlg.present(self.get_root())
-
-    @staticmethod
-    def _read_dosbox_override(conf_path: Path, section: str, key: str) -> str:
-        """Read a value from a DOSBox overrides conf file."""
-        if not conf_path.is_file():
-            return ""
-        import configparser
-        from cellar.backend.dosbox import _strip_autoexec
-        parser = configparser.ConfigParser(interpolation=None)
-        text = conf_path.read_text(encoding="utf-8", errors="replace")
-        parser.read_string(_strip_autoexec(text))
-        if parser.has_section(section) and parser.has_option(section, key):
-            return parser.get(section, key).strip()
-        return ""
-
-    @staticmethod
-    def _write_dosbox_override(conf_path: Path, section: str, key: str, value: str) -> None:
-        """Set a value in a DOSBox overrides conf file."""
-        if not conf_path.is_file():
-            return
-        text = conf_path.read_text(encoding="utf-8", errors="replace")
-        lines = text.splitlines()
-        new_lines: list[str] = []
-        in_target = False
-        key_written = False
-
-        for line in lines:
-            stripped = line.strip().lower()
-            if stripped.startswith("[") and stripped.endswith("]"):
-                if in_target and not key_written:
-                    new_lines.append(f"{key} = {value}")
-                    key_written = True
-                in_target = (stripped == f"[{section}]")
-                new_lines.append(line)
-                continue
-            if in_target and stripped.startswith(f"{key.lower()}"):
-                new_lines.append(f"{key} = {value}")
-                key_written = True
-                continue
-            new_lines.append(line)
-
-        if in_target and not key_written:
-            new_lines.append(f"{key} = {value}")
-            key_written = True
-
-        if not key_written:
-            # Section doesn't exist — add before [autoexec] or at end
-            autoexec_idx = None
-            for i, line in enumerate(new_lines):
-                if line.strip().lower() == "[autoexec]":
-                    autoexec_idx = i
-                    break
-            insert = [f"\n[{section}]", f"{key} = {value}"]
-            if autoexec_idx is not None:
-                for j, il in enumerate(insert):
-                    new_lines.insert(autoexec_idx + j, il)
-            else:
-                new_lines.extend(insert)
-
-        conf_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+        from cellar.views.dosbox_settings import DosboxSettingsDialog
+        DosboxSettingsDialog(
+            config_dir=config_dir,
+            assets_dir=install_path / "assets",
+            allow_assets=True,
+        ).present(self.get_root())
 
     def _on_launch_params_clicked(self) -> None:
         from cellar.views.launch_params import LaunchParamsDialog  # noqa: PLC0415

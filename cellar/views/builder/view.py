@@ -1053,150 +1053,24 @@ class PackageBuilderView(Adw.Bin):
 
             page.add(targets_group)
 
-        # ── 5c. DOSBox Configuration (DOS only) ──────────────────────────
-        if project.project_type == "dos":
-            _config_dir = Path(project.source_dir) / "config" if project.source_dir else None
-            _has_config = _config_dir is not None and _config_dir.is_dir()
-
-            dos_group = Adw.PreferencesGroup(title="DOSBox Configuration")
-
-            # Fullscreen toggle
-            _fs_switch = Adw.SwitchRow(
-                title="Fullscreen",
-                subtitle="Start DOSBox in fullscreen mode",
-            )
-            _fs_switch.set_active(self._get_dosbox_override(project, "sdl", "fullscreen") == "true")
-            _fs_switch.connect("notify::active", self._on_dosbox_fullscreen_toggled)
-            dos_group.add(_fs_switch)
-
-            # Base config row
-            _base_conf = _config_dir / "dosbox-staging.conf" if _config_dir else None
-            _base_row = Adw.ActionRow(
-                title="dosbox-staging.conf",
-                subtitle="Base DOSBox Staging defaults (edit to change global settings)",
-            )
-            _base_row.set_sensitive(_has_config and _base_conf.is_file())
-            _edit_base_btn = Gtk.Button(icon_name="document-edit-symbolic")
-            _edit_base_btn.set_valign(Gtk.Align.CENTER)
-            _edit_base_btn.add_css_class("flat")
-            _edit_base_btn.set_tooltip_text("Open in text editor")
-            _edit_base_btn.connect(
-                "clicked",
-                lambda _b, p=_base_conf: self._open_file_in_editor(p),
-            )
-            _base_row.add_suffix(_edit_base_btn)
-            dos_group.add(_base_row)
-
-            # Overrides config row
-            _over_conf = _config_dir / "dosbox-overrides.conf" if _config_dir else None
-            _over_row = Adw.ActionRow(
-                title="dosbox-overrides.conf",
-                subtitle="Game-specific settings (cycles, sound, autoexec)",
-            )
-            _over_row.set_sensitive(_has_config and _over_conf.is_file())
-            _edit_over_btn = Gtk.Button(icon_name="document-edit-symbolic")
-            _edit_over_btn.set_valign(Gtk.Align.CENTER)
-            _edit_over_btn.add_css_class("flat")
-            _edit_over_btn.set_tooltip_text("Open in text editor")
-            _edit_over_btn.connect(
-                "clicked",
-                lambda _b, p=_over_conf: self._open_file_in_editor(p),
-            )
-            _over_row.add_suffix(_edit_over_btn)
-            dos_group.add(_over_row)
-
-            # Open config folder row
-            _folder_row = Adw.ActionRow(
-                title="Open Config Folder",
-                subtitle=str(_config_dir) if _config_dir else "",
-            )
-            _folder_row.set_sensitive(_has_config)
-            _folder_btn = Gtk.Button(icon_name="folder-open-symbolic")
-            _folder_btn.set_valign(Gtk.Align.CENTER)
-            _folder_btn.add_css_class("flat")
-            _folder_btn.connect(
-                "clicked",
-                lambda _b, d=_config_dir: self._open_folder(d),
-            )
-            _folder_row.add_suffix(_folder_btn)
-            dos_group.add(_folder_row)
-
-            page.add(dos_group)
-
-        # ── 5d. Audio Assets (DOS only) ──────────────────────────────────
+        # ── 5c. DOSBox Settings (DOS only) ───────────────────────────────
         if project.project_type == "dos" and project.source_dir:
             _src = Path(project.source_dir)
-            assets_group = Adw.PreferencesGroup(
-                title="Audio Assets",
-                description="Add SoundFonts or MT-32 ROMs. "
-                "DOSBox config is updated automatically.",
+            dos_group = Adw.PreferencesGroup(title="DOSBox Staging")
+
+            _settings_row = Adw.ActionRow(
+                title="DOSBox Settings\u2026",
+                subtitle="Display, CPU, sound, MIDI, mixer effects, and config files",
+                activatable=True,
             )
+            _settings_btn = Gtk.Button(label="Open\u2026", valign=Gtk.Align.CENTER)
+            _settings_btn.connect("clicked", self._on_dosbox_settings_clicked)
+            _settings_row.add_suffix(_settings_btn)
+            _settings_row.add_suffix(Gtk.Image.new_from_icon_name("go-next-symbolic"))
+            _settings_row.set_activatable_widget(_settings_btn)
+            dos_group.add(_settings_row)
 
-            # List existing soundfonts
-            _sf_dir = _src / "assets" / "soundfonts"
-            if _sf_dir.is_dir():
-                for sf in sorted(_sf_dir.iterdir()):
-                    if sf.suffix.lower() in (".sf2", ".sf3"):
-                        _sf_row = Adw.ActionRow(
-                            title=sf.name,
-                            subtitle="SoundFont",
-                        )
-                        _sf_row.add_prefix(Gtk.Image.new_from_icon_name("audio-x-generic-symbolic"))
-                        _rm_btn = Gtk.Button(icon_name="user-trash-symbolic")
-                        _rm_btn.set_valign(Gtk.Align.CENTER)
-                        _rm_btn.add_css_class("flat")
-                        _rm_btn.connect(
-                            "clicked",
-                            self._on_remove_dos_asset, project, sf,
-                        )
-                        _sf_row.add_suffix(_rm_btn)
-                        assets_group.add(_sf_row)
-
-            # List existing MT-32 ROMs
-            _rom_dir = _src / "assets" / "mt32-roms"
-            if _rom_dir.is_dir():
-                roms = sorted(
-                    f for f in _rom_dir.iterdir()
-                    if f.suffix.lower() == ".rom"
-                )
-                if roms:
-                    _rom_row = Adw.ActionRow(
-                        title=f"MT-32 ROMs ({len(roms)} files)",
-                        subtitle=", ".join(r.name for r in roms[:4])
-                        + ("\u2026" if len(roms) > 4 else ""),
-                    )
-                    _rom_row.add_prefix(Gtk.Image.new_from_icon_name("audio-x-generic-symbolic"))
-                    _open_rom_btn = Gtk.Button(icon_name="folder-open-symbolic")
-                    _open_rom_btn.set_valign(Gtk.Align.CENTER)
-                    _open_rom_btn.add_css_class("flat")
-                    _open_rom_btn.connect(
-                        "clicked",
-                        lambda _b, d=_rom_dir: self._open_folder(d),
-                    )
-                    _rom_row.add_suffix(_open_rom_btn)
-                    _rm_roms_btn = Gtk.Button(icon_name="user-trash-symbolic")
-                    _rm_roms_btn.set_valign(Gtk.Align.CENTER)
-                    _rm_roms_btn.add_css_class("flat")
-                    _rm_roms_btn.connect(
-                        "clicked",
-                        self._on_remove_dos_asset_dir, project, _rom_dir,
-                    )
-                    _rom_row.add_suffix(_rm_roms_btn)
-                    assets_group.add(_rom_row)
-
-            # Add button
-            _add_asset_row = Adw.ActionRow(
-                title="Add Audio Assets\u2026",
-                subtitle="Drop or browse for .sf2 SoundFonts or .rom MT-32 files",
-            )
-            _add_btn = Gtk.Button(label="Add\u2026", valign=Gtk.Align.CENTER)
-            _add_btn.add_css_class("suggested-action")
-            _add_btn.connect("clicked", self._on_add_dos_asset_clicked)
-            _add_asset_row.add_suffix(_add_btn)
-            _add_asset_row.set_activatable_widget(_add_btn)
-            assets_group.add(_add_asset_row)
-
-            page.add(assets_group)
+            page.add(dos_group)
 
         # ── 6. Dependencies (Windows / Base only) ─────────────────────────
         if project.project_type not in ("linux", "dos"):
@@ -2833,6 +2707,19 @@ class PackageBuilderView(Adw.Bin):
         win = self.get_root()
         if hasattr(win, "toast_overlay"):
             win.toast_overlay.add_toast(Adw.Toast(title=message))
+
+    def _on_dosbox_settings_clicked(self, _btn) -> None:
+        """Open the DOSBox Settings dialog for the current DOS project."""
+        if self._project is None or not self._project.source_dir:
+            return
+        from cellar.views.dosbox_settings import DosboxSettingsDialog
+
+        src = Path(self._project.source_dir)
+        DosboxSettingsDialog(
+            config_dir=src / "config",
+            assets_dir=src / "assets",
+            on_saved=lambda: self._show_project(self._project) if self._project else None,
+        ).present(self)
 
     # ── DOS config helpers ─────────────────────────────────────────
 

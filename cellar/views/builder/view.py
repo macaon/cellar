@@ -2859,87 +2859,15 @@ class PackageBuilderView(Adw.Bin):
         *,
         remove_missing: bool = False,
     ) -> None:
-        """Update dosbox-overrides.conf with audio asset paths.
-
-        When *remove_missing* is True, removes config entries for asset types
-        that are no longer present.
-        """
-        overrides_path = Path(project.source_dir) / "config" / "dosbox-overrides.conf"
-        if not overrides_path.is_file():
-            return
-
-        text = overrides_path.read_text(encoding="utf-8")
-        lines = text.splitlines()
-        new_lines: list[str] = []
-
-        # Track which sections/keys we've seen
-        in_section = ""
-        midi_written = False
-        fluidsynth_written = False
-        mt32_written = False
-
-        # Strip existing audio config lines — we'll re-add them
-        for line in lines:
-            stripped = line.strip().lower()
-            if stripped.startswith("[") and stripped.endswith("]"):
-                in_section = stripped[1:-1]
-
-            # Remove existing midi/fluidsynth/mt32 lines we manage
-            if in_section == "midi" and stripped.startswith("mididevice"):
-                continue
-            if in_section == "fluidsynth" and stripped.startswith("soundfont"):
-                continue
-            if in_section == "mt32" and stripped.startswith("romdir"):
-                continue
-            # Remove empty section headers for sections we manage
-            if stripped in ("[fluidsynth]", "[mt32]"):
-                # Skip — we'll re-add if needed
-                continue
-            if stripped == "[midi]":
-                continue
-
-            new_lines.append(line)
-
-        # Remove trailing blank lines
-        while new_lines and not new_lines[-1].strip():
-            new_lines.pop()
-
-        # Add audio config at the end (before [autoexec] if present)
-        autoexec_idx = None
-        for i, line in enumerate(new_lines):
-            if line.strip().lower() == "[autoexec]":
-                autoexec_idx = i
-                break
-
-        audio_lines: list[str] = []
-
-        if has_soundfont:
-            sf_dir = Path(project.source_dir) / "assets" / "soundfonts"
-            sfs = sorted(sf_dir.glob("*.sf[23]")) if sf_dir.is_dir() else []
-            if sfs:
-                audio_lines.append("")
-                audio_lines.append("[midi]")
-                audio_lines.append("mididevice = fluidsynth")
-                audio_lines.append("")
-                audio_lines.append("[fluidsynth]")
-                audio_lines.append(f"soundfont = assets/soundfonts/{sfs[0].name}")
-        elif has_mt32:
-            audio_lines.append("")
-            audio_lines.append("[midi]")
-            audio_lines.append("mididevice = mt32")
-            audio_lines.append("")
-            audio_lines.append("[mt32]")
-            audio_lines.append("romdir = assets/mt32-roms")
-
-        if audio_lines:
-            if autoexec_idx is not None:
-                for i, al in enumerate(audio_lines):
-                    new_lines.insert(autoexec_idx + i, al)
-            else:
-                new_lines.extend(audio_lines)
-
-        new_lines.append("")  # trailing newline
-        overrides_path.write_text("\n".join(new_lines), encoding="utf-8")
+        """Update dosbox-overrides.conf with audio asset paths."""
+        from cellar.backend.dosbox import update_audio_config
+        src = Path(project.source_dir)
+        update_audio_config(
+            src / "config" / "dosbox-overrides.conf",
+            src / "assets",
+            has_soundfont,
+            has_mt32,
+        )
 
     def _open_file_in_editor(self, path: Path | None) -> None:
         """Open a file in the default text editor via xdg-open."""

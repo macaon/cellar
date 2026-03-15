@@ -850,6 +850,87 @@ def write_overrides_batch(
     conf_path.write_text("\n".join(new_lines), encoding="utf-8")
 
 
+def update_audio_config(
+    overrides_path: Path,
+    assets_dir: Path,
+    has_soundfont: bool,
+    has_mt32: bool,
+) -> None:
+    """Rewrite MIDI/FluidSynth/MT-32 sections in a DOSBox overrides conf.
+
+    Strips existing audio config lines and re-adds them based on the
+    current asset state.  Inserts new sections before ``[autoexec]``.
+    """
+    if not overrides_path.is_file():
+        return
+
+    text = overrides_path.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    new_lines: list[str] = []
+
+    in_section = ""
+
+    # Strip existing audio config lines — we'll re-add them
+    for line in lines:
+        stripped = line.strip().lower()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            in_section = stripped[1:-1]
+
+        # Remove existing midi/fluidsynth/mt32 lines we manage
+        if in_section == "midi" and stripped.startswith("mididevice"):
+            continue
+        if in_section == "fluidsynth" and stripped.startswith("soundfont"):
+            continue
+        if in_section == "mt32" and stripped.startswith("romdir"):
+            continue
+        # Remove section headers for sections we manage
+        if stripped in ("[fluidsynth]", "[mt32]", "[midi]"):
+            continue
+
+        new_lines.append(line)
+
+    # Remove trailing blank lines
+    while new_lines and not new_lines[-1].strip():
+        new_lines.pop()
+
+    # Add audio config before [autoexec] if present
+    autoexec_idx = None
+    for i, line in enumerate(new_lines):
+        if line.strip().lower() == "[autoexec]":
+            autoexec_idx = i
+            break
+
+    audio_lines: list[str] = []
+
+    if has_soundfont:
+        sf_dir = assets_dir / "soundfonts"
+        sfs = sorted(sf_dir.glob("*.sf[23]")) if sf_dir.is_dir() else []
+        if sfs:
+            audio_lines.append("")
+            audio_lines.append("[midi]")
+            audio_lines.append("mididevice = fluidsynth")
+            audio_lines.append("")
+            audio_lines.append("[fluidsynth]")
+            audio_lines.append(f"soundfont = assets/soundfonts/{sfs[0].name}")
+    elif has_mt32:
+        audio_lines.append("")
+        audio_lines.append("[midi]")
+        audio_lines.append("mididevice = mt32")
+        audio_lines.append("")
+        audio_lines.append("[mt32]")
+        audio_lines.append("romdir = assets/mt32-roms")
+
+    if audio_lines:
+        if autoexec_idx is not None:
+            for i, al in enumerate(audio_lines):
+                new_lines.insert(autoexec_idx + i, al)
+        else:
+            new_lines.extend(audio_lines)
+
+    new_lines.append("")  # trailing newline
+    overrides_path.write_text("\n".join(new_lines), encoding="utf-8")
+
+
 # ---------------------------------------------------------------------------
 # Private helpers — runtime
 # ---------------------------------------------------------------------------

@@ -738,9 +738,13 @@ class MetadataEditorDialog(Adw.Dialog):
             if audio in self._AUDIO_VALUES:
                 self._audio_driver_row.set_selected(self._AUDIO_VALUES.index(audio))
 
-        # Wire steam appid → media panel
+        # Wire steam appid → media panel.  The initial fire suppresses
+        # the on_changed notification so the async Steam suggestion fetch
+        # does not spuriously mark screenshots as dirty.
+        self._populating = True
         self._steam_row.connect("changed", self._on_steam_appid_changed)
         self._on_steam_appid_changed(self._steam_row)
+        self._populating = False
 
         # Populate media panel
         ctx.populate_media(self._media)
@@ -1170,7 +1174,8 @@ class MetadataEditorDialog(Adw.Dialog):
     def _on_steam_appid_changed(self, _row) -> None:
         steam_txt = self._steam_row.get_text().strip()
         appid = int(steam_txt) if steam_txt.isdigit() else None
-        self._media.set_steam_appid(appid)
+        notify = not getattr(self, "_populating", False)
+        self._media.set_steam_appid(appid, notify=notify)
 
     def _on_screenshots_changed(self) -> None:
         self._screenshots_dirty = True

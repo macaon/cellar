@@ -935,11 +935,27 @@ def update_in_repo(
     new_screenshots = images.get("screenshots")
     if new_screenshots is not None:
         ss_dir = repo_root / "apps" / new_entry.id / "screenshots"
+        # Copy sources to a temp dir first — on local repos the source
+        # paths may point *inside* ss_dir which is about to be deleted.
+        safe_sources = list(new_screenshots)
+        if safe_sources:
+            import tempfile as _tmp_ss
+            _staging = Path(_tmp_ss.mkdtemp(prefix="cellar_ss_"))
+            staged: list[str] = []
+            for src in safe_sources:
+                src_p = Path(src)
+                if src_p.is_file():
+                    dest = _staging / src_p.name
+                    shutil.copy2(src, dest)
+                    staged.append(str(dest))
+                else:
+                    staged.append(src)
+            safe_sources = staged
         if ss_dir.exists():
             _rmtree(ss_dir)
         ss_rels: list[str] = []
-        if new_screenshots:
-            for src in new_screenshots:
+        if safe_sources:
+            for src in safe_sources:
                 hashed = _optimize_and_hash(src, ss_dir, "ss", "screenshot")
                 ss_rels.append(f"apps/{new_entry.id}/screenshots/{hashed}")
         # Rebuild screenshot_sources with the new hashed paths.

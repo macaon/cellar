@@ -281,14 +281,14 @@ class MediaPanel(Gtk.Box):
     def select_steam_by_urls(self, urls: set[str]) -> None:
         self._screenshot_grid.select_steam_by_urls(urls)
 
-    def set_steam_appid(self, appid: int | None) -> None:
+    def set_steam_appid(self, appid: int | None, *, notify: bool = True) -> None:
         """Enable/disable Steam download buttons based on appid."""
         has_appid = appid is not None
         for btn in self._steam_dl_btns:
             btn.set_sensitive(has_appid)
         self._steam_appid = appid
         if has_appid:
-            self._fetch_steam_screenshots(appid)
+            self._fetch_steam_screenshots(appid, notify=notify)
 
     # ------------------------------------------------------------------
     # Public API — read back
@@ -433,7 +433,7 @@ class MediaPanel(Gtk.Box):
         if self._on_changed:
             self._on_changed()
 
-    def _fetch_steam_screenshots(self, steam_appid: int) -> None:
+    def _fetch_steam_screenshots(self, steam_appid: int, *, notify: bool = True) -> None:
         from cellar.utils.async_work import run_in_background
 
         def _work():
@@ -447,7 +447,7 @@ class MediaPanel(Gtk.Box):
         def _done(screenshots):
             self._screenshot_grid.clear_steam()
             if screenshots:
-                self._screenshot_grid.add_steam(screenshots)
+                self._screenshot_grid.add_steam(screenshots, notify=notify)
 
         run_in_background(_work, on_done=_done)
 

@@ -1163,9 +1163,8 @@ class DetailView(Gtk.Box):
         # Inner box: spinner + warning icon (update indicator) + label.
         _btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4,
                            halign=Gtk.Align.CENTER)
-        self._install_spinner = Gtk.Spinner()
+        self._install_spinner = Adw.Spinner()
         self._install_spinner.set_visible(False)
-        self._install_spinner.set_spinning(True)
         _btn_box.append(self._install_spinner)
         self._update_indicator = Gtk.Image.new_from_icon_name("software-update-urgent-symbolic")
         self._update_indicator.set_visible(False)

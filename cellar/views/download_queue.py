@@ -106,7 +106,7 @@ class DownloadQueueDialog(Adw.Dialog):
         row = Adw.ActionRow(title=title, subtitle=subtitle)
 
         if spinning:
-            spinner = Gtk.Spinner(spinning=True)
+            spinner = Adw.Spinner()
             spinner.set_valign(Gtk.Align.CENTER)
             row.add_prefix(spinner)
         elif icon_name:

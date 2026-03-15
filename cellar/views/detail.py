@@ -405,6 +405,8 @@ class DetailView(Gtk.Box):
 
         Called by the window on every progress/stats callback.
         """
+        if not hasattr(self, "_spinner_btn"):
+            return
         if not queue.is_active(self._entry.id):
             return
         stats = queue.active_stats_text

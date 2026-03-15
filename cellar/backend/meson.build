@@ -5,6 +5,7 @@ python_sources = files(
   'database.py',
   'detect.py',
   'dosbox.py',
+  'install_queue.py',
   'installer.py',
   'manifest.py',
   'packager.py',

@@ -266,6 +266,8 @@ class CellarWindow(Adw.ApplicationWindow):
             on_complete=self._on_queue_install_complete,
             on_error=self._on_queue_install_error,
             on_cancelled=self._on_queue_install_cancelled,
+            on_progress=self._on_queue_progress,
+            on_download_stats=self._on_queue_download_stats,
             on_queue_changed=self._on_queue_changed,
         )
         # Map app_id → entry for DB writes on completion.
@@ -798,6 +800,8 @@ class CellarWindow(Adw.ApplicationWindow):
         from cellar.views.download_queue import DownloadQueueDialog
 
         dialog = DownloadQueueDialog(self._install_queue)
+        self._downloads_dialog = dialog
+        dialog.connect("closed", lambda _d: setattr(self, "_downloads_dialog", None))
         dialog.present(self)
 
     def _on_preferences_activated(self, _action, _param) -> None:
@@ -851,6 +855,41 @@ class CellarWindow(Adw.ApplicationWindow):
 
     def _on_queue_install_cancelled(self, app_id: str) -> None:
         self._pending_entries.pop(app_id, None)
+
+    def _on_queue_progress(self, app_id: str, phase: str, fraction: float) -> None:
+        """Store progress and update the active detail view."""
+        q = self._install_queue
+        q._active_phase = phase or q._active_phase
+        q._active_fraction = fraction
+        # Reset download stats when phase changes (e.g. from download to extract).
+        if phase:
+            q._active_dl_done = 0
+            q._active_dl_total = 0
+            q._active_dl_speed = 0.0
+        self._refresh_active_detail_progress()
+
+    def _on_queue_download_stats(
+        self, app_id: str, downloaded: int, total: int, speed: float,
+    ) -> None:
+        """Store byte-level download stats and update the active detail view."""
+        q = self._install_queue
+        q._active_dl_done = downloaded
+        q._active_dl_total = total
+        q._active_dl_speed = speed
+        self._refresh_active_detail_progress()
+
+    def _refresh_active_detail_progress(self) -> None:
+        """Push latest progress to the visible DetailView and downloads dialog."""
+        from cellar.views.detail import DetailView
+        page = self.nav_view.get_visible_page()
+        if page is not None:
+            child = page.get_child()
+            if isinstance(child, DetailView):
+                child._update_install_progress(self._install_queue)
+        # Also update the downloads dialog if open.
+        dlg = getattr(self, "_downloads_dialog", None)
+        if dlg is not None:
+            dlg.update_active_stats()
 
     def _on_queue_changed(self) -> None:
         """Update UI elements that depend on queue state."""

@@ -54,6 +54,8 @@ class InstallQueue:
     ---------
     on_progress(app_id, phase, fraction)
         Fired from the install thread (via idle_add) for download/extract phases.
+    on_download_stats(app_id, downloaded, total, speed)
+        Fired from the install thread (via idle_add) with byte-level download stats.
     on_complete(result: InstallResult)
         Fired on the UI thread when an install succeeds.
     on_error(app_id, message)
@@ -71,6 +73,7 @@ class InstallQueue:
         on_error: Callable[[str, str], None] | None = None,
         on_cancelled: Callable[[str], None] | None = None,
         on_progress: Callable[[str, str, float], None] | None = None,
+        on_download_stats: Callable[[str, int, int, float], None] | None = None,
         on_queue_changed: Callable[[], None] | None = None,
     ) -> None:
         self._queue: deque[InstallJob] = deque()
@@ -81,9 +84,16 @@ class InstallQueue:
         self._on_error = on_error
         self._on_cancelled = on_cancelled
         self._on_progress = on_progress
+        self._on_download_stats = on_download_stats
         self._on_queue_changed = on_queue_changed
         # Recently completed app IDs (for the queue dialog).
         self._completed: list[str] = []
+        # Latest download stats for the active job (for tooltip / queue dialog).
+        self._active_phase: str = ""
+        self._active_fraction: float = 0.0
+        self._active_dl_done: int = 0
+        self._active_dl_total: int = 0
+        self._active_dl_speed: float = 0.0
 
     # ── Public API ────────────────────────────────────────────────────────
 
@@ -131,6 +141,22 @@ class InstallQueue:
             return self._active
 
     @property
+    def active_phase(self) -> str:
+        return self._active_phase
+
+    @property
+    def active_fraction(self) -> float:
+        return self._active_fraction
+
+    @property
+    def active_stats_text(self) -> str:
+        """Human-readable download stats for the active job, or empty string."""
+        from cellar.utils.progress import fmt_stats
+        if self._active_dl_total > 0 or self._active_dl_done > 0:
+            return fmt_stats(self._active_dl_done, self._active_dl_total, self._active_dl_speed)
+        return ""
+
+    @property
     def queued_jobs(self) -> list[InstallJob]:
         with self._lock:
             return list(self._queue)
@@ -157,6 +183,11 @@ class InstallQueue:
             if not self._queue:
                 return
             self._active = self._queue.popleft()
+        self._active_phase = ""
+        self._active_fraction = 0.0
+        self._active_dl_done = 0
+        self._active_dl_total = 0
+        self._active_dl_speed = 0.0
         self._notify_queue_changed()
         self._thread = threading.Thread(
             target=self._run_job, args=(self._active,), daemon=True,
@@ -176,8 +207,12 @@ class InstallQueue:
             if self._on_progress:
                 GLib.idle_add(self._on_progress, job.app_id, "", fraction)
 
+        def _dl_stats(downloaded: int, total: int, speed: float) -> None:
+            if self._on_download_stats:
+                GLib.idle_add(self._on_download_stats, job.app_id, downloaded, total, speed)
+
         try:
-            result = self._do_install(job, _phase, _dl_progress)
+            result = self._do_install(job, _phase, _dl_progress, _dl_stats)
             self._completed.append(job.app_id)
             GLib.idle_add(self._on_job_done, job, result)
         except InstallCancelled:
@@ -189,7 +224,7 @@ class InstallQueue:
 
     def _do_install(
         self, job: InstallJob,
-        phase_cb: Callable, progress_cb: Callable,
+        phase_cb: Callable, progress_cb: Callable, stats_cb: Callable,
     ) -> InstallResult:
         """Run the actual install — returns an InstallResult."""
         from cellar.backend.installer import install_app, install_dos_app, install_linux_app
@@ -200,6 +235,7 @@ class InstallQueue:
                 job.entry,
                 job.archive_uri,
                 download_cb=progress_cb,
+                download_stats_cb=stats_cb,
                 install_cb=progress_cb,
                 phase_cb=phase_cb,
                 cancel_event=job.cancel_event,
@@ -224,6 +260,7 @@ class InstallQueue:
             runner_entry=job.runner_entry,
             runner_archive_uri=job.runner_archive_uri,
             download_cb=progress_cb,
+            download_stats_cb=stats_cb,
             install_cb=progress_cb,
             phase_cb=phase_cb,
             cancel_event=job.cancel_event,

@@ -19,6 +19,8 @@ class DownloadQueueDialog(Adw.Dialog):
     def __init__(self, install_queue) -> None:
         super().__init__(title="Downloads", content_width=380, content_height=300)
         self._queue = install_queue
+        self._active_row: Adw.ActionRow | None = None
+        self._active_progress: Gtk.ProgressBar | None = None
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -61,6 +63,8 @@ class DownloadQueueDialog(Adw.Dialog):
         # Clear existing rows.
         while (child := self._list_box.get_first_child()) is not None:
             self._list_box.remove(child)
+        self._active_row = None
+        self._active_progress = None
 
         has_items = False
 
@@ -68,9 +72,24 @@ class DownloadQueueDialog(Adw.Dialog):
         active = self._queue.active_job
         if active is not None:
             has_items = True
+            # Build subtitle from live stats.
+            stats = self._queue.active_stats_text
+            phase = self._queue.active_phase or "Installing…"
+            subtitle = f"{phase}  —  {stats}" if stats else phase
+
             row = self._make_row(
-                active.app_name, "Installing…", spinning=True, app_id=active.app_id,
+                active.app_name, subtitle, spinning=True, app_id=active.app_id,
             )
+            self._active_row = row
+
+            # Add a progress bar below the row content.
+            progress = Gtk.ProgressBar()
+            progress.set_fraction(self._queue.active_fraction)
+            progress.add_css_class("osd")
+            progress.set_size_request(-1, 3)
+            row.add_suffix(self._make_progress_suffix(progress, active.app_id))
+            self._active_progress = progress
+
             self._list_box.append(row)
 
         # Queued jobs.
@@ -94,6 +113,17 @@ class DownloadQueueDialog(Adw.Dialog):
         else:
             self._stack.set_visible_child_name("empty")
 
+    def update_active_stats(self) -> None:
+        """Refresh the active row's subtitle and progress from queue state."""
+        if self._active_row is None:
+            return
+        stats = self._queue.active_stats_text
+        phase = self._queue.active_phase or "Installing…"
+        subtitle = f"{phase}  —  {stats}" if stats else phase
+        self._active_row.set_subtitle(subtitle)
+        if self._active_progress is not None:
+            self._active_progress.set_fraction(self._queue.active_fraction)
+
     def _make_row(
         self,
         title: str,
@@ -114,7 +144,8 @@ class DownloadQueueDialog(Adw.Dialog):
             icon.set_valign(Gtk.Align.CENTER)
             row.add_prefix(icon)
 
-        if app_id:
+        if app_id and not spinning:
+            # Cancel button for queued (non-active) jobs.
             cancel_btn = Gtk.Button(icon_name="process-stop-symbolic")
             cancel_btn.set_valign(Gtk.Align.CENTER)
             cancel_btn.set_tooltip_text("Cancel")
@@ -123,6 +154,20 @@ class DownloadQueueDialog(Adw.Dialog):
             row.add_suffix(cancel_btn)
 
         return row
+
+    def _make_progress_suffix(self, progress: Gtk.ProgressBar, app_id: str) -> Gtk.Box:
+        """Build a suffix box with a progress bar and cancel button."""
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        box.set_valign(Gtk.Align.CENTER)
+
+        cancel_btn = Gtk.Button(icon_name="process-stop-symbolic")
+        cancel_btn.set_valign(Gtk.Align.CENTER)
+        cancel_btn.set_tooltip_text("Cancel")
+        cancel_btn.add_css_class("flat")
+        cancel_btn.connect("clicked", self._on_cancel_clicked, app_id)
+        box.append(cancel_btn)
+
+        return box
 
     def _on_cancel_clicked(self, _btn, app_id: str) -> None:
         self._queue.cancel(app_id)

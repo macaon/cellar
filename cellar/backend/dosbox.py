@@ -535,6 +535,7 @@ def generate_overrides_conf(
             lines.append("nounivbe\\NOUNIVBE.EXE")
         if primary_cmd:
             lines.append(primary_cmd)
+            lines.append("EXIT")
         lines.append("")
 
     return "\n".join(lines) + "\n"

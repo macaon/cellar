@@ -700,6 +700,7 @@ class DetailView(Gtk.Box):
             if nounivbe.is_file():
                 tmp.write("nounivbe\\NOUNIVBE.EXE\n")
             tmp.write(f"{game_cmd}\n")
+            tmp.write("EXIT\n")
             tmp.close()
             tmp_conf = Path(tmp.name)
             cmd += ["-conf", str(tmp_conf)]

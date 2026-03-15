@@ -392,7 +392,8 @@ class TestGenerateOverridesConf:
         # Primary game command IS in the autoexec
         assert "fall.exe z.cfg" in overrides
 
-    def test_drops_exit_commands(self, tmp_path: Path) -> None:
+    def test_exit_after_game_command(self, tmp_path: Path) -> None:
+        """EXIT should follow the primary game command to close DOSBox."""
         _write_conf(
             tmp_path,
             "game.conf",
@@ -406,7 +407,10 @@ class TestGenerateOverridesConf:
         )
         result = parse_gog_confs([tmp_path / "game.conf"])
         overrides = generate_overrides_conf(result, "DOSBOX")
-        assert "exit" not in overrides.lower().split("\n")
+        lines = [l.strip() for l in overrides.splitlines() if l.strip()]
+        game_idx = next(i for i, l in enumerate(lines) if "fall.exe" in l)
+        exit_idx = next(i for i, l in enumerate(lines) if l == "EXIT")
+        assert exit_idx == game_idx + 1, "EXIT should immediately follow game command"
 
     def test_includes_extracted_settings(self, tmp_path: Path) -> None:
         _write_conf(

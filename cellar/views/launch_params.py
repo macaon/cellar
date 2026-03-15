@@ -285,8 +285,16 @@ class LaunchParamsDialog(Adw.Dialog):
             from cellar.backend.database import get_installed
             rec = get_installed(entry.id)
             has_path = rec and rec.get("install_path")
-            install_path = Path(rec["install_path"]) / entry.id if has_path else Path.home()
-            browse_root = install_path
+            if has_path:
+                browse_root = Path(rec["install_path"]) / entry.id
+            elif entry.platform == "dos":
+                from cellar.backend.umu import dos_dir
+                browse_root = dos_dir() / entry.id
+            else:
+                from cellar.backend.umu import native_dir
+                browse_root = native_dir() / entry.id
+            if not browse_root.is_dir():
+                browse_root = Path.home()
         else:
             from cellar.backend.umu import prefixes_dir
             prefix = prefixes_dir() / entry.id / "drive_c"

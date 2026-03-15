@@ -16,6 +16,18 @@ DOS games run via [DOSBox Staging](https://dosbox-staging.github.io/)
 
 ---
 
+## Screenshots
+
+| Browse catalogue | App detail |
+|---|---|
+| ![Explore view](docs/screenshots/explore.png) | ![Detail view](docs/screenshots/detail.png) |
+
+| Package builder | Metadata editor |
+|---|---|
+| ![Package builder](docs/screenshots/builder.png) | ![Metadata editor](docs/screenshots/metadata.png) |
+
+---
+
 ## Features
 
 **For users**

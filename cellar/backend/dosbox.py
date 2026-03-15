@@ -490,6 +490,8 @@ def parse_gog_confs(conf_paths: list[Path]) -> dict:
 def generate_overrides_conf(
     gog_settings: dict,
     dosbox_subdir: str,
+    *,
+    include_nounivbe: bool = False,
 ) -> str:
     """Generate ``dosbox-overrides.conf`` from extracted GOG settings.
 
@@ -515,10 +517,11 @@ def generate_overrides_conf(
     if autoexec.raw_lines:
         rewritten = _rewrite_autoexec(autoexec.raw_lines, dosbox_subdir)
         lines.append("[autoexec]")
-        # Autoexec contains ONLY mount commands, drive changes, and NoUniVBE.
-        # NO game commands — the game exe is injected at launch time via -c
-        # flags, allowing different launch targets to run different executables
-        # without modifying the config file.
+        # Autoexec order: mounts → drive change → NoUniVBE → primary game command.
+        # Only the FIRST (primary) game command is included. Secondary targets
+        # (setup.exe, fixsave.exe) are launched by passing an extra -conf file
+        # at runtime that overrides the autoexec with a different game command.
+        primary_cmd = autoexec.game_commands[0] if autoexec.game_commands else ""
         for line in rewritten:
             lower = line.strip().lower()
             if lower.startswith("mount ") or (len(lower) == 2 and lower.endswith(":")):
@@ -527,8 +530,11 @@ def generate_overrides_conf(
             if lower.startswith("#"):
                 lines.append(line)
                 continue
-            # Skip all game commands
-        lines.append("nounivbe\\NOUNIVBE.EXE")
+            # Skip all game commands — primary is added after NoUniVBE below
+        if include_nounivbe:
+            lines.append("nounivbe\\NOUNIVBE.EXE")
+        if primary_cmd:
+            lines.append(primary_cmd)
         lines.append("")
 
     return "\n".join(lines) + "\n"
@@ -602,9 +608,10 @@ def convert_gog_dosbox(
             dirs_exist_ok=True,
         )
 
-    # Step 3b: Copy NoUniVBE
+    # Step 3b: Copy NoUniVBE (if downloaded)
     nounivbe_src = staging / "nounivbe"
-    if nounivbe_src.is_dir():
+    has_nounivbe = nounivbe_src.is_dir() and (nounivbe_src / "NOUNIVBE.EXE").is_file()
+    if has_nounivbe:
         shutil.copytree(nounivbe_src, dest / "nounivbe", dirs_exist_ok=True)
 
     # Step 4: Generate config files
@@ -624,7 +631,9 @@ def convert_gog_dosbox(
     # Parse GOG configs and generate overrides
     conf_paths = _resolve_conf_paths(source, info)
     gog_settings = parse_gog_confs(conf_paths)
-    overrides = generate_overrides_conf(gog_settings, info.dosbox_dir)
+    overrides = generate_overrides_conf(
+        gog_settings, info.dosbox_dir, include_nounivbe=has_nounivbe,
+    )
     (config_dest / "dosbox-overrides.conf").write_text(
         overrides, encoding="utf-8"
     )

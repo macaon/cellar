@@ -389,8 +389,8 @@ class TestGenerateOverridesConf:
         overrides = generate_overrides_conf(result, "DOSBOX")
         assert 'mount C "."' in overrides
         assert 'mount C "cloud_saves" -t overlay' in overrides
-        # Game commands are NOT in the autoexec — they're passed via CLI
-        assert "fall.exe z.cfg" not in overrides
+        # Primary game command IS in the autoexec
+        assert "fall.exe z.cfg" in overrides
 
     def test_drops_exit_commands(self, tmp_path: Path) -> None:
         _write_conf(
@@ -463,9 +463,10 @@ class TestGenerateOverridesConf:
         assert "ECHO" not in overrides
         assert "errorlevel" not in overrides.lower()
 
-        # Game commands are passed via CLI, not in autoexec
-        assert "fall.exe" not in overrides
-        # Mount commands should be preserved
+        # Primary game command preserved, secondary stripped
+        assert "fall.exe z.cfg" in overrides
+        assert "setup.exe" not in overrides
+        # Mount commands preserved
         assert 'mount C "."' in overrides
 
     def test_quiet_launch(self, tmp_path: Path) -> None:
@@ -497,7 +498,7 @@ class TestGenerateOverridesConf:
             """,
         )
         result = parse_gog_confs([tmp_path / "game.conf"])
-        overrides = generate_overrides_conf(result, "DOSBOX")
+        overrides = generate_overrides_conf(result, "DOSBOX", include_nounivbe=True)
         lines = overrides.splitlines()
         # NoUniVBE should be present after mount commands
         nounivbe_idx = next(
@@ -509,8 +510,12 @@ class TestGenerateOverridesConf:
         assert nounivbe_idx is not None, "NoUniVBE not found in overrides"
         assert mount_idx is not None, "mount command not found in overrides"
         assert nounivbe_idx > mount_idx, "NoUniVBE should come after mount commands"
-        # Game command should NOT be in autoexec
-        assert "game.exe" not in overrides
+        # Primary game command should be after NoUniVBE
+        game_idx = next(
+            (i for i, l in enumerate(lines) if "game.exe" in l), None
+        )
+        assert game_idx is not None, "primary game command not found"
+        assert game_idx > nounivbe_idx, "game command should come after NoUniVBE"
 
 
 # ---------------------------------------------------------------------------
@@ -637,7 +642,8 @@ class TestConvertGogDosbox:
         assert 'mount C "."' in overrides
         assert "startup_verbosity = quiet" in overrides
         assert "NOUNIVBE" in overrides
-        assert "fall.exe" not in overrides
+        # Primary game command is in autoexec
+        assert "fall.exe z.cfg" in overrides
 
 
 # Needed for the conversion test

@@ -2107,14 +2107,38 @@ class PackageBuilderView(Adw.Bin):
                 "-conf", str(game_dir / "config" / "dosbox-staging.conf"),
                 "-conf", str(game_dir / "config" / "dosbox-overrides.conf"),
             ]
+            # Generate target-specific conf to override autoexec game command
+            tmp_conf = None
             if entry_path:
+                import tempfile
                 game_cmd = entry_path
                 if entry_args:
                     game_cmd += f" {entry_args}"
-                cmd += ["-c", game_cmd]
+                tmp = tempfile.NamedTemporaryFile(
+                    mode="w", suffix=".conf", prefix="cellar-dos-",
+                    delete=False, dir=str(game_dir / "config"),
+                )
+                tmp.write("[dosbox]\nautoexec_section = overwrite\n\n")
+                tmp.write("[autoexec]\n")
+                tmp.write('mount C "."\n')
+                tmp.write("C:\n")
+                nounivbe = game_dir / "nounivbe" / "NOUNIVBE.EXE"
+                if nounivbe.is_file():
+                    tmp.write("nounivbe\\NOUNIVBE.EXE\n")
+                tmp.write(f"{game_cmd}\n")
+                tmp.close()
+                tmp_conf = Path(tmp.name)
+                cmd += ["-conf", str(tmp_conf)]
             if is_cellar_sandboxed():
                 cmd = ["flatpak-spawn", "--host"] + cmd
             subprocess.Popen(cmd, cwd=str(game_dir), start_new_session=True)
+            # Clean up temp conf after a delay (DOSBox has read it by then)
+            if tmp_conf:
+                import time
+                threading.Thread(
+                    target=lambda p=tmp_conf: (time.sleep(5), p.unlink(missing_ok=True)),
+                    daemon=True,
+                ).start()
             return
         if project.project_type == "linux":
             if not project.source_dir:

@@ -743,7 +743,7 @@ class PackageBuilderView(Adw.Bin):
 
     def _show_project(self, project: Project, *, expand_sel: bool = False) -> None:
         """Build a detail page for *project* and push it onto the nav stack."""
-        _type_labels = {"app": "Windows App", "linux": "Linux App", "base": "Base Image"}
+        _type_labels = {"app": "Windows App", "linux": "Linux App", "dos": "DOS App", "base": "Base Image"}
 
         # Build toolbar with header
         toolbar = Adw.ToolbarView()
@@ -2774,6 +2774,8 @@ class PackageBuilderView(Adw.Bin):
             if entry_points:
                 project.entry_points = entry_points
             save_project(project)
+            # Reload project list so the card icon/label updates
+            self._reload_projects()
             if self._project is project:
                 self._show_project(project)
             self._show_toast("Converted to DOS package")

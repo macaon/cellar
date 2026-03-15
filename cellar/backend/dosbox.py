@@ -684,7 +684,12 @@ def _init_portable_config(staging: Path) -> None:
 
 
 def _ensure_nounivbe(staging: Path) -> None:
-    """Download NoUniVBE from GitHub releases if not already cached."""
+    """Download NoUniVBE from GitHub releases if not already cached.
+
+    NoUniVBE is distributed as a zip archive containing NOUNIVBE.EXE.
+    """
+    import zipfile
+
     nounivbe_dir = staging / "nounivbe"
     exe = nounivbe_dir / "NOUNIVBE.EXE"
     if exe.is_file():
@@ -701,21 +706,29 @@ def _ensure_nounivbe(staging: Path) -> None:
         )
         resp.raise_for_status()
 
-        # Find the NOUNIVBE.EXE asset in the latest release
+        # Find the zip asset in the latest release
         for rel in resp.json():
             for asset in rel.get("assets", []):
                 aname = asset.get("name", "")
-                if aname.upper() == "NOUNIVBE.EXE":
+                if aname.lower().endswith(".zip"):
                     url = asset.get("browser_download_url", "")
-                    if url:
-                        dl_resp = session.get(url, timeout=15)
-                        dl_resp.raise_for_status()
-                        nounivbe_dir.mkdir(parents=True, exist_ok=True)
-                        exe.write_bytes(dl_resp.content)
-                        log.info("NoUniVBE downloaded to %s", exe)
-                        return
+                    if not url:
+                        continue
+                    dl_resp = session.get(url, timeout=15)
+                    dl_resp.raise_for_status()
 
-        log.warning("NoUniVBE.EXE not found in any release")
+                    # Extract NOUNIVBE.EXE from the zip
+                    import io
+
+                    with zipfile.ZipFile(io.BytesIO(dl_resp.content)) as zf:
+                        for name in zf.namelist():
+                            if name.upper().endswith("NOUNIVBE.EXE"):
+                                nounivbe_dir.mkdir(parents=True, exist_ok=True)
+                                exe.write_bytes(zf.read(name))
+                                log.info("NoUniVBE downloaded to %s", exe)
+                                return
+
+        log.warning("NOUNIVBE.EXE not found in any release zip")
     except Exception as exc:  # noqa: BLE001
         log.warning("Failed to download NoUniVBE: %s", exc)
 

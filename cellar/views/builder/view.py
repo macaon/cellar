@@ -534,7 +534,7 @@ class PackageBuilderView(Adw.Bin):
                             log.warning("Could not download screenshot %s", ss_rel)
                     project.screenshot_paths = screenshot_paths
 
-                    if project.project_type == "linux":
+                    if project.project_type in ("linux", "dos"):
                         project.source_dir = str(project.content_path)
 
                     save_project(project)
@@ -840,7 +840,7 @@ class PackageBuilderView(Adw.Bin):
             page.add(meta_group)
 
         # ── 2. Runner / Base Image (Windows packages only) ────────────────
-        if project.project_type != "linux":
+        if project.project_type not in ("linux", "dos"):
             sel_group = Adw.PreferencesGroup()
             if project.project_type == "base":
                 sel_group_title = "Runner"
@@ -896,7 +896,7 @@ class PackageBuilderView(Adw.Bin):
             page.add(name_group)
 
         # ── 3. Prefix (Windows / Base only) ───────────────────────────────
-        if project.project_type != "linux":
+        if project.project_type not in ("linux", "dos"):
             prefix_group = Adw.PreferencesGroup(title="Prefix")
             prefix_exists = project.content_path.is_dir()
             status_text = "Initialized" if (prefix_exists and project.initialized) else (
@@ -1002,8 +1002,8 @@ class PackageBuilderView(Adw.Bin):
 
             page.add(targets_group)
 
-        # ── 5b. Source Folder + Launch Targets (Linux only) ───────────────
-        elif project.project_type == "linux":
+        # ── 5b. Source Folder + Launch Targets (Linux / DOS) ──────────────
+        elif project.project_type in ("linux", "dos"):
             _linux_ready = bool(project.source_dir) and Path(project.source_dir).is_dir()
             src_group = Adw.PreferencesGroup(title="Source Folder")
 
@@ -1054,7 +1054,7 @@ class PackageBuilderView(Adw.Bin):
             page.add(targets_group)
 
         # ── 6. Dependencies (Windows / Base only) ─────────────────────────
-        if project.project_type != "linux":
+        if project.project_type not in ("linux", "dos"):
             dep_group = Adw.PreferencesGroup(title="Dependencies")
             for verb in project.deps_installed:
                 row = Adw.ActionRow(title=verb)
@@ -1101,17 +1101,17 @@ class PackageBuilderView(Adw.Bin):
 
         pkg_group = Adw.PreferencesGroup(title="Publish")
 
-        if project.project_type in ("app", "linux"):
+        if project.project_type in ("app", "linux", "dos"):
             _ready = (
                 bool(project.source_dir) and Path(project.source_dir).is_dir()
-                if project.project_type == "linux"
+                if project.project_type in ("linux", "dos")
                 else project.initialized
             )
 
             # Build a list of missing prerequisites for informative subtitles
             _missing: list[str] = []
             if not _ready:
-                _missing.append("initialize prefix" if project.project_type != "linux"
+                _missing.append("initialize prefix" if project.project_type not in ("linux", "dos")
                                 else "set source folder")
             if not project.entry_points:
                 _missing.append("add a launch target")
@@ -1502,7 +1502,7 @@ class PackageBuilderView(Adw.Bin):
         if self._project is None:
             return
         project = self._project
-        if project.project_type == "linux":
+        if project.project_type in ("linux", "dos"):
             project.content_path.mkdir(parents=True, exist_ok=True)
             self._on_init_done(project, True)
             return
@@ -1957,7 +1957,7 @@ class PackageBuilderView(Adw.Bin):
     def _on_browse_prefix_clicked(self, _btn) -> None:
         if self._project is None:
             return
-        if self._project.project_type == "linux":
+        if self._project.project_type in ("linux", "dos"):
             target = Path(self._project.source_dir) if self._project.source_dir else None
         else:
             target = self._project.content_path / "drive_c"
@@ -2032,7 +2032,7 @@ class PackageBuilderView(Adw.Bin):
         if self._project is None:
             return
         project = self._project
-        if project.project_type != "linux" and not project.initialized:
+        if project.project_type not in ("linux", "dos") and not project.initialized:
             self._show_toast("Initialize the prefix before test launching.")
             return
         if not project.entry_points:
@@ -2070,7 +2070,7 @@ class PackageBuilderView(Adw.Bin):
         if not entry_path:
             self._show_toast("Launch target has no executable path.")
             return
-        if project.project_type == "linux":
+        if project.project_type in ("linux", "dos"):
             if not project.source_dir:
                 self._show_toast("Set a source folder first.")
                 return
@@ -2112,16 +2112,16 @@ class PackageBuilderView(Adw.Bin):
         if self._project is None:
             return
         project = self._project
-        if project.project_type != "linux" and not project.initialized:
+        if project.project_type not in ("linux", "dos") and not project.initialized:
             self._show_toast("Initialize the prefix before publishing.")
             return
         if not project.entry_point:
             self._show_toast("Add a launch target before publishing.")
             return
-        if project.project_type == "linux" and not project.source_dir:
+        if project.project_type in ("linux", "dos") and not project.source_dir:
             self._show_toast("Choose a source folder before publishing.")
             return
-        if project.project_type != "linux" and not project.runner:
+        if project.project_type not in ("linux", "dos") and not project.runner:
             what = "a base image" if project.project_type == "app" else "a runner"
             self._show_toast(f"Select {what} before publishing.")
             return
@@ -2143,7 +2143,7 @@ class PackageBuilderView(Adw.Bin):
 
     def _do_publish_app(self, project: Project, repo) -> None:
         _src_path = (
-            Path(project.source_dir) if project.project_type == "linux" else project.content_path
+            Path(project.source_dir) if project.project_type in ("linux", "dos") else project.content_path
         )
 
         # Build AppEntry from project metadata.
@@ -2296,7 +2296,7 @@ class PackageBuilderView(Adw.Bin):
 
             try:
                 _reset_phase("Compressing and uploading\u2026")
-                if project.project_type == "linux":
+                if project.project_type in ("linux", "dos"):
                     _partial_dest = archive_dest
                     size, crc32, chunks = compress_prefix_zst(
                         _src_path,

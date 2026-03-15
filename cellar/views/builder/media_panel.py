@@ -467,11 +467,12 @@ class MediaPanel(Gtk.Box):
         if not appid:
             return
 
-        from cellar.backend.config import load_sgdb_key
+        from cellar.backend.config import load_sgdb_key, load_sgdb_language
         from cellar.backend.steam import download_steam_image, fetch_steam_images
         from cellar.utils.async_work import run_in_background
 
         sgdb_key = load_sgdb_key()
+        sgdb_lang = load_sgdb_language()
 
         # Replace button content with a spinner (keep sensitive so it animates)
         dl_btn = self._dl_btn_for_slot(slot)
@@ -483,7 +484,7 @@ class MediaPanel(Gtk.Box):
             dl_btn.set_child(spinner)
 
         def _work():
-            urls = fetch_steam_images(appid, sgdb_key)
+            urls = fetch_steam_images(appid, sgdb_key, language=sgdb_lang)
             url = urls.get(slot, "")
             if not url:
                 return None

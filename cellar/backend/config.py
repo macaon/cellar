@@ -344,6 +344,24 @@ def load_sgdb_key() -> str:
     return _load().get("sgdb_key", "")
 
 
+def load_sgdb_language() -> str:
+    """Return the preferred SteamGridDB asset language, or ``''`` (English default)."""
+    return _load().get("sgdb_language", "")
+
+
+def save_sgdb_language(language: str) -> None:
+    """Persist the preferred SteamGridDB asset language.
+
+    Pass ``''`` to reset to the default (English).
+    """
+    cfg = _load()
+    if language:
+        cfg["sgdb_language"] = language
+    else:
+        cfg.pop("sgdb_language", None)
+    _save(cfg)
+
+
 def save_sgdb_key(key: str) -> None:
     """Persist (or clear) the SteamGridDB API key."""
     if key:

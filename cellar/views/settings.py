@@ -19,8 +19,10 @@ from cellar.backend.config import (
     certs_dir,
     clear_password,
     load_repos,
+    load_sgdb_language,
     load_ssh_password,
     save_repos,
+    save_sgdb_language,
 )
 
 log = logging.getLogger(__name__)
@@ -110,6 +112,58 @@ class SettingsDialog(Adw.PreferencesDialog):
         self._sgdb_debounce_id = 0
         self._sgdb_row.connect("changed", self._on_sgdb_key_edited)
 
+        # Language preference for SGDB asset selection
+        _SGDB_LANGUAGES = [
+            ("", "English (default)"),
+            ("schinese", "Chinese (Simplified)"),
+            ("tchinese", "Chinese (Traditional)"),
+            ("japanese", "Japanese"),
+            ("koreana", "Korean"),
+            ("french", "French"),
+            ("german", "German"),
+            ("italian", "Italian"),
+            ("spanish", "Spanish"),
+            ("latam", "Spanish (Latin America)"),
+            ("portuguese", "Portuguese"),
+            ("brazilian", "Portuguese (Brazil)"),
+            ("russian", "Russian"),
+            ("polish", "Polish"),
+            ("dutch", "Dutch"),
+            ("danish", "Danish"),
+            ("finnish", "Finnish"),
+            ("norwegian", "Norwegian"),
+            ("swedish", "Swedish"),
+            ("czech", "Czech"),
+            ("hungarian", "Hungarian"),
+            ("romanian", "Romanian"),
+            ("turkish", "Turkish"),
+            ("thai", "Thai"),
+            ("vietnamese", "Vietnamese"),
+            ("arabic", "Arabic"),
+            ("ukrainian", "Ukrainian"),
+            ("bulgarian", "Bulgarian"),
+            ("greek", "Greek"),
+            ("indonesian", "Indonesian"),
+        ]
+        lang_row = Adw.ComboRow(title="Asset Language")
+        lang_row.set_subtitle(
+            "Preferred language for logos and covers from SteamGridDB"
+        )
+        lang_model = Gtk.StringList()
+        for _code, label in _SGDB_LANGUAGES:
+            lang_model.append(label)
+        lang_row.set_model(lang_model)
+
+        saved_lang = load_sgdb_language()
+        active = 0
+        for i, (code, _label) in enumerate(_SGDB_LANGUAGES):
+            if code == saved_lang:
+                active = i
+                break
+        lang_row.set_selected(active)
+        lang_row.connect("notify::selected", self._on_sgdb_lang_changed, _SGDB_LANGUAGES)
+        group.add(lang_row)
+
     def _on_sgdb_key_edited(self, _row) -> None:
         if self._sgdb_debounce_id:
             GLib.source_remove(self._sgdb_debounce_id)
@@ -194,6 +248,11 @@ class SettingsDialog(Adw.PreferencesDialog):
 
         run_in_background(_validate, on_done=_done, on_error=_error)
         return GLib.SOURCE_REMOVE
+
+    def _on_sgdb_lang_changed(self, row, _pspec, languages: list) -> None:
+        idx = row.get_selected()
+        code = languages[idx][0] if idx < len(languages) else ""
+        save_sgdb_language(code)
 
     # ------------------------------------------------------------------
     # Install location

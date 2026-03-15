@@ -214,12 +214,16 @@ def _normalise(raw: dict) -> dict:
 # Steam image asset fetcher (CDN + SteamGridDB)
 # ---------------------------------------------------------------------------
 
-def fetch_steam_images(appid: int, sgdb_key: str = "") -> dict:
+def fetch_steam_images(appid: int, sgdb_key: str = "", language: str = "") -> dict:
     """Return download URLs for icon, cover, and logo for a Steam app.
 
     When an SGDB API key is provided the game's ``platformdata`` is used to
     construct original Steam CDN URLs (steamstatic).  Only official Steam
     assets are returned — empty string for any slot without one.
+
+    *language* is the preferred SGDB asset language (e.g. ``"japanese"``).
+    When empty, only English assets are used; non-English metadata is
+    skipped and the Steam CDN fallback provides the default locale asset.
 
     Returns ``{"icon": url, "cover": url, "logo": url}`` — any value may
     be empty if the asset is unavailable.
@@ -230,7 +234,7 @@ def fetch_steam_images(appid: int, sgdb_key: str = "") -> dict:
     if sgdb_key:
         _game_id, platform_meta = _sgdb_resolve_game(session, appid, sgdb_key)
         if platform_meta:
-            result = _steam_cdn_urls(appid, platform_meta)
+            result = _steam_cdn_urls(appid, platform_meta, language=language)
             # Fall through to HEAD check for any slots still empty
             if result["icon"] and result["cover"] and result["logo"]:
                 return result
@@ -324,12 +328,14 @@ def _sgdb_resolve_game(
     return game_id, platform_meta
 
 
-def _steam_cdn_urls(appid: int, meta: dict) -> dict:
+def _steam_cdn_urls(appid: int, meta: dict, *, language: str = "") -> dict:
     """Build original Steam CDN URLs from SGDB platform metadata.
 
     For cover and logo, returns both 2x and 1x candidates so callers can
     fall back when the preferred variant 404s.  The ``"_candidates"`` keys
     hold ordered lists; the top-level slot holds the first candidate.
+
+    *language* is the user's preferred asset language (e.g. ``"japanese"``).
     """
     result = {"icon": "", "cover": "", "logo": ""}
     mtime = meta.get("store_asset_mtime", "")
@@ -346,7 +352,7 @@ def _steam_cdn_urls(appid: int, meta: dict) -> dict:
     capsule = meta.get("library_capsule_full") or {}
     cover_candidates: list[str] = []
     for key in ("image2x", "image"):
-        f = _first_lang_value(capsule.get(key) or {})
+        f = _first_lang_value(capsule.get(key) or {}, language=language)
         if f:
             cover_candidates.append(f"{_STEAM_CDN_STORE}/{appid}/{f}{ts}")
     if cover_candidates:
@@ -357,7 +363,7 @@ def _steam_cdn_urls(appid: int, meta: dict) -> dict:
     logo = meta.get("library_logo_full") or {}
     logo_candidates: list[str] = []
     for key in ("image2x", "image"):
-        f = _first_lang_value(logo.get(key) or {})
+        f = _first_lang_value(logo.get(key) or {}, language=language)
         if f:
             logo_candidates.append(f"{_STEAM_CDN_STORE}/{appid}/{f}{ts}")
     if logo_candidates:
@@ -367,11 +373,22 @@ def _steam_cdn_urls(appid: int, meta: dict) -> dict:
     return result
 
 
-def _first_lang_value(d: dict) -> str:
-    """Return the first value from a ``{"english": "file.jpg", ...}`` dict."""
+def _first_lang_value(d: dict, *, language: str = "") -> str:
+    """Return the preferred-language value from a ``{"english": "file.jpg", ...}`` dict.
+
+    When *language* is set (e.g. ``"japanese"``), that language is tried
+    first, then English.  When *language* is empty only English is used.
+
+    Returns empty string when no matching variant exists so that callers
+    fall through to the Steam CDN blind-check (which serves the default
+    locale asset).
+    """
     if not d:
         return ""
-    # Prefer English, then whatever is first
-    return d.get("english") or d.get("en") or next(iter(d.values()), "")
+    if language:
+        val = d.get(language) or ""
+        if val:
+            return val
+    return d.get("english") or d.get("en") or ""
 
 

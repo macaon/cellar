@@ -66,6 +66,7 @@ _NOISE_ANY = (
     r"|build\d+"
     r"|v\d[\d.]*"
     r"|\d{4,}"              # bare 4+ digit IDs only allowed after a sig token
+    r"|gog|galaxy"          # distributor tags (safe — only after a sig anchor)
     r")"
 )
 # Must start with a significant token; any additional tokens follow.

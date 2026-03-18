@@ -213,6 +213,7 @@ class CellarWindow(Adw.ApplicationWindow):
     nav_view: Adw.NavigationView = Gtk.Template.Child()
     search_button: Gtk.ToggleButton = Gtk.Template.Child()
     filter_button: Gtk.MenuButton = Gtk.Template.Child()
+    view_toggle_button: Gtk.Button = Gtk.Template.Child()
     search_bar: Gtk.SearchBar = Gtk.Template.Child()
     search_entry: Gtk.SearchEntry = Gtk.Template.Child()
     refresh_button: Gtk.Button = Gtk.Template.Child()
@@ -282,6 +283,15 @@ class CellarWindow(Adw.ApplicationWindow):
         self.refresh_button.connect("clicked", self._on_refresh_clicked)
         self.view_stack.connect("notify::visible-child", self._on_view_switched)
 
+        # Display mode toggle (card ↔ capsule).
+        from cellar.backend.config import load_display_mode, save_display_mode
+        self._save_display_mode = save_display_mode
+        self._display_mode = load_display_mode()
+        if self._display_mode == "capsule":
+            self.view_toggle_button.set_icon_name("view-list-symbolic")
+            self.view_toggle_button.set_tooltip_text("Capsule view")
+        self.view_toggle_button.connect("clicked", self._on_view_toggle)
+
         downloads_action = Gio.SimpleAction.new("downloads", None)
         downloads_action.connect("activate", self._on_downloads_activated)
         downloads_action.set_enabled(False)
@@ -323,6 +333,12 @@ class CellarWindow(Adw.ApplicationWindow):
         self._browse_updates.set_vexpand(True)
         self._browse_updates.connect("app-selected", self._on_app_selected)
         self.updates_box.append(self._browse_updates)
+
+        # Apply initial display mode to all browse views.
+        if self._display_mode != "card":
+            self._browse_explore.set_display_mode(self._display_mode)
+            self._browse_installed.set_display_mode(self._display_mode)
+            self._browse_updates.set_display_mode(self._display_mode)
 
         from cellar.views.builder import PackageBuilderView
         self._package_builder = PackageBuilderView(
@@ -937,6 +953,21 @@ class CellarWindow(Adw.ApplicationWindow):
             self._rebuild_builder_filter_popover()
         else:
             self._rebuild_browse_filter_popover()
+
+    def _on_view_toggle(self, button: Gtk.Button) -> None:
+        mode = "card" if self._display_mode == "capsule" else "capsule"
+        self._display_mode = mode
+        # Icon reflects the current display mode.
+        if mode == "capsule":
+            button.set_icon_name("view-list-symbolic")
+            button.set_tooltip_text("Capsule view")
+        else:
+            button.set_icon_name("view-grid-symbolic")
+            button.set_tooltip_text("Card view")
+        self._browse_explore.set_display_mode(mode)
+        self._browse_installed.set_display_mode(mode)
+        self._browse_updates.set_display_mode(mode)
+        self._save_display_mode(mode)
 
     def _on_search_toggled(self, button: Gtk.ToggleButton) -> None:
         self.search_bar.set_search_mode(button.get_active())

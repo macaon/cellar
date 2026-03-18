@@ -34,6 +34,12 @@
                         <property name="tooltip-text" translatable="yes">Filter by tag</property>
                       </object>
                     </child>
+                    <child type="start">
+                      <object class="GtkButton" id="view_toggle_button">
+                        <property name="icon-name">view-grid-symbolic</property>
+                        <property name="tooltip-text" translatable="yes">Card view</property>
+                      </object>
+                    </child>
                     <child type="end">
                       <object class="GtkMenuButton" id="menu_button">
                         <property name="icon-name">open-menu-symbolic</property>

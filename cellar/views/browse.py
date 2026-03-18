@@ -9,8 +9,9 @@ from typing import Callable
 import gi
 
 gi.require_version("Gtk", "4.0")
+gi.require_version("Gdk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, GObject, Gtk, Pango
+from gi.repository import Adw, Gdk, GObject, Gtk, Pango
 
 from cellar.models.app_entry import AppEntry
 from cellar.utils import natural_sort_key
@@ -22,9 +23,12 @@ log = logging.getLogger(__name__)
 # Fixed card dimensions (GNOME Software-style horizontal cards).
 _CARD_WIDTH   = 300
 _CARD_HEIGHT  = 96
-_COVER_WIDTH  = 75   # cover thumbnail, flush left, cropped to fill
 _ICON_SIZE    = 52   # matches GNOME Software app tiles
 _ICON_MARGIN  = 22   # px from left edge — matches vertical centering: (96-52)/2
+
+# Capsule card dimensions (portrait cover art, 2:3 ratio like Steam capsules).
+_CAPSULE_WIDTH  = 200
+_CAPSULE_HEIGHT = 300
 
 
 # ---------------------------------------------------------------------------
@@ -110,11 +114,10 @@ class AppCard(Gtk.FlowBoxChild):
     """A single app row in the browse grid.
 
     Horizontal layout matching GNOME Software's style:
-      [75×96 cover or 52×52 icon] [name (bold) / summary (dim)]
+      [52×52 icon] [name (bold) / summary (dim)]
 
-    The left column shows a cover thumbnail (cropped to 75×96, flush left)
-    when one is available, falling back to the app icon (52 px, 23 px from
-    left edge, vertically centred) or a generic icon.
+    The left column shows the app icon (52 px, 23 px from left edge,
+    vertically centred) or a generic icon.
     """
 
     def __init__(
@@ -139,44 +142,29 @@ class AppCard(Gtk.FlowBoxChild):
         card.add_css_class("app-card")
         card.set_overflow(Gtk.Overflow.HIDDEN)
 
-        # ── Left: image column ────────────────────────────────────────────
-        # Cover: flush left, cropped to _COVER_WIDTH × _CARD_HEIGHT.
-        # Icon:  52×52 with 23 px left margin, vertically centred.
-        cover_shown = False
-        if resolve_asset and entry.cover:
-            cover_path = resolve_asset(entry.cover)
-            if os.path.isfile(cover_path):
-                png_bytes = load_and_crop(cover_path, _COVER_WIDTH, _CARD_HEIGHT)
+        # ── Left: icon column ────────────────────────────────────────────
+        # Icon: 52×52 with 23 px left margin, vertically centred.
+        icon_shown = False
+        if resolve_asset and entry.icon:
+            icon_path = resolve_asset(entry.icon)
+            if os.path.isfile(icon_path):
+                png_bytes = load_and_fit(icon_path, _ICON_SIZE)
                 if png_bytes is not None:
-                    img_area = _FixedBox(_COVER_WIDTH, _CARD_HEIGHT)
                     pic = Gtk.Picture.new_for_paintable(to_texture(png_bytes))
-                    pic.set_content_fit(Gtk.ContentFit.FILL)
+                    pic.set_content_fit(Gtk.ContentFit.SCALE_DOWN)
+                    img_area = _FixedBox(_ICON_SIZE, _ICON_SIZE)
+                    img_area.set_margin_start(_ICON_MARGIN)
+                    img_area.set_valign(Gtk.Align.CENTER)
                     img_area.set_child(pic)
                     card.append(img_area)
-                    cover_shown = True
-
-        if not cover_shown:
-            icon_shown = False
-            if resolve_asset and entry.icon:
-                icon_path = resolve_asset(entry.icon)
-                if os.path.isfile(icon_path):
-                    png_bytes = load_and_fit(icon_path, _ICON_SIZE)
-                    if png_bytes is not None:
-                        pic = Gtk.Picture.new_for_paintable(to_texture(png_bytes))
-                        pic.set_content_fit(Gtk.ContentFit.SCALE_DOWN)
-                        img_area = _FixedBox(_ICON_SIZE, _ICON_SIZE)
-                        img_area.set_margin_start(_ICON_MARGIN)
-                        img_area.set_valign(Gtk.Align.CENTER)
-                        img_area.set_child(pic)
-                        card.append(img_area)
-                        icon_shown = True
-            if not icon_shown:
-                icon = Gtk.Image.new_from_icon_name("application-x-executable")
-                icon.set_pixel_size(_ICON_SIZE)
-                icon.set_halign(Gtk.Align.CENTER)
-                icon.set_valign(Gtk.Align.CENTER)
-                icon.set_margin_start(_ICON_MARGIN)
-                card.append(icon)
+                    icon_shown = True
+        if not icon_shown:
+            icon = Gtk.Image.new_from_icon_name("application-x-executable")
+            icon.set_pixel_size(_ICON_SIZE)
+            icon.set_halign(Gtk.Align.CENTER)
+            icon.set_valign(Gtk.Align.CENTER)
+            icon.set_margin_start(_ICON_MARGIN)
+            card.append(icon)
 
         # ── Right: text column ────────────────────────────────────────────
         text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -251,6 +239,178 @@ class AppCard(Gtk.FlowBoxChild):
 
 
 # ---------------------------------------------------------------------------
+# CapsuleCard — portrait cover art card
+# ---------------------------------------------------------------------------
+
+# Module-level CSS for the capsule name overlay gradient.
+_capsule_css_provider: Gtk.CssProvider | None = None
+
+
+def _ensure_capsule_css() -> None:
+    """Register the capsule overlay CSS once."""
+    global _capsule_css_provider
+    if _capsule_css_provider is not None:
+        return
+    _capsule_css_provider = Gtk.CssProvider()
+    _capsule_css_provider.load_from_string(
+        ".capsule-name-overlay {"
+        "  background: linear-gradient(to top, rgba(0,0,0,0.7), transparent);"
+        "  padding: 8px 10px 10px 10px;"
+        "}"
+        ".capsule-name-label {"
+        "  color: white;"
+        "  font-weight: bold;"
+        "  font-size: 12px;"
+        "}"
+    )
+    Gtk.StyleContext.add_provider_for_display(
+        Gdk.Display.get_default(),
+        _capsule_css_provider,
+        Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+    )
+
+
+class CapsuleCard(Gtk.FlowBoxChild):
+    """A portrait cover-art card for the capsule display mode.
+
+    Shows a 200×300 cover image with a gradient name overlay at the
+    bottom.  Falls back to a centred icon + name when no cover is
+    available.  Installed marker in the top-right corner.
+    """
+
+    def __init__(
+        self,
+        entry: AppEntry,
+        *,
+        resolve_asset: Callable[[str], str] | None = None,
+        is_installed: bool = False,
+        repo_uris: set[str] | None = None,
+    ) -> None:
+        super().__init__()
+        self.entry = entry
+        self.repo_uris: set[str] = repo_uris or set()
+        self.add_css_class("app-card-cell")
+
+        set_margins(self, 6)
+        _ensure_capsule_css()
+
+        overlay = Gtk.Overlay()
+
+        # ── Base layer: cover image or icon fallback ─────────────────
+        cover_shown = False
+        if resolve_asset and entry.cover:
+            cover_path = resolve_asset(entry.cover)
+            if os.path.isfile(cover_path):
+                png_bytes = load_and_crop(cover_path, _CAPSULE_WIDTH, _CAPSULE_HEIGHT)
+                if png_bytes is not None:
+                    pic = Gtk.Picture.new_for_paintable(to_texture(png_bytes))
+                    pic.set_content_fit(Gtk.ContentFit.FILL)
+                    img_box = _FixedBox(_CAPSULE_WIDTH, _CAPSULE_HEIGHT)
+                    img_box.set_child(pic)
+                    img_box.add_css_class("card")
+                    img_box.set_overflow(Gtk.Overflow.HIDDEN)
+                    overlay.set_child(img_box)
+                    cover_shown = True
+
+        if not cover_shown:
+            # Fallback: icon + name on a card background.
+            fallback = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+            fallback.set_valign(Gtk.Align.CENTER)
+            fallback.set_halign(Gtk.Align.CENTER)
+
+            icon_shown = False
+            if resolve_asset and entry.icon:
+                icon_path = resolve_asset(entry.icon)
+                if os.path.isfile(icon_path):
+                    png_bytes = load_and_fit(icon_path, _ICON_SIZE)
+                    if png_bytes is not None:
+                        pic = Gtk.Picture.new_for_paintable(to_texture(png_bytes))
+                        pic.set_content_fit(Gtk.ContentFit.SCALE_DOWN)
+                        fb_img = _FixedBox(_ICON_SIZE, _ICON_SIZE, clip=False)
+                        fb_img.set_halign(Gtk.Align.CENTER)
+                        fb_img.set_child(pic)
+                        fallback.append(fb_img)
+                        icon_shown = True
+            if not icon_shown:
+                icon = Gtk.Image.new_from_icon_name("application-x-executable")
+                icon.set_pixel_size(_ICON_SIZE)
+                icon.set_halign(Gtk.Align.CENTER)
+                fallback.append(icon)
+
+            fb_label = Gtk.Label(label=entry.name)
+            fb_label.add_css_class("heading")
+            fb_label.set_halign(Gtk.Align.CENTER)
+            fb_label.set_ellipsize(Pango.EllipsizeMode.END)
+            fb_label.set_max_width_chars(16)
+            fb_label.set_lines(2)
+            fb_label.set_wrap(True)
+            fb_label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            fallback.append(fb_label)
+
+            fb_box = _FixedBox(_CAPSULE_WIDTH, _CAPSULE_HEIGHT, clip=False)
+            fb_box.add_css_class("card")
+            fb_box.add_css_class("activatable")
+            fb_box.set_child(fallback)
+            overlay.set_child(fb_box)
+
+        # ── Bottom overlay: gradient + name (only with cover art) ────
+        if cover_shown:
+            name_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+            name_box.set_valign(Gtk.Align.END)
+            name_box.add_css_class("capsule-name-overlay")
+
+            name_lbl = Gtk.Label(label=entry.name)
+            name_lbl.add_css_class("capsule-name-label")
+            name_lbl.set_halign(Gtk.Align.START)
+            name_lbl.set_ellipsize(Pango.EllipsizeMode.END)
+            name_lbl.set_max_width_chars(20)
+            name_box.append(name_lbl)
+            overlay.add_overlay(name_box)
+
+        # ── Top-right overlay: installed checkmark ───────────────────
+        if is_installed:
+            check = Gtk.Image.new_from_icon_name("check-round-outline2-symbolic")
+            check.set_pixel_size(16)
+            check.set_halign(Gtk.Align.END)
+            check.set_valign(Gtk.Align.START)
+            check.set_margin_top(9)
+            check.set_margin_end(9)
+            check.add_css_class("success")
+            overlay.add_overlay(check)
+
+        fixed = _FixedBox(_CAPSULE_WIDTH, _CAPSULE_HEIGHT, clip=False)
+        fixed.set_child(overlay)
+        self.set_child(fixed)
+
+    def do_dispose(self) -> None:
+        child = self.get_first_child()
+        if child is not None:
+            _dispose_subtree(child)
+        self.set_child(None)
+        super().do_dispose()
+
+    def matches(
+        self,
+        active_categories: set[str],
+        search: str,
+        active_repos: set[str] | None = None,
+        active_genres: set[str] | None = None,
+    ) -> bool:
+        """Return True if this card should be visible given the current filter."""
+        if active_repos and not self.repo_uris & active_repos:
+            return False
+        if active_categories and self.entry.category not in active_categories:
+            return False
+        if active_genres and not (set(self.entry.genres) & active_genres):
+            return False
+        if search:
+            needle = search.lower()
+            if needle not in self.entry.name.lower() and needle not in self.entry.summary.lower():
+                return False
+        return True
+
+
+# ---------------------------------------------------------------------------
 # BrowseView
 # ---------------------------------------------------------------------------
 
@@ -272,7 +432,8 @@ class BrowseView(Gtk.Box):
 
         self._empty_title = empty_title
         self._empty_description = empty_description
-        self._cards: list[AppCard] = []
+        self._display_mode: str = "card"  # "card" or "capsule"
+        self._cards: list[AppCard | CapsuleCard] = []
         self._active_categories: set[str] = set()
         self._active_repos: set[str] = set()
         self._active_genres: set[str] = set()
@@ -330,6 +491,20 @@ class BrowseView(Gtk.Box):
         self._entry_repo_uris: dict[str, set[str]] = entry_repo_uris or {}
         self._rebuild_cards()
 
+    def set_display_mode(self, mode: str) -> None:
+        """Switch between ``"card"`` and ``"capsule"`` display modes."""
+        if mode == self._display_mode:
+            return
+        self._display_mode = mode
+        # Adjust FlowBox limits for the different card widths.
+        if mode == "capsule":
+            self._flow_box.set_min_children_per_line(2)
+            self._flow_box.set_max_children_per_line(10)
+        else:
+            self._flow_box.set_min_children_per_line(2)
+            self._flow_box.set_max_children_per_line(8)
+        self._rebuild_cards()
+
     def _rebuild_cards(self) -> None:
         """Rebuild all cards from the stored entry/resolver state."""
         self._clear()
@@ -338,9 +513,11 @@ class BrowseView(Gtk.Box):
             self._show_status(self._empty_title, self._empty_description)
             return
 
+        card_cls = CapsuleCard if self._display_mode == "capsule" else AppCard
+
         # Add cards sorted alphabetically.
         for entry in sorted(self._entries, key=lambda e: natural_sort_key(e.name)):
-            card = AppCard(
+            card = card_cls(
                 entry,
                 resolve_asset=self._resolve_asset,
                 is_installed=entry.id in self._installed_ids,

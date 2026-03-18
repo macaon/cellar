@@ -362,6 +362,26 @@ def save_sgdb_language(language: str) -> None:
     _save(cfg)
 
 
+# ---------------------------------------------------------------------------
+# Display mode (card / capsule)
+# ---------------------------------------------------------------------------
+
+def load_display_mode() -> str:
+    """Return the persisted browse display mode, or ``'card'``."""
+    mode = _load().get("display_mode", "card")
+    return mode if mode in ("card", "capsule") else "card"
+
+
+def save_display_mode(mode: str) -> None:
+    """Persist the browse display mode (``'card'`` or ``'capsule'``)."""
+    cfg = _load()
+    if mode and mode != "card":
+        cfg["display_mode"] = mode
+    else:
+        cfg.pop("display_mode", None)
+    _save(cfg)
+
+
 def save_sgdb_key(key: str) -> None:
     """Persist (or clear) the SteamGridDB API key."""
     if key:

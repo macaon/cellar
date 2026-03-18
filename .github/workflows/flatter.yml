@@ -16,6 +16,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install i386 SDK extension
+        run: flatpak install -y --noninteractive flathub org.freedesktop.Sdk.Compat.i386//25.08
+
       - name: Setup GPG
         if: ${{ github.triggering_actor == github.repository_owner }}
         id: gpg

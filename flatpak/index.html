@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cellar — Flatpak Repository</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 640px;
+      margin: 4rem auto;
+      padding: 0 1rem;
+      color: #1a1a2e;
+      line-height: 1.6;
+    }
+    h1 { margin-bottom: 0.25rem; }
+    p.subtitle { color: #555; margin-top: 0; }
+    pre {
+      background: #f4f4f8;
+      padding: 1rem;
+      border-radius: 8px;
+      overflow-x: auto;
+      font-size: 0.9rem;
+    }
+    code { font-family: "JetBrains Mono", "Fira Code", monospace; }
+    .step { margin: 1.5rem 0; }
+    .step h2 { font-size: 1.1rem; margin-bottom: 0.5rem; }
+  </style>
+</head>
+<body>
+  <h1>Cellar</h1>
+  <p class="subtitle">A software storefront for Windows and Linux applications on the GNOME desktop.</p>
+
+  <div class="step">
+    <h2>1. Add the repository</h2>
+    <pre><code>flatpak remote-add --if-not-exists cellar https://macaon.github.io/cellar/index.flatpakrepo</code></pre>
+  </div>
+
+  <div class="step">
+    <h2>2. Install Cellar</h2>
+    <pre><code>flatpak install cellar io.github.cellar</code></pre>
+  </div>
+
+  <div class="step">
+    <h2>3. Run</h2>
+    <pre><code>flatpak run io.github.cellar</code></pre>
+  </div>
+
+  <div class="step">
+    <h2>Updates</h2>
+    <p>Once installed, <code>flatpak update</code> will pull the latest version automatically.</p>
+  </div>
+</body>
+</html>

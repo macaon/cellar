@@ -351,10 +351,15 @@ class PackageBuilderView(Adw.Bin):
 
         def _on_response(d, resp):
             if resp == "delete":
-                delete_project(slug)
-                self._project = None
-                self._reload_projects()
-                self._nav_view.pop_to_page(self._list_page)
+                def _after_delete():
+                    self._project = None
+                    self._reload_projects()
+                    self._nav_view.pop_to_page(self._list_page)
+
+                run_in_background(
+                    lambda: delete_project(slug),
+                    on_done=lambda _r: _after_delete(),
+                )
 
         dialog.connect("response", _on_response)
         dialog.present(self)
@@ -3209,11 +3214,18 @@ class PackageBuilderView(Adw.Bin):
         dlg.set_default_response("keep")
 
         def _on_response(_dlg, response):
+            def _after():
+                self._project = None
+                self._reload_projects()
+                self._nav_view.pop_to_page(self._list_page)
+
             if response == "delete":
-                delete_project(slug)
-            self._project = None
-            self._reload_projects()
-            self._nav_view.pop_to_page(self._list_page)
+                run_in_background(
+                    lambda: delete_project(slug),
+                    on_done=lambda _r: _after(),
+                )
+            else:
+                _after()
 
         dlg.connect("response", _on_response)
         dlg.present(self)

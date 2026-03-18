@@ -8,23 +8,43 @@
     body {
       font-family: system-ui, -apple-system, sans-serif;
       max-width: 640px;
-      margin: 4rem auto;
+      margin: 2rem auto;
       padding: 0 1rem;
       color: #1a1a2e;
-      line-height: 1.6;
+      line-height: 1.5;
     }
-    h1 { margin-bottom: 0.25rem; }
-    p.subtitle { color: #555; margin-top: 0; }
-    pre {
+    h1 { margin-bottom: 0.15rem; }
+    p.subtitle { color: #555; margin-top: 0; margin-bottom: 1.25rem; }
+    .code-block {
+      position: relative;
       background: #f4f4f8;
-      padding: 1rem;
       border-radius: 8px;
+      padding: 0.7rem 3rem 0.7rem 0.9rem;
+      margin: 0.4rem 0;
       overflow-x: auto;
-      font-size: 0.9rem;
+      font-size: 0.85rem;
     }
-    code { font-family: "JetBrains Mono", "Fira Code", monospace; }
-    .step { margin: 1.5rem 0; }
-    .step h2 { font-size: 1.1rem; margin-bottom: 0.5rem; }
+    .code-block code {
+      font-family: "JetBrains Mono", "Fira Code", monospace;
+      white-space: nowrap;
+    }
+    .copy-btn {
+      position: absolute;
+      top: 0.45rem;
+      right: 0.5rem;
+      background: none;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      padding: 0.2rem 0.4rem;
+      cursor: pointer;
+      font-size: 0.75rem;
+      color: #555;
+      line-height: 1;
+    }
+    .copy-btn:hover { background: #e8e8ec; }
+    .step { margin: 0.75rem 0; }
+    .step h2 { font-size: 1rem; margin: 0 0 0.3rem; }
+    .note { font-size: 0.9rem; color: #555; margin-top: 1rem; }
   </style>
 </head>
 <body>
@@ -33,22 +53,38 @@
 
   <div class="step">
     <h2>1. Add the repository</h2>
-    <pre><code>flatpak remote-add --if-not-exists cellar https://macaon.github.io/cellar/index.flatpakrepo</code></pre>
+    <div class="code-block">
+      <code>flatpak remote-add --if-not-exists cellar https://macaon.github.io/cellar/index.flatpakrepo</code>
+      <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+    </div>
   </div>
 
   <div class="step">
-    <h2>2. Install Cellar</h2>
-    <pre><code>flatpak install cellar io.github.cellar</code></pre>
+    <h2>2. Install</h2>
+    <div class="code-block">
+      <code>flatpak install cellar io.github.cellar</code>
+      <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+    </div>
   </div>
 
   <div class="step">
     <h2>3. Run</h2>
-    <pre><code>flatpak run io.github.cellar</code></pre>
+    <div class="code-block">
+      <code>flatpak run io.github.cellar</code>
+      <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+    </div>
   </div>
 
-  <div class="step">
-    <h2>Updates</h2>
-    <p>Once installed, <code>flatpak update</code> will pull the latest version automatically.</p>
-  </div>
+  <p class="note">Once installed, <code>flatpak update</code> will pull the latest version automatically.</p>
+
+  <script>
+    function copyCode(btn) {
+      const text = btn.parentElement.querySelector('code').textContent;
+      navigator.clipboard.writeText(text).then(() => {
+        btn.textContent = 'Copied!';
+        setTimeout(() => btn.textContent = 'Copy', 1500);
+      });
+    }
+  </script>
 </body>
 </html>

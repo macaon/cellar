@@ -919,14 +919,11 @@ class DetailView(Gtk.Box):
             remaining = database.get_all_installed()
 
             if removed_runner and not any(r.get("runner") == removed_runner for r in remaining):
-                from cellar.backend import base_store
-                from cellar.backend import runners as _runners
-                try:
-                    _runners.remove_runner(removed_runner)
-                    base_store.remove_base(removed_runner)
-                    log.info("Cleaned up orphaned runner and base: %s", removed_runner)
-                except Exception as exc:
-                    log.warning("Failed to clean up runner/base %s: %s", removed_runner, exc)
+                has_writable = any(r.is_writable for r in self._source_repos)
+                if has_writable:
+                    self._ask_remove_runner_base(removed_runner)
+                else:
+                    self._do_remove_runner_base(removed_runner)
 
             if removed_repo and not any(r.get("repo_source") == removed_repo for r in remaining):
                 from cellar.backend.repo import Repo
@@ -940,6 +937,38 @@ class DetailView(Gtk.Box):
         self._rebuild_info_cards()
         if self._on_remove_done:
             self._on_remove_done()
+
+    def _do_remove_runner_base(self, runner: str) -> None:
+        """Silently remove an orphaned runner and its base image."""
+        from cellar.backend import base_store
+        from cellar.backend import runners as _runners
+        try:
+            _runners.remove_runner(runner)
+            base_store.remove_base(runner)
+            log.info("Cleaned up orphaned runner and base: %s", runner)
+        except Exception as exc:
+            log.warning("Failed to clean up runner/base %s: %s", runner, exc)
+
+    def _ask_remove_runner_base(self, runner: str) -> None:
+        """Ask the maintainer whether to keep or remove an orphaned runner/base."""
+        dlg = Adw.AlertDialog(
+            heading="Keep runner and base image?",
+            body=(
+                f"No installed apps use \u201c{runner}\u201d anymore. "
+                "Keep it for future package building, or remove it to free disk space?"
+            ),
+        )
+        dlg.add_response("remove", "Remove")
+        dlg.add_response("keep", "Keep")
+        dlg.set_response_appearance("remove", Adw.ResponseAppearance.DESTRUCTIVE)
+        dlg.set_default_response("keep")
+
+        def _on_response(_dlg, response):
+            if response == "remove":
+                self._do_remove_runner_base(runner)
+
+        dlg.connect("response", _on_response)
+        dlg.present(self.get_root())
 
     # ------------------------------------------------------------------
     # Desktop shortcut (gear menu)

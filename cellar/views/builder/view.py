@@ -201,11 +201,11 @@ class PackageBuilderView(Adw.Bin):
         set_margins(self._flow_box, 18)
         self._flow_box.connect("child-activated", self._on_card_activated)
 
-        scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
-        scroll.set_vexpand(True)
-        scroll.set_child(self._flow_box)
+        self._list_scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
+        self._list_scroll.set_vexpand(True)
+        self._list_scroll.set_child(self._flow_box)
 
-        self._list_page = Adw.NavigationPage(title="Package Builder", child=scroll)
+        self._list_page = Adw.NavigationPage(title="Package Builder", child=self._list_scroll)
         self._nav_view.add(self._list_page)
 
         self.set_child(self._nav_view)
@@ -216,6 +216,10 @@ class PackageBuilderView(Adw.Bin):
 
     def _reload_projects(self) -> None:
         """Reload project list from disk and refresh the card grid."""
+        # Preserve scroll position across rebuilds.
+        vadj = self._list_scroll.get_vadjustment()
+        saved_scroll = vadj.get_value()
+
         projects = load_projects()
         # Clear existing cards
         while True:
@@ -252,6 +256,10 @@ class PackageBuilderView(Adw.Bin):
 
         if not projects:
             self._project = None
+
+        # Restore scroll position after GTK lays out the new children.
+        if saved_scroll > 0:
+            GLib.idle_add(lambda: vadj.set_value(saved_scroll) or False)
 
     def _fetch_writable_catalogue_entries(
         self, imported_ids: set[str],

@@ -361,22 +361,47 @@ class BasePickerDialog(Adw.Dialog):
         def _work():
             from cellar.backend.installer import (
                 _ensure_base_installed,  # noqa: PLC2701
+                _ensure_runner_installed,  # noqa: PLC2701
             )
+
+            _transport_kw = dict(
+                token=repo.token,
+                ssl_verify=repo.ssl_verify,
+                ca_cert=repo.ca_cert,
+                ssh_identity=repo.ssh_identity,
+            )
+            _ui_kw = dict(
+                phase_cb=lambda s: GLib.idle_add(progress.set_label, s),
+                download_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+                download_stats_cb=None,
+                install_cb=None,
+                cancel_event=None,
+            )
+
+            # Install the runner the base image requires (if not already present).
+            runner_name = base_entry.runner
+            if runner_name:
+                runners = repo.fetch_runners()
+                runner_entry = runners.get(runner_name)
+                runner_archive_uri = (
+                    repo.resolve_asset_uri(runner_entry.archive)
+                    if runner_entry and runner_entry.archive else ""
+                )
+                _ensure_runner_installed(
+                    runner_name,
+                    runner_entry=runner_entry,
+                    runner_archive_uri=runner_archive_uri,
+                    **_ui_kw,
+                    **_transport_kw,
+                )
 
             archive_uri = repo.resolve_asset_uri(base_entry.archive)
             _ensure_base_installed(
                 base_entry.name,
                 base_entry=base_entry,
                 base_archive_uri=archive_uri,
-                phase_cb=lambda s: GLib.idle_add(progress.set_label, s),
-                download_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-                download_stats_cb=None,
-                install_cb=None,
-                cancel_event=None,
-                token=repo.token,
-                ssl_verify=repo.ssl_verify,
-                ca_cert=repo.ca_cert,
-                ssh_identity=repo.ssh_identity,
+                **_ui_kw,
+                **_transport_kw,
             )
 
         def _done(_result) -> None:

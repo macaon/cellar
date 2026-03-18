@@ -254,13 +254,13 @@ def _ensure_capsule_css() -> None:
     _capsule_css_provider = Gtk.CssProvider()
     _capsule_css_provider.load_from_string(
         ".capsule-name-overlay {"
-        "  background: linear-gradient(to top, rgba(0,0,0,0.7), transparent);"
-        "  padding: 8px 10px 10px 10px;"
+        "  background: rgba(0, 0, 0, 0.55);"
+        "  padding: 6px 10px;"
         "}"
         ".capsule-name-label {"
         "  color: white;"
         "  font-weight: bold;"
-        "  font-size: 12px;"
+        "  font-size: 14px;"
         "}"
     )
     Gtk.StyleContext.add_provider_for_display(
@@ -295,6 +295,7 @@ class CapsuleCard(Gtk.FlowBoxChild):
         _ensure_capsule_css()
 
         overlay = Gtk.Overlay()
+        overlay.set_overflow(Gtk.Overflow.HIDDEN)
 
         # ── Base layer: cover image or icon fallback ─────────────────
         cover_shown = False
@@ -313,29 +314,23 @@ class CapsuleCard(Gtk.FlowBoxChild):
                     cover_shown = True
 
         if not cover_shown:
-            # Fallback: icon + name on a card background.
-            fallback = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+            # Fallback: dimmed platform icon + title on a card background.
+            _platform_icons = {
+                "windows": "grid-large-symbolic",
+                "linux": "penguin-alt-symbolic",
+                "dos": "floppy-symbolic",
+            }
+            fallback = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
             fallback.set_valign(Gtk.Align.CENTER)
             fallback.set_halign(Gtk.Align.CENTER)
 
-            icon_shown = False
-            if resolve_asset and entry.icon:
-                icon_path = resolve_asset(entry.icon)
-                if os.path.isfile(icon_path):
-                    png_bytes = load_and_fit(icon_path, _ICON_SIZE)
-                    if png_bytes is not None:
-                        pic = Gtk.Picture.new_for_paintable(to_texture(png_bytes))
-                        pic.set_content_fit(Gtk.ContentFit.SCALE_DOWN)
-                        fb_img = _FixedBox(_ICON_SIZE, _ICON_SIZE, clip=False)
-                        fb_img.set_halign(Gtk.Align.CENTER)
-                        fb_img.set_child(pic)
-                        fallback.append(fb_img)
-                        icon_shown = True
-            if not icon_shown:
-                icon = Gtk.Image.new_from_icon_name("application-x-executable")
-                icon.set_pixel_size(_ICON_SIZE)
-                icon.set_halign(Gtk.Align.CENTER)
-                fallback.append(icon)
+            icon = Gtk.Image.new_from_icon_name(
+                _platform_icons.get(entry.platform, "grid-large-symbolic"),
+            )
+            icon.set_pixel_size(64)
+            icon.set_halign(Gtk.Align.CENTER)
+            icon.add_css_class("dim-label")
+            fallback.append(icon)
 
             fb_label = Gtk.Label(label=entry.name)
             fb_label.add_css_class("heading")
@@ -353,19 +348,24 @@ class CapsuleCard(Gtk.FlowBoxChild):
             fb_box.set_child(fallback)
             overlay.set_child(fb_box)
 
-        # ── Bottom overlay: gradient + name (only with cover art) ────
-        if cover_shown:
-            name_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-            name_box.set_valign(Gtk.Align.END)
-            name_box.add_css_class("capsule-name-overlay")
+        # ── Bottom overlay: name bar on hover ─────────────────────────
+        name_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        name_box.set_valign(Gtk.Align.END)
+        name_box.add_css_class("capsule-name-overlay")
+        name_box.set_visible(False)
 
-            name_lbl = Gtk.Label(label=entry.name)
-            name_lbl.add_css_class("capsule-name-label")
-            name_lbl.set_halign(Gtk.Align.START)
-            name_lbl.set_ellipsize(Pango.EllipsizeMode.END)
-            name_lbl.set_max_width_chars(20)
-            name_box.append(name_lbl)
-            overlay.add_overlay(name_box)
+        name_lbl = Gtk.Label(label=entry.name)
+        name_lbl.add_css_class("capsule-name-label")
+        name_lbl.set_halign(Gtk.Align.CENTER)
+        name_lbl.set_ellipsize(Pango.EllipsizeMode.END)
+        name_lbl.set_max_width_chars(20)
+        name_box.append(name_lbl)
+        overlay.add_overlay(name_box)
+
+        hover = Gtk.EventControllerMotion()
+        hover.connect("enter", lambda _c, _x, _y, b=name_box: b.set_visible(True))
+        hover.connect("leave", lambda _c, b=name_box: b.set_visible(False))
+        overlay.add_controller(hover)
 
         # ── Top-right overlay: installed checkmark ───────────────────
         if is_installed:
@@ -443,7 +443,6 @@ class BrowseView(Gtk.Box):
         self._entries: list[AppEntry] = []
         self._resolve_asset: Callable[[str], str] | None = None
         self._installed_ids: set[str] = set()
-
         # ── Content stack (grid / status page) ───────────────────────────
         self._stack = Gtk.Stack()
         self._stack.set_vexpand(True)

@@ -359,42 +359,25 @@ class BasePickerDialog(Adw.Dialog):
         progress.present(parent_win)
 
         def _work():
-            import tempfile
-
-            from cellar.backend.base_store import install_base
             from cellar.backend.installer import (
-                _build_source,  # noqa: PLC2701
+                _ensure_base_installed,  # noqa: PLC2701
             )
 
             archive_uri = repo.resolve_asset_uri(base_entry.archive)
-            chunks, total = _build_source(
-                archive_uri,
-                expected_size=base_entry.archive_size,
+            _ensure_base_installed(
+                base_entry.name,
+                base_entry=base_entry,
+                base_archive_uri=archive_uri,
+                phase_cb=lambda s: GLib.idle_add(progress.set_label, s),
+                download_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
+                download_stats_cb=None,
+                install_cb=None,
+                cancel_event=None,
                 token=repo.token,
                 ssl_verify=repo.ssl_verify,
                 ca_cert=repo.ca_cert,
+                ssh_identity=repo.ssh_identity,
             )
-
-            with tempfile.NamedTemporaryFile(
-                prefix="cellar-base-", suffix=".tar.zst", delete=False,
-            ) as tmp:
-                tmp_path = Path(tmp.name)
-                received = 0
-                for chunk in chunks:
-                    tmp.write(chunk)
-                    received += len(chunk)
-                    if total:
-                        GLib.idle_add(progress.set_fraction, received / total)
-
-            GLib.idle_add(progress.set_label, "Installing base\u2026")
-            GLib.idle_add(progress.set_fraction, 0.0)
-            install_base(
-                tmp_path,
-                base_entry.name,
-                repo_source=repo.uri,
-                progress_cb=lambda f: GLib.idle_add(progress.set_fraction, f),
-            )
-            tmp_path.unlink(missing_ok=True)
 
         def _done(_result) -> None:
             progress.force_close()

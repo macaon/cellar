@@ -238,11 +238,13 @@ class PackageBuilderView(Adw.Bin):
         catalogue_entries, used_bases = self._fetch_writable_catalogue_entries(imported_ids)
         for entry, repo, kind in catalogue_entries:
             has_dependants = kind == "base" and entry.name in used_bases
+            is_windows_app = kind == "app" and getattr(entry, "platform", "windows") == "windows"
             card = _CatalogueCard(
                 entry, repo, kind,
                 on_download=self._on_catalogue_download,
                 on_delete=self._on_catalogue_delete,
                 on_edit=self._on_catalogue_edit if kind == "app" else None,
+                on_change_base=self._on_change_base_image if is_windows_app else None,
                 has_dependants=has_dependants,
                 show_repo=len(self._writable_repos) > 1,
             )
@@ -741,6 +743,115 @@ class PackageBuilderView(Adw.Bin):
             err.present(self)
 
         run_in_background(_fetch, on_done=_open, on_error=_error)
+
+    def _on_change_base_image(self, card: "_CatalogueCard") -> None:
+        """Let the user reassign a base image without re-uploading the archive."""
+        entry, repo = card.entry, card.repo
+
+        def _fetch():
+            full = repo.fetch_app_metadata(entry.id)
+            bases = repo.fetch_bases()
+            return full, bases
+
+        def _show(result) -> None:
+            full_entry, bases = result
+            if not bases:
+                err = Adw.AlertDialog(
+                    heading="No base images",
+                    body="This repository has no base images published.",
+                )
+                err.add_response("ok", "OK")
+                err.present(self)
+                return
+            self._show_base_picker(full_entry, repo, bases)
+
+        def _error(msg: str) -> None:
+            log.error("Failed to load bases for %s: %s", entry.id, msg)
+            err = Adw.AlertDialog(heading="Could not load bases", body=msg)
+            err.add_response("ok", "OK")
+            err.present(self)
+
+        run_in_background(_fetch, on_done=_show, on_error=_error)
+
+    def _show_base_picker(self, entry, repo, bases: dict) -> None:
+        """Present a dialog to pick a base image for *entry*."""
+        from cellar.views.widgets import make_dialog_header
+
+        dlg = Adw.Dialog(title="Change Base Image", content_width=440)
+        toolbar, _hdr, apply_btn = make_dialog_header(
+            dlg,
+            action_label="Apply",
+            action_sensitive=False,
+        )
+
+        scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
+        scroll.set_min_content_height(300)
+        list_box = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE)
+        list_box.add_css_class("boxed-list")
+        set_margins(list_box, 12)
+        scroll.set_child(list_box)
+
+        current = entry.base_image
+        selected: list[str] = [current]  # mutable container for closure
+        sorted_names = sorted(bases.keys())
+
+        # "None" row — clear base image
+        list_box.append(Adw.ActionRow(title="None"))
+
+        for name in sorted_names:
+            row = Adw.ActionRow(title=name, subtitle=f"Runner: {bases[name].runner}")
+            list_box.append(row)
+
+        # Pre-select the current base (index 0 = None, 1+ = sorted names)
+        if current and current in bases:
+            pre_idx = sorted_names.index(current) + 1
+        else:
+            pre_idx = 0
+        pre_row = list_box.get_row_at_index(pre_idx)
+        if pre_row:
+            list_box.select_row(pre_row)
+
+        def _on_row_selected(_lb, row):
+            if row is None:
+                return
+            idx = row.get_index()
+            selected[0] = "" if idx == 0 else sorted_names[idx - 1]
+            apply_btn.set_sensitive(selected[0] != current)
+
+        list_box.connect("row-selected", _on_row_selected)
+
+        def _on_apply(_btn) -> None:
+            new_base = selected[0]
+            updated = _dc_replace(entry, base_image=new_base)
+
+            def _save():
+                from cellar.backend.packager import update_app_metadata
+                update_app_metadata(repo.writable_path(), updated)
+
+            def _done(_r) -> None:
+                dlg.close()
+                toast = Adw.Toast(title=f"Base image updated to \u201c{new_base or 'None'}\u201d")
+                toast_overlay = self.get_ancestor(Adw.ToastOverlay)
+                if toast_overlay:
+                    toast_overlay.add_toast(toast)
+                self._reload_projects()
+                if self._on_catalogue_changed:
+                    self._on_catalogue_changed()
+
+            def _error(msg: str) -> None:
+                log.error("Failed to update base image: %s", msg)
+                apply_btn.set_sensitive(True)
+                err = Adw.AlertDialog(heading="Update failed", body=msg)
+                err.add_response("ok", "OK")
+                err.present(dlg)
+
+            apply_btn.set_sensitive(False)
+            run_in_background(_save, on_done=_done, on_error=_error)
+
+        apply_btn.connect("clicked", _on_apply)
+        toolbar.set_content(scroll)
+        dlg.set_child(toolbar)
+        dlg.present(self)
 
     # ------------------------------------------------------------------
     # Detail panel
@@ -4204,6 +4315,7 @@ class _CatalogueCard(Gtk.FlowBoxChild):
         on_download: Callable,
         on_delete: Callable,
         on_edit: Callable | None = None,
+        on_change_base: Callable | None = None,
         has_dependants: bool = False,
         show_repo: bool = False,
     ) -> None:
@@ -4276,6 +4388,11 @@ class _CatalogueCard(Gtk.FlowBoxChild):
             edit_action.connect("activate", lambda *_: on_edit(self))
             action_group.add_action(edit_action)
             menu.append("Edit metadata", "card.edit")
+        if on_change_base:
+            cb_action = Gio.SimpleAction.new("change_base", None)
+            cb_action.connect("activate", lambda *_: on_change_base(self))
+            action_group.add_action(cb_action)
+            menu.append("Change base image\u2026", "card.change_base")
         menu.append("Download for editing", "card.download")
         del_label = (
             "Delete from catalogue" if not has_dependants else "Delete (base has dependants)"

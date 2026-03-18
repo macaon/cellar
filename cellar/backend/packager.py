@@ -1051,6 +1051,16 @@ def _upsert_catalogue(repo_root: Path, entry) -> None:
     _write_catalogue(cat_path, apps, categories, runners, bases, category_icons)
 
 
+def update_app_metadata(repo_root: Path, entry) -> None:
+    """Update *entry*'s metadata in the catalogue without touching its archive.
+
+    Writes the updated index entry to ``catalogue.json`` and the full
+    metadata to ``apps/<id>/metadata.json``.  No archive or image
+    processing takes place — only the JSON files are modified.
+    """
+    _upsert_catalogue(repo_root, entry)
+
+
 def _remove_from_catalogue(repo_root: Path, app_id: str) -> None:
     """Filter *app_id* out of ``catalogue.json``."""
     cat_path = repo_root / "catalogue.json"

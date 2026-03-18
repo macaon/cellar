@@ -469,11 +469,11 @@ class RepoContext(_SaveContext):
         )
         strategy = fields.get("update_strategy", "safe")
         launch_targets = tuple(fields.get("launch_targets", []))
-        dxvk = bool(fields.get("dxvk", True))
-        vkd3d = bool(fields.get("vkd3d", True))
-        debug = bool(fields.get("debug", False))
-        direct_proton = bool(fields.get("direct_proton", False))
-        audio_driver = fields.get("audio_driver", "auto")
+        dxvk = bool(fields.get("dxvk", e.dxvk))
+        vkd3d = bool(fields.get("vkd3d", e.vkd3d))
+        debug = bool(fields.get("debug", e.debug))
+        direct_proton = bool(fields.get("direct_proton", e.direct_proton))
+        audio_driver = fields.get("audio_driver", e.audio_driver)
         hide_title = bool(images.get("hide_title", e.hide_title))
 
         icon_path = images.get("icon")    # None=keep, ""=clear, str=new
@@ -730,13 +730,14 @@ class MetadataEditorDialog(Adw.Dialog):
             strategy = fields.get("update_strategy", "safe")
             if strategy in _STRATEGIES:
                 self._strategy_row.set_selected(_STRATEGIES.index(strategy))
-            self._dxvk_row.set_active(bool(fields.get("dxvk", True)))
-            self._vkd3d_row.set_active(bool(fields.get("vkd3d", True)))
-            self._debug_row.set_active(bool(fields.get("debug", False)))
-            self._direct_proton_row.set_active(bool(fields.get("direct_proton", False)))
-            audio = fields.get("audio_driver", "auto")
-            if audio in self._AUDIO_VALUES:
-                self._audio_driver_row.set_selected(self._AUDIO_VALUES.index(audio))
+            if self._dxvk_row is not None:
+                self._dxvk_row.set_active(bool(fields.get("dxvk", True)))
+                self._vkd3d_row.set_active(bool(fields.get("vkd3d", True)))
+                self._debug_row.set_active(bool(fields.get("debug", False)))
+                self._direct_proton_row.set_active(bool(fields.get("direct_proton", False)))
+                audio = fields.get("audio_driver", "auto")
+                if audio in self._AUDIO_VALUES:
+                    self._audio_driver_row.set_selected(self._AUDIO_VALUES.index(audio))
 
         # Wire steam appid → media panel.  The initial fire suppresses
         # the on_changed notification so the async Steam suggestion fetch
@@ -912,6 +913,7 @@ class MetadataEditorDialog(Adw.Dialog):
 
         # Launch Settings (RepoContext only)
         if ctx.show_launch_settings:
+            is_proton = ctx.project_type in ("app", "windows")
             launch_group = Adw.PreferencesGroup(title="Launch Settings")
 
             self._strategy_row = Adw.ComboRow(title="Update Strategy")
@@ -921,43 +923,50 @@ class MetadataEditorDialog(Adw.Dialog):
             self._strategy_row.set_model(strat_model)
             launch_group.add(self._strategy_row)
 
-            self._dxvk_row = Adw.SwitchRow(
-                title="DXVK",
-                subtitle="Translate D3D9/10/11 to Vulkan",
-            )
-            self._dxvk_row.set_active(True)
-            launch_group.add(self._dxvk_row)
+            self._dxvk_row = None
+            self._vkd3d_row = None
+            self._debug_row = None
+            self._direct_proton_row = None
+            self._audio_driver_row = None
 
-            self._vkd3d_row = Adw.SwitchRow(
-                title="VKD3D-Proton",
-                subtitle="Translate D3D12 to Vulkan",
-            )
-            self._vkd3d_row.set_active(True)
-            launch_group.add(self._vkd3d_row)
+            if is_proton:
+                self._dxvk_row = Adw.SwitchRow(
+                    title="DXVK",
+                    subtitle="Translate D3D9/10/11 to Vulkan",
+                )
+                self._dxvk_row.set_active(True)
+                launch_group.add(self._dxvk_row)
 
-            self._debug_row = Adw.SwitchRow(
-                title="Proton Debug Logging",
-                subtitle="Enable PROTON_LOG=1 when launching",
-            )
-            launch_group.add(self._debug_row)
+                self._vkd3d_row = Adw.SwitchRow(
+                    title="VKD3D-Proton",
+                    subtitle="Translate D3D12 to Vulkan",
+                )
+                self._vkd3d_row.set_active(True)
+                launch_group.add(self._vkd3d_row)
 
-            self._direct_proton_row = Adw.SwitchRow(
-                title="Direct Proton Launch",
-                subtitle="Bypass umu-run and call Proton directly",
-            )
-            launch_group.add(self._direct_proton_row)
+                self._debug_row = Adw.SwitchRow(
+                    title="Proton Debug Logging",
+                    subtitle="Enable PROTON_LOG=1 when launching",
+                )
+                launch_group.add(self._debug_row)
 
-            self._AUDIO_LABELS = ("Auto", "PulseAudio", "ALSA", "OSS")
-            self._AUDIO_VALUES = ("auto", "pulseaudio", "alsa", "oss")
-            self._audio_driver_row = Adw.ComboRow(
-                title="Audio Driver",
-                subtitle="Wine audio backend override",
-            )
-            audio_model = Gtk.StringList()
-            for lbl in self._AUDIO_LABELS:
-                audio_model.append(lbl)
-            self._audio_driver_row.set_model(audio_model)
-            launch_group.add(self._audio_driver_row)
+                self._direct_proton_row = Adw.SwitchRow(
+                    title="Direct Proton Launch",
+                    subtitle="Bypass umu-run and call Proton directly",
+                )
+                launch_group.add(self._direct_proton_row)
+
+                self._AUDIO_LABELS = ("Auto", "PulseAudio", "ALSA", "OSS")
+                self._AUDIO_VALUES = ("auto", "pulseaudio", "alsa", "oss")
+                self._audio_driver_row = Adw.ComboRow(
+                    title="Audio Driver",
+                    subtitle="Wine audio backend override",
+                )
+                audio_model = Gtk.StringList()
+                for lbl in self._AUDIO_LABELS:
+                    audio_model.append(lbl)
+                self._audio_driver_row.set_model(audio_model)
+                launch_group.add(self._audio_driver_row)
 
             add_target_row = Adw.ActionRow(title="Add Launch Target\u2026")
             add_btn = Gtk.Button(label="Add\u2026", valign=Gtk.Align.CENTER)
@@ -1040,11 +1049,12 @@ class MetadataEditorDialog(Adw.Dialog):
         if ctx.show_launch_settings:
             fields["launch_targets"] = list(self._launch_targets)
             fields["update_strategy"] = _STRATEGIES[self._strategy_row.get_selected()]
-            fields["dxvk"] = self._dxvk_row.get_active()
-            fields["vkd3d"] = self._vkd3d_row.get_active()
-            fields["debug"] = self._debug_row.get_active()
-            fields["direct_proton"] = self._direct_proton_row.get_active()
-            fields["audio_driver"] = self._AUDIO_VALUES[self._audio_driver_row.get_selected()]
+            if self._dxvk_row is not None:
+                fields["dxvk"] = self._dxvk_row.get_active()
+                fields["vkd3d"] = self._vkd3d_row.get_active()
+                fields["debug"] = self._debug_row.get_active()
+                fields["direct_proton"] = self._direct_proton_row.get_active()
+                fields["audio_driver"] = self._AUDIO_VALUES[self._audio_driver_row.get_selected()]
 
         return fields
 

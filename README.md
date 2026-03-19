@@ -186,7 +186,7 @@ is available.
 - **Image handling:** Pillow (load, resize, crop, ICO/BMP→PNG, optimise)
 - **Archive handling:** `tarfile` stdlib; `zstandard` for `.tar.zst` archives
 - **File sync:** `rsync` subprocess; Python fallback if rsync is absent
-- **Metadata:** Steam Store API (no authentication required)
+- **Metadata:** Steam Store API (no auth required); [SteamGridDB](https://www.steamgriddb.com/) for high-res icons, covers, and logos (optional API key)
 
 ---
 
@@ -302,6 +302,7 @@ Cellar is built on the work of many open-source projects:
 - **[RapidFuzz](https://github.com/rapidfuzz/RapidFuzz)** — fuzzy string matching (MIT)
 - **[Requests](https://docs.python-requests.org/)** — HTTP client
 - **[PyGObject](https://pygobject.gnome.org/)** — Python bindings for GLib/GTK/GStreamer
+- **[SteamGridDB](https://www.steamgriddb.com/)** — high-res game icons, covers, and logos (optional API key)
 
 Tab and category icons are [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) sourced from the GNOME icon set.
 

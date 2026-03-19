@@ -223,6 +223,7 @@ class AppCard(Gtk.FlowBoxChild):
         search: str,
         active_repos: set[str] | None = None,
         active_genres: set[str] | None = None,
+        active_platforms: set[str] | None = None,
     ) -> bool:
         """Return True if this card should be visible given the current filter."""
         if active_repos and not self.repo_uris & active_repos:
@@ -230,6 +231,8 @@ class AppCard(Gtk.FlowBoxChild):
         if active_categories and self.entry.category not in active_categories:
             return False
         if active_genres and not (set(self.entry.genres) & active_genres):
+            return False
+        if active_platforms and self.entry.platform not in active_platforms:
             return False
         if search:
             needle = search.lower()
@@ -256,6 +259,7 @@ def _ensure_capsule_css() -> None:
         ".capsule-name-overlay {"
         "  background: rgba(0, 0, 0, 0.55);"
         "  padding: 6px 10px;"
+        "  border-radius: 0 0 12px 12px;"
         "}"
         ".capsule-name-label {"
         "  color: white;"
@@ -295,6 +299,7 @@ class CapsuleCard(Gtk.FlowBoxChild):
         _ensure_capsule_css()
 
         overlay = Gtk.Overlay()
+        overlay.add_css_class("card")
         overlay.set_overflow(Gtk.Overflow.HIDDEN)
 
         # ── Base layer: cover image or icon fallback ─────────────────
@@ -308,8 +313,6 @@ class CapsuleCard(Gtk.FlowBoxChild):
                     pic.set_content_fit(Gtk.ContentFit.FILL)
                     img_box = _FixedBox(_CAPSULE_WIDTH, _CAPSULE_HEIGHT)
                     img_box.set_child(pic)
-                    img_box.add_css_class("card")
-                    img_box.set_overflow(Gtk.Overflow.HIDDEN)
                     overlay.set_child(img_box)
                     cover_shown = True
 
@@ -343,7 +346,6 @@ class CapsuleCard(Gtk.FlowBoxChild):
             fallback.append(fb_label)
 
             fb_box = _FixedBox(_CAPSULE_WIDTH, _CAPSULE_HEIGHT, clip=False)
-            fb_box.add_css_class("card")
             fb_box.add_css_class("activatable")
             fb_box.set_child(fallback)
             overlay.set_child(fb_box)
@@ -395,6 +397,7 @@ class CapsuleCard(Gtk.FlowBoxChild):
         search: str,
         active_repos: set[str] | None = None,
         active_genres: set[str] | None = None,
+        active_platforms: set[str] | None = None,
     ) -> bool:
         """Return True if this card should be visible given the current filter."""
         if active_repos and not self.repo_uris & active_repos:
@@ -402,6 +405,8 @@ class CapsuleCard(Gtk.FlowBoxChild):
         if active_categories and self.entry.category not in active_categories:
             return False
         if active_genres and not (set(self.entry.genres) & active_genres):
+            return False
+        if active_platforms and self.entry.platform not in active_platforms:
             return False
         if search:
             needle = search.lower()
@@ -437,6 +442,7 @@ class BrowseView(Gtk.Box):
         self._active_categories: set[str] = set()
         self._active_repos: set[str] = set()
         self._active_genres: set[str] = set()
+        self._active_platforms: set[str] = set()
         self._search_text: str = ""
 
         # Stored so cards can be rebuilt on catalogue reload.
@@ -563,6 +569,10 @@ class BrowseView(Gtk.Box):
         self._active_genres = genres
         self._apply_filter()
 
+    def set_active_platforms(self, platforms: set[str]) -> None:
+        self._active_platforms = platforms
+        self._apply_filter()
+
     # ── Internals ─────────────────────────────────────────────────────────
 
     def _apply_filter(self) -> None:
@@ -571,6 +581,7 @@ class BrowseView(Gtk.Box):
             visible = card.matches(
                 self._active_categories, self._search_text,
                 self._active_repos, self._active_genres,
+                self._active_platforms,
             )
             card.set_visible(visible)
             if visible:
@@ -599,6 +610,7 @@ class BrowseView(Gtk.Box):
         self._cards.clear()
         self._active_categories = set()
         self._active_repos = set()
+        self._active_platforms = set()
 
     def _on_card_activated(self, _flow_box: Gtk.FlowBox, child: AppCard) -> None:
         log.debug("App selected: %s", child.entry.id)

@@ -231,11 +231,13 @@ class CellarWindow(Adw.ApplicationWindow):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
-        # Category / genre check buttons in the filter popover — rebuilt after each catalogue load.
+        # Category / genre / platform check buttons in the filter popover — rebuilt after each catalogue load.
         self._category_btns: dict[str, Gtk.CheckButton] = {}
         self._active_categories: set[str] = set()
         self._genre_btns: dict[str, Gtk.CheckButton] = {}
         self._active_genres: set[str] = set()
+        self._platform_btns: dict[str, Gtk.CheckButton] = {}
+        self._active_platforms: set[str] = set()
 
         # Builder filter state (type + repo).
         self._builder_type_btns: dict[str, Gtk.CheckButton] = {}
@@ -498,11 +500,14 @@ class CellarWindow(Adw.ApplicationWindow):
         self._browse_filter_repos = distinct_repos
         categories = sorted({e.category for e in entries if e.category})
         genres = sorted({g for e in entries for g in e.genres})
+        platforms = sorted({e.platform for e in entries if e.platform})
         self._category_btns = {}
         self._genre_btns = {}
+        self._platform_btns = {}
         self._repo_btns: dict[str, Gtk.CheckButton] = {}
         self._active_categories = set()
         self._active_genres = set()
+        self._active_platforms = set()
         self._active_repos: set[str] = set()
         show_repos = distinct_repos is not None and len(distinct_repos) >= 2
 
@@ -512,7 +517,8 @@ class CellarWindow(Adw.ApplicationWindow):
         outer.set_margin_start(4)
         outer.set_margin_end(4)
 
-        if not categories and not show_repos and not genres:
+        show_platforms = len(platforms) >= 2
+        if not categories and not show_repos and not genres and not show_platforms:
             empty_lbl = Gtk.Label(label="No categories available")
             empty_lbl.add_css_class("dim-label")
             empty_lbl.set_margin_top(8)
@@ -582,6 +588,27 @@ class CellarWindow(Adw.ApplicationWindow):
                     self._genre_btns[genre] = btn
                     outer.append(btn)
 
+            # Platform section (only when 2+ distinct platforms).
+            if show_platforms:
+                if categories or show_repos or genres:
+                    outer.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
+                plat_lbl = Gtk.Label(label="Platform")
+                plat_lbl.add_css_class("heading")
+                plat_lbl.set_halign(Gtk.Align.START)
+                plat_lbl.set_margin_start(8)
+                plat_lbl.set_margin_top(4)
+                plat_lbl.set_margin_bottom(2)
+                outer.append(plat_lbl)
+
+                _platform_labels = {"windows": "Windows", "linux": "Linux", "dos": "DOS"}
+                for plat in platforms:
+                    label = _platform_labels.get(plat, plat.title())
+                    btn = Gtk.CheckButton(label=label)
+                    btn.add_css_class("flat")
+                    btn.connect("toggled", self._on_platform_toggled, plat)
+                    self._platform_btns[plat] = btn
+                    outer.append(btn)
+
         popover = Gtk.Popover()
         popover.set_child(outer)
         self.filter_button.set_popover(popover)
@@ -595,7 +622,8 @@ class CellarWindow(Adw.ApplicationWindow):
 
     def _any_filter_active(self) -> bool:
         return (
-            bool(self._active_categories) or bool(self._active_repos) or bool(self._active_genres)
+            bool(self._active_categories) or bool(self._active_repos)
+            or bool(self._active_genres) or bool(self._active_platforms)
         )
 
     def _on_category_toggled(self, btn: Gtk.CheckButton, category: str) -> None:
@@ -631,6 +659,17 @@ class CellarWindow(Adw.ApplicationWindow):
         self._browse_installed.set_active_genres(active)
         self._browse_updates.set_active_genres(active)
 
+    def _on_platform_toggled(self, btn: Gtk.CheckButton, platform: str) -> None:
+        if btn.get_active():
+            self._active_platforms.add(platform)
+        else:
+            self._active_platforms.discard(platform)
+        active = self._active_platforms.copy()
+        self._set_filter_active(self._any_filter_active())
+        self._browse_explore.set_active_platforms(active)
+        self._browse_installed.set_active_platforms(active)
+        self._browse_updates.set_active_platforms(active)
+
     def _on_filter_clear(self, _button: Gtk.Button) -> None:
         for btn in self._category_btns.values():
             btn.set_active(False)
@@ -638,9 +677,12 @@ class CellarWindow(Adw.ApplicationWindow):
             btn.set_active(False)
         for btn in self._genre_btns.values():
             btn.set_active(False)
+        for btn in self._platform_btns.values():
+            btn.set_active(False)
         self._active_categories = set()
         self._active_repos = set()
         self._active_genres = set()
+        self._active_platforms = set()
         self._set_filter_active(False)
         self._browse_explore.set_active_categories(set())
         self._browse_installed.set_active_categories(set())
@@ -651,6 +693,9 @@ class CellarWindow(Adw.ApplicationWindow):
         self._browse_explore.set_active_genres(set())
         self._browse_installed.set_active_genres(set())
         self._browse_updates.set_active_genres(set())
+        self._browse_explore.set_active_platforms(set())
+        self._browse_installed.set_active_platforms(set())
+        self._browse_updates.set_active_platforms(set())
         self.filter_button.get_popover().popdown()
 
     def apply_genre_filter(self, genre: str) -> None:

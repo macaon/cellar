@@ -1,7 +1,7 @@
 # Cellar
 
 A GNOME desktop application that acts as a private software storefront for
-Windows and Linux applications. Think GNOME Software, but the "packages" are
+Windows, Linux and DOS games and applications. Think GNOME Software, but the "packages" are
 pre-configured app archives stored on a network share or web server.
 
 The primary use case is a home-lab or family server: a maintainer packages and

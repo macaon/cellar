@@ -20,11 +20,11 @@ DOS games run via [DOSBox Staging](https://dosbox-staging.github.io/)
 
 | Browse catalogue | App detail |
 |---|---|
-| [![Explore view](docs/screenshots/explore.png)](https://macaon.github.io/cellar/screenshots/explore.png) | [![Detail view](docs/screenshots/detail.png)](https://macaon.github.io/cellar/screenshots/detail.png) |
+| [![Explore view](docs/screenshots/explore.png)](https://raw.githubusercontent.com/macaon/cellar/main/docs/screenshots/explore.png) | [![Detail view](docs/screenshots/detail.png)](https://raw.githubusercontent.com/macaon/cellar/main/docs/screenshots/detail.png) |
 
 | Package builder | Metadata editor |
 |---|---|
-| [![Package builder](docs/screenshots/builder.png)](https://macaon.github.io/cellar/screenshots/builder.png) | [![Metadata editor](docs/screenshots/metadata.png)](https://macaon.github.io/cellar/screenshots/metadata.png) |
+| [![Package builder](docs/screenshots/builder.png)](https://raw.githubusercontent.com/macaon/cellar/main/docs/screenshots/builder.png) | [![Metadata editor](docs/screenshots/metadata.png)](https://raw.githubusercontent.com/macaon/cellar/main/docs/screenshots/metadata.png) |
 
 ---
 

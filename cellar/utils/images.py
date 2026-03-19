@@ -13,7 +13,12 @@ import shutil
 from io import BytesIO
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, PngImagePlugin
+
+# Some Steam/SteamGridDB PNGs embed huge compressed text chunks (e.g. XML
+# metadata) that exceed Pillow's default MAX_TEXT_CHUNK (10 MB).  Raise the
+# limit so these images can be opened — we discard the text anyway.
+PngImagePlugin.MAX_TEXT_CHUNK = 128 * 1024 * 1024  # 128 MB
 
 log = logging.getLogger(__name__)
 

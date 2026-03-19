@@ -192,54 +192,27 @@ is available.
 
 ## Installation
 
-### System requirements
+### Flatpak (recommended)
 
-- Python 3.10+
-- GTK 4.0+ and **libadwaita 1.4+** (ships with GNOME 45 / Ubuntu 24.04 / Fedora 39+)
-
-> **Note for Pop_OS / Ubuntu 22.04 users:** the default libadwaita on these
-> distros is 1.2, which is too old.  The app uses `AdwNavigationView`
-> (libadwaita 1.4) as its navigation backbone — replacing it with the
-> deprecated `AdwLeaflet` would be significant work.  The recommended path
-> for older distros is to wait for the Flatpak (which bundles its own
-> libadwaita), or upgrade to Ubuntu 24.04 / Pop_OS 24.04.
-
-**Fedora / RHEL 9+:**
-```bash
-sudo dnf install python3-gobject libadwaita
-```
-
-**Ubuntu 24.04+ / Debian bookworm+:**
-```bash
-sudo apt install python3-gi gir1.2-adw-1
-```
-
-### Install
+Download the pre-built Flatpak from the
+[latest release](https://github.com/macaon/cellar/releases/latest) or add the
+Flatpak repo for automatic updates:
 
 ```bash
-git clone https://github.com/macaon/cellar
-cd cellar
-pip install --user .
+# One-time: add the Cellar Flatpak repo
+flatpak remote-add --user --if-not-exists cellar https://macaon.github.io/cellar/
+
+# Install (or update)
+flatpak install --user cellar io.github.cellar
 ```
 
-This installs the `cellar` command to `~/.local/bin/` and registers the app
-in the GNOME application launcher. Make sure `~/.local/bin` is on your `PATH`
-(add `export PATH="$HOME/.local/bin:$PATH"` to `~/.bashrc` if not).
-
-### Flatpak
-
-A Flatpak manifest is available at `flatpak/io.github.cellar.json`.
-
-```bash
-flatpak-builder --user --install --force-clean --disable-cache \
-    cellar-build flatpak/io.github.cellar.json
-flatpak run io.github.cellar
-```
+The Flatpak bundles all dependencies including libadwaita, so it works on any
+distro regardless of system library versions.
 
 ### Launch
 
-- **Terminal:** `cellar`
-- **App drawer:** search for *Cellar* in GNOME Activities
+- **App drawer:** search for *Cellar* in GNOME Activities / KDE app launcher
+- **Terminal:** `flatpak run io.github.cellar`
 
 ---
 

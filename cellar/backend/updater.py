@@ -113,6 +113,36 @@ _RSYNC_EXCLUDES: list[str] = [
 
 
 # ---------------------------------------------------------------------------
+# Backup exclusion rules (shared by backup + future import)
+# ---------------------------------------------------------------------------
+
+def _load_backup_excludes() -> list[tuple[str, ...]]:
+    """Load prefix-relative exclusion prefixes from ``backup_exclude.txt``.
+
+    Each non-blank, non-comment line is split into lowercased path parts
+    and used as a prefix match against file paths relative to the prefix
+    root.
+    """
+    txt = (Path(__file__).parent / "backup_exclude.txt").read_text()
+    return [
+        tuple(line.strip().lower().replace("\\", "/").split("/"))
+        for line in txt.splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+
+_BACKUP_EXCLUDES: list[tuple[str, ...]] = _load_backup_excludes()
+
+
+def is_backup_excluded(rel: Path) -> bool:
+    """Return ``True`` if *rel* (relative to prefix root) should be excluded."""
+    parts = tuple(p.lower() for p in rel.parts)
+    for pattern in _BACKUP_EXCLUDES:
+        if parts[:len(pattern)] == pattern:
+            return True
+    return False
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -199,10 +229,26 @@ def backup_prefix(
         stats_cb(total_bytes, total_bytes, total_bytes / elapsed if elapsed > 0 else 0.0)
 
 
+def _remap_archive_root(arcname: str, app_id: str) -> str:
+    """Replace the ``drive_c/`` prefix with *app_id* in an archive path.
+
+    ``drive_c/save/slot1.dat`` → ``my-game/save/slot1.dat``
+
+    Paths that don't start with ``drive_c/`` are left unchanged.
+    """
+    prefix = "drive_c/"
+    if arcname.startswith(prefix):
+        return app_id + "/" + arcname[len(prefix):]
+    if arcname == "drive_c":
+        return app_id
+    return arcname
+
+
 def backup_user_files(
     prefix_path: Path,
     dest_path: Path,
     *,
+    app_id: str | None = None,
     progress_cb: Callable[[float], None] | None = None,
     stats_cb: Callable[[int, int, float], None] | None = None,
     phase_cb: Callable[[str], None] | None = None,
@@ -212,9 +258,12 @@ def backup_user_files(
 
     Uses the install manifest to identify files that changed since
     installation (modified package files + user-created files) and packs
-    them into a zstandard-compressed tar at *dest_path*.  Paths inside
-    the archive are relative to the prefix root so they can be extracted
-    back in-place.
+    them into a zstandard-compressed tar at *dest_path*.  Files matching
+    ``backup_exclude.txt`` are skipped.
+
+    When *app_id* is provided the ``drive_c/`` root inside the archive
+    is renamed to ``<app_id>/`` so the archive is self-describing and
+    can be imported back by app slug.
 
     Returns the number of files archived (0 means nothing to back up).
     """
@@ -232,7 +281,10 @@ def backup_user_files(
         progress_cb(0.0)
 
     modified, user_created = scan_user_files(prefix_path)
-    all_files = modified + user_created
+    all_files = [
+        fp for fp in modified + user_created
+        if not is_backup_excluded(fp.relative_to(prefix_path))
+    ]
     if not all_files:
         return 0
 
@@ -264,6 +316,8 @@ def backup_user_files(
                         if not fp.is_file():
                             continue
                         arcname = fp.relative_to(prefix_path).as_posix()
+                        if app_id:
+                            arcname = _remap_archive_root(arcname, app_id)
                         tf.add(fp, arcname=arcname)
                         bytes_done += file_sizes.get(fp, 0)
                         now = time.monotonic()
@@ -290,6 +344,115 @@ def backup_user_files(
 
     log.info("Backed up %d user files to %s", len(all_files), dest_path)
     return len(all_files)
+
+
+def import_user_files(
+    archive_path: Path,
+    *,
+    progress_cb: Callable[[float], None] | None = None,
+    stats_cb: Callable[[int, int, float], None] | None = None,
+    phase_cb: Callable[[str], None] | None = None,
+    cancel_event: threading.Event | None = None,
+) -> tuple[str, int]:
+    """Restore a user-file backup into the matching installed prefix.
+
+    The archive's top-level directory is the app slug (written by
+    ``backup_user_files``).  The slug is looked up in the installed-apps
+    database to find the target prefix.  Files are extracted into
+    ``<prefix>/drive_c/`` — the slug root is remapped back to
+    ``drive_c/``.
+
+    Returns ``(app_id, file_count)``.
+
+    Raises ``UpdateError`` if the slug doesn't match an installed app
+    or the archive is malformed.
+    """
+    from cellar.backend.database import get_installed  # noqa: PLC0415
+    import zstandard  # noqa: PLC0415
+
+    def _cancelled() -> bool:
+        return cancel_event is not None and cancel_event.is_set()
+
+    if _cancelled():
+        raise UpdateCancelled
+
+    if phase_cb:
+        phase_cb("Reading archive\u2026")
+    if progress_cb:
+        progress_cb(0.0)
+
+    # Peek at the archive to discover the app slug (top-level dir name).
+    dctx = zstandard.ZstdDecompressor()
+    with open(archive_path, "rb") as fh:
+        with dctx.stream_reader(fh) as zfh:
+            with tarfile.open(fileobj=zfh, mode="r|") as tf:
+                first = tf.next()
+                if first is None:
+                    raise UpdateError("Backup archive is empty")
+                app_id = first.name.split("/")[0]
+
+    if not app_id:
+        raise UpdateError("Could not determine app slug from archive")
+
+    row = get_installed(app_id)
+    if row is None:
+        raise UpdateError(
+            f"No installed app matches slug \u201c{app_id}\u201d. "
+            "Install the app first, then import the backup."
+        )
+
+    prefix_path = Path(row["prefix_dir"])
+    if not prefix_path.is_dir():
+        raise UpdateError(f"Prefix directory not found: {prefix_path}")
+
+    if phase_cb:
+        phase_cb("Restoring user files\u2026")
+
+    archive_size = archive_path.stat().st_size
+    file_count = 0
+    t_start = time.monotonic()
+    t_last_stats = t_start
+    slug_prefix = app_id + "/"
+
+    try:
+        with open(archive_path, "rb") as fh:
+            with dctx.stream_reader(fh) as zfh:
+                with tarfile.open(fileobj=zfh, mode="r|") as tf:
+                    for member in tf:
+                        if _cancelled():
+                            raise UpdateCancelled
+                        # Remap slug/ back to drive_c/
+                        if member.name.startswith(slug_prefix):
+                            member.name = "drive_c/" + member.name[len(slug_prefix):]
+                        elif member.name == app_id:
+                            member.name = "drive_c"
+                        tf.extract(member, path=prefix_path, filter="data")
+                        if member.isfile():
+                            file_count += 1
+                        now = time.monotonic()
+                        if now - t_last_stats >= 0.1:
+                            t_last_stats = now
+                            bytes_done = fh.tell()
+                            elapsed = now - t_start
+                            speed = bytes_done / elapsed if elapsed > 0 else 0.0
+                            if progress_cb:
+                                progress_cb(bytes_done / archive_size)
+                            if stats_cb:
+                                stats_cb(bytes_done, archive_size, speed)
+    except UpdateCancelled:
+        raise
+    except Exception as exc:
+        raise UpdateError(f"Import failed: {exc}") from exc
+
+    if progress_cb:
+        progress_cb(1.0)
+    if stats_cb:
+        elapsed = time.monotonic() - t_start
+        stats_cb(archive_size, archive_size,
+                 archive_size / elapsed if elapsed > 0 else 0.0)
+
+    log.info("Imported %d user files for %s from %s", file_count, app_id, archive_path)
+    return app_id, file_count
 
 
 def update_app_safe(

@@ -21,3 +21,4 @@ python_sources = files(
 python.install_sources(python_sources, subdir: 'cellar/backend')
 
 install_data('launch_exclude.txt', install_dir: python.get_install_dir() / 'cellar/backend')
+install_data('backup_exclude.txt', install_dir: python.get_install_dir() / 'cellar/backend')

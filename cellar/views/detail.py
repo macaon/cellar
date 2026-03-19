@@ -1009,6 +1009,10 @@ class DetailView(Gtk.Box):
         backup_user_act.connect("activate", lambda *_: self._on_backup_user_files())
         ag.add_action(backup_user_act)
 
+        import_user_act = Gio.SimpleAction.new("import-user-files", None)
+        import_user_act.connect("activate", lambda *_: self._on_import_user_files())
+        ag.add_action(import_user_act)
+
         uninstall_act = Gio.SimpleAction.new("uninstall", None)
         uninstall_act.connect("activate", lambda *_: self._on_remove_clicked())
         ag.add_action(uninstall_act)
@@ -1039,6 +1043,7 @@ class DetailView(Gtk.Box):
         main_section.append("Open Install Folder", "detail.open-folder")
         if self._entry.platform in ("windows", "dos"):
             main_section.append("Backup User Files\u2026", "detail.backup-user-files")
+            main_section.append("Import User Files\u2026", "detail.import-user-files")
 
         danger_section = Gio.Menu()
         danger_section.append("Uninstall\u2026", "detail.uninstall")
@@ -1163,6 +1168,7 @@ class DetailView(Gtk.Box):
                 count = backup_user_files(
                     prefix_path,
                     dest_path,
+                    app_id=self._entry.id,
                     progress_cb=_progress,
                     stats_cb=_stats,
                     phase_cb=_phase,
@@ -1182,6 +1188,89 @@ class DetailView(Gtk.Box):
                 self._add_toast("Backup cancelled")
             else:
                 self._add_toast(f"Backed up {count} file{'s' if count != 1 else ''}")
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    # ------------------------------------------------------------------
+    # Import user files (gear menu)
+    # ------------------------------------------------------------------
+
+    def _on_import_user_files(self) -> None:
+        """Show a file chooser, then restore a user-file backup archive."""
+        chooser = Gtk.FileChooserNative(
+            title="Import User Files",
+            transient_for=self.get_root(),
+            action=Gtk.FileChooserAction.OPEN,
+        )
+        f = Gtk.FileFilter()
+        f.set_name("Compressed archive (*.tar.zst)")
+        f.add_pattern("*.tar.zst")
+        chooser.add_filter(f)
+        chooser.connect("response", self._on_import_file_chosen, chooser)
+        chooser.show()
+
+    def _on_import_file_chosen(self, _chooser, response, chooser) -> None:
+        if response != Gtk.ResponseType.ACCEPT:
+            return
+        archive_path = Path(chooser.get_file().get_path())
+
+        dlg = Adw.Dialog(
+            title="Import User Files",
+            content_width=340,
+            content_height=180,
+        )
+        cancel_event = threading.Event()
+        dlg.connect("closed", lambda _d: cancel_event.set())
+
+        box, phase_label, progress_bar, cancel_btn = make_progress_page(
+            "Preparing\u2026",
+            lambda _btn: (cancel_event.set(), phase_label.set_text("Cancelling\u2026")),
+        )
+        dlg.set_child(box)
+        dlg.present(self.get_root())
+
+        def _progress(frac):
+            GLib.idle_add(progress_bar.set_fraction, frac)
+
+        def _stats(done, total, speed):
+            GLib.idle_add(
+                progress_bar.set_text,
+                _fmt_dl_stats(done, total, speed),
+            )
+
+        def _phase(label):
+            GLib.idle_add(phase_label.set_text, label)
+
+        def _run():
+            from cellar.backend.updater import (  # noqa: PLC0415
+                UpdateCancelled,
+                UpdateError,
+                import_user_files,
+            )
+            try:
+                app_id, count = import_user_files(
+                    archive_path,
+                    progress_cb=_progress,
+                    stats_cb=_stats,
+                    phase_cb=_phase,
+                    cancel_event=cancel_event,
+                )
+                GLib.idle_add(_on_done, app_id, count, None)
+            except UpdateCancelled:
+                GLib.idle_add(_on_done, None, 0, None)
+            except UpdateError as exc:
+                GLib.idle_add(_on_done, None, 0, exc)
+            except Exception as exc:
+                GLib.idle_add(_on_done, None, 0, exc)
+
+        def _on_done(app_id, count, error):
+            dlg.close()
+            if error:
+                self._add_toast(f"Import failed: {error}")
+            elif cancel_event.is_set():
+                self._add_toast("Import cancelled")
+            else:
+                self._add_toast(f"Imported {count} file{'s' if count != 1 else ''}")
 
         threading.Thread(target=_run, daemon=True).start()
 

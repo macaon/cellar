@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from typing import Callable
 
 import gi
@@ -11,7 +12,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gdk, GObject, Gtk, Pango
+from gi.repository import Adw, Gdk, GLib, GObject, Gtk, Pango
 
 from cellar.models.app_entry import AppEntry
 from cellar.utils import natural_sort_key
@@ -477,6 +478,23 @@ class BrowseView(Gtk.Box):
         self._status.set_icon_name("package-x-generic-symbolic")
         self._stack.add_named(self._status, "status")
 
+        # Loading spinner page.
+        loading_box = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL, spacing=12,
+            halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER,
+            vexpand=True, hexpand=True,
+        )
+        spinner = Adw.Spinner()
+        spinner.set_size_request(64, 64)
+        loading_box.append(spinner)
+        loading_lbl = Gtk.Label(label="Loading\u2026")
+        loading_lbl.add_css_class("dim-label")
+        loading_box.append(loading_lbl)
+        self._stack.add_named(loading_box, "loading")
+
+        # Generation counter for cancelling stale async rebuilds.
+        self._rebuild_gen: int = 0
+
         # Start on the status page until a catalogue is loaded.
         self._show_status(self._empty_title, self._empty_description)
 
@@ -511,27 +529,59 @@ class BrowseView(Gtk.Box):
         self._rebuild_cards()
 
     def _rebuild_cards(self) -> None:
-        """Rebuild all cards from the stored entry/resolver state."""
+        """Rebuild all cards from the stored entry/resolver state.
+
+        Image assets are resolved on a background thread so the UI stays
+        responsive.  Once all assets are cached, the cards are created in
+        one batch on the main thread.
+        """
         self._clear()
+        self._rebuild_gen += 1
+        gen = self._rebuild_gen
 
         if not self._entries:
             self._show_status(self._empty_title, self._empty_description)
             return
 
         card_cls = CapsuleCard if self._display_mode == "capsule" else AppCard
+        resolve = self._resolve_asset
+        installed_ids = self._installed_ids
+        entry_repo_uris = self._entry_repo_uris
+        sorted_entries = sorted(self._entries, key=lambda e: natural_sort_key(e.name))
 
-        # Add cards sorted alphabetically.
-        for entry in sorted(self._entries, key=lambda e: natural_sort_key(e.name)):
-            card = card_cls(
-                entry,
-                resolve_asset=self._resolve_asset,
-                is_installed=entry.id in self._installed_ids,
-                repo_uris=self._entry_repo_uris.get(entry.id, set()),
-            )
-            self._cards.append(card)
-            self._flow_box.append(card)
+        # Show spinner while assets resolve in the background.
+        self._stack.set_visible_child_name("loading")
 
-        self._apply_filter()
+        def _resolve_worker() -> None:
+            """Background thread: pre-resolve assets so they're cached."""
+            for entry in sorted_entries:
+                if self._rebuild_gen != gen:
+                    return  # cancelled by a newer rebuild
+                asset_rel = entry.icon if card_cls is AppCard else entry.cover
+                if resolve and asset_rel:
+                    try:
+                        resolve(asset_rel)
+                    except Exception:
+                        pass  # card constructor handles missing images
+            GLib.idle_add(_build_all)
+
+        def _build_all() -> bool:
+            if self._rebuild_gen != gen:
+                return False  # stale
+            for entry in sorted_entries:
+                card = card_cls(
+                    entry,
+                    resolve_asset=resolve,
+                    is_installed=entry.id in installed_ids,
+                    repo_uris=entry_repo_uris.get(entry.id, set()),
+                )
+                self._cards.append(card)
+                self._flow_box.append(card)
+            self._apply_filter()
+            return False
+
+        thread = threading.Thread(target=_resolve_worker, daemon=True)
+        thread.start()
 
     def show_error(self, title: str, description: str) -> None:
         """Display a full-page error / info message."""
@@ -540,13 +590,11 @@ class BrowseView(Gtk.Box):
         self._show_status(title, description)
 
     def show_loading(self) -> None:
-        """Show a spinner status page while the catalogue loads."""
+        """Show a spinner page while the catalogue loads."""
         self._entries = []
         self._resolve_asset = None
-        self._status.set_title("Loading…")
-        self._status.set_description("")
-        self._status.set_icon_name("")
-        self._stack.set_visible_child_name("status")
+        self._rebuild_gen += 1  # cancel any in-flight async rebuild
+        self._stack.set_visible_child_name("loading")
 
     def _restore_status_icon(self) -> None:
         """Ensure the status page icon is set for non-loading states."""

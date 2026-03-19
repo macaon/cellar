@@ -1,0 +1,12 @@
+# Prefix-relative paths to exclude from user-file backups (and imports).
+# One path per line, case-insensitive. Blank lines and #-comments are ignored.
+# Paths are matched as prefixes — e.g. "drive_c/windows" excludes everything
+# under drive_c/windows/.
+
+# Wine / Proton system directories
+drive_c/openxr
+drive_c/windows
+drive_c/vrclient
+
+# User-profile caches managed by the runtime
+drive_c/users/steamuser/AppData

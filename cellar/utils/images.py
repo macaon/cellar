@@ -196,12 +196,15 @@ def optimize_image(src: str | Path, dest, role: str) -> None:
 
     max_dims = _IMAGE_MAX_SIZE.get(role)
 
-    # Logo: always convert to PNG to preserve transparency; always run through
-    # Pillow so the dest extension (.png) is valid regardless of source format.
+    # Logo: always convert to PNG to preserve transparency; crop to tight
+    # non-transparent bounds so the display path needs no Pillow processing.
     if role == "logo" and max_dims:
         try:
             with Image.open(src) as img:
                 img = img.convert("RGBA")
+                bbox = img.getbbox()
+                if bbox:
+                    img = img.crop(bbox)
                 img.thumbnail(max_dims, Image.LANCZOS)
                 png_dest = dest.with_suffix(".png")
                 img.save(png_dest, format="PNG", optimize=True)

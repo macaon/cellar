@@ -17,7 +17,6 @@ from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango
 
 from cellar.models.app_entry import AppEntry
 from cellar.utils.async_work import run_in_background
-from cellar.utils.images import load_and_crop, load_and_fit, load_logo, to_texture
 from cellar.utils.paths import short_path as _short_path
 from cellar.utils.progress import fmt_stats as _fmt_dl_stats
 from cellar.utils.progress import user_facing_error
@@ -2165,27 +2164,24 @@ class DetailView(Gtk.Box):
     # ------------------------------------------------------------------
 
     def _make_icon(self, rel_path: str, size: int, *, cover_fallback: str = "") -> Gtk.Widget:
-        # Fast path: if the image is already on disk, decode and return immediately.
+        def _build_widget(path: str, is_cover: bool) -> Gtk.Widget:
+            if is_cover:
+                pic = Gtk.Picture.new_for_filename(path)
+                pic.set_size_request(size, size)
+                pic.set_content_fit(Gtk.ContentFit.COVER)
+                pic.add_css_class("icon-dropshadow")
+                return pic
+            img = Gtk.Image.new_from_file(path)
+            img.set_pixel_size(size)
+            return img
+
+        # Fast path: if the image is already on disk, load natively.
         for path_arg, is_cover in ((rel_path, False), (cover_fallback, True)):
             if not path_arg:
                 continue
             cached = self._peek(path_arg)
             if cached and os.path.isfile(cached):
-                png_bytes = (
-                    load_and_crop(cached, size, size)
-                    if is_cover
-                    else load_and_fit(cached, size)
-                )
-                if png_bytes is not None:
-                    if is_cover:
-                        w: Gtk.Widget = Gtk.Picture.new_for_paintable(to_texture(png_bytes))
-                        w.set_size_request(size, size)
-                        w.set_content_fit(Gtk.ContentFit.FILL)
-                        w.add_css_class("icon-dropshadow")
-                    else:
-                        w = Gtk.Image.new_from_paintable(to_texture(png_bytes))
-                        w.set_pixel_size(size)
-                    return w
+                return _build_widget(cached, is_cover)
 
         # Slow path: needs a network fetch — use a placeholder stack and swap async.
         placeholder = Gtk.Image.new_from_icon_name("application-x-executable")
@@ -2201,33 +2197,18 @@ class DetailView(Gtk.Box):
         fallback_path = cover_fallback
 
         def _work():
-            if icon_path:
-                path = self._resolve(icon_path)
-                if os.path.isfile(path):
-                    png_bytes = load_and_fit(path, size)
-                    if png_bytes is not None:
-                        return png_bytes, False
-            if fallback_path:
-                cover = self._resolve(fallback_path)
-                if os.path.isfile(cover):
-                    png_bytes = load_and_crop(cover, size, size)
-                    if png_bytes is not None:
-                        return png_bytes, True
+            for rp in (icon_path, fallback_path):
+                if rp:
+                    path = self._resolve(rp)
+                    if os.path.isfile(path):
+                        return path, rp == fallback_path
             return None
 
         def _on_loaded(result) -> None:
             if result is None:
                 return
-            png_bytes, is_cover = result
-            texture = to_texture(png_bytes)
-            if is_cover:
-                real: Gtk.Widget = Gtk.Picture.new_for_paintable(texture)
-                real.set_size_request(size, size)
-                real.set_content_fit(Gtk.ContentFit.FILL)
-                real.add_css_class("icon-dropshadow")
-            else:
-                real = Gtk.Image.new_from_paintable(texture)
-                real.set_pixel_size(size)
+            path, is_cover = result
+            real = _build_widget(path, is_cover)
             stack.add_named(real, "real")
             stack.set_visible_child_name("real")
 
@@ -2237,25 +2218,21 @@ class DetailView(Gtk.Box):
     def _make_logo_widget(self, rel_path: str, target_height: int) -> Gtk.Widget:
         """Return a widget displaying the transparent logo at *target_height* px tall.
 
-        Crops to tight non-transparent bounds via :func:`load_logo`, so the
-        result always has the natural width of the logo content.  Fast path if
-        cached; otherwise loads on a background thread and swaps in with a
-        crossfade.
+        Logos are bbox-cropped at import time, so the file already contains
+        only the visible content.  GTK handles scaling natively.
         """
-        def _build_picture(png_bytes: bytes) -> Gtk.Picture:
-            texture = to_texture(png_bytes)
-            pic = Gtk.Picture.new_for_paintable(texture)
+        def _build_picture(path: str) -> Gtk.Picture:
+            pic = Gtk.Picture.new_for_filename(path)
             pic.set_content_fit(Gtk.ContentFit.SCALE_DOWN)
             pic.set_halign(Gtk.Align.START)
             pic.set_can_shrink(False)
+            pic.set_size_request(-1, target_height)
             pic.add_css_class("logo-pic")
             return pic
 
         cached = self._peek(rel_path)
         if cached and os.path.isfile(cached):
-            png_bytes = load_logo(cached, target_height)
-            if png_bytes is not None:
-                return _build_picture(png_bytes)
+            return _build_picture(cached)
 
         # Slow path: invisible placeholder, swap in after background load.
         placeholder = Gtk.Box()
@@ -2272,13 +2249,13 @@ class DetailView(Gtk.Box):
         def _work():
             path = self._resolve(logo_path)
             if os.path.isfile(path):
-                return load_logo(path, target_height)
+                return path
             return None
 
-        def _on_loaded(png_bytes) -> None:
-            if png_bytes is None:
+        def _on_loaded(path) -> None:
+            if path is None:
                 return
-            pic = _build_picture(png_bytes)
+            pic = _build_picture(path)
             stack.add_named(pic, "real")
             stack.set_visible_child_name("real")
 

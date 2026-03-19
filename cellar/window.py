@@ -291,7 +291,7 @@ class CellarWindow(Adw.ApplicationWindow):
         self._display_mode = load_display_mode()
         if self._display_mode == "capsule":
             self.view_toggle_button.set_icon_name("view-list-symbolic")
-            self.view_toggle_button.set_tooltip_text("Capsule view")
+            self.view_toggle_button.set_tooltip_text("Card view")
         self.view_toggle_button.connect("clicked", self._on_view_toggle)
 
         downloads_action = Gio.SimpleAction.new("downloads", None)
@@ -1005,10 +1005,10 @@ class CellarWindow(Adw.ApplicationWindow):
         # Icon reflects the current display mode.
         if mode == "capsule":
             button.set_icon_name("view-list-symbolic")
-            button.set_tooltip_text("Capsule view")
+            button.set_tooltip_text("Card view")
         else:
             button.set_icon_name("view-grid-symbolic")
-            button.set_tooltip_text("Card view")
+            button.set_tooltip_text("Capsule view")
         self._browse_explore.set_display_mode(mode)
         self._browse_installed.set_display_mode(mode)
         self._browse_updates.set_display_mode(mode)

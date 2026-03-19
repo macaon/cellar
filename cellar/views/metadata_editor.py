@@ -25,7 +25,8 @@ from gi.repository import Adw, GLib, Gtk
 from cellar.utils.async_work import run_in_background
 from cellar.utils.progress import fmt_stats as _fmt_stats
 from cellar.views.builder.media_panel import MediaPanel
-from cellar.views.widgets import make_progress_page, set_margins
+from cellar.views.builder.progress import ProgressDialog
+from cellar.views.widgets import set_margins
 
 log = logging.getLogger(__name__)
 
@@ -716,7 +717,6 @@ class MetadataEditorDialog(Adw.Dialog):
         # Stack
         self._stack = Gtk.Stack()
         self._stack.add_named(self._build_form(fields, categories), "form")
-        self._stack.add_named(self._build_progress(), "progress")
         self._stack.add_named(self._build_spinner(), "spinner")
         self._stack.set_visible_child_name("form")
 
@@ -989,12 +989,6 @@ class MetadataEditorDialog(Adw.Dialog):
 
         return scroll
 
-    def _build_progress(self) -> Gtk.Widget:
-        box, self._progress_label, self._progress_bar, self._cancel_progress_btn = (
-            make_progress_page("Saving changes\u2026", self._on_cancel_progress_clicked)
-        )
-        return box
-
     def _build_spinner(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
         box.set_valign(Gtk.Align.CENTER)
@@ -1103,25 +1097,27 @@ class MetadataEditorDialog(Adw.Dialog):
 
     def _do_async_save(self, fields: dict, images: dict) -> None:
         self._cancel_event.clear()
-        self._stack.set_visible_child_name("progress")
-        self._progress_bar.set_fraction(0.0)
-        self._progress_label.set_text("Saving changes\u2026")
+        progress = ProgressDialog(
+            label="Saving changes\u2026", cancel_event=self._cancel_event,
+        )
+        self._save_progress = progress
+        progress.present(self)
 
         ctx = self._context
         _last_stats_t = [0.0]
 
         def _phase(label: str) -> None:
-            GLib.idle_add(self._progress_label.set_text, label)
-            GLib.idle_add(self._progress_bar.set_text, "")
+            GLib.idle_add(progress.set_label, label)
+            GLib.idle_add(progress.set_stats, "")
 
         def _stats(copied: int, total: int, speed: float) -> None:
             now = time.monotonic()
             if now - _last_stats_t[0] >= 0.1:
                 _last_stats_t[0] = now
-                GLib.idle_add(self._progress_bar.set_text, _fmt_stats(copied, total, speed))
+                GLib.idle_add(progress.set_stats, _fmt_stats(copied, total, speed))
 
         def _progress(fraction: float) -> None:
-            GLib.idle_add(self._progress_bar.set_fraction, fraction)
+            GLib.idle_add(progress.set_fraction, fraction)
 
         def _run():
             from cellar.backend.packager import CancelledError
@@ -1142,26 +1138,23 @@ class MetadataEditorDialog(Adw.Dialog):
 
         threading.Thread(target=_run, daemon=True).start()
 
-    def _on_cancel_progress_clicked(self, _btn) -> None:
-        self._cancel_event.set()
-        self._progress_label.set_text("Cancelling\u2026")
-        self._cancel_progress_btn.set_sensitive(False)
-
     def _on_save_done(self) -> None:
+        self._save_progress.force_close()
         self.close()
         if self._on_done:
             self._on_done(self._saved_result)
 
     def _on_save_cancelled(self) -> None:
-        self._stack.set_visible_child_name("form")
-        self._cancel_progress_btn.set_sensitive(True)
+        self._save_progress.force_close()
 
     def _on_save_error(self, message: str) -> None:
-        self._stack.set_visible_child_name("form")
-        self._cancel_progress_btn.set_sensitive(True)
+        self._save_progress.force_close()
         alert = Adw.AlertDialog(heading="Save Failed", body=message)
         alert.add_response("ok", "OK")
         alert.present(self)
+
+    def _on_cancel_progress_clicked(self, _btn) -> None:
+        self._cancel_event.set()
 
     # ── Cancel ────────────────────────────────────────────────────────────
 

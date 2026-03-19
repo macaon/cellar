@@ -548,9 +548,6 @@ class BrowseView(Gtk.Box):
         entry_repo_uris = self._entry_repo_uris
         sorted_entries = sorted(self._entries, key=lambda e: natural_sort_key(e.name))
 
-        # Show spinner while assets resolve in the background.
-        self._stack.set_visible_child_name("loading")
-
         def _resolve_worker() -> None:
             """Background thread: pre-resolve assets so they're cached."""
             resolved: list[tuple[AppEntry, str | None]] = []

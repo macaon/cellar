@@ -199,6 +199,99 @@ def backup_prefix(
         stats_cb(total_bytes, total_bytes, total_bytes / elapsed if elapsed > 0 else 0.0)
 
 
+def backup_user_files(
+    prefix_path: Path,
+    dest_path: Path,
+    *,
+    progress_cb: Callable[[float], None] | None = None,
+    stats_cb: Callable[[int, int, float], None] | None = None,
+    phase_cb: Callable[[str], None] | None = None,
+    cancel_event: threading.Event | None = None,
+) -> int:
+    """Archive user-modified and user-created files as a ``.tar.zst``.
+
+    Uses the install manifest to identify files that changed since
+    installation (modified package files + user-created files) and packs
+    them into a zstandard-compressed tar at *dest_path*.  Paths inside
+    the archive are relative to the prefix root so they can be extracted
+    back in-place.
+
+    Returns the number of files archived (0 means nothing to back up).
+    """
+    from cellar.backend.manifest import scan_user_files  # noqa: PLC0415
+
+    def _cancelled() -> bool:
+        return cancel_event is not None and cancel_event.is_set()
+
+    if _cancelled():
+        raise UpdateCancelled
+
+    if phase_cb:
+        phase_cb("Scanning for user files\u2026")
+    if progress_cb:
+        progress_cb(0.0)
+
+    modified, user_created = scan_user_files(prefix_path)
+    all_files = modified + user_created
+    if not all_files:
+        return 0
+
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
+    file_sizes = {}
+    for fp in all_files:
+        try:
+            file_sizes[fp] = fp.stat().st_size
+        except OSError:
+            file_sizes[fp] = 0
+    total_bytes = max(sum(file_sizes.values()), 1)
+    bytes_done = 0
+    t_start = time.monotonic()
+    t_last_stats = t_start
+
+    try:
+        import zstandard  # noqa: PLC0415
+
+        if phase_cb:
+            phase_cb("Backing up user files\u2026")
+
+        cctx = zstandard.ZstdCompressor(level=3)
+        with open(dest_path, "wb") as fh:
+            with cctx.stream_writer(fh, closefd=False) as zfh:
+                with tarfile.open(fileobj=zfh, mode="w|") as tf:
+                    for fp in all_files:
+                        if _cancelled():
+                            raise UpdateCancelled
+                        if not fp.is_file():
+                            continue
+                        arcname = fp.relative_to(prefix_path).as_posix()
+                        tf.add(fp, arcname=arcname)
+                        bytes_done += file_sizes.get(fp, 0)
+                        now = time.monotonic()
+                        elapsed = now - t_start
+                        if now - t_last_stats >= 0.1:
+                            t_last_stats = now
+                            speed = bytes_done / elapsed if elapsed > 0 else 0.0
+                            if progress_cb:
+                                progress_cb(bytes_done / total_bytes)
+                            if stats_cb:
+                                stats_cb(bytes_done, total_bytes, speed)
+    except UpdateCancelled:
+        dest_path.unlink(missing_ok=True)
+        raise
+    except Exception as exc:
+        dest_path.unlink(missing_ok=True)
+        raise UpdateError(f"User file backup failed: {exc}") from exc
+
+    if progress_cb:
+        progress_cb(1.0)
+    if stats_cb:
+        elapsed = time.monotonic() - t_start
+        stats_cb(total_bytes, total_bytes, total_bytes / elapsed if elapsed > 0 else 0.0)
+
+    log.info("Backed up %d user files to %s", len(all_files), dest_path)
+    return len(all_files)
+
+
 def update_app_safe(
     entry,                          # AppEntry — avoid circular import
     archive_uri: str,

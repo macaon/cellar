@@ -1005,6 +1005,10 @@ class DetailView(Gtk.Box):
         dosbox_config_act.connect("activate", lambda *_: self._on_dosbox_config_clicked())
         ag.add_action(dosbox_config_act)
 
+        backup_user_act = Gio.SimpleAction.new("backup-user-files", None)
+        backup_user_act.connect("activate", lambda *_: self._on_backup_user_files())
+        ag.add_action(backup_user_act)
+
         uninstall_act = Gio.SimpleAction.new("uninstall", None)
         uninstall_act.connect("activate", lambda *_: self._on_remove_clicked())
         ag.add_action(uninstall_act)
@@ -1033,6 +1037,8 @@ class DetailView(Gtk.Box):
             main_section.append("DOSBox Configuration\u2026", "detail.dosbox-config")
 
         main_section.append("Open Install Folder", "detail.open-folder")
+        if self._entry.platform in ("windows", "dos"):
+            main_section.append("Backup User Files\u2026", "detail.backup-user-files")
 
         danger_section = Gio.Menu()
         danger_section.append("Uninstall\u2026", "detail.uninstall")
@@ -1046,6 +1052,138 @@ class DetailView(Gtk.Box):
         folder = self._get_install_folder()
         if folder:
             Gio.AppInfo.launch_default_for_uri(f"file://{folder}", None)
+
+    # ------------------------------------------------------------------
+    # Backup user files (gear menu)
+    # ------------------------------------------------------------------
+
+    def _on_backup_user_files(self) -> None:
+        """Scan for user-modified files, then offer to export as .tar.zst."""
+        folder = self._get_install_folder()
+        if not folder:
+            self._add_toast("Install folder not found")
+            return
+        prefix_path = Path(folder)
+
+        # Scan in background to avoid blocking the UI.
+        def _scan():
+            from cellar.backend.manifest import scan_user_files  # noqa: PLC0415
+            return scan_user_files(prefix_path)
+
+        def _on_scanned(modified, user_created):
+            all_files = modified + user_created
+            if not all_files:
+                dlg = Adw.AlertDialog(
+                    heading="No User Files Found",
+                    body=(
+                        "No files have been modified or created since "
+                        "installation. There is nothing to back up."
+                    ),
+                )
+                dlg.add_response("ok", "OK")
+                dlg.present(self.get_root())
+                return
+            self._show_backup_file_chooser(prefix_path, len(all_files))
+
+        def _do_scan():
+            try:
+                modified, user_created = _scan()
+                GLib.idle_add(_on_scanned, modified, user_created)
+            except Exception as exc:
+                GLib.idle_add(self._add_toast, f"Scan failed: {exc}")
+
+        threading.Thread(target=_do_scan, daemon=True).start()
+
+    def _show_backup_file_chooser(self, prefix_path: Path, file_count: int) -> None:
+        """Show a save dialog for the user-file backup archive."""
+        import datetime  # noqa: PLC0415
+
+        stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        suggested = f"{self._entry.id}-userfiles-{stamp}.tar.zst"
+
+        chooser = Gtk.FileChooserNative(
+            title="Backup User Files",
+            transient_for=self.get_root(),
+            action=Gtk.FileChooserAction.SAVE,
+        )
+        chooser.set_current_name(suggested)
+
+        f = Gtk.FileFilter()
+        f.set_name("Compressed archive (*.tar.zst)")
+        f.add_pattern("*.tar.zst")
+        chooser.add_filter(f)
+
+        chooser.connect(
+            "response",
+            self._on_backup_dest_chosen, chooser, prefix_path, file_count,
+        )
+        chooser.show()
+
+    def _on_backup_dest_chosen(
+        self, _chooser, response, chooser, prefix_path: Path, file_count: int,
+    ) -> None:
+        if response != Gtk.ResponseType.ACCEPT:
+            return
+        dest_path = Path(chooser.get_file().get_path())
+
+        # Show a progress dialog and run the backup in a background thread.
+        dlg = Adw.Dialog(
+            title="Backup User Files",
+            content_width=340,
+            content_height=180,
+        )
+        cancel_event = threading.Event()
+        dlg.connect("closed", lambda _d: cancel_event.set())
+
+        box, phase_label, progress_bar, cancel_btn = make_progress_page(
+            "Preparing\u2026",
+            lambda _btn: (cancel_event.set(), phase_label.set_text("Cancelling\u2026")),
+        )
+        dlg.set_child(box)
+        dlg.present(self.get_root())
+
+        def _progress(frac):
+            GLib.idle_add(progress_bar.set_fraction, frac)
+
+        def _stats(done, total, speed):
+            GLib.idle_add(
+                progress_bar.set_text,
+                _fmt_dl_stats(done, total, speed),
+            )
+
+        def _phase(label):
+            GLib.idle_add(phase_label.set_text, label)
+
+        def _run():
+            from cellar.backend.updater import (  # noqa: PLC0415
+                UpdateCancelled,
+                backup_user_files,
+            )
+            try:
+                count = backup_user_files(
+                    prefix_path,
+                    dest_path,
+                    progress_cb=_progress,
+                    stats_cb=_stats,
+                    phase_cb=_phase,
+                    cancel_event=cancel_event,
+                )
+                GLib.idle_add(_on_done, count, None)
+            except UpdateCancelled:
+                GLib.idle_add(_on_done, 0, None)
+            except Exception as exc:
+                GLib.idle_add(_on_done, 0, exc)
+
+        def _on_done(count, error):
+            dlg.close()
+            if error:
+                self._add_toast(f"Backup failed: {error}")
+            elif cancel_event.is_set():
+                self._add_toast("Backup cancelled")
+            else:
+                self._add_toast(f"Backed up {count} file{'s' if count != 1 else ''}")
+
+        threading.Thread(target=_run, daemon=True).start()
 
     def _on_dosbox_config_clicked(self) -> None:
         """Show DOSBox settings dialog for installed DOS games."""

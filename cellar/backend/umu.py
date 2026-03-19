@@ -279,12 +279,19 @@ def monitor_process_tree(
     line_cb: Callable[[str], None] | None,
     *,
     timeout: float = 30.0,
+    proc: subprocess.Popen | None = None,
 ) -> None:
     """Poll the host process list for the launch target executable.
 
     Sets *launch_event* when a process whose ``comm`` matches the
     *entry_point* basename is found.  Polls until found, until
-    *launch_event* is set externally, or until *timeout* seconds elapse.
+    *launch_event* is set externally, or until *timeout* seconds elapse
+    after the launcher process (*proc*) has exited.
+
+    When *proc* is provided the timeout is deferred as long as the
+    launcher is still running — this prevents premature timeout when
+    umu-run is downloading the Steam Runtime or performing first-launch
+    setup.
 
     Linux truncates ``/proc/<pid>/comm`` to 15 bytes, so comparisons
     use the first 15 characters of the target name.
@@ -299,9 +306,9 @@ def monitor_process_tree(
         return
 
     if is_cellar_sandboxed():
-        _monitor_via_host(target, launch_event, line_cb, timeout=timeout)
+        _monitor_via_host(target, launch_event, line_cb, timeout=timeout, proc=proc)
     else:
-        _monitor_via_proc(target, launch_event, line_cb, timeout=timeout)
+        _monitor_via_proc(target, launch_event, line_cb, timeout=timeout, proc=proc)
 
 
 _COMM_MAX = 15  # Linux truncates /proc/<pid>/comm to 15 bytes
@@ -313,6 +320,7 @@ def _monitor_via_proc(
     line_cb: Callable[[str], None] | None,
     *,
     timeout: float = 30.0,
+    proc: subprocess.Popen | None = None,
 ) -> None:
     """Scan ``/proc/*/comm`` directly (non-Flatpak)."""
     import os
@@ -335,7 +343,10 @@ def _monitor_via_proc(
                     line_cb(f"[pid] {comm}")
                 launch_event.set()
                 return
-        if time.monotonic() >= deadline:
+        # Defer timeout while the launcher process is still running.
+        if proc is not None and proc.poll() is None:
+            deadline = time.monotonic() + timeout
+        elif time.monotonic() >= deadline:
             log.debug("Launch monitor: timeout reached (%.0fs), detaching", timeout)
             return
         launch_event.wait(timeout=1.0)
@@ -368,6 +379,7 @@ def _monitor_via_host(
     line_cb: Callable[[str], None] | None,
     *,
     timeout: float = 30.0,
+    proc: subprocess.Popen | None = None,
 ) -> None:
     """Scan host ``/proc`` via ``flatpak-spawn --host`` (Flatpak)."""
     import select as _sel
@@ -376,7 +388,7 @@ def _monitor_via_host(
     log.debug("Launch monitor: scanning host /proc for %r via flatpak-spawn"
               " (timeout=%.0fs)", target, timeout)
     try:
-        proc = subprocess.Popen(
+        scan_proc = subprocess.Popen(
             ["flatpak-spawn", "--host", "bash", "-c",
              _HOST_MONITOR_SCRIPT, "bash", target],
             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
@@ -385,19 +397,22 @@ def _monitor_via_host(
         log.warning("flatpak-spawn not found — launch monitor disabled")
         return
 
-    if proc.stdout is None:
+    if scan_proc.stdout is None:
         raise RuntimeError("Expected stdout pipe but got None")
     deadline = time.monotonic() + timeout
     try:
-        fd = proc.stdout.fileno()
+        fd = scan_proc.stdout.fileno()
         while not launch_event.is_set():
+            # Defer timeout while the launcher process is still running.
+            if proc is not None and proc.poll() is None:
+                deadline = time.monotonic() + timeout
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 log.debug("Launch monitor: timeout reached (%.0fs), detaching", timeout)
                 return
             ready, _, _ = _sel.select([fd], [], [], min(remaining, 1.0))
             if ready:
-                line = proc.stdout.readline().strip()
+                line = scan_proc.stdout.readline().strip()
                 if line:
                     log.info("Launch monitor: %s", line)
                     if line_cb:
@@ -408,8 +423,8 @@ def _monitor_via_host(
                     log.debug("Launch monitor: host script exited")
                     return
     finally:
-        proc.kill()
-        proc.wait()
+        scan_proc.kill()
+        scan_proc.wait()
 
 
 def launch_app_monitored(
@@ -498,7 +513,9 @@ def launch_app_monitored(
     stderr_thread.start()
 
     # PID-based launch detection — polls host /proc for the target exe.
-    monitor_process_tree(entry_point, launch_event, line_cb)
+    # Pass proc so the monitor defers its timeout while umu-run is alive
+    # (e.g. downloading the Steam Runtime on first launch).
+    monitor_process_tree(entry_point, launch_event, line_cb, proc=proc)
 
     # Signal stderr reader to stop and clean up.
     launch_event.set()

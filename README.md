@@ -30,24 +30,38 @@ DOS games run via [DOSBox Staging](https://dosbox-staging.github.io/)
 
 ## Features
 
-**For users**
-- GNOME Software-style browse grid — Explore, Installed, and Updates tabs
-- Category filter and full-text search
-- App detail view — icon/logo, screenshot carousel, description, info cards
-- One-click install, update (safe overlay or full replacement), and remove
-- Delta packages — shared base images keep download sizes small
-- Chunked downloads with per-chunk CRC32 verification
-- Runner management — GE-Proton versions listed from GitHub Releases
-- Multi-target launch — apps can define multiple entry points (e.g. main game, editor, launcher)
-- Desktop shortcut creation for installed apps
+**Browsing & discovery**
+- GNOME Software-style grid with Explore, Installed, and Updates tabs
+- Card view (compact) and capsule view (Steam-style portrait covers)
+- Filter by category, genre, platform (Windows/Linux/DOS), or repository
+- Full-text search across app names and summaries
+- Update badge on the Updates tab with automatic CRC32 change detection
+
+**Installing & running**
+- One-click install, update, and remove
+- Delta packages — shared base images keep downloads small (typically 50–500 MB vs 2–3 GB)
+- Chunked downloads with per-chunk CRC32 verification (~1 GB each)
+- Multi-target launch — apps with multiple entry points (e.g. game, editor, launcher) show a picker
+- Per-app launch parameters — override DXVK, VKD3D, audio driver, and debug flags
+- Runner management — browse and install GE-Proton versions from GitHub Releases
+- Desktop shortcuts with support for multiple launch targets
+- Backup and import user files — export modified saves/configs as `.tar.zst`, restore later
+- Open install folder from the detail view
 - Offline mode — cached catalogue allows browsing and launching when the repo is unreachable
-- **DOS game support (early testing)** — GOG DOSBox games auto-detected and converted; DOSBox Settings dialog for CPU, video, sound, and MIDI
+
+**DOS games**
+- GOG DOSBox games auto-detected during import and converted to native DOSBox Staging packages
+- DOSBox Settings dialog — machine type, CPU speed, display, shaders, sound, MIDI (FluidSynth/MT-32), and mixer effects
+- DOSBox Staging runtime auto-downloaded from GitHub Releases on first use
 
 **For maintainers** (requires a writable repo)
-- Package Builder — create and publish packages for Windows apps, Linux apps, and base images
+- Package Builder with four project types: Windows (Proton), Linux (native), DOS, and Base Image
+- Smart import — drag-and-drop a folder, installer, or GOG game onto the New Project dialog; platform auto-detected
+- Initialise a WINEPREFIX, install winetricks dependencies, run `.exe` installers, configure launch targets, test-launch, and publish
 - Steam Store metadata lookup — auto-fill title, description, cover art, and screenshots
-- Edit and delete existing catalogue entries from the detail view
-- Delta archive creation — automatic diff against a base image
+- Edit metadata and delete entries directly from the detail view or the builder
+- Delta archive creation — automatic BLAKE2b diff against a base image
+- Configurable install location (Settings) with auto-migration of existing installs
 
 ---
 
@@ -102,28 +116,39 @@ See [docs/AUTH.md](docs/AUTH.md) for bearer token setup with nginx or Caddy.
 ### Building and publishing a base image
 
 A base image is a shared WINEPREFIX that Windows app packages build on top of.
-This is the first step before publishing any app packages.
+Create one before publishing any Windows app packages.
 
-1. Open the **Package Builder** tab → **New Project** → select **Base**.
-2. Pick a name and a GE-Proton runner from the dropdown.
+1. Open the **Package Builder** tab → **New Project** → select **Base Image**.
+2. Choose a GE-Proton runner from the list — Cellar downloads it if needed.
 3. Click **Initialise** to create an empty WINEPREFIX with that runner.
 4. Use the **Dependencies** section to install shared libraries via winetricks
    (fonts, Visual C++ runtimes, .NET, DirectX, etc.).
 5. Click **Publish** and choose the target repo.
 
-### Building and publishing an app
+### Building and publishing a Windows app
 
-1. Open the **Package Builder** → **New Project** → select **App**.
+1. Open the **Package Builder** → **New Project** → select **Proton App**
+   (or drag-and-drop an installer / game folder onto the dialog — Cellar
+   auto-detects the platform).
 2. **Select your base image** from the dropdown.
-3. **Install the application** — run a `.exe` installer inside the prefix, or
-   manually place files using "Browse Prefix".
-4. **Configure launch targets** — add one or more entry points (exe path,
-   display name, optional arguments).
+3. **Install the application** — run a `.exe`/`.msi` installer inside the
+   prefix, drag additional files onto the drop zone (DLC, patches), or use
+   "Browse Prefix" to place files manually.
+4. **Configure launch targets** — Cellar scans for new executables after each
+   install and offers to add them. You can also add targets manually.
 5. **Test-launch** from the builder to verify everything works.
 6. **Fill in metadata** — title, category, description, icon, cover, and
    screenshots. Use the Steam lookup button to auto-fill from the Steam Store.
 7. Click **Publish**. Cellar automatically computes the delta against the base
    image — only changed files are included.
+
+### Building and publishing a Linux or DOS app
+
+1. **New Project** → select **Native App** or **DOS App** (or drop a folder /
+   GOG game — GOG DOSBox games are auto-detected and converted).
+2. **Set the source folder** containing the app or game files.
+3. **Configure launch targets** and **fill in metadata** as above.
+4. Click **Publish**.
 
 ---
 

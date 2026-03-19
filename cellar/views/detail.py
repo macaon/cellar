@@ -27,6 +27,23 @@ log = logging.getLogger(__name__)
 _ICON_SIZE = 96
 
 
+def _apply_logo_shadow(widget: Gtk.Widget) -> None:
+    """Apply a dark or bright drop-shadow to *widget* based on the current
+    colour scheme, and update it reactively when the user toggles dark mode."""
+    sm = Adw.StyleManager.get_default()
+
+    def _update(*_args: object) -> None:
+        if sm.get_dark():
+            widget.remove_css_class("logo-pic-light")
+            widget.add_css_class("logo-pic-dark")
+        else:
+            widget.remove_css_class("logo-pic-dark")
+            widget.add_css_class("logo-pic-light")
+
+    sm.connect("notify::dark", _update)
+    _update()
+
+
 def _html_to_pango(text: str) -> str:
     """Convert a limited HTML subset to Pango markup for display.
 
@@ -2227,7 +2244,7 @@ class DetailView(Gtk.Box):
             pic.set_halign(Gtk.Align.START)
             pic.set_can_shrink(False)
             pic.set_size_request(-1, target_height)
-            pic.add_css_class("logo-pic")
+            _apply_logo_shadow(pic)
             return pic
 
         cached = self._peek(rel_path)

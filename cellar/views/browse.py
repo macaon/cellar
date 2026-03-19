@@ -16,7 +16,6 @@ from gi.repository import Adw, Gdk, GLib, GObject, Gtk, Pango
 
 from cellar.models.app_entry import AppEntry
 from cellar.utils import natural_sort_key
-from cellar.utils.images import load_and_crop, load_and_fit, to_texture
 from cellar.views.widgets import set_margins
 
 log = logging.getLogger(__name__)
@@ -126,6 +125,7 @@ class AppCard(Gtk.FlowBoxChild):
         entry: AppEntry,
         *,
         resolve_asset: Callable[[str], str] | None = None,
+        asset_path: str | None = None,
         is_installed: bool = False,
         repo_uris: set[str] | None = None,
     ) -> None:
@@ -145,20 +145,19 @@ class AppCard(Gtk.FlowBoxChild):
 
         # ── Left: icon column ────────────────────────────────────────────
         # Icon: 52×52 with 23 px left margin, vertically centred.
-        icon_shown = False
-        if resolve_asset and entry.icon:
+        icon_path = asset_path
+        if icon_path is None and resolve_asset and entry.icon:
             icon_path = resolve_asset(entry.icon)
-            if os.path.isfile(icon_path):
-                png_bytes = load_and_fit(icon_path, _ICON_SIZE)
-                if png_bytes is not None:
-                    pic = Gtk.Picture.new_for_paintable(to_texture(png_bytes))
-                    pic.set_content_fit(Gtk.ContentFit.SCALE_DOWN)
-                    img_area = _FixedBox(_ICON_SIZE, _ICON_SIZE)
-                    img_area.set_margin_start(_ICON_MARGIN)
-                    img_area.set_valign(Gtk.Align.CENTER)
-                    img_area.set_child(pic)
-                    card.append(img_area)
-                    icon_shown = True
+        icon_shown = False
+        if icon_path and os.path.isfile(icon_path):
+            pic = Gtk.Picture.new_for_filename(icon_path)
+            pic.set_content_fit(Gtk.ContentFit.SCALE_DOWN)
+            img_area = _FixedBox(_ICON_SIZE, _ICON_SIZE)
+            img_area.set_margin_start(_ICON_MARGIN)
+            img_area.set_valign(Gtk.Align.CENTER)
+            img_area.set_child(pic)
+            card.append(img_area)
+            icon_shown = True
         if not icon_shown:
             icon = Gtk.Image.new_from_icon_name("application-x-executable")
             icon.set_pixel_size(_ICON_SIZE)
@@ -288,6 +287,7 @@ class CapsuleCard(Gtk.FlowBoxChild):
         entry: AppEntry,
         *,
         resolve_asset: Callable[[str], str] | None = None,
+        asset_path: str | None = None,
         is_installed: bool = False,
         repo_uris: set[str] | None = None,
     ) -> None:
@@ -304,18 +304,17 @@ class CapsuleCard(Gtk.FlowBoxChild):
         overlay.set_overflow(Gtk.Overflow.HIDDEN)
 
         # ── Base layer: cover image or icon fallback ─────────────────
-        cover_shown = False
-        if resolve_asset and entry.cover:
+        cover_path = asset_path
+        if cover_path is None and resolve_asset and entry.cover:
             cover_path = resolve_asset(entry.cover)
-            if os.path.isfile(cover_path):
-                png_bytes = load_and_crop(cover_path, _CAPSULE_WIDTH, _CAPSULE_HEIGHT)
-                if png_bytes is not None:
-                    pic = Gtk.Picture.new_for_paintable(to_texture(png_bytes))
-                    pic.set_content_fit(Gtk.ContentFit.FILL)
-                    img_box = _FixedBox(_CAPSULE_WIDTH, _CAPSULE_HEIGHT)
-                    img_box.set_child(pic)
-                    overlay.set_child(img_box)
-                    cover_shown = True
+        cover_shown = False
+        if cover_path and os.path.isfile(cover_path):
+            pic = Gtk.Picture.new_for_filename(cover_path)
+            pic.set_content_fit(Gtk.ContentFit.COVER)
+            img_box = _FixedBox(_CAPSULE_WIDTH, _CAPSULE_HEIGHT)
+            img_box.set_child(pic)
+            overlay.set_child(img_box)
+            cover_shown = True
 
         if not cover_shown:
             # Fallback: dimmed platform icon + title on a card background.
@@ -554,24 +553,27 @@ class BrowseView(Gtk.Box):
 
         def _resolve_worker() -> None:
             """Background thread: pre-resolve assets so they're cached."""
+            resolved: list[tuple[AppEntry, str | None]] = []
             for entry in sorted_entries:
                 if self._rebuild_gen != gen:
                     return  # cancelled by a newer rebuild
                 asset_rel = entry.icon if card_cls is AppCard else entry.cover
+                path = None
                 if resolve and asset_rel:
                     try:
-                        resolve(asset_rel)
+                        path = resolve(asset_rel)
                     except Exception:
                         pass  # card constructor handles missing images
-            GLib.idle_add(_build_all)
+                resolved.append((entry, path))
+            GLib.idle_add(_build_all, resolved)
 
-        def _build_all() -> bool:
+        def _build_all(resolved: list[tuple[AppEntry, str | None]]) -> bool:
             if self._rebuild_gen != gen:
                 return False  # stale
-            for entry in sorted_entries:
+            for entry, asset_path in resolved:
                 card = card_cls(
                     entry,
-                    resolve_asset=resolve,
+                    asset_path=asset_path,
                     is_installed=entry.id in installed_ids,
                     repo_uris=entry_repo_uris.get(entry.id, set()),
                 )

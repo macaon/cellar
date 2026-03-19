@@ -20,7 +20,7 @@ log = logging.getLogger(__name__)
 # Maximum dimensions per image role for import-time optimisation.
 _IMAGE_MAX_SIZE: dict[str, tuple[int, int]] = {
     "icon":       (256, 256),
-    "cover":      (300, 400),
+    "cover":      (200, 300),    # capsule card display size — no runtime scaling needed
     "logo":       (300, 300),   # Steam-style transparent logo; output always PNG
     "screenshot": (1920, 1080),
 }

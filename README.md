@@ -166,8 +166,10 @@ Create one before publishing any Windows app packages.
 - **SFTP** — pure-Python via paramiko. Key auth via ssh-agent or `~/.ssh/config`.
 - **SMB** — pure-Python via smbprotocol (SMBv2/v3). No GVFS mount required.
 
-Credentials are stored per-repo via libsecret (system keyring) with a
-plaintext fallback when no secret daemon is available.
+Credentials are stored per-repo via libsecret (`org.freedesktop.secrets`
+D-Bus interface — GNOME Keyring, KDE KWallet, or the Flatpak secrets
+portal). Falls back to `config.json` (mode 0600) when no secret service
+is available.
 
 ---
 

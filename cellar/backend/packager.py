@@ -25,6 +25,22 @@ from typing import Callable
 from cellar.utils.images import content_hash as _content_hash
 from cellar.utils.images import optimize_image as _optimize_image
 
+import logging
+
+log = logging.getLogger(__name__)
+
+
+def _is_safe_repo_relpath(relpath: str) -> bool:
+    """Return True if *relpath* stays within the repo root.
+
+    Rejects absolute paths and any ``..`` component that could escape
+    the repo directory.  Works for all path types (local, SMB, SSH).
+    """
+    if not relpath:
+        return False
+    parts = Path(relpath).parts
+    return not Path(relpath).is_absolute() and ".." not in parts
+
 
 def _atomic_write_json(path, data: dict) -> None:
     """Write JSON to *path* atomically for local paths, directly for remote.
@@ -335,6 +351,9 @@ def _cleanup_old_archive(repo_root, new_entry) -> None:
         return
     old = next((a for a in apps if a.get("id") == new_entry.id), None)
     if not old or not old.get("archive"):
+        return
+    if not _is_safe_repo_relpath(old["archive"]):
+        log.warning("Skipping out-of-repo archive path: %r", old["archive"])
         return
     old_archive = repo_root / old["archive"]
     if old.get("archive_chunks"):
@@ -905,7 +924,7 @@ def update_in_repo(
         new_entry = replace(new_entry, archive_crc32=format(crc & 0xFFFFFFFF, "08x"))
 
         # Remove old archive files (single file or chunks)
-        if old_entry.archive:
+        if old_entry.archive and _is_safe_repo_relpath(old_entry.archive):
             if old_entry.archive_chunks:
                 _cleanup_chunks(repo_root / old_entry.archive)
             else:
@@ -921,7 +940,7 @@ def update_in_repo(
             new_rel = f"apps/{new_entry.id}/{hashed}"
             # Remove old image file if path changed
             old_rel = getattr(old_entry, key, "")
-            if old_rel and old_rel != new_rel:
+            if old_rel and old_rel != new_rel and _is_safe_repo_relpath(old_rel):
                 old_file = repo_root / old_rel
                 if isinstance(old_file, Path):
                     old_file.unlink(missing_ok=True)
@@ -1194,7 +1213,9 @@ def remove_base(repo_root: Path, name: str) -> None:
 
     entry = bases.pop(name, None)
     if entry and entry.get("archive"):
-        if entry.get("archive_chunks"):
+        if not _is_safe_repo_relpath(entry["archive"]):
+            log.warning("Skipping out-of-repo archive path: %r", entry["archive"])
+        elif entry.get("archive_chunks"):
             _cleanup_chunks(repo_root / entry["archive"])
         else:
             try:
@@ -1227,7 +1248,9 @@ def remove_runner(repo_root: Path, runner_name: str) -> None:
 
     entry = runners.pop(runner_name, None)
     if entry and entry.get("archive"):
-        if entry.get("archive_chunks"):
+        if not _is_safe_repo_relpath(entry["archive"]):
+            log.warning("Skipping out-of-repo archive path: %r", entry["archive"])
+        elif entry.get("archive_chunks"):
             _cleanup_chunks(repo_root / entry["archive"])
         else:
             try:

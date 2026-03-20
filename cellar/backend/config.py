@@ -20,12 +20,14 @@ Schema::
 
 Credential storage
 ------------------
-Passwords are stored via ``gi.repository.Secret`` (libsecret), which speaks
-the ``org.freedesktop.secrets`` D-Bus spec.  This covers GNOME Keyring, KDE
-KWallet, and any other compliant daemon, including the Flatpak portal.
+Passwords are stored using the first available backend:
 
-Falls back to plaintext in ``config.json`` (chmod 0o600) only when no secret
-service daemon is running (headless / CI).
+1. **libsecret** — ``org.freedesktop.secrets`` D-Bus API (GNOME Keyring,
+   KeePassXC, Flatpak portal, or any other Secret Service provider).
+2. **KWallet** — ``org.kde.KWallet`` D-Bus API (KDE Plasma).  Used when
+   libsecret is unavailable, i.e. stock KDE without a Secret Service bridge.
+3. **config.json** — plaintext fallback (chmod 0o600).  Only used when no
+   keyring daemon is reachable (headless / CI).
 """
 
 from __future__ import annotations
@@ -119,12 +121,157 @@ def _libsecret_clear(service: str, uri: str) -> None:
         log.debug("libsecret clear failed: %s", exc)
 
 
+# ---------------------------------------------------------------------------
+# KWallet D-Bus helpers (KDE Plasma)
+# ---------------------------------------------------------------------------
+
+_KWALLET_VARIANTS = [
+    ("org.kde.kwalletd6", "/modules/kwalletd6"),  # Plasma 6
+    ("org.kde.kwalletd5", "/modules/kwalletd5"),  # Plasma 5
+]
+_KWALLET_IFACE = "org.kde.KWallet"
+_KWALLET_FOLDER = "Cellar"
+_KWALLET_APP = "io.github.cellar"
+
+_kwallet_available: bool | None = None  # None = not yet probed
+_kwallet_cached_proxy = None
+
+
+def _kwallet_proxy():
+    """Return a Gio.DBusProxy for KWallet, or None if unavailable.
+
+    Tries kwalletd6 (Plasma 6) first, then kwalletd5 (Plasma 5).
+    """
+    global _kwallet_available, _kwallet_cached_proxy
+    if _kwallet_available is False:
+        return None
+    if _kwallet_cached_proxy is not None:
+        return _kwallet_cached_proxy
+    try:
+        from gi.repository import Gio  # type: ignore[import]
+        for bus_name, obj_path in _KWALLET_VARIANTS:
+            proxy = Gio.DBusProxy.new_for_bus_sync(
+                Gio.BusType.SESSION,
+                Gio.DBusProxyFlags.NONE,
+                None,
+                bus_name,
+                obj_path,
+                _KWALLET_IFACE,
+                None,
+            )
+            if proxy.get_name_owner() is not None:
+                _kwallet_available = True
+                _kwallet_cached_proxy = proxy
+                return proxy
+        _kwallet_available = False
+        return None
+    except Exception as exc:
+        log.debug("KWallet D-Bus unavailable: %s", exc)
+        _kwallet_available = False
+        return None
+
+
+def _kwallet_open(proxy) -> int | None:
+    """Open the default wallet and return its handle, or None on failure."""
+    try:
+        from gi.repository import GLib as _GLib  # type: ignore[import]
+        wallet_name = proxy.call_sync(
+            "localWallet", None, 0, -1, None,
+        ).unpack()[0]
+        handle = proxy.call_sync(
+            "open",
+            _GLib.Variant("(sxs)", (wallet_name, 0, _KWALLET_APP)),
+            0, -1, None,
+        ).unpack()[0]
+        return handle if handle >= 0 else None
+    except Exception as exc:
+        log.debug("KWallet open failed: %s", exc)
+        return None
+
+
+def _kwallet_store(service: str, uri: str, password: str) -> bool:
+    """Store *password* in KWallet. Returns True on success."""
+    proxy = _kwallet_proxy()
+    if proxy is None:
+        return False
+    handle = _kwallet_open(proxy)
+    if handle is None:
+        return False
+    try:
+        from gi.repository import GLib as _GLib  # type: ignore[import]
+        key = f"{service}:{uri}"
+        # Ensure the folder exists.
+        proxy.call_sync(
+            "createFolder",
+            _GLib.Variant("(iss)", (handle, _KWALLET_FOLDER, _KWALLET_APP)),
+            0, -1, None,
+        )
+        rc = proxy.call_sync(
+            "writePassword",
+            _GLib.Variant("(issss)", (handle, _KWALLET_FOLDER, key, password, _KWALLET_APP)),
+            0, -1, None,
+        ).unpack()[0]
+        return rc == 0
+    except Exception as exc:
+        log.debug("KWallet store failed: %s", exc)
+        return False
+
+
+def _kwallet_load(service: str, uri: str) -> str | None:
+    """Return password from KWallet, or None."""
+    proxy = _kwallet_proxy()
+    if proxy is None:
+        return None
+    handle = _kwallet_open(proxy)
+    if handle is None:
+        return None
+    try:
+        from gi.repository import GLib as _GLib  # type: ignore[import]
+        key = f"{service}:{uri}"
+        pw = proxy.call_sync(
+            "readPassword",
+            _GLib.Variant("(isss)", (handle, _KWALLET_FOLDER, key, _KWALLET_APP)),
+            0, -1, None,
+        ).unpack()[0]
+        return pw if pw else None
+    except Exception as exc:
+        log.debug("KWallet lookup failed: %s", exc)
+        return None
+
+
+def _kwallet_clear(service: str, uri: str) -> None:
+    """Delete password from KWallet (best-effort)."""
+    proxy = _kwallet_proxy()
+    if proxy is None:
+        return
+    handle = _kwallet_open(proxy)
+    if handle is None:
+        return
+    try:
+        from gi.repository import GLib as _GLib  # type: ignore[import]
+        key = f"{service}:{uri}"
+        proxy.call_sync(
+            "removeEntry",
+            _GLib.Variant("(isss)", (handle, _KWALLET_FOLDER, key, _KWALLET_APP)),
+            0, -1, None,
+        )
+    except Exception as exc:
+        log.debug("KWallet clear failed: %s", exc)
+
+
+# ---------------------------------------------------------------------------
+# Unified credential API
+# ---------------------------------------------------------------------------
+
+
 def save_password(uri: str, password: str) -> None:
-    """Store *password* for *uri* via libsecret; fall back to config.json (chmod 0o600)."""
+    """Store *password* for *uri* via the best available backend."""
     if _libsecret_store(_LIBSECRET_SERVICE, uri, password):
         return
+    if _kwallet_store(_LIBSECRET_SERVICE, uri, password):
+        return
     log.warning(
-        "Secret service unavailable; storing password for %s in config.json "
+        "No keyring available; storing password for %s in config.json "
         "(file is mode 0600 — avoid world-readable mounts)",
         uri,
     )
@@ -150,6 +297,9 @@ def load_password(uri: str) -> str | None:
     pw = _libsecret_load(_LIBSECRET_SERVICE, uri)
     if pw is not None:
         return pw
+    pw = _kwallet_load(_LIBSECRET_SERVICE, uri)
+    if pw is not None:
+        return pw
     cfg = _load()
     # Check unified key first, then legacy per-scheme fallbacks.
     return (
@@ -162,6 +312,7 @@ def load_password(uri: str) -> str | None:
 def clear_password(uri: str) -> None:
     """Remove the stored password for *uri* from all backends."""
     _libsecret_clear(_LIBSECRET_SERVICE, uri)
+    _kwallet_clear(_LIBSECRET_SERVICE, uri)
     cfg = _load()
     changed = False
     for key in ("passwords", "smb_passwords", "ssh_passwords"):
@@ -341,6 +492,9 @@ def load_sgdb_key() -> str:
     pw = _libsecret_load(_LIBSECRET_SERVICE, "steamgriddb")
     if pw:
         return pw
+    pw = _kwallet_load(_LIBSECRET_SERVICE, "steamgriddb")
+    if pw:
+        return pw
     return _load().get("sgdb_key", "")
 
 
@@ -386,7 +540,11 @@ def save_sgdb_key(key: str) -> None:
     """Persist (or clear) the SteamGridDB API key."""
     if key:
         if _libsecret_store(_LIBSECRET_SERVICE, "steamgriddb", key):
-            # Stored in keyring — remove any plaintext fallback
+            cfg = _load()
+            cfg.pop("sgdb_key", None)
+            _save(cfg)
+            return
+        if _kwallet_store(_LIBSECRET_SERVICE, "steamgriddb", key):
             cfg = _load()
             cfg.pop("sgdb_key", None)
             _save(cfg)
@@ -397,6 +555,7 @@ def save_sgdb_key(key: str) -> None:
         _save(cfg)
     else:
         _libsecret_clear(_LIBSECRET_SERVICE, "steamgriddb")
+        _kwallet_clear(_LIBSECRET_SERVICE, "steamgriddb")
         cfg = _load()
         cfg.pop("sgdb_key", None)
         _save(cfg)

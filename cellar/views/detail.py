@@ -40,7 +40,8 @@ def _apply_logo_shadow(widget: Gtk.Widget) -> None:
             widget.remove_css_class("logo-pic-dark")
             widget.add_css_class("logo-pic-light")
 
-    sm.connect("notify::dark", _update)
+    handler_id = sm.connect("notify::dark", _update)
+    widget.connect("destroy", lambda *_: sm.disconnect(handler_id))
     _update()
 
 
@@ -2329,7 +2330,7 @@ class InstallProgressDialog(Adw.Dialog):
         self._runner_archive_uri = runner_archive_uri
 
         self._build_ui()
-        self.connect("closed", lambda _d: self._cancel_event.set())
+        self.connect("closed", self._on_closed)
 
         GLib.idle_add(self._start_install)
 
@@ -2351,6 +2352,15 @@ class InstallProgressDialog(Adw.Dialog):
             make_progress_page("Downloading", self._on_cancel_progress_clicked)
         )
         return box
+
+    def _on_closed(self, _dialog) -> None:
+        self._cancel_event.set()
+        self._stop_pulse()
+
+    def _stop_pulse(self) -> None:
+        if getattr(self, "_pulse_id", None) is not None:
+            GLib.source_remove(self._pulse_id)
+            self._pulse_id = None
 
     def _on_cancel_progress_clicked(self, _btn) -> None:
         self._cancel_event.set()
@@ -2486,13 +2496,16 @@ class InstallProgressDialog(Adw.Dialog):
         self, prefix_dir: str, install_path: str = "", runner: str = "",
         install_size: int = 0, delta_size: int = 0,
     ) -> None:
+        self._stop_pulse()
         self.close()
         self._on_success(prefix_dir, install_path, runner, install_size, delta_size)
 
     def _on_cancelled(self) -> None:
+        self._stop_pulse()
         self.close()
 
     def _on_error(self, message: str) -> None:
+        self._stop_pulse()
         self._cancel_body_btn.set_sensitive(False)
         alert = Adw.AlertDialog(heading="Install Failed", body=message)
         alert.add_response("ok", "OK")

@@ -59,7 +59,7 @@ class UpdateDialog(Adw.Dialog):
         self._cancel_event = threading.Event()
 
         self._build_ui()
-        self.connect("closed", lambda _d: self._cancel_event.set())
+        self.connect("closed", self._on_closed)
 
     # ── UI construction ───────────────────────────────────────────────────
 
@@ -169,6 +169,15 @@ class UpdateDialog(Adw.Dialog):
         self.set_content_height(0)
         self._start_update()
 
+    def _on_closed(self, _dialog) -> None:
+        self._cancel_event.set()
+        self._stop_pulse()
+
+    def _stop_pulse(self) -> None:
+        if getattr(self, "_pulse_id", None) is not None:
+            GLib.source_remove(self._pulse_id)
+            self._pulse_id = None
+
     def _on_cancel_progress_clicked(self, _btn) -> None:
         self._cancel_event.set()
         self._phase_label.set_text("Cancelling…")
@@ -243,13 +252,16 @@ class UpdateDialog(Adw.Dialog):
         threading.Thread(target=_run, daemon=True).start()
 
     def _on_done(self, install_size: int = 0, delta_size: int = 0) -> None:
+        self._stop_pulse()
         self.close()
         self._on_success(install_size, delta_size)
 
     def _on_cancelled(self) -> None:
+        self._stop_pulse()
         self.close()
 
     def _on_error(self, message: str) -> None:
+        self._stop_pulse()
         self._cancel_body_btn.set_sensitive(False)
         alert = Adw.AlertDialog(heading="Update Failed", body=message)
         alert.add_response("ok", "OK")

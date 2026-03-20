@@ -84,6 +84,16 @@ def _safe_extract(
         if not (member.isreg() or member.isdir() or member.issym() or member.islnk()):
             log.warning("Skipping non-regular tar member: %r", member.name)
             return
+        # Symlinks/hardlinks: reject targets that could escape the
+        # destination directory via absolute paths or '..' traversal.
+        if member.issym() or member.islnk():
+            link_parts = Path(member.linkname).parts
+            if Path(member.linkname).is_absolute() or ".." in link_parts:
+                log.warning(
+                    "Skipping link with unsafe target: %r -> %r",
+                    member.name, member.linkname,
+                )
+                return
         tf.extract(member, dest)  # noqa: S202
 
 

@@ -2489,6 +2489,9 @@ class InstallProgressDialog(Adw.Dialog):
             self._progress_bar.set_text("")
 
     def _do_pulse(self) -> bool:
+        if self._cancel_event.is_set():
+            self._pulse_id = None
+            return False
         self._progress_bar.pulse()
         return True  # keep calling
 

@@ -25,6 +25,7 @@ class ProgressDialog(Adw.Dialog):
         super().__init__(content_width=340, content_height=120)
         self.set_can_close(False)
         self._cancel_event = cancel_event
+        self._closed = False
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         set_margins(box, 24)
@@ -50,6 +51,13 @@ class ProgressDialog(Adw.Dialog):
             box.append(self._cancel_btn)
 
         self.set_child(box)
+        self.connect("destroy", self._on_destroy)
+
+    def _on_destroy(self, _widget) -> None:
+        self._closed = True
+        if self._pulse_id is not None:
+            GLib.source_remove(self._pulse_id)
+            self._pulse_id = None
 
     def _on_cancel(self, _btn) -> None:
         if self._cancel_event is not None:
@@ -58,28 +66,42 @@ class ProgressDialog(Adw.Dialog):
         self._cancel_btn.set_label("Cancelling\u2026")
 
     def _pulse(self) -> bool:
+        if self._closed:
+            self._pulse_id = None
+            return False
         self._bar.pulse()
         return True
 
     def set_label(self, text: str) -> None:
+        if self._closed:
+            return
         self._label.set_text(text)
 
     def set_fraction(self, fraction: float) -> None:
+        if self._closed:
+            return
         if self._pulse_id is not None:
             GLib.source_remove(self._pulse_id)
             self._pulse_id = None
         self._bar.set_fraction(fraction)
 
     def set_stats(self, text: str) -> None:
+        if self._closed:
+            return
         self._bar.set_text(text)
 
     def start_pulse(self) -> None:
         """Switch back to indeterminate pulse (e.g. after compress phase ends)."""
+        if self._closed:
+            return
         if self._pulse_id is None:
             self._bar.set_fraction(0.0)
             self._pulse_id = GLib.timeout_add(80, self._pulse)
 
     def force_close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
         if self._pulse_id is not None:
             GLib.source_remove(self._pulse_id)
             self._pulse_id = None
@@ -111,6 +133,7 @@ class WinetricksProgressDialog(Adw.Dialog):
     def __init__(self, verbs: list[str]) -> None:
         super().__init__(content_width=480)
         self.set_can_close(False)
+        self._closed = False
 
         toolbar = Adw.ToolbarView()
         header = Adw.HeaderBar(show_start_title_buttons=False, show_end_title_buttons=False)
@@ -160,13 +183,25 @@ class WinetricksProgressDialog(Adw.Dialog):
 
         toolbar.set_content(box)
         self.set_child(toolbar)
+        self.connect("destroy", self._on_destroy)
+
+    def _on_destroy(self, _widget) -> None:
+        self._closed = True
+        if self._pulse_id is not None:
+            GLib.source_remove(self._pulse_id)
+            self._pulse_id = None
 
     def _pulse(self) -> bool:
+        if self._closed:
+            self._pulse_id = None
+            return False
         self._bar.pulse()
         return True
 
     def push_line(self, line: str) -> None:
         """Called from GLib.idle_add with each output line from winetricks."""
+        if self._closed:
+            return
         # Update status label from meaningful lines
         m = self._RE_DOWNLOADING.search(line)
         if m:
@@ -197,6 +232,9 @@ class WinetricksProgressDialog(Adw.Dialog):
             adj.set_value(adj.get_upper())
 
     def force_close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
         if self._pulse_id is not None:
             GLib.source_remove(self._pulse_id)
             self._pulse_id = None

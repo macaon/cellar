@@ -1730,6 +1730,8 @@ class PackageBuilderView(Adw.Bin):
                     for verb in ("corefonts", "msls31", "d3dx9"):
                         if verb not in project.deps_installed:
                             project.deps_installed.append(verb)
+            if self.get_root() is None:
+                return
             self._on_init_done(project, ok)
             if not ok:
                 self._show_toast("Prefix initialization failed. Check logs.")

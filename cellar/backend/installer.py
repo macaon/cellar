@@ -72,7 +72,26 @@ def _safe_extract(
     On Python 3.12+ uses the built-in *filter* parameter.  On older versions
     validates the member name manually to reject absolute paths, ``..``
     components, and non-regular files (devices, fifos, etc.).
+
+    Both code paths reject symlink/hardlink targets that are absolute or
+    contain ``..`` — ``filter='tar'`` does not check link destinations,
+    so we validate before handing off to tarfile.
     """
+    # ── Link target check (all Python versions) ───────────────────────
+    # filter='tar' blocks member *names* from escaping the destination
+    # but does NOT inspect link targets.  A symlink like
+    #   drive_c/harmless -> /home/user/.ssh
+    # would pass the tar filter, then subsequent members extracted
+    # through it land outside the destination.
+    if member.issym() or member.islnk():
+        link_parts = Path(member.linkname).parts
+        if Path(member.linkname).is_absolute() or ".." in link_parts:
+            log.warning(
+                "Skipping link with unsafe target: %r -> %r",
+                member.name, member.linkname,
+            )
+            return
+
     try:
         tf.extract(member, dest, filter=filter_name)
     except TypeError:
@@ -84,16 +103,6 @@ def _safe_extract(
         if not (member.isreg() or member.isdir() or member.issym() or member.islnk()):
             log.warning("Skipping non-regular tar member: %r", member.name)
             return
-        # Symlinks/hardlinks: reject targets that could escape the
-        # destination directory via absolute paths or '..' traversal.
-        if member.issym() or member.islnk():
-            link_parts = Path(member.linkname).parts
-            if Path(member.linkname).is_absolute() or ".." in link_parts:
-                log.warning(
-                    "Skipping link with unsafe target: %r -> %r",
-                    member.name, member.linkname,
-                )
-                return
         tf.extract(member, dest)  # noqa: S202
 
 
@@ -966,8 +975,9 @@ def _extract_archive(
     """Extract *archive_path* into *dest*, reporting per-member progress.
 
     Supports ``.tar.gz`` and ``.tar.zst`` (via the ``zstandard`` package).
-    Uses ``filter='tar'`` on Python 3.12+ to block path traversal while allowing
-    absolute symlinks (needed for Wine prefix device entries like dosdevices/).
+    Uses ``filter='tar'`` on Python 3.12+ to block path traversal.  Symlink
+    and hardlink targets are validated separately (absolute or ``..`` targets
+    are rejected) since ``filter='tar'`` does not inspect link destinations.
     Progress is based on compressed bytes consumed so that large archives
     report progress without needing an upfront member scan.
 

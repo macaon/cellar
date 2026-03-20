@@ -395,6 +395,13 @@ def import_user_files(
     if not app_id:
         raise UpdateError("Could not determine app slug from archive")
 
+    from cellar.models.app_entry import _SAFE_ID_RE  # noqa: PLC0415
+
+    if not _SAFE_ID_RE.match(app_id):
+        raise UpdateError(
+            f"Archive contains invalid app slug \u201c{app_id}\u201d"
+        )
+
     row = get_installed(app_id)
     if row is None:
         raise UpdateError(

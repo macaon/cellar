@@ -231,7 +231,7 @@ class CellarWindow(Adw.ApplicationWindow):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
-        # Category / genre / platform check buttons in the filter popover — rebuilt after each catalogue load.
+        # Category/genre/platform check buttons in filter popover — rebuilt after catalogue load.
         self._category_btns: dict[str, Gtk.CheckButton] = {}
         self._active_categories: set[str] = set()
         self._genre_btns: dict[str, Gtk.CheckButton] = {}

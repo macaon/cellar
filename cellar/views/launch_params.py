@@ -418,7 +418,8 @@ class LaunchParamsDialog(Adw.Dialog):
             overrides["vkd3d"] = self._vkd3d_row.get_active()
         if self._debug_row is not None and self._debug_row.get_active() != entry.debug:
             overrides["debug"] = self._debug_row.get_active()
-        if self._direct_proton_row is not None and self._direct_proton_row.get_active() != entry.direct_proton:
+        if (self._direct_proton_row is not None
+                and self._direct_proton_row.get_active() != entry.direct_proton):
             overrides["direct_proton"] = self._direct_proton_row.get_active()
 
         # Audio driver

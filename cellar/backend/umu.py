@@ -553,13 +553,18 @@ def merge_launch_params(entry, overrides: dict | None, *, installed_runner: str 
         "entry_point": entry_point,
         "launch_args": entry_args,
         "launch_targets": launch_targets,
-        "steam_appid": overrides["steam_appid"] if "steam_appid" in overrides else entry.steam_appid,
+        "steam_appid": (
+            overrides["steam_appid"] if "steam_appid" in overrides else entry.steam_appid
+        ),
         "runner": overrides.get("runner") or installed_runner,
         "dxvk": overrides["dxvk"] if "dxvk" in overrides else entry.dxvk,
         "vkd3d": overrides["vkd3d"] if "vkd3d" in overrides else entry.vkd3d,
         "audio_driver": overrides.get("audio_driver") or entry.audio_driver,
         "debug": overrides["debug"] if "debug" in overrides else entry.debug,
-        "direct_proton": overrides["direct_proton"] if "direct_proton" in overrides else entry.direct_proton,
+        "direct_proton": (
+            overrides["direct_proton"] if "direct_proton" in overrides
+            else entry.direct_proton
+        ),
     }
 
 
@@ -804,12 +809,8 @@ def setup_prefix(
     Returns ``True`` if every step succeeded, ``False`` if any step failed
     (failures are logged but do not abort remaining steps).
     """
-    import os
-
     total = len(_SETUP_STEPS)
     all_ok = True
-    base_env = build_env("", runner_name, steam_appid, prefix_dir=prefix_path)
-    env = {**os.environ, **base_env}
 
     for idx, (label, verb) in enumerate(_SETUP_STEPS, 1):
         if step_cb:

@@ -14,7 +14,7 @@ log = logging.getLogger(__name__)
 
 
 class DownloadQueueDialog(Adw.Dialog):
-    """Shows the current install queue state — active download, queued items, recent completions."""
+    """Shows install queue state: active download, queued, completions."""
 
     def __init__(self, install_queue) -> None:
         super().__init__(title="Downloads", content_width=380, content_height=300)

@@ -367,8 +367,9 @@ def import_user_files(
     Raises ``UpdateError`` if the slug doesn't match an installed app
     or the archive is malformed.
     """
-    from cellar.backend.database import get_installed  # noqa: PLC0415
     import zstandard  # noqa: PLC0415
+
+    from cellar.backend.database import get_installed  # noqa: PLC0415
 
     def _cancelled() -> bool:
         return cancel_event is not None and cancel_event.is_set()

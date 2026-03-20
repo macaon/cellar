@@ -488,7 +488,8 @@ class PackageBuilderView(Adw.Bin):
                     project = Project(
                         name=entry.name,
                         slug=slug,
-                        project_type={"windows": "app", "linux": "linux", "dos": "dos"}.get(entry.platform, "app"),
+                        project_type={"windows": "app", "linux": "linux", "dos": "dos"}.get(
+                            entry.platform, "app"),
                         runner=entry.base_image,
                         entry_points=[dict(t) for t in entry.launch_targets],
                         steam_appid=entry.steam_appid,
@@ -867,7 +868,10 @@ class PackageBuilderView(Adw.Bin):
 
     def _show_project(self, project: Project, *, expand_sel: bool = False) -> None:
         """Build a detail page for *project* and push it onto the nav stack."""
-        _type_labels = {"app": "Windows App", "linux": "Linux App", "dos": "DOS App", "base": "Base Image"}
+        _type_labels = {
+            "app": "Windows App", "linux": "Linux App",
+            "dos": "DOS App", "base": "Base Image",
+        }
 
         # Build toolbar with header
         toolbar = Adw.ToolbarView()
@@ -1945,8 +1949,9 @@ class PackageBuilderView(Adw.Bin):
         progress.present(self)
 
         def _work():
-            from cellar.utils.progress import fmt_stats
             import time
+
+            from cellar.utils.progress import fmt_stats
 
             dest.parent.mkdir(parents=True, exist_ok=True)
 
@@ -2338,7 +2343,10 @@ class PackageBuilderView(Adw.Bin):
         # Drag-and-drop
         drop = Gtk.DropTarget.new(Gdk.FileList, Gdk.DragAction.COPY)
         drop.connect("drop", self._on_installer_drop)
-        drop.connect("enter", lambda t, *_: frame.add_css_class("drag-hover") or Gdk.DragAction.COPY)
+        drop.connect(
+            "enter",
+            lambda t, *_: frame.add_css_class("drag-hover") or Gdk.DragAction.COPY,
+        )
         drop.connect("leave", lambda *_: frame.remove_css_class("drag-hover"))
         frame.add_controller(drop)
 
@@ -2521,8 +2529,6 @@ class PackageBuilderView(Adw.Bin):
         remaining = queue
 
         # After each DLC finishes, run the next one
-        orig_done = None
-
         if project.project_type == "app":
             from cellar.backend.detect import scan_prefix_exes
             pre_exes = scan_prefix_exes(project.content_path)
@@ -2793,8 +2799,8 @@ class PackageBuilderView(Adw.Bin):
             what = "a base image" if project.project_type == "app" else "a runner"
             self._show_toast(f"Select {what} before test launching.")
             return
-        from cellar.backend.umu import dll_overrides, launch_app
         from cellar.backend.config import load_audio_driver  # noqa: PLC0415
+        from cellar.backend.umu import dll_overrides, launch_app
         extra_env: dict[str, str] = {}
         overrides = dll_overrides(audio_driver=load_audio_driver())
         if overrides:
@@ -2844,7 +2850,9 @@ class PackageBuilderView(Adw.Bin):
 
     def _do_publish_app(self, project: Project, repo) -> None:
         _src_path = (
-            Path(project.source_dir) if project.project_type in ("linux", "dos") else project.content_path
+            Path(project.source_dir)
+            if project.project_type in ("linux", "dos")
+            else project.content_path
         )
 
         # Build AppEntry from project metadata.
@@ -2896,6 +2904,7 @@ class PackageBuilderView(Adw.Bin):
         progress.present(self)
 
         import time
+
         from cellar.utils.progress import fmt_size
 
         _prev: list[tuple[float, int]] = []  # (time, bytes)
@@ -3207,6 +3216,7 @@ class PackageBuilderView(Adw.Bin):
         progress.present(self)
 
         import time
+
         from cellar.utils.progress import fmt_size
 
         _prevb: list[tuple[float, int]] = []
@@ -3325,7 +3335,10 @@ class PackageBuilderView(Adw.Bin):
         """Ask the user whether to keep or delete the project after publishing."""
         dlg = Adw.AlertDialog(
             heading="Keep project?",
-            body="The project was published successfully. Do you want to keep it in the builder for future updates?",
+            body=(
+                "The project was published successfully."
+                " Do you want to keep it in the builder for future updates?"
+            ),
         )
         dlg.add_response("delete", "Delete")
         dlg.add_response("keep", "Keep")
@@ -4025,7 +4038,8 @@ class _NewProjectDialog(Adw.Dialog):
         def _on_created(project):
             # Post-creation: set import-specific fields on the project
             changed = False
-            if platform == "dos" and path.is_dir() and hasattr(self, '_dosbox_info') and self._dosbox_info:
+            if (platform == "dos" and path.is_dir()
+                    and hasattr(self, '_dosbox_info') and self._dosbox_info):
                 # GOG DOSBox game: convert to native Linux DOSBox in background
                 self._convert_dosbox_game(project, path, self._dosbox_info)
                 return  # _convert_dosbox_game calls _on_import when done
@@ -4346,7 +4360,8 @@ class _CatalogueCard(Gtk.FlowBoxChild):
             type_label = "Base Image"
         else:
             platform = getattr(entry, "platform", "windows")
-            icon_name = _TYPE_ICONS.get({"linux": "linux", "dos": "dos"}.get(platform, "app"), "grid-large-symbolic")
+            ptype = {"linux": "linux", "dos": "dos"}.get(platform, "app")
+            icon_name = _TYPE_ICONS.get(ptype, "grid-large-symbolic")
             type_label = {"linux": "Native App", "dos": "DOS App"}.get(platform, "Proton App")
 
         icon = Gtk.Image.new_from_icon_name(icon_name)

@@ -20,7 +20,7 @@ import stat
 import tarfile
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
@@ -990,7 +990,6 @@ def _download_and_extract(
     progress_cb: Callable[[int, int], None] | None = None,
 ) -> None:
     """Download and extract a DOSBox Staging release tarball."""
-    import lzma
     import tempfile
 
     from cellar.utils.http import make_session
@@ -1309,8 +1308,6 @@ def _rewrite_autoexec(
     - Actual game commands are preserved
     """
     rewritten: list[str] = []
-    # Track whether we're inside a GOG batch launcher structure
-    seen_game_section = False
 
     for line in raw_lines:
         stripped = line.strip()
@@ -1336,9 +1333,6 @@ def _rewrite_autoexec(
         if lower.startswith("goto "):
             continue
         if stripped.startswith(":"):
-            # Keep :game section content by tracking it
-            if lower == ":game":
-                seen_game_section = True
             continue
         if lower.startswith("choice "):
             continue

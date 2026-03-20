@@ -662,9 +662,9 @@ class DetailView(Gtk.Box):
         if self._entry.platform == "linux":
             self._launch_linux_target(entry_path, entry_args)
             return
+        from cellar.backend import database  # noqa: PLC0415
         from cellar.backend.umu import launch_app_monitored, merge_launch_params  # noqa: PLC0415
         from cellar.views.builder.progress import ProgressDialog  # noqa: PLC0415
-        from cellar.backend import database  # noqa: PLC0415
 
         overrides = database.get_launch_overrides(self._entry.id)
         params = merge_launch_params(
@@ -677,8 +677,8 @@ class DetailView(Gtk.Box):
                 runner_name = base_entry.runner
 
         extra_env = _parse_launch_env(target.get("env", ""))
-        from cellar.backend.umu import dll_overrides, proton_compat_env  # noqa: PLC0415
         from cellar.backend.config import load_audio_driver  # noqa: PLC0415
+        from cellar.backend.umu import dll_overrides, proton_compat_env  # noqa: PLC0415
         audio = params["audio_driver"]
         if audio == "auto":
             audio = load_audio_driver()
@@ -749,7 +749,10 @@ class DetailView(Gtk.Box):
         import shlex as _shlex
 
         from cellar.backend.umu import (  # noqa: PLC0415
-            is_cellar_sandboxed, native_dir, dos_dir, monitor_process_tree,
+            dos_dir,
+            is_cellar_sandboxed,
+            monitor_process_tree,
+            native_dir,
         )
         from cellar.views.builder.progress import ProgressDialog  # noqa: PLC0415
 
@@ -2296,7 +2299,7 @@ class InstallProgressDialog(Adw.Dialog):
         *,
         entry: AppEntry,
         archive_uri: str,
-        on_success: Callable,  # (prefix_dir, install_path, runner, install_size, delta_size) -> None
+        on_success: Callable,  # (prefix_dir, install_path, runner, ...) -> None
         token: str | None = None,
         ssh_identity: str | None = None,
         base_entry=None,            # BaseEntry | None — for delta installs

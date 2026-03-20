@@ -281,6 +281,41 @@ Tab and category icons are [CC0-1.0](https://creativecommons.org/publicdomain/ze
 
 ---
 
+## How is this different from Lutris / Heroic?
+
+Lutris and Heroic are game *managers* — they help you configure, install, and
+run games on your own machine. You still set up each game yourself: pick a
+runner, tweak prefix settings, install dependencies, and troubleshoot.
+
+Cellar is a game *distributor*. A maintainer does all that setup work once,
+packages the result (a fully configured WINEPREFIX, a native app bundle, or a
+DOS game), and publishes it to a shared catalogue. Everyone else just clicks
+Install — no configuration, no knowledge of Wine required. The end user
+experience is closer to an app store than a game manager.
+
+If you're setting up games for yourself and enjoy tweaking things, Lutris and
+Heroic are great tools. If you want other people (family, friends, a LAN
+party) to install preconfigured games without touching a terminal, that's what
+Cellar is for.
+
+---
+
+## Code quality
+
+This project is [AI-assisted](#ai-assistance) and in early testing. That said,
+the codebase is actively checked with:
+
+- **[Ruff](https://docs.astral.sh/ruff/)** — linting and style enforcement
+  (E/F/W/I rule sets) on every change
+- **[CodeQL](https://codeql.github.com/)** — GitHub's semantic code analysis
+  for security vulnerabilities — 0 alerts as of last scan
+- **[Bandit](https://bandit.readthedocs.io/)** — Python security linter
+  (hardcoded secrets, injection, insecure calls) — 0 high/medium issues
+
+If you spot something the tooling missed, please open an issue.
+
+---
+
 ## AI assistance
 
 This application was developed with the help of [Claude](https://claude.ai) by Anthropic. Claude assisted with architecture decisions, implementation, and debugging throughout the project.

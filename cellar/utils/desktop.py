@@ -253,12 +253,12 @@ def remove_desktop_entry(app_id: str, target_idx: int | None = None) -> None:
             path.unlink(missing_ok=True)
             log.info("Removed %s", path)
     else:
-        # Remove primary and all secondary .desktop files.
-        # Use a dash-terminated prefix so e.g. "doom" doesn't match "doom2".
+        # Remove primary and all numbered secondary .desktop files.
+        # The secondary glob anchors to a digit so "doom" can't match "doom-bar".
         for p in _APPS_DIR.glob(f"cellar-{app_id}.desktop"):
             p.unlink(missing_ok=True)
             log.info("Removed %s", p)
-        for p in _APPS_DIR.glob(f"cellar-{app_id}-*.desktop"):
+        for p in _APPS_DIR.glob(f"cellar-{app_id}-[0-9]*.desktop"):
             p.unlink(missing_ok=True)
             log.info("Removed %s", p)
     _remove_icons(app_id)

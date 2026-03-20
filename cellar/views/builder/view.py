@@ -1108,17 +1108,7 @@ class PackageBuilderView(Adw.Bin):
             # Launch Targets (Windows app)
             targets_group = Adw.PreferencesGroup(title="Launch Targets")
             for _ep in project.entry_points:
-                _ep_subtitle = _ep.get("path", "")
-                if _ep.get("args"):
-                    _ep_subtitle += "  " + _ep["args"]
-                _ep_row = Adw.EntryRow(title=_ep_subtitle)
-                _ep_row.set_text(_ep.get("name", ""))
-                _ep_row.connect("changed", self._on_entry_point_name_changed, _ep)
-                _rm_btn = Gtk.Button(icon_name="user-trash-symbolic")
-                _rm_btn.set_valign(Gtk.Align.CENTER)
-                _rm_btn.add_css_class("flat")
-                _rm_btn.connect("clicked", self._on_remove_entry_point_clicked, _ep)
-                _ep_row.add_suffix(_rm_btn)
+                _ep_row = self._build_target_expander_row(_ep, is_proton=True)
                 targets_group.add(_ep_row)
 
             _add_ep_row = Adw.ActionRow(title="Add Launch Target\u2026")
@@ -1192,17 +1182,7 @@ class PackageBuilderView(Adw.Bin):
             # Launch Targets (Linux)
             targets_group = Adw.PreferencesGroup(title="Launch Targets")
             for _ep in project.entry_points:
-                _ep_subtitle = _ep.get("path", "")
-                if _ep.get("args"):
-                    _ep_subtitle += "  " + _ep["args"]
-                _ep_row = Adw.EntryRow(title=_ep_subtitle)
-                _ep_row.set_text(_ep.get("name", ""))
-                _ep_row.connect("changed", self._on_entry_point_name_changed, _ep)
-                _rm_btn = Gtk.Button(icon_name="user-trash-symbolic")
-                _rm_btn.set_valign(Gtk.Align.CENTER)
-                _rm_btn.add_css_class("flat")
-                _rm_btn.connect("clicked", self._on_remove_entry_point_clicked, _ep)
-                _ep_row.add_suffix(_rm_btn)
+                _ep_row = self._build_target_expander_row(_ep, is_proton=False)
                 targets_group.add(_ep_row)
 
             _add_ep_row = Adw.ActionRow(title="Add Launch Target\u2026")
@@ -2692,10 +2672,74 @@ class PackageBuilderView(Adw.Bin):
         save_project(project)
         self._show_project(project)
 
-    def _on_entry_point_name_changed(self, row: Adw.EntryRow, ep: dict) -> None:
+    def _build_target_expander_row(self, ep: dict, *, is_proton: bool) -> Adw.ExpanderRow:
+        """Build an expandable launch-target row matching the metadata editor style."""
+        name = ep.get("name", "")
+        path = ep.get("path", "")
+
+        row = Adw.ExpanderRow(title=GLib.markup_escape_text(name) if name else "Unnamed")
+        row.set_subtitle(GLib.markup_escape_text(path) if path else "Not set")
+        row.set_subtitle_lines(1)
+
+        del_btn = Gtk.Button(icon_name="user-trash-symbolic")
+        del_btn.add_css_class("flat")
+        del_btn.set_valign(Gtk.Align.CENTER)
+        del_btn.connect("clicked", self._on_remove_entry_point_clicked, ep)
+        row.add_suffix(del_btn)
+
+        name_entry = Adw.EntryRow(title="Name")
+        name_entry.set_text(name)
+        name_entry.connect("changed", self._on_ep_field_changed, ep, "name", row)
+        row.add_row(name_entry)
+
+        args_entry = Adw.EntryRow(title="Arguments")
+        args_entry.set_text(ep.get("args", ""))
+        args_entry.connect("changed", self._on_ep_field_changed, ep, "args", None)
+        row.add_row(args_entry)
+
+        env_entry = Adw.EntryRow(title="Environment")
+        env_entry.set_text(ep.get("env", ""))
+        env_entry.set_tooltip_text(
+            "Environment variables. Paste Steam launch options directly, e.g. "
+            "PROTON_USE_WINED3D=1 PROTON_NO_ESYNC=1 %command% \u2014 "
+            "%command% and unrecognised tokens are ignored automatically."
+        )
+        env_entry.connect("changed", self._on_ep_field_changed, ep, "env", None)
+        row.add_row(env_entry)
+
+        if is_proton:
+            admin_row = Adw.SwitchRow(
+                title="Run as Administrator",
+                subtitle="Set Wine to run this executable with admin privileges",
+            )
+            admin_row.set_active(ep.get("run_as_admin", False))
+            admin_row.connect("notify::active", self._on_ep_admin_changed, ep)
+            row.add_row(admin_row)
+
+        return row
+
+    def _on_ep_field_changed(
+        self, entry: Adw.EntryRow, ep: dict, field: str,
+        parent_row: Adw.ExpanderRow | None,
+    ) -> None:
         if self._project is None:
             return
-        ep["name"] = row.get_text().strip()
+        text = entry.get_text().strip()
+        if text:
+            ep[field] = text
+        else:
+            ep.pop(field, None)
+        if parent_row is not None and field == "name":
+            parent_row.set_title(GLib.markup_escape_text(text) if text else "Unnamed")
+        save_project(self._project)
+
+    def _on_ep_admin_changed(self, switch: Adw.SwitchRow, _pspec, ep: dict) -> None:
+        if self._project is None:
+            return
+        if switch.get_active():
+            ep["run_as_admin"] = True
+        else:
+            ep.pop("run_as_admin", None)
         save_project(self._project)
 
     def _on_remove_entry_point_clicked(self, _btn, ep: dict) -> None:

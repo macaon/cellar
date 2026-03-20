@@ -752,6 +752,43 @@ def _apply_font_smoothing(prefix_path: Path) -> None:
     log.info("Applied font smoothing to %s", prefix_path / "user.reg")
 
 
+def apply_run_as_admin(prefix_path: Path, exe_basename: str, *, enable: bool = True) -> None:
+    """Set or clear the Wine ``runasadmin`` flag for *exe_basename*.
+
+    Writes to ``user.reg`` under ``Software\\Wine\\AppDefaults\\<exe>\\``
+    so that Wine runs the executable with administrator privileges.
+
+    *exe_basename* should be just the filename (e.g. ``Heroes3.exe``),
+    not a full path.
+    """
+    result = _read_reg(prefix_path, "user.reg")
+    if result is None:
+        return
+    text, is_utf16 = result
+
+    section = f"Software\\\\Wine\\\\AppDefaults\\\\{exe_basename}"
+    if enable:
+        text = _set_reg_values(text, section, {
+            '"runasadmin"': '"runasadmin"="admin"',
+        })
+    else:
+        # Remove the runasadmin value by replacing it with an empty line.
+        import re
+        pattern = re.compile(
+            rf'^\[{re.escape(section)}\].*?\n(.*?)(?=^\[|\Z)',
+            re.MULTILINE | re.DOTALL,
+        )
+        match = pattern.search(text)
+        if match:
+            body = match.group(1)
+            new_body = re.sub(r'^"runasadmin"=.*\n?', '', body, flags=re.MULTILINE)
+            text = text[:match.start(1)] + new_body + text[match.end(1):]
+
+    _write_reg(prefix_path, "user.reg", text, is_utf16)
+    log.info("%s runasadmin for %s in %s",
+             "Enabled" if enable else "Disabled", exe_basename, prefix_path)
+
+
 def _apply_wine_tweaks(prefix_path: Path) -> None:
     """Disable winemenubuilder and file associations in the prefix.
 

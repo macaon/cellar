@@ -208,6 +208,8 @@ class LaunchParamsDialog(Adw.Dialog):
         name = target.get("name", "Main")
         path = target.get("path", "")
         args = target.get("args", "")
+        env = target.get("env", "")
+        run_as_admin = target.get("run_as_admin", False)
 
         row = Adw.ExpanderRow(title=GLib.markup_escape_text(name))
         row.set_subtitle(GLib.markup_escape_text(path) if path else "Not set")
@@ -240,6 +242,26 @@ class LaunchParamsDialog(Adw.Dialog):
         args_entry.set_text(args)
         args_entry.connect("changed", self._on_target_args_changed, idx)
         row.add_row(args_entry)
+
+        env_entry = Adw.EntryRow(title="Environment")
+        env_entry.set_text(env)
+        env_entry.set_tooltip_text(
+            "Environment variables. Paste Steam launch options directly, e.g. "
+            "PROTON_USE_WINED3D=1 PROTON_NO_ESYNC=1 %command% \u2014 "
+            "%command% and unrecognised tokens are ignored automatically."
+        )
+        env_entry.connect("changed", self._on_target_env_changed, idx)
+        row.add_row(env_entry)
+
+        is_proton = getattr(self._entry, "platform", "windows") == "windows"
+        if is_proton:
+            admin_row = Adw.SwitchRow(
+                title="Run as Administrator",
+                subtitle="Set Wine to run this executable with admin privileges",
+            )
+            admin_row.set_active(run_as_admin)
+            admin_row.connect("notify::active", self._on_target_admin_changed, idx)
+            row.add_row(admin_row)
 
         self._target_rows.append(row)
         grp = self._targets_group
@@ -287,6 +309,21 @@ class LaunchParamsDialog(Adw.Dialog):
                 self._launch_targets[idx]["args"] = text
             else:
                 self._launch_targets[idx].pop("args", None)
+
+    def _on_target_env_changed(self, entry: Adw.EntryRow, idx: int) -> None:
+        if idx < len(self._launch_targets):
+            text = entry.get_text().strip()
+            if text:
+                self._launch_targets[idx]["env"] = text
+            else:
+                self._launch_targets[idx].pop("env", None)
+
+    def _on_target_admin_changed(self, switch: Adw.SwitchRow, _pspec, idx: int) -> None:
+        if idx < len(self._launch_targets):
+            if switch.get_active():
+                self._launch_targets[idx]["run_as_admin"] = True
+            else:
+                self._launch_targets[idx].pop("run_as_admin", None)
 
     def _on_browse_target(self, _btn, idx: int) -> None:
         entry = self._entry

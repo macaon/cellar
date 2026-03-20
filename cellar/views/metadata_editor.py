@@ -1316,6 +1316,17 @@ class MetadataEditorDialog(Adw.Dialog):
         env_entry.connect("changed", self._on_target_env_changed, idx)
         row.add_row(env_entry)
 
+        is_proton = self._context.project_type in ("app", "windows")
+        if is_proton:
+            run_as_admin = target.get("run_as_admin", False)
+            admin_row = Adw.SwitchRow(
+                title="Run as Administrator",
+                subtitle="Set Wine to run this executable with admin privileges",
+            )
+            admin_row.set_active(run_as_admin)
+            admin_row.connect("notify::active", self._on_target_admin_changed, idx)
+            row.add_row(admin_row)
+
         self._target_rows.append(row)
         grp = self._targets_group
         grp.remove(self._add_target_row_widget)
@@ -1363,6 +1374,13 @@ class MetadataEditorDialog(Adw.Dialog):
                 self._launch_targets[idx]["env"] = text
             else:
                 self._launch_targets[idx].pop("env", None)
+
+    def _on_target_admin_changed(self, switch: Adw.SwitchRow, _pspec, idx: int) -> None:
+        if idx < len(self._launch_targets):
+            if switch.get_active():
+                self._launch_targets[idx]["run_as_admin"] = True
+            else:
+                self._launch_targets[idx].pop("run_as_admin", None)
 
     # ── Entry point file browser (RepoContext only) ───────────────────────
 

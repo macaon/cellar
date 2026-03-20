@@ -60,6 +60,23 @@ class AddLaunchTargetDialog(Adw.Dialog):
         self._args_row.set_tooltip_text('E.g. "-windowedmode -nosplash"')
         group.add(self._args_row)
 
+        self._env_row = Adw.EntryRow(title="Environment (optional)")
+        self._env_row.set_tooltip_text(
+            "Environment variables. Paste Steam launch options directly, e.g. "
+            'PROTON_USE_WINED3D=1 PROTON_NO_ESYNC=1 %command% \u2014 '
+            "%command% and unrecognised tokens are ignored automatically."
+        )
+        group.add(self._env_row)
+
+        if self._platform == "windows":
+            self._admin_row = Adw.SwitchRow(
+                title="Run as Administrator",
+                subtitle="Set Wine to run this executable with admin privileges",
+            )
+            group.add(self._admin_row)
+        else:
+            self._admin_row = None
+
         page.add(group)
         toolbar.set_content(page)
         self.set_child(toolbar)
@@ -128,6 +145,11 @@ class AddLaunchTargetDialog(Adw.Dialog):
         args = self._args_row.get_text().strip()
         if args:
             ep["args"] = args
+        env = self._env_row.get_text().strip()
+        if env:
+            ep["env"] = env
+        if self._admin_row is not None and self._admin_row.get_active():
+            ep["run_as_admin"] = True
         self._on_added(ep)
 
 

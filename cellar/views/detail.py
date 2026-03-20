@@ -677,6 +677,15 @@ class DetailView(Gtk.Box):
                 runner_name = base_entry.runner
 
         extra_env = _parse_launch_env(target.get("env", ""))
+
+        # Apply run-as-admin registry flag if set on this target.
+        if target.get("run_as_admin"):
+            from cellar.backend.umu import apply_run_as_admin, prefixes_dir  # noqa: PLC0415
+            prefix = prefixes_dir() / self._entry.id
+            exe_base = entry_path.rsplit("\\", 1)[-1] if "\\" in entry_path else Path(entry_path).name
+            if exe_base:
+                apply_run_as_admin(prefix, exe_base, enable=True)
+
         from cellar.backend.config import load_audio_driver  # noqa: PLC0415
         from cellar.backend.umu import dll_overrides, proton_compat_env  # noqa: PLC0415
         audio = params["audio_driver"]

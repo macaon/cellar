@@ -43,7 +43,7 @@ def has_desktop_entry(app_id: str, target_idx: int = 0) -> bool:
 def _remove_icons(app_id: str) -> None:
     """Delete all installed icon versions for *app_id*."""
     for p in _ICONS_DIR.glob(f"{app_id}_*.png"):
-        p.unlink()
+        p.unlink(missing_ok=True)
         log.info("Removed %s", p)
 
 
@@ -250,12 +250,16 @@ def remove_desktop_entry(app_id: str, target_idx: int | None = None) -> None:
     if target_idx is not None:
         path = desktop_entry_path(app_id, target_idx)
         if path.exists():
-            path.unlink()
+            path.unlink(missing_ok=True)
             log.info("Removed %s", path)
     else:
         # Remove primary and all secondary .desktop files.
-        for p in _APPS_DIR.glob(f"cellar-{app_id}*.desktop"):
-            p.unlink()
+        # Use a dash-terminated prefix so e.g. "doom" doesn't match "doom2".
+        for p in _APPS_DIR.glob(f"cellar-{app_id}.desktop"):
+            p.unlink(missing_ok=True)
+            log.info("Removed %s", p)
+        for p in _APPS_DIR.glob(f"cellar-{app_id}-*.desktop"):
+            p.unlink(missing_ok=True)
             log.info("Removed %s", p)
     _remove_icons(app_id)
     _refresh_desktop_db()

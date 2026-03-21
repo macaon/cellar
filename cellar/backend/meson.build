@@ -10,6 +10,7 @@ python_sources = files(
   'publish_queue.py',
   'manifest.py',
   'packager.py',
+  'prefix_fixup.py',
   'project.py',
   'repo.py',
   'runners.py',

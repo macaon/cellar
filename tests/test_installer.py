@@ -184,12 +184,12 @@ def test_install_app_unsupported_scheme_raises(tmp_path):
             ins.install_app(entry, "ssh://host/path/archive.tar.gz")
 
 
-def test_install_app_partial_copy_cleaned_up_on_error(tmp_path):
-    """If the file copy loop fails mid-way, the partial destination is removed."""
+def test_install_app_extract_error_cleaned_up(tmp_path):
+    """If extraction fails mid-way, the partial destination is removed."""
     archive = _make_archive(tmp_path, "prefix", extra_content="content")
     entry = _entry()
     with _patch_prefixes_dir(tmp_path):
-        with patch("cellar.backend.installer.shutil.copy2",
+        with patch("cellar.backend.installer._safe_extract",
                    side_effect=OSError("disk full")):
             with pytest.raises(OSError, match="disk full"):
                 ins.install_app(entry, str(archive))

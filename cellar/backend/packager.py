@@ -8,6 +8,7 @@ This module handles:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import shutil
@@ -24,8 +25,6 @@ from typing import Callable
 
 from cellar.utils.images import content_hash as _content_hash
 from cellar.utils.images import optimize_image as _optimize_image
-
-import logging
 
 log = logging.getLogger(__name__)
 
@@ -179,16 +178,20 @@ class _CRCWriter:
     growing output-file size without hammering the UI thread.
     """
 
-    __slots__ = ("_fp", "crc", "_bytes_cb", "_total_written", "_last_cb")
+    __slots__ = ("_fp", "crc", "_bytes_cb", "_cancel_event",
+                 "_total_written", "_last_cb")
 
-    def __init__(self, fp, bytes_cb=None):
+    def __init__(self, fp, bytes_cb=None, cancel_event=None):
         self._fp = fp
         self.crc = 0
         self._bytes_cb = bytes_cb
+        self._cancel_event = cancel_event
         self._total_written = 0
         self._last_cb = 0.0
 
     def write(self, data: bytes) -> int:
+        if self._cancel_event and self._cancel_event.is_set():
+            raise CancelledError("Cancelled")
         n = self._fp.write(data)
         self.crc = zlib.crc32(data[:n], self.crc)
         self._total_written += n
@@ -217,16 +220,18 @@ class _ChunkWriter:
     """
 
     __slots__ = (
-        "_dest_path", "_chunk_size", "_bytes_cb",
+        "_dest_path", "_chunk_size", "_bytes_cb", "_cancel_event",
         "_chunk_index", "_fp", "_crc_writer",
         "_chunks", "_total_crc", "_total_written",
     )
 
     def __init__(self, dest_path, *, chunk_size: int = CHUNK_SIZE,
-                 bytes_cb: Callable[[int], None] | None = None):
+                 bytes_cb: Callable[[int], None] | None = None,
+                 cancel_event=None):
         self._dest_path = dest_path
         self._chunk_size = chunk_size
         self._bytes_cb = bytes_cb
+        self._cancel_event = cancel_event
         self._chunk_index = 0
         self._fp = None
         self._crc_writer: _CRCWriter | None = None
@@ -257,7 +262,8 @@ class _ChunkWriter:
                 _b(_p + n)
         else:
             cb = None
-        self._crc_writer = _CRCWriter(self._fp, bytes_cb=cb)
+        self._crc_writer = _CRCWriter(self._fp, bytes_cb=cb,
+                                       cancel_event=self._cancel_event)
 
     def _finalize_current(self) -> None:
         """Record metadata for the current chunk and close its file."""
@@ -450,7 +456,7 @@ def compress_prefix_zst(
         return ti
 
     cctx = zstd.ZstdCompressor(level=3)
-    cw = _ChunkWriter(dest_path, bytes_cb=bytes_cb)
+    cw = _ChunkWriter(dest_path, bytes_cb=bytes_cb, cancel_event=cancel_event)
     try:
         compressor = cctx.stream_writer(cw, closefd=False)
         tf = tarfile.open(fileobj=compressor, mode="w|")
@@ -535,7 +541,7 @@ def compress_runner_zst(
         return ti
 
     cctx = zstd.ZstdCompressor(level=3)
-    cw = _ChunkWriter(dest_path, bytes_cb=bytes_cb)
+    cw = _ChunkWriter(dest_path, bytes_cb=bytes_cb, cancel_event=cancel_event)
     try:
         compressor = cctx.stream_writer(cw, closefd=False)
         tf = tarfile.open(fileobj=compressor, mode="w|")
@@ -683,7 +689,7 @@ def compress_prefix_delta_zst(
     start = time.monotonic()
 
     cctx = zstd.ZstdCompressor(level=3)
-    cw = _ChunkWriter(dest_path, bytes_cb=bytes_cb)
+    cw = _ChunkWriter(dest_path, bytes_cb=bytes_cb, cancel_event=cancel_event)
     try:
         compressor = cctx.stream_writer(cw, closefd=False)
         tf = tarfile.open(fileobj=compressor, mode="w|")
@@ -1389,7 +1395,7 @@ def create_delta_archive(
             delta_items = sorted(delta_prefix.rglob("*"))
             total_items = len(delta_items)
             with open(dest, "wb") as fh:
-                crc_writer = _CRCWriter(fh)
+                crc_writer = _CRCWriter(fh, cancel_event=cancel_event)
                 with cctx.stream_writer(crc_writer, closefd=False) as compressor:
                     with tarfile.open(fileobj=compressor, mode="w|") as tf:
                         # Add root dir, then all contents one item at a time

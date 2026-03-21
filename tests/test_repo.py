@@ -59,12 +59,10 @@ def test_catalogue_bare_array_fallback(tmp_path):
     assert entries[0].id == "x"
 
 
-def test_paint_clone_full_strategy():
+def test_paint_clone_default_strategy():
     entries = {e.id: e for e in Repo(str(FIXTURES)).fetch_catalogue()}
     e = entries["paint-clone"]
-    assert e.update_strategy == "full"
-    assert e.built_with is not None
-    assert e.built_with.vkd3d == ""  # not specified in fixture
+    assert e.update_strategy == "safe"  # default when not specified in fixture
 
 
 def test_optional_fields_default_gracefully(tmp_path):
@@ -81,7 +79,6 @@ def test_optional_fields_default_gracefully(tmp_path):
     assert e.summary == ""
     assert e.developer == ""
     assert e.store_links == {}
-    assert e.built_with is None
     assert e.update_strategy == "safe"
 
 
@@ -102,7 +99,6 @@ def test_to_dict_omits_empty_fields():
     d = e.to_dict()
     assert "summary" not in d
     assert "developer" not in d
-    assert "built_with" not in d
     assert "archive" not in d
 
 
@@ -159,7 +155,7 @@ def test_https_repo_is_not_writable():
 
 
 def test_ssh_repo_is_writable():
-    repo = Repo("ssh://bob@builds.example.com/srv/cellar-repo")
+    repo = Repo("sftp://bob@builds.example.com/srv/cellar-repo")
     assert repo.is_writable is True
 
 
@@ -284,28 +280,28 @@ def test_repo_http_catalogue():
 
 def test_ssh_fetcher_resolve_uri():
     f = _SshFetcher("host.example.com", "/srv/repo", user="alice", port=2222)
-    assert f.resolve_uri("catalogue.json") == "ssh://alice@host.example.com:2222/srv/repo/catalogue.json"
+    assert f.resolve_uri("catalogue.json") == "sftp://alice@host.example.com:2222/srv/repo/catalogue.json"
 
 
 def test_ssh_fetcher_resolve_uri_no_user_no_port():
     f = _SshFetcher("host.example.com", "/srv/repo")
-    assert f.resolve_uri("apps/foo/icon.png") == "ssh://host.example.com/srv/repo/apps/foo/icon.png"
+    assert f.resolve_uri("apps/foo/icon.png") == "sftp://host.example.com/srv/repo/apps/foo/icon.png"
 
 
-def test_ssh_fetcher_missing_ssh_raises():
-    with patch("subprocess.run", side_effect=FileNotFoundError):
-        with pytest.raises(RepoError, match="ssh executable not found"):
+def test_ssh_fetcher_connection_error_raises():
+    with patch("cellar.utils.ssh._get_sftp", side_effect=IOError("Connection refused")):
+        with pytest.raises(RepoError, match="SSH fetch failed"):
             _SshFetcher(
                 "host.example.com", "/srv/repo", user="alice",
             ).fetch_bytes("catalogue.json")
 
 
-def test_ssh_fetcher_nonzero_exit_raises():
-    result = MagicMock()
-    result.returncode = 255
-    result.stderr = b"Connection refused"
-    with patch("subprocess.run", return_value=result):
-        with pytest.raises(RepoError, match="SSH fetch failed"):
+def test_ssh_fetcher_file_not_found_raises():
+    mock_sftp = MagicMock()
+    mock_sftp.open.side_effect = FileNotFoundError("not found")
+    with patch("cellar.utils.ssh._get_sftp", return_value=mock_sftp), \
+         patch("cellar.utils.ssh._return_sftp"):
+        with pytest.raises(RepoError, match="file not found"):
             _SshFetcher(
                 "host.example.com", "/srv/repo", user="alice",
             ).fetch_bytes("catalogue.json")
@@ -313,37 +309,45 @@ def test_ssh_fetcher_nonzero_exit_raises():
 
 def test_ssh_fetcher_success():
     payload = b'{"cellar_version":1,"apps":[]}'
-    result = MagicMock()
-    result.returncode = 0
-    result.stdout = payload
-    with patch("subprocess.run", return_value=result):
+    mock_file = MagicMock()
+    mock_file.read.return_value = payload
+    mock_file.__enter__ = Mock(return_value=mock_file)
+    mock_file.__exit__ = Mock(return_value=False)
+    mock_sftp = MagicMock()
+    mock_sftp.open.return_value = mock_file
+    with patch("cellar.utils.ssh._get_sftp", return_value=mock_sftp), \
+         patch("cellar.utils.ssh._return_sftp"):
         fetcher = _SshFetcher("host.example.com", "/srv/repo", user="alice")
         assert fetcher.fetch_bytes("catalogue.json") == payload
 
 
-def test_ssh_fetcher_identity_file_in_command():
-    result = MagicMock()
-    result.returncode = 0
-    result.stdout = b"data"
-    with patch("subprocess.run", return_value=result) as mock_run:
-        _SshFetcher(
-            "host.example.com", "/srv/repo", user="alice",
-            identity="/home/alice/.ssh/cellar_ed25519",
-        ).fetch_bytes("catalogue.json")
-    cmd = mock_run.call_args[0][0]
-    assert "-i" in cmd
-    assert "/home/alice/.ssh/cellar_ed25519" in cmd
+def test_ssh_fetcher_identity_passed_to_connection():
+    mock_sftp = MagicMock()
+    mock_sftp.open.side_effect = FileNotFoundError("not found")
+    with patch("cellar.utils.ssh._get_sftp", return_value=mock_sftp) as mock_get, \
+         patch("cellar.utils.ssh._return_sftp"):
+        try:
+            _SshFetcher(
+                "host.example.com", "/srv/repo", user="alice",
+                identity="/home/alice/.ssh/cellar_ed25519",
+            ).fetch_bytes("catalogue.json")
+        except RepoError:
+            pass
+    mock_get.assert_called_once_with(
+        "host.example.com", 22, "alice",
+        "/home/alice/.ssh/cellar_ed25519", None,
+    )
 
 
-def test_repo_ssh_uri_creates_ssh_fetcher():
+def test_repo_sftp_uri_creates_ssh_fetcher():
     from cellar.backend.repo import _SshFetcher as SF
-    repo = Repo("ssh://bob@builds.example.com/srv/cellar-repo")
+    repo = Repo("sftp://bob@builds.example.com/srv/cellar-repo")
     assert isinstance(repo._fetcher, SF)
 
 
-def test_repo_ssh_uri_invalid_no_host_raises():
-    with pytest.raises(RepoError, match="no host"):
-        Repo("ssh:///path/without/host")
+def test_repo_sftp_uri_invalid_no_host_goes_offline():
+    repo = Repo("sftp:///path/without/host")
+    assert repo._is_offline is True
 
 
 # ---------------------------------------------------------------------------
@@ -376,33 +380,26 @@ def test_fetch_bases_populated_after_fetch_catalogue():
     assert "wine-9.0" in bases
 
 
-def test_base_runner_parsed_from_catalogue():
+def test_lock_runner_parsed_from_catalogue():
     entries = {e.id: e for e in Repo(str(FIXTURES)).fetch_catalogue()}
-    assert entries["example-app"].base_runner == "wine-9.0"
-    assert entries["paint-clone"].base_runner == ""
+    # lock_runner defaults to False when not specified in the fixture
+    assert entries["example-app"].lock_runner is False
+    assert entries["paint-clone"].lock_runner is False
 
 
-def test_base_runner_round_trips_through_to_dict():
+def test_lock_runner_round_trips_through_to_dict():
     from cellar.models.app_entry import AppEntry
-    e = AppEntry(id="x", name="X", version="1", category="C", base_runner="soda-9.0-1")
+    e = AppEntry(id="x", name="X", version="1", category="C", lock_runner=True)
     d = e.to_dict()
-    assert d["base_runner"] == "soda-9.0-1"
+    assert d["lock_runner"] is True
     e2 = AppEntry.from_dict(d)
-    assert e2.base_runner == "soda-9.0-1"
+    assert e2.lock_runner is True
 
 
-def test_base_runner_omitted_from_to_dict_when_empty():
+def test_lock_runner_omitted_from_to_dict_when_false():
     from cellar.models.app_entry import AppEntry
     e = AppEntry(id="x", name="X", version="1", category="C")
-    assert "base_runner" not in e.to_dict()
-
-
-def test_base_runner_backwards_compat_reads_old_base_win_ver():
-    """Old catalogues using base_win_ver should still load correctly."""
-    from cellar.models.app_entry import AppEntry
-    d = {"id": "x", "name": "X", "version": "1", "category": "C", "base_win_ver": "win10"}
-    e = AppEntry.from_dict(d)
-    assert e.base_runner == "win10"
+    assert "lock_runner" not in e.to_dict()
 
 
 def test_upsert_base_writes_to_catalogue(tmp_path):

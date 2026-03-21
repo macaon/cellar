@@ -442,6 +442,7 @@ class DetailView(Gtk.Box):
     def _show_progress_popover(self) -> None:
         """Show a popover anchored to the spinner button with live download progress."""
         q = self._install_queue
+        app_id = self._entry.id
         popover = Gtk.Popover()
         popover.set_parent(self._spinner_btn)
         popover.set_position(Gtk.PositionType.BOTTOM)
@@ -473,12 +474,18 @@ class DetailView(Gtk.Box):
         def _update() -> bool:
             if not popover.is_visible():
                 return False
-            phase = q.active_phase or "Installing…"
-            phase_label.set_label(phase)
-            progress_bar.set_fraction(q.active_fraction)
-            stats = q.active_stats_text
-            stats_label.set_label(stats if stats else "")
-            stats_label.set_visible(bool(stats))
+            if q.is_active(app_id):
+                phase = q.active_phase or "Installing\u2026"
+                phase_label.set_label(phase)
+                progress_bar.set_visible(True)
+                progress_bar.set_fraction(q.active_fraction)
+                stats = q.active_stats_text
+                stats_label.set_label(stats if stats else "")
+                stats_label.set_visible(bool(stats))
+            else:
+                phase_label.set_label("Queued")
+                progress_bar.set_visible(False)
+                stats_label.set_visible(False)
             return True  # keep updating
 
         _update()

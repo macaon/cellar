@@ -265,7 +265,7 @@ def _make_completed_row(app_name: str) -> Adw.ActionRow:
     """Build a row for a completed transfer."""
     row = Adw.ActionRow(title=app_name, subtitle="Completed")
 
-    icon = Gtk.Image.new_from_icon_name("emblem-ok-symbolic")
+    icon = Gtk.Image.new_from_icon_name("check-round-outline2-symbolic")
     icon.set_valign(Gtk.Align.CENTER)
     icon.add_css_class("success")
     row.add_prefix(icon)

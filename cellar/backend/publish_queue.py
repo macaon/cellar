@@ -84,7 +84,7 @@ class PublishQueue:
         self._on_progress = on_progress
         self._on_bytes = on_bytes
         self._on_queue_changed = on_queue_changed
-        self._completed: list[str] = []
+        self._completed: list[tuple[str, str]] = []
         self._active_phase: str = ""
         self._active_fraction: float = 0.0
         self._active_stats: str = ""
@@ -149,8 +149,13 @@ class PublishQueue:
             return list(self._queue)
 
     @property
-    def completed_ids(self) -> list[str]:
+    def completed_items(self) -> list[tuple[str, str]]:
+        """Recently completed (app_id, app_name) pairs."""
         return list(self._completed)
+
+    @property
+    def completed_ids(self) -> list[str]:
+        return [cid for cid, _ in self._completed]
 
     @property
     def is_empty(self) -> bool:
@@ -185,7 +190,7 @@ class PublishQueue:
 
         try:
             self._do_publish(job)
-            self._completed.append(job.app_id)
+            self._completed.append((job.app_id, job.app_name))
             GLib.idle_add(self._on_job_done, job)
         except CancelledError:
             GLib.idle_add(self._on_job_cancelled, job)

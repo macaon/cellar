@@ -86,8 +86,8 @@ class InstallQueue:
         self._on_progress = on_progress
         self._on_download_stats = on_download_stats
         self._on_queue_changed = on_queue_changed
-        # Recently completed app IDs (for the queue dialog).
-        self._completed: list[str] = []
+        # Recently completed (app_id, app_name) pairs for the queue dialog.
+        self._completed: list[tuple[str, str]] = []
         # Latest download stats for the active job (for tooltip / queue dialog).
         self._active_phase: str = ""
         self._active_fraction: float = 0.0
@@ -162,8 +162,13 @@ class InstallQueue:
             return list(self._queue)
 
     @property
-    def completed_ids(self) -> list[str]:
+    def completed_items(self) -> list[tuple[str, str]]:
+        """Recently completed (app_id, app_name) pairs."""
         return list(self._completed)
+
+    @property
+    def completed_ids(self) -> list[str]:
+        return [cid for cid, _ in self._completed]
 
     @property
     def is_empty(self) -> bool:
@@ -213,7 +218,7 @@ class InstallQueue:
 
         try:
             result = self._do_install(job, _phase, _dl_progress, _dl_stats)
-            self._completed.append(job.app_id)
+            self._completed.append((job.app_id, job.app_name))
             GLib.idle_add(self._on_job_done, job, result)
         except InstallCancelled:
             GLib.idle_add(self._on_job_cancelled, job)

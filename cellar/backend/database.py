@@ -51,7 +51,8 @@ Schema v5 (current)
         vkd3d            INTEGER,
         audio_driver     TEXT,
         debug            INTEGER,
-        direct_proton    INTEGER
+        direct_proton    INTEGER,
+        no_lsteamclient  INTEGER
     );
 """
 
@@ -66,7 +67,7 @@ from cellar.backend.config import data_dir
 
 log = logging.getLogger(__name__)
 
-_CURRENT_VERSION = 5
+_CURRENT_VERSION = 6
 
 
 # ---------------------------------------------------------------------------
@@ -135,6 +136,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
         _migrate_v3_to_v4(conn)
     if current < 5:
         _migrate_v4_to_v5(conn)
+    if current < 6:
+        _migrate_v5_to_v6(conn)
 
 
 def _create_schema_v1(conn: sqlite3.Connection) -> None:
@@ -175,7 +178,8 @@ def _create_schema_v1(conn: sqlite3.Connection) -> None:
             vkd3d            INTEGER,
             audio_driver     TEXT,
             debug            INTEGER,
-            direct_proton    INTEGER
+            direct_proton    INTEGER,
+            no_lsteamclient  INTEGER
         );
     """)
     conn.execute("INSERT INTO schema_version (version) VALUES (?)", (_CURRENT_VERSION,))
@@ -333,6 +337,23 @@ def _migrate_v4_to_v5(conn: sqlite3.Connection) -> None:
         raise
 
 
+def _migrate_v5_to_v6(conn: sqlite3.Connection) -> None:
+    """Add ``no_lsteamclient`` column to the ``launch_overrides`` table."""
+    log.info("Migrating cellar.db from v5 to v6")
+    try:
+        with conn:
+            conn.execute(
+                "ALTER TABLE launch_overrides ADD COLUMN no_lsteamclient INTEGER"
+            )
+            conn.execute(
+                "INSERT OR REPLACE INTO schema_version (version) VALUES (?)",
+                (6,),
+            )
+    except Exception:
+        log.exception("v5→v6 migration failed; database left unchanged")
+        raise
+
+
 # ---------------------------------------------------------------------------
 # Public API — installed apps
 # ---------------------------------------------------------------------------
@@ -478,7 +499,7 @@ def get_launch_overrides(app_id: str) -> dict:
     d.pop("app_id", None)
     if d.get("launch_targets") is not None:
         d["launch_targets"] = _json.loads(d["launch_targets"])
-    for key in ("dxvk", "vkd3d", "debug", "direct_proton"):
+    for key in ("dxvk", "vkd3d", "debug", "direct_proton", "no_lsteamclient"):
         if d.get(key) is not None:
             d[key] = bool(d[key])
     return {k: v for k, v in d.items() if v is not None}
@@ -502,17 +523,18 @@ def set_launch_overrides(app_id: str, overrides: dict) -> None:
             """
             INSERT INTO launch_overrides
                 (app_id, launch_targets, steam_appid, runner, dxvk, vkd3d,
-                 audio_driver, debug, direct_proton)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 audio_driver, debug, direct_proton, no_lsteamclient)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(app_id) DO UPDATE SET
-                launch_targets = excluded.launch_targets,
-                steam_appid    = excluded.steam_appid,
-                runner         = excluded.runner,
-                dxvk           = excluded.dxvk,
-                vkd3d          = excluded.vkd3d,
-                audio_driver   = excluded.audio_driver,
-                debug          = excluded.debug,
-                direct_proton  = excluded.direct_proton
+                launch_targets  = excluded.launch_targets,
+                steam_appid     = excluded.steam_appid,
+                runner          = excluded.runner,
+                dxvk            = excluded.dxvk,
+                vkd3d           = excluded.vkd3d,
+                audio_driver    = excluded.audio_driver,
+                debug           = excluded.debug,
+                direct_proton   = excluded.direct_proton,
+                no_lsteamclient = excluded.no_lsteamclient
             """,
             (
                 app_id,
@@ -524,6 +546,7 @@ def set_launch_overrides(app_id: str, overrides: dict) -> None:
                 overrides.get("audio_driver") or None,
                 _to_int(overrides.get("debug")),
                 _to_int(overrides.get("direct_proton")),
+                _to_int(overrides.get("no_lsteamclient")),
             ),
         )
 

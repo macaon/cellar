@@ -119,8 +119,9 @@ _AUDIO_OVERRIDES: dict[str, tuple[str, ...]] = {
 
 def dll_overrides(
     *, dxvk: bool = True, vkd3d: bool = True, audio_driver: str = "auto",
+    no_lsteamclient: bool = False,
 ) -> str:
-    """Build a ``WINEDLLOVERRIDES`` value for DXVK, VKD3D, Mono, and audio.
+    """Build a ``WINEDLLOVERRIDES`` value for DXVK, VKD3D, Mono, audio, and Steam.
 
     GE-Proton ships DXVK, VKD3D, and Wine Mono inside every prefix, but
     Wine needs explicit overrides to prefer native DLLs over its built-in
@@ -130,6 +131,10 @@ def dll_overrides(
     When *audio_driver* is not ``"auto"``, the unwanted audio driver DLLs
     are disabled (set to empty = disabled) so Wine uses only the chosen
     backend.
+
+    When *no_lsteamclient* is True, Proton's ``lsteamclient.dll`` shim is
+    disabled.  The shim can intercept Steam API calls and cause
+    access-violation crashes in some apps.
 
     Returns an empty string when no overrides are needed.
     """
@@ -142,6 +147,8 @@ def dll_overrides(
         parts.extend(f"{d}=n,b" for d in ("d3d12", "d3d12core"))
     if audio_driver in _AUDIO_OVERRIDES:
         parts.extend(f"{d}=" for d in _AUDIO_OVERRIDES[audio_driver])
+    if no_lsteamclient:
+        parts.append("lsteamclient=d")
     if parts:
         parts.append("mscoree=n,b")
     return ";".join(parts)
@@ -253,13 +260,17 @@ def launch_app(
         cmd = _umu_cmd() + [exe]
     if launch_args:
         cmd += shlex.split(launch_args)
+    # Set cwd to the executable's directory — some games (and Steam
+    # emulators) resolve config files relative to the working directory.
+    exe_dir = str(Path(exe).parent) if "/" in exe else None
     log.info(
-        "Launching app %s via %s\n  WINEPREFIX=%s\n  PROTONPATH=%s\n  GAMEID=%s\n  EXE=%s%s",
+        "Launching app %s via %s\n  WINEPREFIX=%s\n  PROTONPATH=%s\n  GAMEID=%s\n  EXE=%s\n  CWD=%s%s",
         app_id, "proton direct" if direct_proton else "umu-run",
         umu_env["WINEPREFIX"], umu_env["PROTONPATH"], umu_env["GAMEID"], exe,
+        exe_dir or "(default)",
         ("\n  EXTRA_ENV=" + _fmt_env(extra_env)) if extra_env else "",
     )
-    subprocess.Popen(cmd, env=env, start_new_session=True)
+    subprocess.Popen(cmd, env=env, cwd=exe_dir, start_new_session=True)
 
 
 def _exe_basename(entry_point: str) -> str:
@@ -476,15 +487,17 @@ def launch_app_monitored(
         cmd = _umu_cmd() + [exe]
     if launch_args:
         cmd += shlex.split(launch_args)
+    exe_dir = str(Path(exe).parent) if "/" in exe else None
     log.info(
         "Launching app (monitored) %s via %s"
-        "\n  WINEPREFIX=%s\n  PROTONPATH=%s\n  GAMEID=%s\n  EXE=%s%s",
+        "\n  WINEPREFIX=%s\n  PROTONPATH=%s\n  GAMEID=%s\n  EXE=%s\n  CWD=%s%s",
         app_id, "proton direct" if direct_proton else "umu-run",
         umu_env["WINEPREFIX"], umu_env["PROTONPATH"], umu_env["GAMEID"], exe,
+        exe_dir or "(default)",
         ("\n  EXTRA_ENV=" + _fmt_env(extra_env)) if extra_env else "",
     )
     proc = subprocess.Popen(
-        cmd, env=env, start_new_session=True,
+        cmd, env=env, cwd=exe_dir, start_new_session=True,
         stderr=subprocess.PIPE, text=True, bufsize=1,
     )
     if proc.stderr is None:
@@ -527,7 +540,7 @@ def merge_launch_params(entry, overrides: dict | None, *, installed_runner: str 
 
     Returns a dict with keys: ``entry_point``, ``launch_args``,
     ``launch_targets``, ``steam_appid``, ``runner``, ``dxvk``, ``vkd3d``,
-    ``audio_driver``, ``debug``, ``direct_proton``.
+    ``audio_driver``, ``debug``, ``direct_proton``, ``no_lsteamclient``.
 
     *overrides* is the result of ``database.get_launch_overrides()``; ``None``
     or empty dict means use catalogue defaults for everything.
@@ -564,6 +577,10 @@ def merge_launch_params(entry, overrides: dict | None, *, installed_runner: str 
         "direct_proton": (
             overrides["direct_proton"] if "direct_proton" in overrides
             else entry.direct_proton
+        ),
+        "no_lsteamclient": (
+            overrides["no_lsteamclient"] if "no_lsteamclient" in overrides
+            else entry.no_lsteamclient
         ),
     }
 

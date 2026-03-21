@@ -116,6 +116,7 @@ class LaunchParamsDialog(Adw.Dialog):
         self._audio_row = None
         self._debug_row = None
         self._direct_proton_row = None
+        self._no_lsteamclient_row = None
 
         if is_proton:
             runner_group = Adw.PreferencesGroup(title="Runner")
@@ -194,6 +195,16 @@ class LaunchParamsDialog(Adw.Dialog):
                 else entry.direct_proton
             )
             compat_group.add(self._direct_proton_row)
+
+            self._no_lsteamclient_row = Adw.SwitchRow(
+                title="Disable Steam Client Shim",
+                subtitle=f"Catalogue default: {'On' if entry.no_lsteamclient else 'Off'}",
+            )
+            self._no_lsteamclient_row.set_active(
+                overrides["no_lsteamclient"] if "no_lsteamclient" in overrides
+                else entry.no_lsteamclient
+            )
+            compat_group.add(self._no_lsteamclient_row)
 
             page.add(compat_group)
 
@@ -458,6 +469,9 @@ class LaunchParamsDialog(Adw.Dialog):
         if (self._direct_proton_row is not None
                 and self._direct_proton_row.get_active() != entry.direct_proton):
             overrides["direct_proton"] = self._direct_proton_row.get_active()
+        if (self._no_lsteamclient_row is not None
+                and self._no_lsteamclient_row.get_active() != entry.no_lsteamclient):
+            overrides["no_lsteamclient"] = self._no_lsteamclient_row.get_active()
 
         # Audio driver
         if self._audio_row is not None:

@@ -61,11 +61,13 @@ class PackageBuilderView(Adw.Bin):
         writable_repos: list | None = None,
         all_repos: list | None = None,
         on_catalogue_changed: Callable | None = None,
+        publish_queue=None,
     ) -> None:
         super().__init__()
         self._writable_repos: list = writable_repos or []
         self._all_repos: list = all_repos or []
         self._on_catalogue_changed = on_catalogue_changed
+        self._publish_queue = publish_queue
         self._project: Project | None = None
         self._project_cards: list[_ProjectCard] = []
         self._replacing_detail = False
@@ -505,6 +507,13 @@ class PackageBuilderView(Adw.Bin):
                         summary=entry.summary or "",
                         description=entry.description or "",
                         hide_title=entry.hide_title,
+                        dxvk=entry.dxvk,
+                        vkd3d=entry.vkd3d,
+                        audio_driver=entry.audio_driver,
+                        debug=entry.debug,
+                        direct_proton=entry.direct_proton,
+                        no_lsteamclient=entry.no_lsteamclient,
+                        lock_runner=entry.lock_runner,
                     )
 
                     GLib.idle_add(progress.set_label, "Copying content\u2026")
@@ -1268,6 +1277,89 @@ class PackageBuilderView(Adw.Bin):
                 _missing.append("add a launch target")
             if not project.category:
                 _missing.append("set a category")
+
+            # ── Launch options (Windows apps only, saved to project) ──
+            if project.project_type not in ("linux", "dos"):
+                launch_group = Adw.PreferencesGroup(
+                    title="Launch Options",
+                    description="Saved to the package as recommended defaults",
+                )
+
+                self._dxvk_row = Adw.SwitchRow(
+                    title="DXVK",
+                    subtitle="Translate D3D9/10/11 via Vulkan (disable for WineD3D/OpenGL)",
+                    active=project.dxvk,
+                )
+                self._dxvk_row.connect("notify::active", self._on_launch_opt_toggled, "dxvk")
+                launch_group.add(self._dxvk_row)
+
+                self._vkd3d_row = Adw.SwitchRow(
+                    title="VKD3D",
+                    subtitle="Translate D3D12 via Vulkan",
+                    active=project.vkd3d,
+                )
+                self._vkd3d_row.connect("notify::active", self._on_launch_opt_toggled, "vkd3d")
+                launch_group.add(self._vkd3d_row)
+
+                _audio_choices = ["auto", "pulseaudio", "alsa", "oss"]
+                _audio_model = Gtk.StringList.new(_audio_choices)
+                self._audio_row = Adw.ComboRow(
+                    title="Audio Driver",
+                    subtitle="Wine audio backend",
+                    model=_audio_model,
+                )
+                _cur_audio = project.audio_driver if project.audio_driver in _audio_choices else "auto"
+                self._audio_row.set_selected(_audio_choices.index(_cur_audio))
+                self._audio_row.connect("notify::selected", self._on_audio_driver_changed)
+                launch_group.add(self._audio_row)
+
+                self._debug_row = Adw.SwitchRow(
+                    title="Proton Debug Logging",
+                    subtitle="Enable PROTON_LOG=1 when launching",
+                    active=project.debug,
+                )
+                self._debug_row.connect("notify::active", self._on_launch_opt_toggled, "debug")
+                launch_group.add(self._debug_row)
+
+                self._direct_proton_row = Adw.SwitchRow(
+                    title="Direct Proton Launch",
+                    subtitle="Bypass umu-run and call Proton directly",
+                    active=project.direct_proton,
+                )
+                self._direct_proton_row.connect(
+                    "notify::active", self._on_launch_opt_toggled, "direct_proton",
+                )
+                launch_group.add(self._direct_proton_row)
+
+                self._no_lsteamclient_row = Adw.SwitchRow(
+                    title="Disable Steam Client Shim",
+                    subtitle="Disable Proton's built-in lsteamclient.dll",
+                    active=project.no_lsteamclient,
+                )
+                self._no_lsteamclient_row.connect(
+                    "notify::active", self._on_launch_opt_toggled, "no_lsteamclient",
+                )
+                launch_group.add(self._no_lsteamclient_row)
+
+                self._lock_runner_row = Adw.SwitchRow(
+                    title="Lock Runner",
+                    subtitle="Prevent end-users from overriding the runner",
+                    active=project.lock_runner,
+                )
+                self._lock_runner_row.connect(
+                    "notify::active", self._on_launch_opt_toggled, "lock_runner",
+                )
+                launch_group.add(self._lock_runner_row)
+
+                page.add(launch_group)
+            else:
+                self._dxvk_row = None
+                self._vkd3d_row = None
+                self._audio_row = None
+                self._debug_row = None
+                self._direct_proton_row = None
+                self._no_lsteamclient_row = None
+                self._lock_runner_row = None
 
             # Test launch
             test_row = Adw.ActionRow(
@@ -2744,6 +2836,22 @@ class PackageBuilderView(Adw.Bin):
             ep.pop("run_as_admin", None)
         save_project(self._project)
 
+    # ── Launch-option handlers ────────────────────────────────────────────
+
+    def _on_launch_opt_toggled(self, switch: Adw.SwitchRow, _pspec, field: str) -> None:
+        if self._project is None:
+            return
+        setattr(self._project, field, switch.get_active())
+        save_project(self._project)
+
+    def _on_audio_driver_changed(self, combo: Adw.ComboRow, _pspec) -> None:
+        if self._project is None:
+            return
+        choices = ["auto", "pulseaudio", "alsa", "oss"]
+        idx = combo.get_selected()
+        self._project.audio_driver = choices[idx] if idx < len(choices) else "auto"
+        save_project(self._project)
+
     def _on_remove_entry_point_clicked(self, _btn, ep: dict) -> None:
         if self._project is None:
             return
@@ -2845,10 +2953,16 @@ class PackageBuilderView(Adw.Bin):
             what = "a base image" if project.project_type == "app" else "a runner"
             self._show_toast(f"Select {what} before test launching.")
             return
-        from cellar.backend.config import load_audio_driver  # noqa: PLC0415
-        from cellar.backend.umu import dll_overrides, launch_app
+        from cellar.backend.umu import dll_overrides, launch_app, proton_compat_env
         extra_env: dict[str, str] = {}
-        overrides = dll_overrides(audio_driver=load_audio_driver())
+        if project.debug:
+            extra_env["PROTON_LOG"] = "1"
+        extra_env.update(proton_compat_env(dxvk=project.dxvk, vkd3d=project.vkd3d))
+        overrides = dll_overrides(
+            dxvk=project.dxvk, vkd3d=project.vkd3d,
+            audio_driver=project.audio_driver,
+            no_lsteamclient=project.no_lsteamclient,
+        )
         if overrides:
             extra_env["WINEDLLOVERRIDES"] = overrides
         launch_app(
@@ -2859,12 +2973,16 @@ class PackageBuilderView(Adw.Bin):
             prefix_dir=project.content_path,
             launch_args=entry_args,
             extra_env=extra_env or None,
+            direct_proton=project.direct_proton,
         )
 
     def _on_publish_app_clicked(self, _btn) -> None:
         if self._project is None:
             return
         project = self._project
+        if self._publish_queue and self._publish_queue.is_pending(project.slug):
+            self._show_toast("This project is already being published.")
+            return
         if project.project_type not in ("linux", "dos") and not project.initialized:
             self._show_toast("Initialize the prefix before publishing.")
             return
@@ -2895,14 +3013,9 @@ class PackageBuilderView(Adw.Bin):
         self._do_publish_app(project, self._writable_repos[0])
 
     def _do_publish_app(self, project: Project, repo) -> None:
-        _src_path = (
-            Path(project.source_dir)
-            if project.project_type in ("linux", "dos")
-            else project.content_path
-        )
-
         # Build AppEntry from project metadata.
         from cellar.models.app_entry import AppEntry
+
         _slug = project.slug
         _raw_icon_ext = Path(project.icon_path).suffix.lower() if project.icon_path else ".png"
         _icon_ext = ".png" if _raw_icon_ext in (".ico", ".bmp") else _raw_icon_ext
@@ -2932,6 +3045,13 @@ class PackageBuilderView(Adw.Bin):
             launch_targets=tuple(project.entry_points),
             update_strategy="safe",
             platform={"linux": "linux", "dos": "dos"}.get(project.project_type, "windows"),
+            dxvk=project.dxvk,
+            vkd3d=project.vkd3d,
+            audio_driver=project.audio_driver,
+            debug=project.debug,
+            direct_proton=project.direct_proton,
+            no_lsteamclient=project.no_lsteamclient,
+            lock_runner=project.lock_runner,
         )
         images: dict = {}
         if project.icon_path:
@@ -2943,295 +3063,45 @@ class PackageBuilderView(Adw.Bin):
         if project.screenshot_paths:
             images["screenshots"] = list(project.screenshot_paths)
 
-        cancel_event = threading.Event()
-        progress = ProgressDialog(
-            label="Compressing and uploading\u2026", cancel_event=cancel_event,
+        # Ask keep/delete *before* enqueueing so the user decides up-front.
+        self._ask_keep_then_enqueue(project, repo, entry, images)
+
+    def _ask_keep_then_enqueue(self, project, repo, entry, images) -> None:
+        """Show keep/delete dialog, then enqueue the publish job."""
+        from cellar.backend.publish_queue import PublishJob
+
+        dlg = Adw.AlertDialog(
+            heading="Keep project?",
+            body=(
+                "Do you want to keep the project in the builder for future "
+                "updates, or delete it after publishing?"
+            ),
         )
-        progress.present(self)
+        dlg.add_response("delete", "Delete After Publish")
+        dlg.add_response("keep", "Keep")
+        dlg.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
+        dlg.set_default_response("keep")
 
-        import time
-
-        from cellar.utils.progress import fmt_size
-
-        _prev: list[tuple[float, int]] = []  # (time, bytes)
-
-        def _bytes_cb(n: int) -> None:
-            now = time.monotonic()
-            _prev.append((now, n))
-            # sliding 2-second window for smoothed speed
-            cutoff = now - 2.0
-            while _prev and _prev[0][0] < cutoff:
-                _prev.pop(0)
-            if len(_prev) >= 2:
-                dt = _prev[-1][0] - _prev[0][0]
-                db = _prev[-1][1] - _prev[0][1]
-                speed = db / dt if dt > 0 else 0
-                spd = f" ({fmt_size(int(speed))}/s)" if speed > 0 else ""
-            else:
-                spd = ""
-            GLib.idle_add(progress.set_stats, fmt_size(n) + " written" + spd)
-
-        def _reset_phase(label: str) -> None:
-            _prev.clear()
-            GLib.idle_add(progress.set_label, label)
-            GLib.idle_add(progress.set_stats, "")
-            GLib.idle_add(progress.start_pulse)
-
-        all_repos = list(self._all_repos)
-
-        def _work():
-            from cellar.backend.packager import (
-                CancelledError,
-                compress_prefix_delta_zst,
-                compress_prefix_zst,
-                import_to_repo,
+        def _on_response(_dlg, response):
+            delete_after = response == "delete"
+            job = PublishJob(
+                app_id=entry.id,
+                app_name=project.name,
+                project=project,
+                repo=repo,
+                all_repos=list(self._all_repos),
+                entry=entry,
+                images=images,
+                delete_after=delete_after,
             )
+            self._publish_queue.enqueue(job)
+            self._show_toast(f"Publishing \u2018{project.name}\u2019 in the background\u2026")
+            self._project = None
+            self._reload_projects()
+            self._nav_view.pop_to_page(self._list_page)
 
-            # Download any Steam screenshots the user selected in metadata
-            nonlocal entry, images
-            if project.selected_steam_urls:
-                GLib.idle_add(progress.set_label, "Downloading screenshots\u2026")
-                from cellar.utils.http import make_session as _make_session
-                _session = _make_session()
-                dl_dir = project.project_dir / "screenshots"
-                dl_dir.mkdir(parents=True, exist_ok=True)
-                _selected = set(project.selected_steam_urls)
-                _downloaded: list[str] = []
-                _steam_url_for_path: dict[str, str] = {}
-                for i, ss in enumerate(project.steam_screenshots):
-                    if ss.get("full") not in _selected:
-                        continue
-                    try:
-                        _resp = _session.get(ss["full"], timeout=30)
-                        if _resp.ok:
-                            _suffix = ".jpg" if ss["full"].lower().endswith(".jpg") else ".png"
-                            _dest = dl_dir / f"steam_{i:02d}{_suffix}"
-                            _dest.write_bytes(_resp.content)
-                            _downloaded.append(str(_dest))
-                            _steam_url_for_path[str(_dest)] = ss["full"]
-                    except Exception as _exc:  # noqa: BLE001
-                        log.warning("Screenshot download failed: %s", _exc)
-                if _downloaded:
-                    _n_existing = len(project.screenshot_paths)
-                    project.screenshot_paths = list(project.screenshot_paths) + _downloaded
-                    _new_rels = tuple(
-                        f"apps/{_slug}/screenshots/{j + 1:02d}{Path(p).suffix}"
-                        for j, p in enumerate(project.screenshot_paths)
-                    )
-                    _ss_sources = {
-                        _new_rels[_n_existing + k]: _steam_url_for_path[_downloaded[k]]
-                        for k in range(len(_downloaded))
-                    }
-                    entry = _dc_replace(
-                        entry, screenshots=_new_rels, screenshot_sources=_ss_sources,
-                    )
-                    images["screenshots"] = list(project.screenshot_paths)
-                project.steam_screenshots = []
-                project.selected_steam_urls = []
-                from cellar.backend.project import save_project as _save_project
-                _save_project(project)
-
-            repo_root = repo.writable_path()
-            archive_dest = repo_root / entry.archive
-            archive_dest.parent.mkdir(parents=True, exist_ok=True)
-
-            # Remove old archive chunks before writing new ones — they share
-            # the same filename pattern, so cleanup after would delete new files.
-            from cellar.backend.packager import (
-                _cleanup_chunks,
-                _cleanup_old_archive,
-            )
-            _cleanup_old_archive(repo_root, entry)
-
-            # Track what we've written so we can clean up on cancel.
-            _written_archive = False
-            _runner_upserted: tuple[str, object] | None = None  # (name, dest)
-            _base_upserted: tuple[str, object] | None = None    # (name, dest)
-            _partial_dest = None  # dest currently being compressed
-            _app_imported = False
-
-            try:
-                _reset_phase("Compressing and uploading\u2026")
-                _delta_uncompressed = 0
-                if project.project_type in ("linux", "dos"):
-                    _partial_dest = archive_dest
-                    size, crc32, chunks = compress_prefix_zst(
-                        _src_path,
-                        archive_dest,
-                        cancel_event=cancel_event,
-                        bytes_cb=_bytes_cb,
-                    )
-                    base_image = ""
-                else:
-                    from cellar.backend.base_store import base_path, is_base_installed
-                    if not is_base_installed(project.runner):
-                        raise RuntimeError(
-                            f"Base image \u201c{project.runner}\u201d is not installed locally. "
-                            "Install the base image before publishing."
-                        )
-                    _reset_phase("Scanning files\u2026")
-                    _partial_dest = archive_dest
-                    size, crc32, chunks, _delta_uncompressed = compress_prefix_delta_zst(
-                        _src_path,
-                        base_path(project.runner),
-                        archive_dest,
-                        cancel_event=cancel_event,
-                        phase_cb=_reset_phase,
-                        bytes_cb=_bytes_cb,
-                    )
-                    base_image = project.runner
-                _partial_dest = None
-                _written_archive = True
-
-                # ── Auto-publish base image + runner if missing ───────
-                if base_image:
-                    import json as _json
-
-                    from cellar.backend.base_store import base_path
-                    from cellar.backend.packager import (
-                        compress_runner_zst,
-                        upsert_base,
-                        upsert_runner,
-                    )
-                    from cellar.backend.umu import runners_dir
-
-                    _target_bases: dict[str, str] = {}
-                    _target_runners: dict[str, str] = {}
-                    _cat_path = repo_root / "catalogue.json"
-                    try:
-                        if _cat_path.exists():
-                            with _cat_path.open("r") as _f:
-                                _cat_raw = _json.load(_f)
-                            if isinstance(_cat_raw, dict):
-                                _target_bases = _cat_raw.get("bases", {})
-                                _target_runners = _cat_raw.get("runners", {})
-                    except Exception:
-                        pass
-
-                    _need_base = base_image not in _target_bases
-                    if _need_base:
-                        _runner_name = base_image
-                        for _r in all_repos:
-                            try:
-                                _rb = _r.fetch_bases()
-                                if base_image in _rb:
-                                    _runner_name = _rb[base_image].runner
-                                    break
-                            except Exception:
-                                continue
-
-                        _need_runner = _runner_name not in _target_runners
-
-                        if _need_runner:
-                            _runner_src = runners_dir() / _runner_name
-                            _runner_rel = f"runners/{_runner_name}.tar.zst"
-                            _runner_dest = repo_root / _runner_rel
-                            _runner_dest.parent.mkdir(parents=True, exist_ok=True)
-                            _reset_phase("Uploading runner\u2026")
-                            _partial_dest = _runner_dest
-                            _rs, _rc, _rch = compress_runner_zst(
-                                _runner_src,
-                                _runner_dest,
-                                cancel_event=cancel_event,
-                                bytes_cb=_bytes_cb,
-                            )
-                            _partial_dest = None
-                            upsert_runner(repo_root, _runner_name, _runner_rel, _rc, _rs, _rch)
-                            _runner_upserted = (_runner_name, _runner_dest)
-
-                        _base_rel = f"bases/{base_image}-base.tar.zst"
-                        _base_dest = repo_root / _base_rel
-                        _base_dest.parent.mkdir(parents=True, exist_ok=True)
-                        _reset_phase("Uploading base image\u2026")
-                        _partial_dest = _base_dest
-                        _bs, _bc, _bch = compress_prefix_zst(
-                            base_path(base_image),
-                            _base_dest,
-                            cancel_event=cancel_event,
-                            bytes_cb=_bytes_cb,
-                        )
-                        _partial_dest = None
-                        upsert_base(repo_root, base_image, _runner_name, _base_rel, _bc, _bs, _bch)
-                        _base_upserted = (base_image, _base_dest)
-
-                GLib.idle_add(progress.set_label, "Finalizing\u2026")
-                GLib.idle_add(progress.set_stats, "")
-                GLib.idle_add(progress.start_pulse)
-                final_entry = _dc_replace(
-                    entry,
-                    archive_crc32=crc32,
-                    archive_size=size,
-                    archive_chunks=chunks,
-                    base_image=base_image,
-                    delta_size=_delta_uncompressed,
-                )
-                import_to_repo(
-                    repo_root,
-                    final_entry,
-                    "",
-                    images,
-                    archive_in_place=True,
-                    phase_cb=lambda s: GLib.idle_add(progress.set_label, s),
-                )
-                _app_imported = True
-
-            except CancelledError:
-                from cellar.backend.packager import (
-                    _remove_from_catalogue,
-                    _rmtree,
-                    remove_base,
-                    remove_runner,
-                )
-                # Clean up partial compression in progress.
-                if _partial_dest is not None:
-                    try:
-                        _cleanup_chunks(_partial_dest)
-                    except Exception:
-                        pass
-                # Reverse completed writes in LIFO order.
-                if _app_imported:
-                    try:
-                        _remove_from_catalogue(repo_root, entry.id)
-                    except Exception:
-                        pass
-                    try:
-                        _rmtree(repo_root / "apps" / entry.id, ignore_errors=True)
-                    except Exception:
-                        pass
-                if _base_upserted:
-                    try:
-                        remove_base(repo_root, _base_upserted[0])
-                    except Exception:
-                        pass
-                if _runner_upserted:
-                    try:
-                        remove_runner(repo_root, _runner_upserted[0])
-                    except Exception:
-                        pass
-                if _written_archive:
-                    try:
-                        _cleanup_chunks(archive_dest)
-                    except Exception:
-                        pass
-                raise
-
-        def _done(_result) -> None:
-            progress.force_close()
-            self._show_toast(f"Published '{project.name}' to {repo.name or repo.uri}.")
-            if self._on_catalogue_changed:
-                self._on_catalogue_changed()
-            self._ask_keep_project(project.slug)
-
-        def _error(msg: str) -> None:
-            progress.force_close()
-            if cancel_event.is_set():
-                self._show_toast("Publish cancelled.")
-                return
-            err = Adw.AlertDialog(heading="Publish failed", body=msg)
-            err.add_response("ok", "OK")
-            err.present(self)
-
-        run_in_background(_work, on_done=_done, on_error=_error)
+        dlg.connect("response", _on_response)
+        dlg.present(self)
 
 
     def _on_publish_base_clicked(self, _btn) -> None:

@@ -48,6 +48,13 @@
                       </object>
                     </child>
                     <child type="end">
+                      <object class="GtkButton" id="transfers_button">
+                        <property name="icon-name">folder-download-symbolic</property>
+                        <property name="tooltip-text" translatable="yes">Transfers</property>
+                        <property name="visible">false</property>
+                      </object>
+                    </child>
+                    <child type="end">
                       <object class="GtkButton" id="refresh_button">
                         <property name="icon-name">view-refresh-symbolic</property>
                         <property name="tooltip-text" translatable="yes">Refresh catalogue</property>
@@ -143,10 +150,6 @@
   </template>
   <menu id="main_menu">
     <section>
-      <item>
-        <attribute name="label" translatable="yes">Downloads</attribute>
-        <attribute name="action">win.downloads</attribute>
-      </item>
       <item>
         <attribute name="label" translatable="yes">Preferences</attribute>
         <attribute name="action">win.preferences</attribute>

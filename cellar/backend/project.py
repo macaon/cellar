@@ -52,6 +52,15 @@ class Project:
     installer_path: str = ""   # Smart import: path to .exe/.msi/.sh/.run to run in prefix
     installer_type: str = ""   # "", "isolated" (bwrap sandbox), "folder" (direct copy)
 
+    # ── Launch options (committed to catalogue metadata on publish) ───────
+    dxvk: bool = True
+    vkd3d: bool = True
+    audio_driver: str = "auto"       # "auto" | "pulseaudio" | "alsa" | "oss"
+    debug: bool = False
+    direct_proton: bool = False
+    no_lsteamclient: bool = False  # disable Proton's lsteamclient.dll shim
+    lock_runner: bool = False
+
     # ── Catalogue metadata (App only) ─────────────────────────────────────
     version: str = "1.0"
     category: str = ""
@@ -115,6 +124,13 @@ class Project:
             source_dir=data.get("source_dir", ""),
             installer_path=data.get("installer_path", ""),
             installer_type=data.get("installer_type", ""),
+            dxvk=bool(data.get("dxvk", True)),
+            vkd3d=bool(data.get("vkd3d", True)),
+            audio_driver=data.get("audio_driver", "auto"),
+            debug=bool(data.get("debug", False)),
+            direct_proton=bool(data.get("direct_proton", False)),
+            no_lsteamclient=bool(data.get("no_lsteamclient", False)),
+            lock_runner=bool(data.get("lock_runner", False)),
             version=data.get("version", "1.0"),
             category=data.get("category", ""),
             developer=data.get("developer", ""),
@@ -161,6 +177,20 @@ class Project:
             d["installer_path"] = self.installer_path
         if self.installer_type:
             d["installer_type"] = self.installer_type
+        if not self.dxvk:
+            d["dxvk"] = False
+        if not self.vkd3d:
+            d["vkd3d"] = False
+        if self.audio_driver != "auto":
+            d["audio_driver"] = self.audio_driver
+        if self.debug:
+            d["debug"] = True
+        if self.direct_proton:
+            d["direct_proton"] = True
+        if self.no_lsteamclient:
+            d["no_lsteamclient"] = True
+        if self.lock_runner:
+            d["lock_runner"] = True
         if self.version and self.version != "1.0":
             d["version"] = self.version
         if self.category:

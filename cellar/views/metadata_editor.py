@@ -366,6 +366,7 @@ class RepoContext(_SaveContext):
             "vkd3d": e.vkd3d,
             "debug": e.debug,
             "direct_proton": e.direct_proton,
+            "no_lsteamclient": e.no_lsteamclient,
             "audio_driver": e.audio_driver,
         }
 
@@ -474,6 +475,7 @@ class RepoContext(_SaveContext):
         vkd3d = bool(fields.get("vkd3d", e.vkd3d))
         debug = bool(fields.get("debug", e.debug))
         direct_proton = bool(fields.get("direct_proton", e.direct_proton))
+        no_lsteamclient = bool(fields.get("no_lsteamclient", e.no_lsteamclient))
         audio_driver = fields.get("audio_driver", e.audio_driver)
         hide_title = bool(images.get("hide_title", e.hide_title))
 
@@ -532,6 +534,7 @@ class RepoContext(_SaveContext):
             vkd3d=vkd3d,
             debug=debug,
             direct_proton=direct_proton,
+            no_lsteamclient=no_lsteamclient,
             audio_driver=audio_driver,
         )
 
@@ -735,6 +738,8 @@ class MetadataEditorDialog(Adw.Dialog):
                 self._vkd3d_row.set_active(bool(fields.get("vkd3d", True)))
                 self._debug_row.set_active(bool(fields.get("debug", False)))
                 self._direct_proton_row.set_active(bool(fields.get("direct_proton", False)))
+                if self._no_lsteamclient_row is not None:
+                    self._no_lsteamclient_row.set_active(bool(fields.get("no_lsteamclient", False)))
                 audio = fields.get("audio_driver", "auto")
                 if audio in self._AUDIO_VALUES:
                     self._audio_driver_row.set_selected(self._AUDIO_VALUES.index(audio))
@@ -927,6 +932,7 @@ class MetadataEditorDialog(Adw.Dialog):
             self._vkd3d_row = None
             self._debug_row = None
             self._direct_proton_row = None
+            self._no_lsteamclient_row = None
             self._audio_driver_row = None
 
             if is_proton:
@@ -955,6 +961,12 @@ class MetadataEditorDialog(Adw.Dialog):
                     subtitle="Bypass umu-run and call Proton directly",
                 )
                 launch_group.add(self._direct_proton_row)
+
+                self._no_lsteamclient_row = Adw.SwitchRow(
+                    title="Disable Steam Client Shim",
+                    subtitle="Disable Proton's built-in lsteamclient.dll",
+                )
+                launch_group.add(self._no_lsteamclient_row)
 
                 self._AUDIO_LABELS = ("Auto", "PulseAudio", "ALSA", "OSS")
                 self._AUDIO_VALUES = ("auto", "pulseaudio", "alsa", "oss")
@@ -1048,6 +1060,8 @@ class MetadataEditorDialog(Adw.Dialog):
                 fields["vkd3d"] = self._vkd3d_row.get_active()
                 fields["debug"] = self._debug_row.get_active()
                 fields["direct_proton"] = self._direct_proton_row.get_active()
+                if self._no_lsteamclient_row is not None:
+                    fields["no_lsteamclient"] = self._no_lsteamclient_row.get_active()
                 fields["audio_driver"] = self._AUDIO_VALUES[self._audio_driver_row.get_selected()]
 
         return fields

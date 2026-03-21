@@ -217,6 +217,7 @@ class CellarWindow(Adw.ApplicationWindow):
     search_bar: Gtk.SearchBar = Gtk.Template.Child()
     search_entry: Gtk.SearchEntry = Gtk.Template.Child()
     refresh_button: Gtk.Button = Gtk.Template.Child()
+    transfers_button: Gtk.Button = Gtk.Template.Child()
     menu_button: Gtk.MenuButton = Gtk.Template.Child()
     toast_overlay: Adw.ToastOverlay = Gtk.Template.Child()
     explore_box: Gtk.Box = Gtk.Template.Child()
@@ -294,10 +295,19 @@ class CellarWindow(Adw.ApplicationWindow):
             self.view_toggle_button.set_tooltip_text("Card view")
         self.view_toggle_button.connect("clicked", self._on_view_toggle)
 
-        downloads_action = Gio.SimpleAction.new("downloads", None)
-        downloads_action.connect("activate", self._on_downloads_activated)
-        downloads_action.set_enabled(False)
-        self.add_action(downloads_action)
+        # Publish queue — shared across builder and browse views.
+        from cellar.backend.publish_queue import PublishQueue
+        self._publish_queue = PublishQueue(
+            on_complete=self._on_publish_complete,
+            on_error=self._on_publish_error,
+            on_cancelled=self._on_publish_cancelled,
+            on_progress=self._on_publish_progress,
+            on_bytes=self._on_publish_bytes,
+            on_queue_changed=self._on_queue_changed,
+        )
+
+        self.transfers_button.connect("clicked", self._on_transfers_clicked)
+        self._transfers_dialog = None
 
         prefs_action = Gio.SimpleAction.new("preferences", None)
         prefs_action.connect("activate", self._on_preferences_activated)
@@ -345,6 +355,7 @@ class CellarWindow(Adw.ApplicationWindow):
         from cellar.views.builder import PackageBuilderView
         self._package_builder = PackageBuilderView(
             on_catalogue_changed=self._load_catalogue,
+            publish_queue=self._publish_queue,
         )
         self._package_builder.set_vexpand(True)
         self.builder_box.append(self._package_builder)
@@ -472,6 +483,7 @@ class CellarWindow(Adw.ApplicationWindow):
                 self._browse_installed.load_entries(installed_entries, **_load_kw)
                 self._browse_updates.load_entries(update_entries, **_load_kw)
                 self.updates_page.set_badge_number(len(update_entries))
+                self._sync_publishing_overlays()
                 self._rebuild_filter_popover(explore_entries, data.distinct_repos)
             else:
                 self._browse_explore.show_error(
@@ -857,12 +869,12 @@ class CellarWindow(Adw.ApplicationWindow):
         page = Adw.NavigationPage(title=entry.name, child=detail)
         self.nav_view.push(page)
 
-    def _on_downloads_activated(self, _action, _param) -> None:
-        from cellar.views.download_queue import DownloadQueueDialog
+    def _on_transfers_clicked(self, _btn) -> None:
+        from cellar.views.transfer_dialog import TransferDialog
 
-        dialog = DownloadQueueDialog(self._install_queue)
-        self._downloads_dialog = dialog
-        dialog.connect("closed", lambda _d: setattr(self, "_downloads_dialog", None))
+        dialog = TransferDialog(self._install_queue, self._publish_queue)
+        self._transfers_dialog = dialog
+        dialog.connect("closed", lambda _d: setattr(self, "_transfers_dialog", None))
         dialog.present(self)
 
     def _on_preferences_activated(self, _action, _param) -> None:
@@ -969,19 +981,20 @@ class CellarWindow(Adw.ApplicationWindow):
             child = page.get_child()
             if isinstance(child, DetailView):
                 child._update_install_progress(self._install_queue)
-        # Also update the downloads dialog if open.
-        dlg = getattr(self, "_downloads_dialog", None)
+        # Also update the transfers dialog if open.
+        dlg = getattr(self, "_transfers_dialog", None)
         if dlg is not None:
             dlg.update_active_stats()
 
     def _on_queue_changed(self) -> None:
         """Update UI elements that depend on queue state."""
-        # Update the downloads action visibility.
-        downloads_action = self.lookup_action("downloads")
-        if downloads_action:
-            downloads_action.set_enabled(not self._install_queue.is_empty)
+        has_transfers = (
+            not self._install_queue.is_empty or not self._publish_queue.is_empty
+        )
+        self.transfers_button.set_visible(has_transfers)
         # Refresh the active detail view's install button if visible.
         self._refresh_active_detail_button()
+        self._sync_publishing_overlays()
 
     def _refresh_active_detail_button(self) -> None:
         """If a DetailView is currently visible, refresh its install button."""
@@ -991,6 +1004,43 @@ class CellarWindow(Adw.ApplicationWindow):
             child = page.get_child()
             if isinstance(child, DetailView):
                 child._update_install_button()
+
+    # ── Publish queue callbacks ───────────────────────────────────────────
+
+    def _on_publish_complete(self, result) -> None:
+        self._show_toast(f"Published \u201c{result.app_name}\u201d to {result.repo_name}.")
+        if result.delete_after:
+            self._package_builder._reload_projects()
+        self._load_catalogue()
+
+    def _on_publish_error(self, app_id: str, message: str) -> None:
+        self._show_toast(f"Publish of \u201c{app_id}\u201d failed: {message}")
+
+    def _on_publish_cancelled(self, app_id: str) -> None:
+        self._show_toast("Publish cancelled.")
+
+    def _on_publish_progress(self, app_id: str, phase: str, fraction: float) -> None:
+        dlg = getattr(self, "_transfers_dialog", None)
+        if dlg is not None:
+            dlg.update_active_stats()
+
+    def _on_publish_bytes(self, app_id: str, total_bytes: int, stats_text: str) -> None:
+        dlg = getattr(self, "_transfers_dialog", None)
+        if dlg is not None:
+            dlg.update_active_stats()
+
+    def _sync_publishing_overlays(self) -> None:
+        """Push current publish-queue IDs to all browse views as spinner overlays."""
+        q = self._publish_queue
+        active = q.active_job
+        ids: set[str] = set()
+        if active is not None:
+            ids.add(active.app_id)
+        for job in q.queued_jobs:
+            ids.add(job.app_id)
+        self._browse_explore.set_publishing_ids(ids)
+        self._browse_installed.set_publishing_ids(ids)
+        self._browse_updates.set_publishing_ids(ids)
 
     def _on_view_switched(self, stack: Adw.ViewStack, _param) -> None:
         in_builder = stack.get_visible_child_name() == "builder"

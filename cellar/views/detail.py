@@ -695,6 +695,7 @@ class DetailView(Gtk.Box):
         dll_overrides_str = dll_overrides(
             dxvk=params["dxvk"], vkd3d=params["vkd3d"],
             audio_driver=audio,
+            no_lsteamclient=params.get("no_lsteamclient", False),
         )
         if dll_overrides_str:
             extra_env["WINEDLLOVERRIDES"] = dll_overrides_str

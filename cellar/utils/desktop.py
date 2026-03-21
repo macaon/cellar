@@ -219,6 +219,20 @@ def create_desktop_entry(
     xdg_cat = _CATEGORY_MAP.get(entry.category or "", "")
     categories = f"Application;{xdg_cat};" if xdg_cat else "Application;"
 
+    # Resolve the executable's directory for Path= (working directory).
+    # Windows apps: convert the Windows-style entry point to a Linux path.
+    work_dir = ""
+    if platform == "windows" and exe_path:
+        from cellar.backend.umu import _win_to_linux_path, prefixes_dir  # noqa: PLC0415
+        linux_exe = _win_to_linux_path(exe_path, str(prefixes_dir() / entry.id))
+        work_dir = str(Path(linux_exe).parent)
+    elif platform == "linux" and exe_path:
+        from cellar.backend.umu import native_dir  # noqa: PLC0415
+        work_dir = str((native_dir() / entry.id / exe_path).parent)
+    elif platform == "dos" and exe_path:
+        from cellar.backend.umu import dos_dir  # noqa: PLC0415
+        work_dir = str(dos_dir() / entry.id)
+
     lines = [
         "[Desktop Entry]",
         "Type=Application",
@@ -232,6 +246,8 @@ def create_desktop_entry(
         f"X-Cellar-AppId={entry.id}",
         f"X-Cellar-Platform={platform}",
     ]
+    if work_dir:
+        lines.append(f"Path={_sanitize(work_dir)}")
 
     path = desktop_entry_path(entry.id, target_idx)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")

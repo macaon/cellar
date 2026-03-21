@@ -7,6 +7,7 @@ python_sources = files(
   'dosbox.py',
   'install_queue.py',
   'installer.py',
+  'publish_queue.py',
   'manifest.py',
   'packager.py',
   'project.py',

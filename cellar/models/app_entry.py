@@ -200,6 +200,9 @@ class AppEntry:
     vkd3d: bool = True
     debug: bool = False
     direct_proton: bool = False
+    # Disable Proton's lsteamclient.dll shim — prevents it from intercepting
+    # Steam API calls, which can cause access-violation crashes in some apps.
+    no_lsteamclient: bool = False
     # Wine audio backend: "auto" (let Proton decide), "pulseaudio", "alsa", "oss".
     audio_driver: str = "auto"
 
@@ -286,6 +289,7 @@ class AppEntry:
             vkd3d=bool(data.get("vkd3d", True)),
             debug=bool(data.get("debug", False)),
             direct_proton=bool(data.get("direct_proton", False)),
+            no_lsteamclient=bool(data.get("no_lsteamclient", False)),
             audio_driver=audio,
         )
 
@@ -379,6 +383,8 @@ class AppEntry:
             d["debug"] = True
         if self.direct_proton:
             d["direct_proton"] = True
+        if self.no_lsteamclient:
+            d["no_lsteamclient"] = True
         if self.audio_driver != "auto":
             d["audio_driver"] = self.audio_driver
         return d

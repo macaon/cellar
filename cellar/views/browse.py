@@ -192,6 +192,8 @@ class AppCard(Gtk.FlowBoxChild):
 
         overlay = Gtk.Overlay()
         overlay.set_child(card)
+        self._overlay = overlay
+        self._publish_overlay: Gtk.Box | None = None
 
         if is_installed:
             check = Gtk.Image.new_from_icon_name("check-round-outline2-symbolic")
@@ -206,6 +208,27 @@ class AppCard(Gtk.FlowBoxChild):
         fixed = _FixedBox(_CARD_WIDTH, _CARD_HEIGHT, clip=False)
         fixed.set_child(overlay)
         self.set_child(fixed)
+
+    def set_publishing(self, active: bool) -> None:
+        """Show or hide a spinner overlay indicating a background publish."""
+        if active and self._publish_overlay is None:
+            _ensure_scrim_css()
+            scrim = Gtk.Box()
+            scrim.set_halign(Gtk.Align.FILL)
+            scrim.set_valign(Gtk.Align.FILL)
+            scrim.set_hexpand(True)
+            scrim.set_vexpand(True)
+            scrim.add_css_class("publish-scrim")
+            spinner = Adw.Spinner()
+            spinner.set_size_request(32, 32)
+            spinner.set_halign(Gtk.Align.CENTER)
+            spinner.set_valign(Gtk.Align.CENTER)
+            scrim.append(spinner)
+            self._overlay.add_overlay(scrim)
+            self._publish_overlay = scrim
+        elif not active and self._publish_overlay is not None:
+            self._overlay.remove_overlay(self._publish_overlay)
+            self._publish_overlay = None
 
     def do_dispose(self) -> None:
         # Explicitly tear down the _FixedBox subtree — PyGObject does not
@@ -244,6 +267,29 @@ class AppCard(Gtk.FlowBoxChild):
 # ---------------------------------------------------------------------------
 # CapsuleCard — portrait cover art card
 # ---------------------------------------------------------------------------
+
+# Module-level CSS for the publish spinner scrim overlay.
+_scrim_css_provider: Gtk.CssProvider | None = None
+
+
+def _ensure_scrim_css() -> None:
+    """Register the publish-scrim overlay CSS once."""
+    global _scrim_css_provider
+    if _scrim_css_provider is not None:
+        return
+    _scrim_css_provider = Gtk.CssProvider()
+    _scrim_css_provider.load_from_string(
+        ".publish-scrim {"
+        "  background: alpha(@window_bg_color, 0.55);"
+        "  border-radius: 12px;"
+        "}"
+    )
+    Gtk.StyleContext.add_provider_for_display(
+        Gdk.Display.get_default(),
+        _scrim_css_provider,
+        Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+    )
+
 
 # Module-level CSS for the capsule name overlay gradient.
 _capsule_css_provider: Gtk.CssProvider | None = None
@@ -380,9 +426,33 @@ class CapsuleCard(Gtk.FlowBoxChild):
             check.add_css_class("success")
             overlay.add_overlay(check)
 
+        self._overlay = overlay
+        self._publish_overlay: Gtk.Box | None = None
+
         fixed = _FixedBox(_CAPSULE_WIDTH, _CAPSULE_HEIGHT, clip=False)
         fixed.set_child(overlay)
         self.set_child(fixed)
+
+    def set_publishing(self, active: bool) -> None:
+        """Show or hide a spinner overlay indicating a background publish."""
+        if active and self._publish_overlay is None:
+            _ensure_scrim_css()
+            scrim = Gtk.Box()
+            scrim.set_halign(Gtk.Align.FILL)
+            scrim.set_valign(Gtk.Align.FILL)
+            scrim.set_hexpand(True)
+            scrim.set_vexpand(True)
+            scrim.add_css_class("publish-scrim")
+            spinner = Adw.Spinner()
+            spinner.set_size_request(48, 48)
+            spinner.set_halign(Gtk.Align.CENTER)
+            spinner.set_valign(Gtk.Align.CENTER)
+            scrim.append(spinner)
+            self._overlay.add_overlay(scrim)
+            self._publish_overlay = scrim
+        elif not active and self._publish_overlay is not None:
+            self._overlay.remove_overlay(self._publish_overlay)
+            self._publish_overlay = None
 
     def do_dispose(self) -> None:
         child = self.get_first_child()
@@ -444,6 +514,7 @@ class BrowseView(Gtk.Box):
         self._active_genres: set[str] = set()
         self._active_platforms: set[str] = set()
         self._search_text: str = ""
+        self._publishing_ids: set[str] = set()
 
         # Stored so cards can be rebuilt on catalogue reload.
         self._entries: list[AppEntry] = []
@@ -567,6 +638,7 @@ class BrowseView(Gtk.Box):
         def _build_all(resolved: list[tuple[AppEntry, str | None]]) -> bool:
             if self._rebuild_gen != gen:
                 return False  # stale
+            publishing = self._publishing_ids
             for entry, asset_path in resolved:
                 card = card_cls(
                     entry,
@@ -574,6 +646,8 @@ class BrowseView(Gtk.Box):
                     is_installed=entry.id in installed_ids,
                     repo_uris=entry_repo_uris.get(entry.id, set()),
                 )
+                if entry.id in publishing:
+                    card.set_publishing(True)
                 self._cards.append(card)
                 self._flow_box.append(card)
             self._apply_filter()
@@ -619,6 +693,15 @@ class BrowseView(Gtk.Box):
     def set_active_platforms(self, platforms: set[str]) -> None:
         self._active_platforms = platforms
         self._apply_filter()
+
+    def set_publishing_ids(self, ids: set[str]) -> None:
+        """Update the set of app IDs currently being published.
+
+        Toggles spinner overlays on matching cards without a full rebuild.
+        """
+        self._publishing_ids = ids
+        for card in self._cards:
+            card.set_publishing(card.entry.id in ids)
 
     # ── Internals ─────────────────────────────────────────────────────────
 

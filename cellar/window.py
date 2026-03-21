@@ -983,7 +983,9 @@ class CellarWindow(Adw.ApplicationWindow):
         has_dl = not self._install_queue.is_empty
         has_ul = not self._publish_queue.is_empty
         self.transfers_button.set_visible(has_dl or has_ul)
-        if has_ul and not has_dl:
+        if has_dl and has_ul:
+            self.transfers_button.set_icon_name("network-transmit-receive-symbolic")
+        elif has_ul:
             self.transfers_button.set_icon_name("network-transmit-symbolic")
         else:
             self.transfers_button.set_icon_name("network-receive-symbolic")

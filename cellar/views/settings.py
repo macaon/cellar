@@ -1256,17 +1256,20 @@ class AddEditRepoDialog(Adw.Dialog):
 # ---------------------------------------------------------------------------
 
 def _move_install_data(old_dir: Path, new_dir: Path) -> None:
-    """Move prefixes, native, and bases from *old_dir* to *new_dir*.
+    """Move prefixes, native, and dos from *old_dir* to *new_dir*.
 
     Each item is moved individually so that items already present at the
     destination are skipped rather than overwritten.  The DB ``install_path``
     values are updated after all moves complete.
+
+    Bases are intentionally excluded — they live under ``data_dir()`` and
+    are not affected by install-location changes.
     """
     import shutil
 
     from cellar.backend import database
 
-    for subdir in ("prefixes", "native", "bases"):
+    for subdir in ("prefixes", "native", "dos"):
         src_root = old_dir / subdir
         if not src_root.is_dir():
             continue

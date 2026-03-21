@@ -165,6 +165,25 @@ def dosbox_conf() -> Path:
     return _SRC_DATA / "dosbox-staging.conf"
 
 
+import re as _re
+
+# Characters that are unsafe or awkward on Linux / Windows / macOS filesystems.
+_UNSAFE_CHARS = _re.compile(r'[/:?*"<>|\\]+')
+
+
+def sanitize_dirname(name: str, fallback: str) -> str:
+    """Return a filesystem-safe directory name derived from *name*.
+
+    Replaces runs of unsafe characters with a single space, strips leading /
+    trailing dots and whitespace, and collapses consecutive spaces.  Returns
+    *fallback* if the result is empty.
+    """
+    clean = _UNSAFE_CHARS.sub(" ", name)
+    clean = clean.strip(". ")
+    clean = _re.sub(r"\s+", " ", clean)
+    return clean or fallback
+
+
 def ui_file(name: str) -> str:
     """Return the absolute path string for a UI template file.
 

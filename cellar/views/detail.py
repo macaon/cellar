@@ -688,10 +688,11 @@ class DetailView(Gtk.Box):
 
         # Apply run-as-admin registry flag if set on this target.
         if target.get("run_as_admin"):
-            from cellar.backend.umu import apply_run_as_admin, prefixes_dir  # noqa: PLC0415
-            prefix = prefixes_dir() / self._entry.id
+            from cellar.backend.umu import apply_run_as_admin  # noqa: PLC0415
+            prefix_folder = self._get_install_folder()
+            prefix = Path(prefix_folder) if prefix_folder else None
             exe_base = entry_path.rsplit("\\", 1)[-1] if "\\" in entry_path else Path(entry_path).name
-            if exe_base:
+            if prefix and exe_base:
                 apply_run_as_admin(prefix, exe_base, enable=True)
 
         from cellar.backend.config import load_audio_driver  # noqa: PLC0415
@@ -740,6 +741,10 @@ class DetailView(Gtk.Box):
                 return
             GLib.idle_add(progress.set_label, label)
 
+        # Resolve prefix dir from DB for per-app custom locations.
+        _install_folder = self._get_install_folder()
+        _prefix_path = Path(_install_folder) if _install_folder else None
+
         def _work() -> None:
             try:
                 launch_app_monitored(
@@ -747,6 +752,7 @@ class DetailView(Gtk.Box):
                     entry_point=entry_path,
                     runner_name=runner_name,
                     steam_appid=params["steam_appid"],
+                    prefix_dir=_prefix_path,
                     launch_args=entry_args,
                     extra_env=extra_env or None,
                     line_cb=_on_line,
@@ -767,15 +773,15 @@ class DetailView(Gtk.Box):
         import shlex as _shlex
 
         from cellar.backend.umu import (  # noqa: PLC0415
-            dos_dir,
             is_cellar_sandboxed,
             monitor_process_tree,
-            native_dir,
         )
         from cellar.views.builder.progress import ProgressDialog  # noqa: PLC0415
 
-        base = dos_dir() if self._entry.platform == "dos" else native_dir()
-        exe = base / self._entry.id / entry_path
+        install_folder = self._get_install_folder()
+        if not install_folder:
+            return
+        exe = Path(install_folder) / entry_path
         cmd = [str(exe)]
         if entry_args:
             cmd += _shlex.split(entry_args)
@@ -803,10 +809,14 @@ class DetailView(Gtk.Box):
         import subprocess as _sp
 
         from cellar.backend.dosbox import build_dos_launch_cmd
-        from cellar.backend.umu import dos_dir, monitor_process_tree
+        from cellar.backend.umu import monitor_process_tree
         from cellar.views.builder.progress import ProgressDialog
 
-        game_dir = dos_dir() / self._entry.id
+        install_folder = self._get_install_folder()
+        if not install_folder:
+            self._add_toast("Install folder not found")
+            return
+        game_dir = Path(install_folder)
         dosbox_bin = game_dir / "dosbox" / "dosbox"
         if not dosbox_bin.is_file():
             self._add_toast("DOSBox Staging binary not found in package")
@@ -833,22 +843,8 @@ class DetailView(Gtk.Box):
         progress.present(self.get_root())
 
     def _on_remove_clicked(self) -> None:
-        prefix_path = None
-        if self._entry.platform == "linux":
-            from cellar.backend.umu import native_dir
-            candidate = native_dir() / self._entry.id
-            if candidate.is_dir():
-                prefix_path = candidate
-        elif self._entry.platform == "dos":
-            from cellar.backend.umu import dos_dir
-            candidate = dos_dir() / self._entry.id
-            if candidate.is_dir():
-                prefix_path = candidate
-        else:
-            from cellar.backend.umu import prefixes_dir
-            candidate = prefixes_dir() / self._entry.id
-            if candidate.is_dir():
-                prefix_path = candidate
+        folder = self._get_install_folder()
+        prefix_path = Path(folder) if folder else None
         dialog = RemoveDialog(
             entry=self._entry,
             prefix_path=prefix_path,
@@ -857,8 +853,6 @@ class DetailView(Gtk.Box):
         dialog.present(self.get_root())
 
     def _on_update_clicked(self, _btn) -> None:
-        from cellar.backend import database
-        from cellar.backend.umu import native_dir, prefixes_dir
         from cellar.views.update_app import UpdateDialog
 
         if self._entry.is_partial:
@@ -867,16 +861,11 @@ class DetailView(Gtk.Box):
                 log.error("Cannot update %s: metadata unavailable", self._entry.id)
                 return
 
-        if self._entry.platform == "linux":
-            prefix_path = native_dir() / self._entry.id
-        elif self._entry.platform == "dos":
-            from cellar.backend.umu import dos_dir
-            prefix_path = dos_dir() / self._entry.id
-        else:
-            prefix_path = prefixes_dir() / self._entry.id
-        if not prefix_path.is_dir():
+        folder = self._get_install_folder()
+        if not folder:
             log.error("Could not locate prefix directory for %s", self._entry.id)
             return
+        prefix_path = Path(folder)
 
         archive_uri = self._resolve(self._entry.archive) if self._entry.archive else ""
 
@@ -918,28 +907,15 @@ class DetailView(Gtk.Box):
 
         from cellar.backend import database
 
-        if self._entry.platform in ("linux", "dos"):
-            if self._entry.platform == "dos":
-                from cellar.backend.umu import dos_dir
-                candidate = dos_dir() / self._entry.id
-            else:
-                from cellar.backend.umu import native_dir
-                candidate = native_dir() / self._entry.id
-            if candidate.is_dir():
-                try:
-                    shutil.rmtree(candidate)
-                except Exception as exc:
-                    log.error("Failed to remove app dir %s: %s", candidate, exc)
+        folder = self._get_install_folder()
+        if folder and Path(folder).is_dir():
+            try:
+                shutil.rmtree(folder)
+            except Exception as exc:
+                log.error("Failed to remove install dir %s: %s", folder, exc)
         else:
-            from cellar.backend.umu import prefixes_dir
-            candidate = prefixes_dir() / self._entry.id
-            if candidate.is_dir():
-                try:
-                    shutil.rmtree(candidate)
-                except Exception as exc:
-                    log.error("Failed to remove prefix %s: %s", candidate, exc)
-            else:
-                log.warning("Prefix %s not found on disk; cleaning up DB only", candidate)
+            log.warning("Install dir %s not found on disk; cleaning up DB only",
+                        folder or self._entry.id)
 
         # Capture runner and repo_source before clearing the record.
         removed_runner = self._installed_record.get("runner") if self._installed_record else None
@@ -1050,6 +1026,10 @@ class DetailView(Gtk.Box):
         import_user_act.connect("activate", lambda *_: self._on_import_user_files())
         ag.add_action(import_user_act)
 
+        change_loc_act = Gio.SimpleAction.new("change-location", None)
+        change_loc_act.connect("activate", lambda *_: self._on_change_location())
+        ag.add_action(change_loc_act)
+
         uninstall_act = Gio.SimpleAction.new("uninstall", None)
         uninstall_act.connect("activate", lambda *_: self._on_remove_clicked())
         ag.add_action(uninstall_act)
@@ -1078,6 +1058,7 @@ class DetailView(Gtk.Box):
             main_section.append("DOSBox Configuration\u2026", "detail.dosbox-config")
 
         main_section.append("Open Install Folder", "detail.open-folder")
+        main_section.append("Change Install Location\u2026", "detail.change-location")
         if self._entry.platform in ("windows", "dos"):
             main_section.append("Backup User Files\u2026", "detail.backup-user-files")
             main_section.append("Import User Files\u2026", "detail.import-user-files")
@@ -1094,6 +1075,66 @@ class DetailView(Gtk.Box):
         folder = self._get_install_folder()
         if folder:
             Gio.AppInfo.launch_default_for_uri(f"file://{folder}", None)
+
+    # ------------------------------------------------------------------
+    # Change install location (gear menu)
+    # ------------------------------------------------------------------
+
+    def _on_change_location(self) -> None:
+        """Open a directory picker and move the app to the chosen location."""
+        src = self._get_install_folder()
+        if not src:
+            self._add_toast("Install folder not found")
+            return
+
+        dialog = Gtk.FileDialog()
+        dialog.set_title("Choose new location")
+        dialog.select_folder(
+            self.get_root(),
+            None,
+            self._on_change_location_response,
+        )
+
+    def _on_change_location_response(self, dialog, result) -> None:
+        import shutil
+
+        from cellar.backend import database
+        from cellar.utils.paths import sanitize_dirname
+
+        try:
+            folder = dialog.select_folder_finish(result)
+        except GLib.Error:
+            return  # user cancelled
+        if folder is None:
+            return
+
+        dest_parent = Path(folder.get_path())
+        src = Path(self._get_install_folder())
+        dirname = sanitize_dirname(self._entry.name, self._entry.id)
+        dest = dest_parent / dirname
+
+        if dest == src:
+            return
+        if dest.exists():
+            self._add_toast(f"'{dirname}' already exists at that location")
+            return
+
+        def _work():
+            shutil.move(str(src), dest)
+            database.update_app_location(
+                self._entry.id,
+                install_path=str(dest_parent),
+                prefix_dir=dirname,
+            )
+
+        def _done(_result):
+            self._add_toast(f"Moved to {_short_path(dest)}")
+
+        def _error(msg):
+            log.error("Failed to move %s: %s", self._entry.id, msg)
+            self._add_toast(f"Move failed: {msg}")
+
+        run_in_background(_work, _done, _error)
 
     # ------------------------------------------------------------------
     # Backup user files (gear menu)
@@ -1338,18 +1379,32 @@ class DetailView(Gtk.Box):
 
 
     def _get_install_folder(self) -> str | None:
-        """Return the install folder path for the current entry, or None."""
+        """Return the install folder path for the current entry, or None.
+
+        Checks the DB record first (supports per-app custom locations),
+        then falls back to the default platform directory.
+        """
+        from cellar.backend import database  # noqa: PLC0415
+
+        rec = database.get_installed(self._entry.id)
+        if rec:
+            stored = rec.get("install_path") or ""
+            prefix_dir = rec.get("prefix_dir") or self._entry.id
+            if stored:
+                p = Path(stored) / prefix_dir
+                if p.is_dir():
+                    return str(p)
+
+        # Fallback to default platform directory.
         if self._entry.platform == "linux":
             from cellar.backend.umu import native_dir
             p = native_dir() / self._entry.id
-            return str(p) if p.is_dir() else None
-        if self._entry.platform == "dos":
+        elif self._entry.platform == "dos":
             from cellar.backend.umu import dos_dir
             p = dos_dir() / self._entry.id
-            return str(p) if p.is_dir() else None
-        # Windows app — prefix is at umu prefixes_dir / app_id
-        from cellar.backend.umu import prefixes_dir
-        p = prefixes_dir() / self._entry.id
+        else:
+            from cellar.backend.umu import prefixes_dir
+            p = prefixes_dir() / self._entry.id
         return str(p) if p.is_dir() else None
 
     def _resolve_icon_source(self) -> str | None:
@@ -1365,18 +1420,15 @@ class DetailView(Gtk.Box):
         from cellar.utils.desktop import create_desktop_entry
 
         icon_source = self._resolve_icon_source()
+        install_folder = self._get_install_folder()
         kwargs: dict = dict(
             entry=self._entry,
             icon_source=icon_source,
             target=target,
             target_idx=target_idx,
         )
-        if self._entry.platform == "linux":
-            from cellar.backend.umu import native_dir
-            kwargs["install_path"] = str(native_dir())
-        elif self._entry.platform == "dos":
-            from cellar.backend.umu import dos_dir
-            kwargs["install_path"] = str(dos_dir())
+        if self._entry.platform in ("linux", "dos") and install_folder:
+            kwargs["install_path"] = str(Path(install_folder).parent)
         try:
             create_desktop_entry(**kwargs)
         except Exception as exc:

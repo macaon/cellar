@@ -242,6 +242,11 @@ def main():
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
     _ensure_desktop_entry()
+
+    # One-time migration: move bases from install_data_dir to data_dir.
+    from cellar.backend.base_store import migrate_bases_from_install_dir
+    migrate_bases_from_install_dir()
+
     app = CellarApplication()
     return app.run(sys.argv)
 

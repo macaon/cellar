@@ -24,10 +24,42 @@ class BaseStoreError(Exception):
 
 
 def _bases_dir() -> Path:
-    from cellar.backend.config import install_data_dir
-    d = install_data_dir() / "bases"
+    from cellar.backend.config import data_dir
+    d = data_dir() / "bases"
     d.mkdir(parents=True, exist_ok=True)
     return d
+
+
+def migrate_bases_from_install_dir() -> None:
+    """One-time migration: move bases from ``install_data_dir()`` to ``data_dir()``.
+
+    Prior versions stored bases under the user-configurable install location.
+    They now belong under ``data_dir()`` since they are Cellar infrastructure,
+    not user game data.  No-op if there is nothing to migrate.
+    """
+    from cellar.backend.config import data_dir, install_data_dir
+
+    old_dir = install_data_dir() / "bases"
+    new_dir = data_dir() / "bases"
+    if old_dir == new_dir or not old_dir.is_dir():
+        return
+    new_dir.mkdir(parents=True, exist_ok=True)
+    for item in list(old_dir.iterdir()):
+        dst = new_dir / item.name
+        if dst.exists():
+            continue
+        try:
+            shutil.move(str(item), dst)
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception(
+                "Failed to migrate base %s", item.name
+            )
+    # Remove the old directory if it's now empty.
+    try:
+        old_dir.rmdir()
+    except OSError:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -81,9 +113,9 @@ def install_base(
     archive_path = Path(archive_path)
     dest = base_path(runner)
 
-    from cellar.backend.config import install_data_dir  # noqa: PLC0415
+    from cellar.backend.config import data_dir  # noqa: PLC0415
     with tempfile.TemporaryDirectory(prefix="cellar-base-",
-                                     dir=install_data_dir()) as tmp_str:
+                                     dir=data_dir()) as tmp_str:
         tmp = Path(tmp_str)
         extract_dir = tmp / "extracted"
         extract_dir.mkdir()

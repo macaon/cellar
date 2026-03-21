@@ -557,6 +557,15 @@ def clear_launch_overrides(app_id: str) -> None:
         conn.execute("DELETE FROM launch_overrides WHERE app_id = ?", (app_id,))
 
 
+def update_app_location(app_id: str, install_path: str, prefix_dir: str) -> None:
+    """Update the install location for a single app after a per-app move."""
+    with _open_db() as conn:
+        conn.execute(
+            "UPDATE installed SET install_path = ?, prefix_dir = ? WHERE id = ?",
+            (install_path, prefix_dir, app_id),
+        )
+
+
 def update_install_paths(old_base: str, new_base: str) -> None:
     """Rewrite ``install_path`` records whose path is under *old_base*.
 

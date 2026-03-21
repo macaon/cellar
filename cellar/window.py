@@ -38,43 +38,35 @@ def _reconcile_installed_record(entry) -> dict | None:
     """Return the DB record for *entry* if still valid on disk, else ``None``.
 
     Removes the record and returns ``None`` if the installed directory has
-    been deleted outside Cellar (stale record).
+    been deleted outside Cellar (stale record).  Supports per-app custom
+    locations via the ``install_path`` / ``prefix_dir`` DB fields.
     """
     from cellar.backend import database  # noqa: PLC0415
-    from cellar.backend.umu import native_dir, prefixes_dir  # noqa: PLC0415
+    from cellar.backend.umu import dos_dir, native_dir, prefixes_dir  # noqa: PLC0415
 
     rec = database.get_installed(entry.id)
     if rec is None:
         return None
-    prefix_dir = rec.get("prefix_dir", "")
+    prefix_dir = rec.get("prefix_dir") or entry.id
     stored_install_path = rec.get("install_path") or ""
-    if entry.platform in ("linux", "dos"):
-        if entry.platform == "dos":
-            from cellar.backend.umu import dos_dir  # noqa: PLC0415
-            _default_dir = dos_dir()
-        else:
-            _default_dir = native_dir()
-        app_dir = (
-            Path(stored_install_path) / entry.id
-            if stored_install_path
-            else _default_dir / entry.id
+
+    if stored_install_path:
+        # Per-app custom location or global override — trust the DB.
+        app_dir = Path(stored_install_path) / prefix_dir
+    elif entry.platform == "dos":
+        app_dir = dos_dir() / prefix_dir
+    elif entry.platform == "linux":
+        app_dir = native_dir() / prefix_dir
+    else:
+        app_dir = prefixes_dir() / prefix_dir
+
+    if not app_dir.is_dir():
+        log.info(
+            "Install dir %r gone from disk; removing stale record for %r",
+            str(app_dir), entry.id,
         )
-        if not app_dir.is_dir():
-            log.info(
-                "%s app dir %r gone from disk; removing stale record for %r",
-                entry.platform.upper(), str(app_dir), entry.id,
-            )
-            database.remove_installed(entry.id)
-            return None
-    elif prefix_dir:
-        install_dir = Path(stored_install_path) if stored_install_path else prefixes_dir()
-        if not (install_dir / prefix_dir).is_dir():
-            log.info(
-                "Prefix %r gone from disk; removing stale record for %r",
-                prefix_dir, entry.id,
-            )
-            database.remove_installed(entry.id)
-            return None
+        database.remove_installed(entry.id)
+        return None
     return rec
 
 

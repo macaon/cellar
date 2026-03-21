@@ -1427,6 +1427,10 @@ class PackageBuilderView(Adw.Bin):
         page.add(pkg_group)
 
         # Pop any existing detail page, then push the new one.
+        # Guard against use-after-destroy: if the user navigated away during a
+        # long-running installer the nav view may already be finalized.
+        if not self.get_realized():
+            return
         # Save scroll position so refreshes don't jump to top.
         saved_scroll = self._get_detail_scroll_position()
         # Guard against _on_nav_popped clearing self._project during the swap.
@@ -3313,6 +3317,8 @@ class PackageBuilderView(Adw.Bin):
 
         def _finish(ok: bool) -> None:
             progress.force_close()
+            if not self.get_realized():
+                return
             on_done(ok)
             if not ok:
                 self._show_toast("Command exited with non-zero status. Check logs.")
@@ -3487,6 +3493,8 @@ class PackageBuilderView(Adw.Bin):
         DOS.  Returns ``True`` if a DOSBox game was detected (conversion may
         be pending user confirmation), ``False`` otherwise.
         """
+        if not self.get_realized():
+            return False
         from cellar.backend.dosbox import detect_gog_dosbox_in_prefix
 
         result = detect_gog_dosbox_in_prefix(project.content_path)

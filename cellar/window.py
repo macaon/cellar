@@ -980,10 +980,13 @@ class CellarWindow(Adw.ApplicationWindow):
 
     def _on_queue_changed(self) -> None:
         """Update UI elements that depend on queue state."""
-        has_transfers = (
-            not self._install_queue.is_empty or not self._publish_queue.is_empty
-        )
-        self.transfers_button.set_visible(has_transfers)
+        has_dl = not self._install_queue.is_empty
+        has_ul = not self._publish_queue.is_empty
+        self.transfers_button.set_visible(has_dl or has_ul)
+        if has_ul and not has_dl:
+            self.transfers_button.set_icon_name("network-transmit-symbolic")
+        else:
+            self.transfers_button.set_icon_name("network-receive-symbolic")
         # Refresh the active detail view's install button if visible.
         self._refresh_active_detail_button()
         self._sync_publishing_overlays()

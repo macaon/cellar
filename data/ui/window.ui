@@ -49,7 +49,7 @@
                     </child>
                     <child type="end">
                       <object class="GtkButton" id="transfers_button">
-                        <property name="icon-name">folder-download-symbolic</property>
+                        <property name="icon-name">network-receive-symbolic</property>
                         <property name="tooltip-text" translatable="yes">Transfers</property>
                         <property name="visible">false</property>
                       </object>

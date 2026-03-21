@@ -80,7 +80,7 @@ class TransferDialog(Adw.Dialog):
         empty_toolbar.set_content(Adw.StatusPage(
             title="No Transfers",
             description="No active downloads or uploads.",
-            icon_name="folder-download-symbolic",
+            icon_name="network-receive-symbolic",
         ))
         self._stack.add_named(empty_toolbar, "empty")
 

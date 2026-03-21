@@ -1120,12 +1120,16 @@ class DetailView(Gtk.Box):
             return
 
         def _work():
-            shutil.move(str(src), dest)
+            old_path = str(src)
+            shutil.move(old_path, dest)
             database.update_app_location(
                 self._entry.id,
                 install_path=str(dest_parent),
                 prefix_dir=dirname,
             )
+            if self._entry.platform == "windows":
+                from cellar.backend.prefix_fixup import fixup_prefix  # noqa: PLC0415
+                fixup_prefix(dest, old_path)
 
         def _done(_result):
             self._add_toast(f"Moved to {_short_path(dest)}")

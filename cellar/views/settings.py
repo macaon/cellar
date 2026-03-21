@@ -1269,6 +1269,8 @@ def _move_install_data(old_dir: Path, new_dir: Path) -> None:
 
     from cellar.backend import database
 
+    from cellar.backend.prefix_fixup import fixup_prefix
+
     for subdir in ("prefixes", "native", "dos"):
         src_root = old_dir / subdir
         if not src_root.is_dir():
@@ -1280,10 +1282,15 @@ def _move_install_data(old_dir: Path, new_dir: Path) -> None:
             if dst_item.exists():
                 log.warning("Skipping %s — already exists at destination", item.name)
                 continue
+            old_path = str(item)
             try:
-                shutil.move(str(item), dst_item)
+                shutil.move(old_path, dst_item)
             except Exception:
                 log.exception("Failed to move %s", item)
+                continue
+            # Fix absolute symlinks and registry paths for Wine prefixes.
+            if subdir == "prefixes" and dst_item.is_dir():
+                fixup_prefix(dst_item, old_path)
 
     database.update_install_paths(str(old_dir), str(new_dir))
 

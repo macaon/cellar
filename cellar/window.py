@@ -992,6 +992,10 @@ class CellarWindow(Adw.ApplicationWindow):
         # Refresh the active detail view's install button if visible.
         self._refresh_active_detail_button()
         self._sync_publishing_overlays()
+        # Repopulate the transfer dialog so completed/queued rows update.
+        dlg = getattr(self, "_transfers_dialog", None)
+        if dlg is not None:
+            dlg._populate()
 
     def _refresh_active_detail_button(self) -> None:
         """If a DetailView is currently visible, refresh its install button."""

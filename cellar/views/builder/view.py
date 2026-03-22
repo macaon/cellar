@@ -4160,13 +4160,6 @@ class _NewProjectCard(Gtk.FlowBoxChild):
         fixed.set_child(card)
         self.set_child(fixed)
 
-    def do_dispose(self) -> None:
-        from cellar.views.browse import _dispose_subtree
-        child = self.get_first_child()
-        if child is not None:
-            _dispose_subtree(child)
-        self.set_child(None)
-        super().do_dispose()
 
 
 class _ProjectCard(Gtk.FlowBoxChild):
@@ -4223,14 +4216,6 @@ class _ProjectCard(Gtk.FlowBoxChild):
         fixed = _FixedBox(_CARD_WIDTH, _CARD_HEIGHT, clip=False)
         fixed.set_child(card)
         self.set_child(fixed)
-
-    def do_dispose(self) -> None:
-        from cellar.views.browse import _dispose_subtree
-        child = self.get_first_child()
-        if child is not None:
-            _dispose_subtree(child)
-        self.set_child(None)
-        super().do_dispose()
 
     def matches(self, search: str, active_types: set[str], active_repos: set[str]) -> bool:
         """Return True if this card should be visible given the current filters."""
@@ -4375,11 +4360,4 @@ class _CatalogueCard(Gtk.FlowBoxChild):
             return False
         return True
 
-    def do_dispose(self) -> None:
-        from cellar.views.browse import _dispose_subtree
-        child = self.get_first_child()
-        if child is not None:
-            _dispose_subtree(child)
-        self.set_child(None)
-        super().do_dispose()
 

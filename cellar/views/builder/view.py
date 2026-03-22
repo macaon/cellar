@@ -294,7 +294,10 @@ class PackageBuilderView(Adw.Bin):
 
     def _on_card_activated(self, _fb, child: Gtk.FlowBoxChild) -> None:
         if isinstance(child, _ProjectCard):
-            self._project = child.project
+            # Reload from disk to pick up any changes saved since the list was built.
+            from cellar.backend.project import load_project
+            fresh = load_project(child.project.slug)
+            self._project = fresh if fresh else child.project
             self._show_project(self._project)
         elif isinstance(child, _NewProjectCard):
             self._on_new_project_clicked(None)
@@ -909,8 +912,8 @@ class PackageBuilderView(Adw.Bin):
         detail_page = Adw.NavigationPage(title=project.name, child=toolbar)
         detail_page.set_tag("detail")
 
-        # ── 1. Metadata section (App / Linux projects — first, to set title/slug) ──
-        if project.project_type in ("app", "linux"):
+        # ── 1. Metadata section (App / Linux / DOS projects — first, to set title/slug) ──
+        if project.project_type in ("app", "linux", "dos"):
             meta_group = Adw.PreferencesGroup(title="Metadata")
 
             # Title — always visible
@@ -1103,7 +1106,7 @@ class PackageBuilderView(Adw.Bin):
                 else:
                     # Post-first-install: drop zone for DLC / patches
                     drop_zone = self._build_installer_drop_zone(
-                        hint="Drop installers for DLC or patches",
+                        hint="Drop installers or folders here",
                         on_browse_file=self._on_run_installer_clicked,
                         on_browse_folder=self._on_browse_dlc_folder_clicked,
                         show_browse_content=project.initialized,
@@ -1131,64 +1134,94 @@ class PackageBuilderView(Adw.Bin):
 
             page.add(targets_group)
 
-        # ── 5b. Source Folder + Launch Targets (Linux / DOS) ──────────────
+        # ── 5b. Files + Launch Targets (Linux / DOS) ──────────────────────
         elif project.project_type in ("linux", "dos"):
             _linux_ready = bool(project.source_dir) and Path(project.source_dir).is_dir()
             _is_installer_project = bool(project.installer_type)
+            _is_dos = project.project_type == "dos"
 
-            if _is_installer_project:
-                # Installer-based Linux project — mirror the Windows "Files" layout
-                if project.installer_path:
-                    # First-time: prefilled installer from smart import
-                    inst_group = Adw.PreferencesGroup(title="Files")
-                    run_installer_row = Adw.ActionRow(
-                        title="Run Installer",
-                        subtitle=Path(project.installer_path).name,
-                    )
-                    run_btn = Gtk.Button(label="Launch")
-                    run_btn.set_valign(Gtk.Align.CENTER)
-                    run_btn.add_css_class("suggested-action")
-                    run_btn.connect("clicked", self._on_rerun_isolated_installer)
-                    run_installer_row.add_suffix(run_btn)
-                    inst_group.add(run_installer_row)
-                    page.add(inst_group)
-                else:
-                    # Post-first-install: drop zone + browse content
-                    drop_zone = self._build_installer_drop_zone(
-                        hint="Drop installers for DLC or patches",
-                        on_browse_file=self._on_run_linux_installer_clicked,
-                        on_browse_folder=self._on_browse_dlc_folder_clicked,
-                        show_browse_content=_linux_ready,
-                        on_browse_content=self._on_browse_prefix_clicked,
-                    )
-                    drop_zone.set_sensitive(_linux_ready)
-                    dz_group = Adw.PreferencesGroup()
-                    dz_group.add(drop_zone)
-                    page.add(dz_group)
-            else:
-                # Folder-based Linux/DOS project — source folder picker
-                src_group = Adw.PreferencesGroup(title="Source Folder")
+            files_group = Adw.PreferencesGroup(title="Files")
 
+            if _linux_ready and project.source_dir:
+                # Initialized — show source folder + browse content
                 src_row = Adw.ActionRow(title="Folder")
-                src_row.set_subtitle(project.source_dir or "Not set")
+                src_row.set_subtitle(project.source_dir)
                 src_row.set_subtitle_selectable(True)
+                _open_btn = Gtk.Button(icon_name="folder-open-symbolic")
+                _open_btn.set_valign(Gtk.Align.CENTER)
+                _open_btn.add_css_class("flat")
+                _open_btn.connect("clicked", self._on_browse_prefix_clicked)
+                src_row.add_suffix(_open_btn)
+                files_group.add(src_row)
 
-                if _linux_ready:
-                    _open_btn = Gtk.Button(icon_name="folder-open-symbolic")
-                    _open_btn.set_valign(Gtk.Align.CENTER)
-                    _open_btn.add_css_class("flat")
-                    _open_btn.connect("clicked", self._on_browse_prefix_clicked)
-                    src_row.add_suffix(_open_btn)
+                if _is_installer_project and not project.installer_path:
+                    # Post-first-install: drop zone for DLC / patches
+                    drop_zone = self._build_installer_drop_zone(
+                        hint="Drop disc images or folders here" if _is_dos
+                            else "Drop executables or folders here",
+                        subtitle="Installers are not supported" if not _is_dos else "",
+                        on_browse_file=(
+                            self._on_dos_browse_file if _is_dos
+                            else self._on_run_linux_installer_clicked
+                        ),
+                        on_browse_folder=self._on_browse_dlc_folder_clicked,
+                    )
+                    files_group.add(drop_zone)
 
-                _choose_btn = Gtk.Button(label="Choose\u2026")
-                _choose_btn.set_valign(Gtk.Align.CENTER)
-                _choose_btn.connect("clicked", self._on_choose_source_dir_clicked)
-                src_row.add_suffix(_choose_btn)
+                page.add(files_group)
 
-                src_group.add(src_row)
-                page.add(src_group)
+            elif _is_installer_project and project.installer_path:
+                # First-time: prefilled installer from smart import
+                run_installer_row = Adw.ActionRow(
+                    title="Run Installer",
+                    subtitle=Path(project.installer_path).name,
+                )
+                run_btn = Gtk.Button(label="Launch")
+                run_btn.set_valign(Gtk.Align.CENTER)
+                run_btn.add_css_class("suggested-action")
+                run_btn.connect("clicked", self._on_rerun_isolated_installer)
+                run_installer_row.add_suffix(run_btn)
+                files_group.add(run_installer_row)
+                page.add(files_group)
 
-            # Launch Targets (Linux)
+            else:
+                # Not initialized — drop zone for initial import
+                if _is_dos:
+                    hint = "Drop CD/floppy images or folders here"
+                    subtitle = ""
+                    on_file = self._on_dos_browse_file
+                else:
+                    hint = "Drop executables or folders here"
+                    subtitle = "Installers are not supported"
+                    on_file = self._on_linux_browse_file
+                drop_zone = self._build_installer_drop_zone(
+                    hint=hint,
+                    subtitle=subtitle,
+                    on_browse_file=on_file,
+                    on_browse_folder=self._on_choose_source_dir_clicked,
+                )
+                files_group.add(drop_zone)
+                page.add(files_group)
+
+            # DOSBox Settings (DOS only, before launch targets)
+            if project.project_type == "dos" and project.source_dir:
+                dos_group = Adw.PreferencesGroup(title="DOSBox Staging")
+
+                _settings_row = Adw.ActionRow(
+                    title="DOSBox Settings\u2026",
+                    subtitle="Display, CPU, sound, MIDI, mixer effects, and config files",
+                    activatable=True,
+                )
+                _settings_btn = Gtk.Button(label="Open\u2026", valign=Gtk.Align.CENTER)
+                _settings_btn.connect("clicked", self._on_dosbox_settings_clicked)
+                _settings_row.add_suffix(_settings_btn)
+                _settings_row.add_suffix(Gtk.Image.new_from_icon_name("go-next-symbolic"))
+                _settings_row.set_activatable_widget(_settings_btn)
+                dos_group.add(_settings_row)
+
+                page.add(dos_group)
+
+            # Launch Targets (Linux / DOS)
             targets_group = Adw.PreferencesGroup(title="Launch Targets")
             for _ep in project.entry_points:
                 _ep_row = self._build_target_expander_row(_ep, is_proton=False)
@@ -1204,25 +1237,6 @@ class PackageBuilderView(Adw.Bin):
             targets_group.add(_add_ep_row)
 
             page.add(targets_group)
-
-        # ── 5c. DOSBox Settings (DOS only) ───────────────────────────────
-        if project.project_type == "dos" and project.source_dir:
-            _src = Path(project.source_dir)
-            dos_group = Adw.PreferencesGroup(title="DOSBox Staging")
-
-            _settings_row = Adw.ActionRow(
-                title="DOSBox Settings\u2026",
-                subtitle="Display, CPU, sound, MIDI, mixer effects, and config files",
-                activatable=True,
-            )
-            _settings_btn = Gtk.Button(label="Open\u2026", valign=Gtk.Align.CENTER)
-            _settings_btn.connect("clicked", self._on_dosbox_settings_clicked)
-            _settings_row.add_suffix(_settings_btn)
-            _settings_row.add_suffix(Gtk.Image.new_from_icon_name("go-next-symbolic"))
-            _settings_row.set_activatable_widget(_settings_btn)
-            dos_group.add(_settings_row)
-
-            page.add(dos_group)
 
         # ── 6. Dependencies (Windows / Base only) ─────────────────────────
         if project.project_type not in ("linux", "dos"):
@@ -2174,6 +2188,82 @@ class PackageBuilderView(Adw.Bin):
             on_done=_on_manual_installer_done,
         )
 
+    def _on_linux_browse_file(self, _btn) -> None:
+        """Browse for a Linux binary to set as the project source."""
+        if self._project is None:
+            return
+        project = self._project
+        chooser = Gtk.FileChooserNative(
+            title="Select Executable",
+            action=Gtk.FileChooserAction.OPEN,
+            accept_label="Import",
+        )
+        chooser.connect("response", lambda c, r: self._on_linux_file_chosen(c, r, project))
+        win = self.get_root()
+        if isinstance(win, Gtk.Window):
+            chooser.set_transient_for(win)
+        chooser.show()
+        self._file_chooser = chooser
+
+    def _on_linux_file_chosen(self, chooser, response, project) -> None:
+        if response != Gtk.ResponseType.ACCEPT:
+            return
+        path = Path(chooser.get_file().get_path())
+        project.source_dir = str(path.parent)
+        project.initialized = True
+        project.entry_points = [{"name": path.stem, "path": path.name}]
+        save_project(project)
+        self._show_project(project)
+
+    def _on_dos_browse_file(self, _btn) -> None:
+        """Browse for disc images to import into the current DOS project."""
+        if self._project is None:
+            return
+        project = self._project
+        chooser = Gtk.FileChooserNative(
+            title="Select Disc Images",
+            action=Gtk.FileChooserAction.OPEN,
+            accept_label="Import",
+        )
+        chooser.set_select_multiple(True)
+        f = Gtk.FileFilter()
+        f.set_name("Disc Images")
+        for pat in ("*.iso", "*.ISO", "*.cue", "*.CUE",
+                    "*.img", "*.IMG", "*.ima", "*.IMA",
+                    "*.vfd", "*.VFD", "*.bin", "*.BIN"):
+            f.add_pattern(pat)
+        all_f = Gtk.FileFilter()
+        all_f.set_name("All Files")
+        all_f.add_pattern("*")
+        chooser.add_filter(f)
+        chooser.add_filter(all_f)
+
+        def _on_response(_chooser, response):
+            if response != Gtk.ResponseType.ACCEPT:
+                return
+            files = _chooser.get_files()
+            paths = [Path(files.get_item(i).get_path()) for i in range(files.get_n_items())]
+            if not paths:
+                return
+            from cellar.backend.disc_image import group_disc_files
+            disc_set = group_disc_files(paths)
+            if disc_set.isos or disc_set.cue_bins or disc_set.floppies:
+                self._install_from_disc(project, disc_set)
+            else:
+                err = Adw.AlertDialog(
+                    heading="No disc images found",
+                    body="No recognised disc image files were found.",
+                )
+                err.add_response("ok", "OK")
+                err.present(self)
+
+        chooser.connect("response", _on_response)
+        win = self.get_root()
+        if isinstance(win, Gtk.Window):
+            chooser.set_transient_for(win)
+        chooser.show()
+        self._file_chooser = chooser
+
     def _on_choose_source_dir_clicked(self, _btn) -> None:
         if self._project is None:
             return
@@ -2360,9 +2450,10 @@ class PackageBuilderView(Adw.Bin):
     def _build_installer_drop_zone(
         self,
         hint: str,
-        on_browse_file: Callable,
+        on_browse_file: Callable | None,
         on_browse_folder: Callable,
         *,
+        subtitle: str = "",
         show_browse_content: bool = False,
         on_browse_content: Callable | None = None,
     ) -> Gtk.Box:
@@ -2410,9 +2501,10 @@ class PackageBuilderView(Adw.Bin):
         heading.add_css_class("heading")
         drop_inner.append(heading)
 
-        caption = Gtk.Label(label="Already-installed content is skipped automatically")
+        caption = Gtk.Label(label=subtitle)
         caption.add_css_class("dim-label")
         caption.add_css_class("caption")
+        caption.set_visible(bool(subtitle))
         drop_inner.append(caption)
 
         frame.set_child(drop_inner)
@@ -2436,7 +2528,10 @@ class PackageBuilderView(Adw.Bin):
         )
         file_btn = Gtk.Button(label="Browse File\u2026")
         file_btn.add_css_class("pill")
-        file_btn.connect("clicked", on_browse_file)
+        if on_browse_file:
+            file_btn.connect("clicked", on_browse_file)
+        else:
+            file_btn.set_visible(False)
         folder_btn = Gtk.Button(label="Browse Folder\u2026")
         folder_btn.add_css_class("pill")
         folder_btn.connect("clicked", on_browse_folder)
@@ -3682,11 +3777,11 @@ class _NewProjectDialog(Adw.Dialog):
         icon.add_css_class("dim-label")
         drop_inner.append(icon)
 
-        heading = Gtk.Label(label="Drop an .exe file or app folder")
+        heading = Gtk.Label(label="Drop files or folders here")
         heading.add_css_class("heading")
         drop_inner.append(heading)
 
-        caption = Gtk.Label(label="Auto-detects platform and imports metadata")
+        caption = Gtk.Label(label="Platform and type will be detected automatically")
         caption.add_css_class("dim-label")
         caption.add_css_class("caption")
         drop_inner.append(caption)
@@ -3818,30 +3913,44 @@ class _NewProjectDialog(Adw.Dialog):
         files = value.get_files()
         if not files:
             return False
-        path = Path(files[0].get_path())
-        self.close()
-        self._start_import(path)
+        paths = [Path(f.get_path()) for f in files]
+        # Check if any dropped file is a disc image
+        _disc_exts = {".iso", ".cue", ".img", ".ima", ".vfd", ".bin"}
+        if any(p.suffix.lower() in _disc_exts for p in paths):
+            self.close()
+            self._start_disc_import(paths)
+        else:
+            self.close()
+            self._start_import(paths[0])
         return True
 
     # ── Browse handlers ─────────────────────────────────────────────────
 
     def _on_browse_file(self, _btn) -> None:
         chooser = Gtk.FileChooserNative(
-            title="Select Installer or Executable",
+            title="Select Installer, Executable, or Disc Image",
             transient_for=self.get_root(),
             action=Gtk.FileChooserAction.OPEN,
             accept_label="Import",
         )
+        chooser.set_select_multiple(True)
         f = Gtk.FileFilter()
         f.set_name("Windows Executables")
         for pat in ("*.exe", "*.EXE", "*.msi", "*.MSI",
                     "*.bat", "*.BAT", "*.cmd", "*.CMD",
                     "*.com", "*.COM", "*.lnk", "*.LNK"):
             f.add_pattern(pat)
+        disc_f = Gtk.FileFilter()
+        disc_f.set_name("Disc Images")
+        for pat in ("*.iso", "*.ISO", "*.cue", "*.CUE",
+                    "*.img", "*.IMG", "*.ima", "*.IMA",
+                    "*.vfd", "*.VFD", "*.bin", "*.BIN"):
+            disc_f.add_pattern(pat)
         all_f = Gtk.FileFilter()
         all_f.set_name("All Files")
         all_f.add_pattern("*")
         chooser.add_filter(f)
+        chooser.add_filter(disc_f)
         chooser.add_filter(all_f)
         chooser.connect("response", self._on_file_chosen, chooser)
         chooser.show()
@@ -3861,9 +3970,19 @@ class _NewProjectDialog(Adw.Dialog):
     def _on_file_chosen(self, _chooser, response: int, chooser) -> None:
         if response != Gtk.ResponseType.ACCEPT:
             return
-        path = Path(chooser.get_file().get_path())
+        # Support multi-select for disc images
+        files = chooser.get_files()
+        if files is None:
+            return
+        paths = [Path(files.get_item(i).get_path()) for i in range(files.get_n_items())]
+        if not paths:
+            return
         self.close()
-        self._start_import(path)
+        _disc_exts = {".iso", ".cue", ".img", ".ima", ".vfd", ".bin"}
+        if any(p.suffix.lower() in _disc_exts for p in paths):
+            self._start_disc_import(paths)
+        else:
+            self._start_import(paths[0])
 
     # ── Import dispatch ─────────────────────────────────────────────────
 
@@ -3950,6 +4069,171 @@ class _NewProjectDialog(Adw.Dialog):
         dlg.connect("response", _on_response)
         dlg.present(self._parent_view)
 
+    # ── Disc image import ──────────────────────────────────────────────
+
+    def _start_disc_import(self, paths: list[Path]) -> None:
+        """Handle dropped/selected disc image files."""
+        from cellar.backend.detect import parse_app_name
+        from cellar.backend.disc_image import (
+            DiscSet,
+            group_disc_files,
+            iso_volume_label,
+            scan_iso,
+            find_dos_installer,
+        )
+
+        disc_set = group_disc_files(paths)
+
+        # Nothing usable?
+        if not disc_set.isos and not disc_set.cue_bins and not disc_set.floppies:
+            err = Adw.AlertDialog(
+                heading="No disc images found",
+                body="No recognised disc image files were found in the selection.",
+            )
+            err.add_response("ok", "OK")
+            err.present(self._parent_view)
+            return
+
+        # Check if ordering is ambiguous (multiple discs, might need reorder)
+        all_cd_paths = list(disc_set.isos) + [cs.cue_path for cs in disc_set.cue_bins]
+        if len(all_cd_paths) > 1 or len(disc_set.floppies) > 1:
+            # Show ordering dialog for multi-disc sets
+            self._show_disc_order_dialog(disc_set)
+            return
+
+        self._proceed_disc_import(disc_set)
+
+    def _show_disc_order_dialog(self, disc_set) -> None:
+        """Show a dialog for the user to confirm/reorder multi-disc sets."""
+        from cellar.backend.disc_image import iso_volume_label
+
+        dlg = Adw.Dialog(title="Disc Order", content_width=400, content_height=400)
+        toolbar = Adw.ToolbarView()
+        header = Adw.HeaderBar()
+        header.set_show_end_title_buttons(False)
+
+        cancel_btn = Gtk.Button(label="Cancel")
+        cancel_btn.connect("clicked", lambda _: dlg.close())
+        header.pack_start(cancel_btn)
+
+        ok_btn = Gtk.Button(label="Continue")
+        ok_btn.add_css_class("suggested-action")
+        header.pack_end(ok_btn)
+        toolbar.add_top_bar(header)
+
+        content = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL, spacing=12,
+            margin_top=18, margin_bottom=18, margin_start=18, margin_end=18,
+        )
+
+        # Collect all disc paths in current order for display
+        all_paths: list[Path] = list(disc_set.isos)
+        for cs in disc_set.cue_bins:
+            all_paths.append(cs.cue_path)
+        all_paths.extend(disc_set.floppies)
+
+        if not all_paths:
+            dlg.close()
+            return
+
+        desc = Gtk.Label(
+            label="Confirm the disc order. Use the arrows to reorder if needed.",
+            wrap=True,
+        )
+        desc.add_css_class("dim-label")
+        content.append(desc)
+
+        group = Adw.PreferencesGroup(title="Discs")
+        rows: list[tuple[Adw.ActionRow, Path]] = []
+
+        for p in all_paths:
+            label = iso_volume_label(p) if p.suffix.lower() == ".iso" else ""
+            subtitle = label if label else p.suffix.upper().lstrip(".")
+            row = Adw.ActionRow(title=p.name, subtitle=subtitle)
+
+            up_btn = Gtk.Button(icon_name="go-up-symbolic", valign=Gtk.Align.CENTER)
+            up_btn.add_css_class("flat")
+            down_btn = Gtk.Button(icon_name="go-down-symbolic", valign=Gtk.Align.CENTER)
+            down_btn.add_css_class("flat")
+            row.add_suffix(up_btn)
+            row.add_suffix(down_btn)
+
+            rows.append((row, p))
+            group.add(row)
+
+            def _make_move(direction, current_row=row):
+                def _move(_btn):
+                    idx = next(i for i, (r, _) in enumerate(rows) if r is current_row)
+                    new_idx = idx + direction
+                    if 0 <= new_idx < len(rows):
+                        rows[idx], rows[new_idx] = rows[new_idx], rows[idx]
+                        # Rebuild the group
+                        for r, _ in rows:
+                            group.remove(r)
+                        for r, _ in rows:
+                            group.add(r)
+                return _move
+
+            up_btn.connect("clicked", _make_move(-1))
+            down_btn.connect("clicked", _make_move(1))
+
+        content.append(group)
+        toolbar.set_content(content)
+        dlg.set_child(toolbar)
+
+        def _on_ok(_btn):
+            dlg.close()
+            # Rebuild disc_set with new order
+            from cellar.backend.disc_image import DiscSet
+            new_set = DiscSet()
+            for _, p in rows:
+                suffix = p.suffix.lower()
+                if suffix == ".iso":
+                    new_set.isos.append(p)
+                elif suffix == ".cue":
+                    # Find the matching CueSheet
+                    for cs in disc_set.cue_bins:
+                        if cs.cue_path == p:
+                            new_set.cue_bins.append(cs)
+                            break
+                elif suffix in {".img", ".ima", ".vfd"}:
+                    new_set.floppies.append(p)
+            self._proceed_disc_import(new_set)
+
+        ok_btn.connect("clicked", _on_ok)
+        dlg.present(self._parent_view)
+
+    def _proceed_disc_import(self, disc_set) -> None:
+        """Continue disc import after ordering is confirmed."""
+        from cellar.backend.detect import parse_app_name
+        from cellar.backend.disc_image import iso_volume_label, scan_iso
+
+        # Try to get a name from the first ISO or CUE
+        app_name = ""
+        if disc_set.isos:
+            label = iso_volume_label(disc_set.isos[0])
+            if label:
+                app_name = label.replace("_", " ").title()
+            else:
+                app_name = parse_app_name(disc_set.isos[0])
+        elif disc_set.cue_bins:
+            app_name = parse_app_name(disc_set.cue_bins[0].cue_path)
+        elif disc_set.floppies:
+            app_name = parse_app_name(disc_set.floppies[0])
+
+        # Store disc set for use in _on_created
+        self._disc_set = disc_set
+        self._dosbox_info = None
+
+        # Use the first disc path as the import path reference
+        first_path = (
+            disc_set.isos[0] if disc_set.isos
+            else disc_set.cue_bins[0].cue_path if disc_set.cue_bins
+            else disc_set.floppies[0]
+        )
+
+        self._open_metadata_editor(first_path, "dos", app_name, None)
+
     def _open_metadata_editor(
         self, path: Path, platform: str, app_name: str, version: str | None,
     ) -> None:
@@ -3962,7 +4246,12 @@ class _NewProjectDialog(Adw.Dialog):
         def _on_created(project):
             # Post-creation: set import-specific fields on the project
             changed = False
-            if (platform == "dos" and path.is_dir()
+            if platform == "dos" and hasattr(self, '_disc_set') and self._disc_set:
+                # Disc image import: set up hdd/cd layout and run installer
+                self._install_from_disc(project, self._disc_set)
+                self._disc_set = None
+                return  # _install_from_disc calls _on_import when done
+            elif (platform == "dos" and path.is_dir()
                     and hasattr(self, '_dosbox_info') and self._dosbox_info):
                 # GOG DOSBox game: convert to native Linux DOSBox in background
                 self._convert_dosbox_game(project, path, self._dosbox_info)
@@ -4092,6 +4381,172 @@ class _NewProjectDialog(Adw.Dialog):
             err = Adw.AlertDialog(
                 heading="Conversion failed",
                 body=f"Could not convert DOSBox game:\n{msg}",
+            )
+            err.add_response("ok", "OK")
+            err.present(self._parent_view)
+
+        run_in_background(work=_work, on_done=_done, on_error=_error)
+
+    # ── Disc image installation ──────────────────────────────────────────
+
+    def _install_from_disc(self, project, disc_set) -> None:
+        """Set up a DOS game from disc images — CDDA conversion + DOSBox installer."""
+        from cellar.backend.disc_image import (
+            convert_cdda_tracks,
+            find_dos_installer,
+            has_cdda_tools,
+            scan_iso,
+        )
+        from cellar.backend.dosbox import run_dos_installer
+
+        content = project.content_path
+        content.mkdir(parents=True, exist_ok=True)
+
+        progress = ProgressDialog(label="Preparing disc images\u2026")
+        progress.present(self._parent_view)
+
+        def _work():
+            # Step 1: Copy disc images to content/cd/
+            cd_dir = content / "cd"
+            cd_dir.mkdir(parents=True, exist_ok=True)
+
+            disc_image_paths: list[Path] = []  # paths in cd_dir
+
+            for iso_path in disc_set.isos:
+                dest = cd_dir / iso_path.name
+                shutil.copy2(iso_path, dest)
+                disc_image_paths.append(dest)
+
+            for cue_sheet in disc_set.cue_bins:
+                if cue_sheet.has_audio and has_cdda_tools():
+                    GLib.idle_add(progress.set_label, "Converting CD audio\u2026")
+                    def _audio_progress(done, total):
+                        if total > 0:
+                            GLib.idle_add(
+                                progress.set_label,
+                                f"Converting audio track {done}/{total}\u2026",
+                            )
+                    new_cue = convert_cdda_tracks(
+                        cue_sheet.cue_path, cd_dir, progress_cb=_audio_progress,
+                    )
+                    disc_image_paths.append(new_cue)
+                else:
+                    # Copy CUE and BIN files as-is
+                    dest_cue = cd_dir / cue_sheet.cue_path.name
+                    shutil.copy2(cue_sheet.cue_path, dest_cue)
+                    for bin_path in cue_sheet.bin_files:
+                        if bin_path.is_file():
+                            shutil.copy2(bin_path, cd_dir / bin_path.name)
+                    disc_image_paths.append(dest_cue)
+
+            # Copy floppy images to a temp location (not persisted)
+            floppy_paths: list[Path] = []
+            if disc_set.floppies:
+                floppy_dir = content / "_floppy_tmp"
+                floppy_dir.mkdir(parents=True, exist_ok=True)
+                for fp in disc_set.floppies:
+                    dest = floppy_dir / fp.name
+                    shutil.copy2(fp, dest)
+                    floppy_paths.append(dest)
+
+            # Step 2: Detect installer on the disc
+            GLib.idle_add(progress.set_label, "Scanning disc contents\u2026")
+            installer_exe = None
+            if disc_image_paths:
+                first_disc = disc_image_paths[0]
+                if first_disc.suffix.lower() == ".iso":
+                    try:
+                        file_list = scan_iso(first_disc)
+                        installer_exe = find_dos_installer(file_list)
+                    except Exception as exc:
+                        log.warning("Could not scan ISO: %s", exc)
+
+                # Fallback: if scanning failed or found nothing, guess
+                # common installer names.  DOSBox will simply show "Bad
+                # command" if the file doesn't exist — no harm done.
+                if installer_exe is None:
+                    installer_exe = "INSTALL.EXE"
+
+            return disc_image_paths, floppy_paths, installer_exe
+
+        def _done(result):
+            progress.force_close()
+            disc_image_paths, floppy_paths, installer_exe = result
+
+            # If no installer auto-detected and we have disc images,
+            # ask the user (for CUE/BIN or when scan fails)
+            if installer_exe is None and not disc_set.floppies:
+                # Try to let the user pick, or just drop to prompt
+                self._run_disc_installer(
+                    project, disc_image_paths, floppy_paths, None,
+                )
+            else:
+                self._run_disc_installer(
+                    project, disc_image_paths, floppy_paths, installer_exe,
+                )
+
+        def _error(msg):
+            progress.force_close()
+            log.error("Disc import failed: %s", msg)
+            err = Adw.AlertDialog(
+                heading="Import failed",
+                body=f"Could not import disc images:\n{msg}",
+            )
+            err.add_response("ok", "OK")
+            err.present(self._parent_view)
+
+        run_in_background(work=_work, on_done=_done, on_error=_error)
+
+    def _run_disc_installer(
+        self, project, disc_image_paths, floppy_paths, installer_exe,
+    ) -> None:
+        """Launch DOSBox with disc images mounted for installation."""
+        from cellar.backend.dosbox import run_dos_installer
+
+        content = project.content_path
+
+        progress = ProgressDialog(label="Running installer in DOSBox\u2026")
+        progress.present(self._parent_view)
+
+        def _work():
+            return run_dos_installer(
+                content_dir=content,
+                disc_images=disc_image_paths,
+                floppy_images=floppy_paths,
+                installer_exe=installer_exe,
+                progress_cb=lambda msg: GLib.idle_add(progress.set_label, msg),
+            )
+
+        def _done(entry_points):
+            progress.force_close()
+
+            # Clean up temp floppy directory
+            floppy_tmp = content / "_floppy_tmp"
+            if floppy_tmp.is_dir():
+                shutil.rmtree(floppy_tmp, ignore_errors=True)
+
+            # Store disc image paths relative to content
+            cd_dir = content / "cd"
+            if cd_dir.is_dir():
+                project.disc_images = [
+                    str(p.relative_to(content))
+                    for p in sorted(cd_dir.iterdir())
+                    if p.suffix.lower() in {".iso", ".cue"}
+                ]
+
+            project.source_dir = str(content)
+            project.initialized = True
+            if entry_points:
+                project.entry_points = entry_points
+            save_project(project)
+            self._on_import(project)
+
+        def _error(msg):
+            progress.force_close()
+            log.error("DOSBox installer failed: %s", msg)
+            err = Adw.AlertDialog(
+                heading="Installation failed",
+                body=f"DOSBox installer encountered an error:\n{msg}",
             )
             err.add_response("ok", "OK")
             err.present(self._parent_view)

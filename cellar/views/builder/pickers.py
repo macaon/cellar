@@ -88,7 +88,9 @@ class AddLaunchTargetDialog(Adw.Dialog):
 
     def _on_browse_clicked(self, _btn) -> None:
         if self._platform in ("linux", "dos"):
-            browse_root = self._content_path
+            # For hdd-layout DOS games, browse inside hdd/ (the C: drive).
+            hdd = self._content_path / "hdd"
+            browse_root = hdd if hdd.is_dir() else self._content_path
             title = "Select Executable"
         else:
             browse_root = self._content_path / "drive_c"
@@ -121,8 +123,11 @@ class AddLaunchTargetDialog(Adw.Dialog):
             return
         abs_path = chooser.get_file().get_path()
         if self._platform in ("linux", "dos"):
+            # For hdd-layout DOS games, paths are relative to hdd/ (the C: drive).
+            hdd = self._content_path / "hdd"
+            rel_base = hdd if hdd.is_dir() else self._content_path
             try:
-                display_path = os.path.relpath(abs_path, str(self._content_path))
+                display_path = os.path.relpath(abs_path, str(rel_base))
             except ValueError:
                 display_path = abs_path
         else:

@@ -51,6 +51,7 @@ class Project:
     source_dir: str = ""       # Linux projects only: path to the pre-installed app directory
     installer_path: str = ""   # Smart import: path to .exe/.msi/.sh/.run to run in prefix
     installer_type: str = ""   # "", "isolated" (bwrap sandbox), "folder" (direct copy)
+    disc_images: list[str] = field(default_factory=list)  # ordered relative paths to CD images in content/cd/
 
     # ── Launch options (committed to catalogue metadata on publish) ───────
     dxvk: bool = True
@@ -124,6 +125,7 @@ class Project:
             source_dir=data.get("source_dir", ""),
             installer_path=data.get("installer_path", ""),
             installer_type=data.get("installer_type", ""),
+            disc_images=list(data.get("disc_images", [])),
             dxvk=bool(data.get("dxvk", True)),
             vkd3d=bool(data.get("vkd3d", True)),
             audio_driver=data.get("audio_driver", "auto"),
@@ -177,6 +179,8 @@ class Project:
             d["installer_path"] = self.installer_path
         if self.installer_type:
             d["installer_type"] = self.installer_type
+        if self.disc_images:
+            d["disc_images"] = list(self.disc_images)
         if not self.dxvk:
             d["dxvk"] = False
         if not self.vkd3d:
@@ -252,6 +256,20 @@ def load_projects() -> list[Project]:
             log.warning("Failed to read project from %s", entry)
     projects.sort(key=lambda p: p.name.lower())
     return projects
+
+
+def load_project(slug: str) -> Project | None:
+    """Load a single project by slug, or return None if not found."""
+    from cellar.backend.umu import projects_dir
+    json_file = projects_dir() / slug / "project.json"
+    if not json_file.exists():
+        return None
+    try:
+        data = json.loads(json_file.read_text(encoding="utf-8"))
+        return Project.from_dict(data)
+    except Exception:
+        log.warning("Failed to load project %s", slug)
+        return None
 
 
 def save_project(project: Project) -> None:

@@ -17,6 +17,10 @@ _LIN_SCRIPT_EXTS = {".sh", ".run"}
 _LIN_BINARY_EXTS = {".x86_64", ".x86", ".x64"}
 _LIN_EXTS = _LIN_SCRIPT_EXTS | _LIN_BINARY_EXTS
 _ELF_MAGIC = b"\x7fELF"
+_DISC_IMAGE_EXTS = {".iso", ".cue", ".img", ".ima", ".vfd"}
+_MZ_MAGIC = b"MZ"
+# Maximum size for a DOS .COM file (no header, raw code).
+_COM_MAX_SIZE = 65280
 
 # Files that should never appear as launch target candidates.
 # Loaded from launch_exclude.txt (one filename per line, case-insensitive).
@@ -77,7 +81,7 @@ _STRIP_SUFFIX_RE = re.compile(
 
 _VERSION_RE = re.compile(r"\d+\.\d+(?:\.\d+)*")
 
-DetectResult = Literal["windows", "linux", "ambiguous", "unsupported"]
+DetectResult = Literal["windows", "linux", "dos", "ambiguous", "unsupported"]
 
 # Human-readable messages for each "unsupported" sub-case, keyed by reason tag
 UNSUPPORTED_MESSAGES: dict[str, str] = {
@@ -87,11 +91,11 @@ UNSUPPORTED_MESSAGES: dict[str, str] = {
     ),
     "archive": (
         "Archives are not supported. "
-        "Drop a .exe installer or an already-installed app folder."
+        "Drop a .exe installer, disc image, or an already-installed app folder."
     ),
     "unknown_file": (
         "Unrecognised file type. "
-        "Drop a .exe installer or an app folder."
+        "Drop a .exe installer, disc image, or an app folder."
     ),
 }
 
@@ -107,6 +111,7 @@ def detect_platform(path: Path) -> DetectResult:
     Returns one of:
         "windows"     – Windows installer/executable
         "linux"       – Linux app (folder or portable ELF binary)
+        "dos"         – DOS disc image or folder of DOS executables
         "ambiguous"   – Cannot determine; ask the user
         "unsupported" – Rejected input (archive, .sh installer, etc.)
                         Call :func:`unsupported_reason` for the error message.
@@ -289,6 +294,8 @@ def _detect_file(path: Path) -> DetectResult:
     if combined in {".tar.gz", ".tar.bz2", ".tar.xz", ".tar.zst"}:
         return "unsupported"
 
+    if suffix in _DISC_IMAGE_EXTS:
+        return "dos"
     if suffix in _WIN_EXTS:
         return "windows"
     if suffix in _ARCHIVE_EXTS:
@@ -310,10 +317,15 @@ def _detect_file(path: Path) -> DetectResult:
 
 
 def _detect_folder(folder: Path) -> DetectResult:
-    win_count = len(find_exe_files(folder))
+    exe_files = find_exe_files(folder)
+    win_count = len(exe_files)
     lin_count = len(find_linux_executables(folder))
 
     if win_count > lin_count:
+        # Check if the executables are actually DOS (MZ-only, no PE header).
+        dos_count = sum(1 for p in exe_files if _is_dos_executable(p))
+        if dos_count > win_count // 2:
+            return "dos"
         return "windows"
     if lin_count > win_count:
         return "linux"
@@ -328,5 +340,62 @@ def _is_elf(path: Path) -> bool:
             return f.read(4) == _ELF_MAGIC
     except OSError:
         return False
+
+
+def _is_dos_executable(path: Path) -> bool:
+    """Return True if *path* is a DOS executable (MZ without PE/NE, or .COM).
+
+    Inspects binary headers to distinguish pure DOS .EXE files from Win32/64
+    PE executables.  A ``.com`` file has no header — detected by extension
+    and size (≤ 65280 bytes).
+    """
+    suffix = path.suffix.lower()
+
+    # .COM files: no magic header, just raw code ≤ 64KB
+    if suffix == ".com":
+        try:
+            return path.stat().st_size <= _COM_MAX_SIZE
+        except OSError:
+            return False
+
+    # .BAT files are ambiguous but common in DOS games
+    if suffix == ".bat":
+        return True
+
+    if suffix not in {".exe"}:
+        return False
+
+    try:
+        with path.open("rb") as f:
+            header = f.read(64)
+            if len(header) < 64 or header[:2] != _MZ_MAGIC:
+                return False
+
+            # Read PE header offset at 0x3C (uint32 LE)
+            pe_offset = int.from_bytes(header[0x3C:0x40], "little")
+
+            # No PE pointer or points beyond file → pure DOS MZ stub
+            file_size = path.stat().st_size
+            if pe_offset == 0 or pe_offset + 4 > file_size:
+                return True
+
+            # Read signature at PE offset
+            f.seek(pe_offset)
+            sig = f.read(4)
+
+            if sig == b"PE\x00\x00":
+                # Win32/Win64 PE executable
+                return False
+            if sig[:2] == b"NE":
+                # 16-bit Windows / OS/2 — DOS-era, treat as DOS
+                return True
+            # Unknown format after MZ — assume DOS
+            return True
+    except OSError:
+        return False
+
+
+# Public alias for use by other modules (e.g. disc_image.py)
+is_dos_executable = _is_dos_executable
 
 

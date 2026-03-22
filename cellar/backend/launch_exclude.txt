@@ -10,6 +10,16 @@ yad
 yad32
 yad64
 
+# DOS — runtime extenders / utilities
+dos4gw.exe
+dos4g.exe
+dos32a.exe
+cwsdpmi.exe
+dpmi16bi.ovl
+dpmi32bi.ovl
+pkunzip.exe
+pkzip.exe
+
 # Windows — crash handlers / uninstallers / runtime setup
 crashpad_handler.exe
 crashreportclient.exe

@@ -212,7 +212,7 @@ class DosboxSettingsDialog(Adw.Dialog):
     # ── MIDI & Music ──────────────────────────────────────────────────
 
     def _build_midi_group(self, page: Adw.PreferencesPage) -> None:
-        group = Adw.PreferencesGroup(title="MIDI & Music")
+        group = Adw.PreferencesGroup(title="MIDI &amp; Music")
 
         # MIDI device
         midi_combo = self._make_combo(
@@ -221,50 +221,41 @@ class DosboxSettingsDialog(Adw.Dialog):
         )
         group.add(midi_combo)
 
-        # SoundFont row
+        # SoundFont row — uses shared central storage, selectable per game.
         self._sf_row = Adw.ActionRow(title="SoundFont")
-        sf_dir = self._assets_dir / "soundfonts" if self._assets_dir else None
-        current_sf = ""
-        if sf_dir and sf_dir.is_dir():
-            sfs = sorted(sf_dir.glob("*.sf[23]"))
-            if sfs:
-                current_sf = sfs[0].name
-        self._sf_row.set_subtitle(current_sf or "No SoundFont installed")
+        current_sf_path = self._read("fluidsynth", "soundfont")
+        current_sf_name = Path(current_sf_path).name if current_sf_path else ""
+        self._sf_row.set_subtitle(current_sf_name or "No SoundFont selected")
 
         if self._allow_assets:
-            sf_btn = Gtk.Button(label="Browse\u2026", valign=Gtk.Align.CENTER)
-            sf_btn.connect("clicked", self._on_browse_soundfont)
+            # "Select" button — pick from shared library or browse for new file
+            sf_btn = Gtk.Button(label="Select\u2026", valign=Gtk.Align.CENTER)
+            sf_btn.connect("clicked", self._on_select_soundfont)
             self._sf_row.add_suffix(sf_btn)
 
-            if current_sf:
-                sf_rm = Gtk.Button(icon_name="user-trash-symbolic", valign=Gtk.Align.CENTER)
+            if current_sf_name:
+                sf_rm = Gtk.Button(icon_name="edit-clear-symbolic", valign=Gtk.Align.CENTER)
                 sf_rm.add_css_class("flat")
-                sf_rm.connect("clicked", self._on_remove_soundfont)
+                sf_rm.set_tooltip_text("Clear SoundFont selection")
+                sf_rm.connect("clicked", self._on_clear_soundfont)
                 self._sf_row.add_suffix(sf_rm)
 
         group.add(self._sf_row)
 
-        # MT-32 ROMs row
+        # MT-32 ROMs row — uses shared central storage.
         self._rom_row = Adw.ActionRow(title="MT-32 ROMs")
-        rom_dir = self._assets_dir / "mt32-roms" if self._assets_dir else None
-        rom_count = 0
-        if rom_dir and rom_dir.is_dir():
-            rom_count = len(list(rom_dir.glob("*.rom")))
-        self._rom_row.set_subtitle(
-            f"{rom_count} ROM files installed" if rom_count
-            else "No ROMs installed"
-        )
+        shared_rom_dir = self._shared_mt32_dir()
+        shared_rom_count = len(list(shared_rom_dir.glob("*.rom"))) if shared_rom_dir.is_dir() else 0
+        if shared_rom_count:
+            self._rom_row.set_subtitle(f"Installed ({shared_rom_count} ROM files)")
+        else:
+            self._rom_row.set_subtitle("Not installed")
 
         if self._allow_assets:
-            rom_btn = Gtk.Button(label="Browse\u2026", valign=Gtk.Align.CENTER)
+            rom_btn = Gtk.Button(label="Import\u2026", valign=Gtk.Align.CENTER)
             rom_btn.connect("clicked", self._on_browse_roms)
+            rom_btn.set_sensitive(shared_rom_count == 0)
             self._rom_row.add_suffix(rom_btn)
-
-            if rom_count:
-                rom_rm = Gtk.Button(icon_name="user-trash-symbolic", valign=Gtk.Align.CENTER)
-                rom_rm.add_css_class("flat")
-                rom_rm.connect("clicked", self._on_remove_roms)
-                self._rom_row.add_suffix(rom_rm)
 
         group.add(self._rom_row)
 
@@ -368,10 +359,17 @@ class DosboxSettingsDialog(Adw.Dialog):
         """Create a ComboRow backed by a tuple of (label, value) pairs."""
         labels = Gtk.StringList()
         selected_idx = 0
+        default_idx = 0
         for i, (label, value) in enumerate(options):
             labels.append(label)
             if value == current_value:
                 selected_idx = i
+            if "(default)" in label.lower() or "(recommended)" in label.lower():
+                default_idx = i
+
+        # No override set — select the default-labeled option, not the first.
+        if not current_value:
+            selected_idx = default_idx
 
         row = Adw.ComboRow(title=title, subtitle=subtitle, model=labels)
         row.set_selected(selected_idx)
@@ -429,12 +427,68 @@ class DosboxSettingsDialog(Adw.Dialog):
     # Asset management
     # ------------------------------------------------------------------
 
-    def _on_browse_soundfont(self, _btn) -> None:
+    @staticmethod
+    def _shared_soundfonts_dir() -> Path:
+        """Return the shared central SoundFont directory."""
+        from cellar.backend.dosbox import dosbox_staging_dir
+        d = dosbox_staging_dir() / "soundfonts"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    @staticmethod
+    def _shared_mt32_dir() -> Path:
+        """Return the shared central MT-32 ROM directory."""
+        from cellar.backend.dosbox import dosbox_staging_dir
+        d = dosbox_staging_dir() / "mt32-roms"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def _list_shared_soundfonts(self) -> list[Path]:
+        """Return all SoundFont files in the shared library."""
+        sf_dir = self._shared_soundfonts_dir()
+        return sorted(
+            p for p in sf_dir.iterdir()
+            if p.is_file() and p.suffix.lower() in {".sf2", ".sf3"}
+        )
+
+    def _on_select_soundfont(self, _btn) -> None:
+        """Show a dialog to pick from shared library or import a new SoundFont."""
+        available = self._list_shared_soundfonts()
+
+        if not available:
+            # No shared soundfonts yet — go straight to file browser.
+            self._on_browse_new_soundfont()
+            return
+
+        # Build a selection dialog with existing soundfonts + "Import new" option.
+        dlg = Adw.AlertDialog(
+            heading="Select SoundFont",
+            body="Choose from your SoundFont library or import a new one.",
+        )
+        for sf in available:
+            dlg.add_response(sf.name, sf.name)
+        dlg.add_response("_import", "Import new\u2026")
+        dlg.add_response("_cancel", "Cancel")
+        dlg.set_close_response("_cancel")
+
+        def _on_response(_dlg, response):
+            if response == "_cancel":
+                return
+            if response == "_import":
+                self._on_browse_new_soundfont()
+                return
+            # User picked an existing soundfont
+            self._apply_soundfont(response)
+
+        dlg.connect("response", _on_response)
+        dlg.present(self.get_root())
+
+    def _on_browse_new_soundfont(self) -> None:
         chooser = Gtk.FileChooserNative(
-            title="Select SoundFont",
+            title="Import SoundFont",
             transient_for=self.get_root(),
             action=Gtk.FileChooserAction.OPEN,
-            accept_label="Add",
+            accept_label="Import",
         )
         f = Gtk.FileFilter()
         f.set_name("SoundFonts (*.sf2, *.sf3)")
@@ -443,30 +497,31 @@ class DosboxSettingsDialog(Adw.Dialog):
         f.add_pattern("*.sf3")
         f.add_pattern("*.SF3")
         chooser.add_filter(f)
-        chooser.connect("response", self._on_sf_chosen, chooser)
+        chooser.connect("response", self._on_new_sf_chosen, chooser)
         chooser.show()
         self._chooser = chooser
 
-    def _on_sf_chosen(self, _c, response, chooser) -> None:
-        if response != Gtk.ResponseType.ACCEPT or self._assets_dir is None:
+    def _on_new_sf_chosen(self, _c, response, chooser) -> None:
+        if response != Gtk.ResponseType.ACCEPT:
             return
         src = Path(chooser.get_file().get_path())
-        dest_dir = self._assets_dir / "soundfonts"
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src, dest_dir / src.name)
-        # Update config
-        self._set("midi", "mididevice", "fluidsynth")
-        self._set("fluidsynth", "soundfont", f"assets/soundfonts/{src.name}")
-        # Update UI
-        self._sf_row.set_subtitle(src.name)
+        # Copy to shared central library
+        shared_dir = self._shared_soundfonts_dir()
+        dest = shared_dir / src.name
+        if not dest.exists():
+            shutil.copy2(src, dest)
+        self._apply_soundfont(src.name)
 
-    def _on_remove_soundfont(self, _btn) -> None:
-        if self._assets_dir is None:
-            return
-        sf_dir = self._assets_dir / "soundfonts"
-        if sf_dir.is_dir():
-            shutil.rmtree(sf_dir)
-        self._sf_row.set_subtitle("No SoundFont installed")
+    def _apply_soundfont(self, sf_name: str) -> None:
+        """Set the given SoundFont for this game — points at shared central dir."""
+        shared_dir = self._shared_soundfonts_dir()
+        self._set("midi", "mididevice", "fluidsynth")
+        self._set("fluidsynth", "soundfont", str(shared_dir / sf_name))
+        self._sf_row.set_subtitle(sf_name)
+
+    def _on_clear_soundfont(self, _btn) -> None:
+        self._set("fluidsynth", "soundfont", "")
+        self._sf_row.set_subtitle("No SoundFont selected")
 
     def _on_browse_roms(self, _btn) -> None:
         chooser = Gtk.FileChooserNative(
@@ -486,24 +541,20 @@ class DosboxSettingsDialog(Adw.Dialog):
         self._chooser = chooser
 
     def _on_roms_chosen(self, _c, response, chooser) -> None:
-        if response != Gtk.ResponseType.ACCEPT or self._assets_dir is None:
+        if response != Gtk.ResponseType.ACCEPT:
             return
-        dest_dir = self._assets_dir / "mt32-roms"
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        for gfile in chooser.get_files():
-            src = Path(gfile.get_path())
-            shutil.copy2(src, dest_dir / src.name)
-        # Update config
+        # Copy ROMs to shared central library
+        shared_dir = self._shared_mt32_dir()
+        shared_dir.mkdir(parents=True, exist_ok=True)
+        files = chooser.get_files()
+        for i in range(files.get_n_items()):
+            src = Path(files.get_item(i).get_path())
+            dest = shared_dir / src.name
+            if not dest.exists():
+                shutil.copy2(src, dest)
+        # Point config at shared central dir
         self._set("midi", "mididevice", "mt32")
-        self._set("mt32", "romdir", "assets/mt32-roms")
+        self._set("mt32", "romdir", str(shared_dir))
         # Update UI
-        count = len(list(dest_dir.glob("*.rom")))
-        self._rom_row.set_subtitle(f"{count} ROM files installed")
-
-    def _on_remove_roms(self, _btn) -> None:
-        if self._assets_dir is None:
-            return
-        rom_dir = self._assets_dir / "mt32-roms"
-        if rom_dir.is_dir():
-            shutil.rmtree(rom_dir)
-        self._rom_row.set_subtitle("No ROMs installed")
+        count = len(list(shared_dir.glob("*.rom")))
+        self._rom_row.set_subtitle(f"Installed ({count} ROM files)")

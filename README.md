@@ -65,7 +65,7 @@ DOS games run via [DOSBox Staging](https://dosbox-staging.github.io/)
 
 ---
 
-## How is this different from Lutris / Heroic?
+## How is this different from Lutris / Heroic and what about Drop?
 
 Lutris and Heroic are game *managers* — they help you configure, install, and
 run games on your own machine. You still set up each game yourself: pick a
@@ -81,6 +81,9 @@ If you're setting up games for yourself and enjoy tweaking things, Lutris and
 Heroic are great tools. If you want other people (family, friends, a LAN
 party) to install preconfigured games without touching a terminal, that's what
 Cellar is for.
+
+[Drop](https://droposs.org) is the closest relative, with a similar idea and functionality. But where drop has a client/server architecture, Cellar only needs a writable area to store your apps/games. If you want to share your collection with people outside your household, Drop might be the better option, since Cellar only supports bearer token auth due to its server-less architecture.
+Cellar is also built to be GNOME styled, and fit in the aesthetic, something Drop is not. I urge you to try out both projects to see which one suits your needs.
 
 ---
 

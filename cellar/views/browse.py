@@ -35,33 +35,37 @@ _CAPSULE_HEIGHT = 300
 # _FixedBox — single-child container with a hard-coded natural size
 # ---------------------------------------------------------------------------
 
-class _FixedBox(Gtk.Widget):
+class _FixedBox(Gtk.Box):
     """Single-child container that always reports a fixed natural size.
 
     ``Gtk.Box`` propagates its children's natural sizes upward, which would
     let the image's pixel dimensions leak into ``FlowBox`` layout.  This
-    widget always reports ``(width, height)`` from ``do_measure`` so the
-    FlowBox sees the correct capsule dimensions regardless of the child's
-    natural size.  The child is always allocated the full area.
+    subclass overrides ``do_measure`` so the FlowBox sees the correct
+    capsule dimensions regardless of the child's natural size.
+
+    Inheriting from ``Gtk.Box`` (rather than bare ``Gtk.Widget``) ensures
+    the native C dispose reliably unparents children even when PyGObject's
+    GC does not call a Python ``do_dispose`` override.
     """
 
     __gtype_name__ = "CellarFixedBox"
 
     def __init__(self, width: int, height: int, *, clip: bool = True) -> None:
         super().__init__()
+        # Remove Gtk.Box's built-in GtkBoxLayout so GTK falls through to
+        # our do_measure / do_size_allocate overrides.
+        self.set_layout_manager(None)
         self._w = width
         self._h = height
-        self._child: Gtk.Widget | None = None
         if clip:
             self.set_overflow(Gtk.Overflow.HIDDEN)
 
     def set_child(self, child: Gtk.Widget | None) -> None:
-        old = self._child
+        old = self.get_first_child()
         if old is not None:
-            old.unparent()
-        self._child = child
+            self.remove(old)
         if child is not None:
-            child.set_parent(self)
+            self.append(child)
 
     # GTK virtual methods ──────────────────────────────────────────────────
 
@@ -73,37 +77,6 @@ class _FixedBox(Gtk.Widget):
         child = self.get_first_child()
         if child is not None:
             child.allocate(width, height, baseline, None)
-
-    def do_snapshot(self, snapshot) -> None:
-        child = self.get_first_child()
-        if child is not None:
-            self.snapshot_child(child, snapshot)
-
-    def do_dispose(self) -> None:
-        self._child = None
-        child = self.get_first_child()
-        while child is not None:
-            nxt = child.get_next_sibling()
-            child.unparent()
-            child = nxt
-        super().do_dispose()
-
-
-def _dispose_subtree(widget: Gtk.Widget) -> None:
-    """Recursively unparent all descendants of *widget*.
-
-    PyGObject does not reliably call ``do_dispose`` on custom widgets
-    when they become orphaned, so GTK may warn about children still
-    being present at finalization time.  Walking the subtree explicitly
-    ensures every child is unparented before the top-level widget is
-    detached.
-    """
-    child = widget.get_first_child()
-    while child is not None:
-        nxt = child.get_next_sibling()
-        _dispose_subtree(child)
-        child.unparent()
-        child = nxt
 
 
 # ---------------------------------------------------------------------------
@@ -229,16 +202,6 @@ class AppCard(Gtk.FlowBoxChild):
         elif not active and self._publish_overlay is not None:
             self._overlay.remove_overlay(self._publish_overlay)
             self._publish_overlay = None
-
-    def do_dispose(self) -> None:
-        # Explicitly tear down the _FixedBox subtree — PyGObject does not
-        # reliably call do_dispose on orphaned custom widgets, which causes
-        # "Finalizing CellarFixedBox but it still has children" warnings.
-        child = self.get_first_child()
-        if child is not None:
-            _dispose_subtree(child)
-        self.set_child(None)
-        super().do_dispose()
 
     def matches(
         self,
@@ -454,12 +417,6 @@ class CapsuleCard(Gtk.FlowBoxChild):
             self._overlay.remove_overlay(self._publish_overlay)
             self._publish_overlay = None
 
-    def do_dispose(self) -> None:
-        child = self.get_first_child()
-        if child is not None:
-            _dispose_subtree(child)
-        self.set_child(None)
-        super().do_dispose()
 
     def matches(
         self,

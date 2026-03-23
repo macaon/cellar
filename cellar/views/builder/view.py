@@ -358,16 +358,16 @@ class PackageBuilderView(Adw.Bin):
 
     def _setup_actions(self) -> None:
         """Register Gio actions for the builder view."""
-        ag = Gio.SimpleActionGroup()
+        self._action_group = Gio.SimpleActionGroup()
 
         delete_act = Gio.SimpleAction.new("delete", None)
         delete_act.connect(
             "activate",
             lambda *_: self._on_delete_clicked(self._project) if self._project else None,
         )
-        ag.add_action(delete_act)
+        self._action_group.add_action(delete_act)
 
-        self.insert_action_group("builder", ag)
+        self.insert_action_group("builder", self._action_group)
 
     # ------------------------------------------------------------------
     # UI construction
@@ -1108,6 +1108,8 @@ class PackageBuilderView(Adw.Bin):
 
         detail_page = Adw.NavigationPage(title=project.name, child=toolbar)
         detail_page.set_tag("builder-detail")
+        # Re-insert action group so menu actions resolve from the detail page.
+        detail_page.insert_action_group("builder", self._action_group)
 
         # ── 1. Metadata section (App / Linux / DOS projects — first, to set title/slug) ──
         if project.project_type in ("app", "linux", "dos"):
@@ -4379,6 +4381,20 @@ class _NewProjectDialog(Adw.Dialog):
 
     # ── Drop-zone handlers ──────────────────────────────────────────────
 
+    @staticmethod
+    def _collect_disc_images(paths: list[Path]) -> list[Path]:
+        """Return disc image files from *paths*, scanning directories one level deep."""
+        _disc_exts = {".iso", ".cue", ".img", ".ima", ".vfd", ".bin", ".chd"}
+        found: list[Path] = []
+        for p in paths:
+            if p.is_dir():
+                for child in p.iterdir():
+                    if child.is_file() and child.suffix.lower() in _disc_exts:
+                        found.append(child)
+            elif p.is_file() and p.suffix.lower() in _disc_exts:
+                found.append(p)
+        return found
+
     def _on_drag_enter(self, _target, _x, _y) -> Gdk.DragAction:
         self._drop_frame.add_css_class("drag-hover")
         return Gdk.DragAction.COPY
@@ -4392,11 +4408,10 @@ class _NewProjectDialog(Adw.Dialog):
         if not files:
             return False
         paths = [Path(f.get_path()) for f in files]
-        # Check if any dropped file is a disc image
-        _disc_exts = {".iso", ".cue", ".img", ".ima", ".vfd", ".bin", ".chd"}
-        if any(p.suffix.lower() in _disc_exts for p in paths):
+        disc_paths = self._collect_disc_images(paths)
+        if disc_paths:
             self.close()
-            self._start_disc_import(paths)
+            self._start_disc_import(disc_paths)
         else:
             self.close()
             self._start_import(paths[0])
@@ -4457,9 +4472,9 @@ class _NewProjectDialog(Adw.Dialog):
         if not paths:
             return
         self.close()
-        _disc_exts = {".iso", ".cue", ".img", ".ima", ".vfd", ".bin", ".chd"}
-        if any(p.suffix.lower() in _disc_exts for p in paths):
-            self._start_disc_import(paths)
+        disc_paths = self._collect_disc_images(paths)
+        if disc_paths:
+            self._start_disc_import(disc_paths)
         else:
             self._start_import(paths[0])
 

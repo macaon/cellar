@@ -2,6 +2,7 @@
 
 import logging
 import os
+import re as _re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -164,8 +165,6 @@ def dosbox_conf() -> Path:
             return candidate
     return _SRC_DATA / "dosbox-staging.conf"
 
-
-import re as _re
 
 # Characters that are unsafe or awkward on Linux / Windows / macOS filesystems.
 _UNSAFE_CHARS = _re.compile(r'[/:?*"<>|\\]+')

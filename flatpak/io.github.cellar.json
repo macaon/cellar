@@ -239,22 +239,6 @@
       ]
     },
     {
-      "name": "chdman",
-      "buildsystem": "cmake-ninja",
-      "config-opts": ["-DCMAKE_BUILD_TYPE=Release"],
-      "no-make-install": true,
-      "post-install": [
-        "install -Dm755 chdman ${FLATPAK_DEST}/bin/chdman"
-      ],
-      "sources": [
-        {
-          "type": "git",
-          "url": "https://github.com/charlesthobe/chdman.git",
-          "branch": "master"
-        }
-      ]
-    },
-    {
       "name": "i386-compat",
       "buildsystem": "simple",
       "build-commands": ["mkdir -p /app/lib/i386-linux-gnu /app/lib/i386-linux-gnu/GL"]

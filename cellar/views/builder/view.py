@@ -2549,8 +2549,7 @@ class PackageBuilderView(Adw.Bin):
         f.set_name("Disc Images")
         for pat in ("*.iso", "*.ISO", "*.cue", "*.CUE",
                     "*.img", "*.IMG", "*.ima", "*.IMA",
-                    "*.vfd", "*.VFD", "*.bin", "*.BIN",
-                    "*.chd", "*.CHD"):
+                    "*.vfd", "*.VFD", "*.bin", "*.BIN"):
             f.add_pattern(pat)
         all_f = Gtk.FileFilter()
         all_f.set_name("All Files")
@@ -2582,7 +2581,7 @@ class PackageBuilderView(Adw.Bin):
             names = ", ".join(p.name for p in disc_set.unknown[:5])
             body += (
                 f"\n\nUnsupported files: {names}"
-                "\n\nSupported formats: ISO, CUE/BIN, CHD, IMG/IMA/VFD."
+                "\n\nSupported formats: ISO, CUE/BIN, IMG/IMA/VFD."
                 "\nStandalone BIN files need a matching CUE sheet."
             )
         return body
@@ -2590,9 +2589,9 @@ class PackageBuilderView(Adw.Bin):
     def _import_disc_to_project(self, project, paths: list[Path]) -> None:
         """Import disc images into an existing project.
 
-        Delegates to ``_add_disc_images_to_project`` which handles CHD
-        conversion, CDDA track conversion, and copying files into the
-        project content directory.
+        Delegates to ``_add_disc_images_to_project`` which handles CDDA
+        track conversion and copying files into the project content
+        directory.
         """
         self._add_disc_images_to_project(project, paths)
 
@@ -2600,74 +2599,10 @@ class PackageBuilderView(Adw.Bin):
         """Add disc/floppy images to an existing DOS project.
 
         CD/CUE images are copied to ``content/cd/``, floppies to
-        ``content/_floppy_tmp/``.  If the project already has disc images
+        ``content/floppy/``.  If the project already has disc images
         of the same type, the reorder dialog is shown.
         """
-        from cellar.backend.disc_image import (
-            convert_chd,
-            group_disc_files,
-            has_chdman,
-        )
-
-        # CHD conversion first (reuse existing pattern)
-        chd_files = [p for p in paths if p.suffix.lower() == ".chd"]
-        if chd_files:
-            if not has_chdman():
-                err = Adw.AlertDialog(
-                    heading="chdman not found",
-                    body="CHD files require chdman (from mame-tools) to convert.",
-                )
-                err.add_response("ok", "OK")
-                err.present(self)
-                return
-
-            import tempfile
-
-            from cellar.utils.async_work import run_in_background
-
-            chd_tmp = Path(tempfile.mkdtemp(prefix="cellar_chd_"))
-            n = len(chd_files)
-            progress = ProgressDialog(
-                f"Converting {n} CHD image{'s' if n > 1 else ''}\u2026"
-            )
-            progress.present(self)
-
-            def _convert():
-                converted: list[Path] = []
-                for i, chd in enumerate(chd_files):
-                    GLib.idle_add(
-                        progress.set_label,
-                        f"Converting {chd.name}\u2026 ({i + 1}/{n})",
-                    )
-                    GLib.idle_add(progress.set_fraction, 0.0)
-                    cue = convert_chd(
-                        chd, chd_tmp / chd.stem,
-                        progress_cb=lambda frac: GLib.idle_add(
-                            progress.set_fraction, frac,
-                        ),
-                    )
-                    converted.append(cue)
-                    for sibling in cue.parent.iterdir():
-                        if sibling.suffix.lower() == ".bin":
-                            converted.append(sibling)
-                return converted
-
-            def _done(converted):
-                progress.force_close()
-                non_chd = [p for p in paths if p.suffix.lower() != ".chd"]
-                # _add_disc_images_to_project copies files synchronously
-                self._add_disc_images_to_project(project, non_chd + converted)
-                shutil.rmtree(chd_tmp, ignore_errors=True)
-
-            def _error(msg):
-                progress.force_close()
-                shutil.rmtree(chd_tmp, ignore_errors=True)
-                err = Adw.AlertDialog(heading="CHD Conversion Failed", body=str(msg))
-                err.add_response("ok", "OK")
-                err.present(self)
-
-            run_in_background(_convert, _done, _error)
-            return
+        from cellar.backend.disc_image import group_disc_files
 
         disc_set = group_disc_files(paths)
 
@@ -4545,7 +4480,7 @@ class _NewProjectDialog(Adw.Dialog):
     @staticmethod
     def _collect_disc_images(paths: list[Path]) -> list[Path]:
         """Return disc image files from *paths*, scanning directories one level deep."""
-        _disc_exts = {".iso", ".cue", ".img", ".ima", ".vfd", ".bin", ".chd"}
+        _disc_exts = {".iso", ".cue", ".img", ".ima", ".vfd", ".bin"}
         found: list[Path] = []
         for p in paths:
             if p.is_dir():
@@ -4597,8 +4532,7 @@ class _NewProjectDialog(Adw.Dialog):
         disc_f.set_name("Disc Images")
         for pat in ("*.iso", "*.ISO", "*.cue", "*.CUE",
                     "*.img", "*.IMG", "*.ima", "*.IMA",
-                    "*.vfd", "*.VFD", "*.bin", "*.BIN",
-                    "*.chd", "*.CHD"):
+                    "*.vfd", "*.VFD", "*.bin", "*.BIN"):
             disc_f.add_pattern(pat)
         all_f = Gtk.FileFilter()
         all_f.set_name("All Files")
@@ -4746,80 +4680,6 @@ class _NewProjectDialog(Adw.Dialog):
 
     def _start_disc_import(self, paths: list[Path]) -> None:
         """Handle dropped/selected disc image files."""
-        from cellar.backend.disc_image import (
-            convert_chd,
-            has_chdman,
-        )
-
-        # Check for CHD files that need conversion first.
-        chd_files = [p for p in paths if p.suffix.lower() == ".chd"]
-        if chd_files:
-            if not has_chdman():
-                err = Adw.AlertDialog(
-                    heading="chdman not found",
-                    body=(
-                        "CHD files require chdman (from mame-tools) to convert.\n\n"
-                        "Install it with:\n"
-                        "  sudo dnf install mame-tools"
-                    ),
-                )
-                err.add_response("ok", "OK")
-                err.present(self._parent_view)
-                return
-
-            import tempfile
-
-            from cellar.utils.async_work import run_in_background
-            from cellar.views.builder.progress import ProgressDialog
-
-            chd_tmp = Path(tempfile.mkdtemp(prefix="cellar_chd_"))
-            n = len(chd_files)
-            progress = ProgressDialog(
-                f"Converting {n} CHD image{'s' if n > 1 else ''}\u2026"
-            )
-            progress.present(self._parent_view)
-
-            def _convert():
-                converted: list[Path] = []
-                for i, chd in enumerate(chd_files):
-                    GLib.idle_add(
-                        progress.set_label,
-                        f"Converting {chd.name}\u2026 ({i + 1}/{n})",
-                    )
-                    GLib.idle_add(progress.set_fraction, 0.0)
-                    cue = convert_chd(
-                        chd, chd_tmp / chd.stem,
-                        progress_cb=lambda frac: GLib.idle_add(
-                            progress.set_fraction, frac,
-                        ),
-                    )
-                    converted.append(cue)
-                    for sibling in cue.parent.iterdir():
-                        if sibling.suffix.lower() == ".bin":
-                            converted.append(sibling)
-                return converted
-
-            def _done(converted):
-                progress.force_close()
-                non_chd = [p for p in paths if p.suffix.lower() != ".chd"]
-                # Store for cleanup after _install_from_disc completes
-                self._chd_cleanup_dir = chd_tmp
-                self._continue_disc_import(non_chd + converted)
-
-            def _error(msg):
-                progress.force_close()
-                shutil.rmtree(chd_tmp, ignore_errors=True)
-                err = Adw.AlertDialog(heading="CHD Conversion Failed", body=str(msg))
-                err.add_response("ok", "OK")
-                err.present(self._parent_view)
-
-            run_in_background(_convert, _done, _error)
-            return
-
-        self._continue_disc_import(paths)
-
-    def _continue_disc_import(self, paths: list[Path]) -> None:
-        """Continue disc import after any CHD conversion."""
         from cellar.backend.disc_image import group_disc_files
 
         disc_set = group_disc_files(paths)
@@ -5248,19 +5108,10 @@ class _NewProjectDialog(Adw.Dialog):
             project.source_dir = str(content)
             project.initialized = True
             save_project(project)
-            # Clean up CHD conversion temp dir if present
-            chd_dir = getattr(self, "_chd_cleanup_dir", None)
-            if chd_dir and chd_dir.is_dir():
-                shutil.rmtree(chd_dir, ignore_errors=True)
-                self._chd_cleanup_dir = None
             self._on_import(project)
 
         def _error(msg):
             progress.force_close()
-            chd_dir = getattr(self, "_chd_cleanup_dir", None)
-            if chd_dir and chd_dir.is_dir():
-                shutil.rmtree(chd_dir, ignore_errors=True)
-                self._chd_cleanup_dir = None
             log.error("Disc import failed: %s", msg)
             err = Adw.AlertDialog(
                 heading="Import failed",

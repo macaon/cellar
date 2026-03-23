@@ -20,7 +20,7 @@ log = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-_DISC_IMAGE_EXTS = {".iso", ".cue", ".img", ".ima", ".vfd", ".chd"}
+_DISC_IMAGE_EXTS = {".iso", ".cue", ".img", ".ima", ".vfd"}
 
 # Standard floppy image sizes in bytes.
 _FLOPPY_SIZES = {
@@ -95,7 +95,7 @@ class DiscSet:
     unknown: list[Path] = field(default_factory=list)
 
 
-DiscType = Literal["iso", "cue", "chd", "floppy", "unknown"]
+DiscType = Literal["iso", "cue", "floppy", "unknown"]
 
 
 # ---------------------------------------------------------------------------
@@ -104,14 +104,12 @@ DiscType = Literal["iso", "cue", "chd", "floppy", "unknown"]
 
 
 def classify_disc_image(path: Path) -> DiscType:
-    """Classify a file as an ISO, CUE, CHD, floppy image, or unknown."""
+    """Classify a file as an ISO, CUE, floppy image, or unknown."""
     suffix = path.suffix.lower()
     if suffix == ".iso":
         return "iso"
     if suffix == ".cue":
         return "cue"
-    if suffix == ".chd":
-        return "chd"
     if suffix in {".img", ".ima", ".vfd"}:
         return "floppy"
     return "unknown"
@@ -361,77 +359,6 @@ def _extract_roman(path: Path) -> int | None:
     if m:
         return _ROMAN_MAP.get(m.group(1).lower())
     return None
-
-
-# ---------------------------------------------------------------------------
-# CHD conversion
-# ---------------------------------------------------------------------------
-
-
-def has_chdman() -> bool:
-    """Return True if ``chdman`` (from mame-tools) is available."""
-    return bool(shutil.which("chdman"))
-
-
-_CHD_PROGRESS_RE = re.compile(r"(\d+(?:\.\d+)?)% complete")
-
-
-def convert_chd(
-    chd_path: Path,
-    dest_dir: Path,
-    *,
-    progress_cb: Callable[[float], None] | None = None,
-) -> Path:
-    """Convert a CHD disc image to CUE/BIN using ``chdman extractcd``.
-
-    The resulting CUE and BIN files are written to *dest_dir*.
-    *progress_cb*, if provided, is called with a fraction (0.0–1.0) as
-    chdman reports progress on stderr.
-
-    Returns the path to the generated ``.cue`` file.
-
-    Raises :class:`RuntimeError` if chdman is not available or fails.
-    """
-    chdman = shutil.which("chdman")
-    if not chdman:
-        raise RuntimeError(
-            "chdman not found — install mame-tools to import CHD files"
-        )
-
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    cue_out = dest_dir / (chd_path.stem + ".cue")
-
-    proc = subprocess.Popen(
-        [chdman, "extractcd", "-i", str(chd_path), "-o", str(cue_out), "-f"],
-        stderr=subprocess.PIPE,
-        stdout=subprocess.DEVNULL,
-    )
-
-    if proc.stderr:
-        buf = ""
-        while True:
-            ch = proc.stderr.read(1)
-            if not ch:
-                break
-            c = ch.decode("utf-8", errors="replace")
-            buf += c
-            # chdman uses \r to overwrite the progress line
-            if c in ("\r", "\n"):
-                if progress_cb:
-                    m = _CHD_PROGRESS_RE.search(buf)
-                    if m:
-                        progress_cb(float(m.group(1)) / 100.0)
-                buf = ""
-
-    proc.wait()
-    if proc.returncode != 0:
-        raise RuntimeError(f"chdman extractcd failed (exit {proc.returncode})")
-
-    if not cue_out.is_file():
-        raise RuntimeError(f"chdman produced no output CUE file at {cue_out}")
-
-    log.info("Converted CHD → CUE/BIN: %s → %s", chd_path.name, cue_out.name)
-    return cue_out
 
 
 # ---------------------------------------------------------------------------

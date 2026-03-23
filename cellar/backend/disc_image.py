@@ -407,42 +407,60 @@ def _scan_iso_fallback(path: Path) -> list[str]:
 
 
 def scan_bin(path: Path) -> list[str]:
-    """List files in a raw BIN disc image using 7z.
+    """List files in a raw BIN disc image by stripping sector headers.
 
-    CUE/BIN data tracks use raw 2352-byte sectors which pycdlib cannot
-    read directly.  7z handles the sector format internally.
+    CUE/BIN data tracks use raw 2352-byte sectors.  This function strips
+    the sync/header/subheader bytes to extract the 2048-byte ISO 9660
+    data, writes it to a temp file, and passes it to :func:`scan_iso`.
 
-    Returns file paths as strings (e.g. ``"/INSTALL.EXE"``), matching
-    the format returned by :func:`scan_iso`.  Returns an empty list if
-    7z is not available or the image cannot be read.
+    Supports Mode 1 (data at offset 16) and Mode 2 Form 1 (data at
+    offset 24).  Returns an empty list if the format is unrecognised.
     """
-    _7z = shutil.which("7z")
-    if not _7z:
-        log.debug("7z not found, cannot scan BIN image %s", path)
-        return []
+    import tempfile
+
+    _RAW_SECTOR = 2352
+    _COOKED = 2048
+
     try:
-        result = subprocess.run(
-            [_7z, "l", "-ba", str(path)],
-            capture_output=True, text=True, timeout=30,
-        )
-        if result.returncode != 0:
-            log.debug("7z failed for %s: %s", path, result.stderr.strip())
+        size = path.stat().st_size
+        if size < _RAW_SECTOR or size % _RAW_SECTOR != 0:
+            log.debug("BIN %s size %d not a multiple of 2352", path, size)
             return []
-        files: list[str] = []
-        for line in result.stdout.splitlines():
-            # -ba format: "YYYY-MM-DD HH:MM:SS ATTR SIZE COMPRESSED NAME"
-            # Fields are fixed-width: date(10) space time(8) space attr(5)
-            # space size(12) space compressed(12) space name(rest)
-            parts = line.split(maxsplit=5)
-            if len(parts) >= 6:
-                name = parts[5].strip()
-                if name and not name.endswith("/"):
-                    # Normalise to /UPPER format like scan_iso
-                    name = "/" + name.replace("\\", "/").lstrip("/")
-                    files.append(name)
-        return files
+
+        with open(path, "rb") as fh:
+            # Read first sector to detect mode
+            sector0 = fh.read(_RAW_SECTOR)
+            if len(sector0) < _RAW_SECTOR:
+                return []
+
+            mode = sector0[15]
+            if mode == 1:
+                data_offset = 16   # sync(12) + header(4)
+            elif mode == 2:
+                data_offset = 24   # sync(12) + header(4) + subheader(8)
+            else:
+                log.debug("BIN %s: unknown sector mode %d", path, mode)
+                return []
+
+            # Extract cooked data to a temp file
+            fh.seek(0)
+            n_sectors = size // _RAW_SECTOR
+            tmp = tempfile.NamedTemporaryFile(
+                suffix=".iso", prefix="cellar_bin_", delete=False,
+            )
+            try:
+                for _ in range(n_sectors):
+                    sector = fh.read(_RAW_SECTOR)
+                    if len(sector) < _RAW_SECTOR:
+                        break
+                    tmp.write(sector[data_offset:data_offset + _COOKED])
+                tmp.close()
+                return scan_iso(Path(tmp.name))
+            finally:
+                Path(tmp.name).unlink(missing_ok=True)
+
     except Exception as exc:
-        log.debug("7z scan failed for %s: %s", path, exc)
+        log.debug("scan_bin failed for %s: %s", path, exc)
         return []
 
 

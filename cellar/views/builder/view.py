@@ -2705,61 +2705,78 @@ class PackageBuilderView(Adw.Bin):
             return
 
         disc_set = group_disc_files(paths)
-        content = project.content_path
-        content.mkdir(parents=True, exist_ok=True)
+        from cellar.utils.async_work import run_in_background
 
-        # Copy CD images to content/cd/
-        cd_dir = content / "cd"
-        new_cd: list[Path] = []
-        if disc_set.isos or disc_set.cue_bins:
-            from cellar.backend.disc_image import convert_cdda_tracks, has_cdda_tools
+        progress = ProgressDialog("Copying disc images\u2026")
+        progress.present(self)
 
-            cd_dir.mkdir(parents=True, exist_ok=True)
-            for iso in disc_set.isos:
-                dest = cd_dir / iso.name
-                shutil.copy2(iso, dest)
-                new_cd.append(dest)
-            for cue_sheet in disc_set.cue_bins:
-                if cue_sheet.has_audio and has_cdda_tools():
-                    new_cue = convert_cdda_tracks(cue_sheet.cue_path, cd_dir)
-                    new_cd.append(new_cue)
-                else:
-                    dest_cue = cd_dir / cue_sheet.cue_path.name
-                    shutil.copy2(cue_sheet.cue_path, dest_cue)
-                    for bin_path in cue_sheet.bin_files:
-                        if bin_path.is_file():
-                            shutil.copy2(bin_path, cd_dir / bin_path.name)
-                    new_cd.append(dest_cue)
+        def _work():
+            content = project.content_path
+            content.mkdir(parents=True, exist_ok=True)
 
-        # Copy floppy images to content/floppy/
-        floppy_added = 0
-        if disc_set.floppies:
-            floppy_dir = content / "floppy"
-            floppy_dir.mkdir(parents=True, exist_ok=True)
-            existing_floppy = list(project.floppy_images or [])
-            for fp in disc_set.floppies:
-                shutil.copy2(fp, floppy_dir / fp.name)
-                rel = str((floppy_dir / fp.name).relative_to(content))
-                if rel not in existing_floppy:
-                    existing_floppy.append(rel)
-                    floppy_added += 1
-            project.floppy_images = existing_floppy
+            # Copy CD images to content/cd/
+            cd_dir = content / "cd"
+            new_cd: list[Path] = []
+            if disc_set.isos or disc_set.cue_bins:
+                from cellar.backend.disc_image import convert_cdda_tracks, has_cdda_tools
 
-        # Update project disc_images list
-        existing_cd = list(project.disc_images or [])
-        cd_added = 0
-        for p in new_cd:
-            rel = str(p.relative_to(content))
-            if rel not in existing_cd:
-                existing_cd.append(rel)
-                cd_added += 1
-        project.disc_images = existing_cd
-        save_project(project)
+                cd_dir.mkdir(parents=True, exist_ok=True)
+                for iso in disc_set.isos:
+                    dest = cd_dir / iso.name
+                    shutil.copy2(iso, dest)
+                    new_cd.append(dest)
+                for cue_sheet in disc_set.cue_bins:
+                    if cue_sheet.has_audio and has_cdda_tools():
+                        new_cue = convert_cdda_tracks(cue_sheet.cue_path, cd_dir)
+                        new_cd.append(new_cue)
+                    else:
+                        dest_cue = cd_dir / cue_sheet.cue_path.name
+                        shutil.copy2(cue_sheet.cue_path, dest_cue)
+                        for bin_path in cue_sheet.bin_files:
+                            if bin_path.is_file():
+                                shutil.copy2(bin_path, cd_dir / bin_path.name)
+                        new_cd.append(dest_cue)
 
-        count = cd_added + floppy_added
-        kind = "disc" if new_cd else "floppy"
-        self._show_toast(f"{count} {kind} image{'s' if count != 1 else ''} added.")
-        self._show_project(project)
+            # Copy floppy images to content/floppy/
+            floppy_added = 0
+            if disc_set.floppies:
+                floppy_dir = content / "floppy"
+                floppy_dir.mkdir(parents=True, exist_ok=True)
+                existing_floppy = list(project.floppy_images or [])
+                for fp in disc_set.floppies:
+                    shutil.copy2(fp, floppy_dir / fp.name)
+                    rel = str((floppy_dir / fp.name).relative_to(content))
+                    if rel not in existing_floppy:
+                        existing_floppy.append(rel)
+                        floppy_added += 1
+                project.floppy_images = existing_floppy
+
+            # Update project disc_images list
+            existing_cd = list(project.disc_images or [])
+            cd_added = 0
+            for p in new_cd:
+                rel = str(p.relative_to(content))
+                if rel not in existing_cd:
+                    existing_cd.append(rel)
+                    cd_added += 1
+            project.disc_images = existing_cd
+            save_project(project)
+            return cd_added + floppy_added, bool(new_cd)
+
+        def _done(result):
+            progress.force_close()
+            count, has_cd = result
+            kind = "disc" if has_cd else "floppy"
+            self._show_toast(f"{count} {kind} image{'s' if count != 1 else ''} added.")
+            self._show_project(project)
+
+        def _error(msg):
+            progress.force_close()
+            err = Adw.AlertDialog(heading="Import Failed", body=str(msg))
+            err.add_response("ok", "OK")
+            err.present(self)
+
+        run_in_background(_work, _done, _error)
 
     def _import_dos_folder_to_hdd(self, project, src_path: Path) -> None:
         """Copy a dropped folder into content/hdd/<folder> for DOSBox C:\\ access."""

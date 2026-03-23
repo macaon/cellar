@@ -243,7 +243,7 @@ def _migrate_v0_to_v1(conn: sqlite3.Connection) -> None:
             )
             conn.execute(
                 "INSERT OR REPLACE INTO schema_version (version) VALUES (?)",
-                (_CURRENT_VERSION,),
+                (1,),
             )
     except Exception:
         log.exception("v0→v1 migration failed; database left unchanged")

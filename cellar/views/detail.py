@@ -853,6 +853,7 @@ class DetailView(Gtk.Box):
         dialog.present(self.get_root())
 
     def _on_update_clicked(self, _btn) -> None:
+        from cellar.backend import database  # noqa: PLC0415
         from cellar.views.update_app import UpdateDialog
 
         if self._entry.is_partial:

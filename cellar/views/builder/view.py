@@ -2623,100 +2623,13 @@ class PackageBuilderView(Adw.Bin):
         return body
 
     def _import_disc_to_project(self, project, paths: list[Path]) -> None:
-        """Import disc images into an existing project, converting CHDs first."""
-        from cellar.backend.disc_image import (
-            group_disc_files,
-            has_chdman,
-            convert_chd,
-        )
+        """Import disc images into an existing project.
 
-        chd_files = [p for p in paths if p.suffix.lower() == ".chd"]
-        if chd_files:
-            if not has_chdman():
-                err = Adw.AlertDialog(
-                    heading="chdman not found",
-                    body=(
-                        "CHD files require chdman (from mame-tools) to convert.\n\n"
-                        "Install it with:\n"
-                        "  sudo dnf install mame-tools"
-                    ),
-                )
-                err.add_response("ok", "OK")
-                err.present(self)
-                return
-
-            from cellar.utils.async_work import run_in_background
-            from cellar.views.builder.progress import ProgressDialog
-
-            chd_tmp = Path.home() / ".cache" / "cellar" / "chd_convert"
-            if chd_tmp.exists():
-                shutil.rmtree(chd_tmp, ignore_errors=True)
-            chd_tmp.mkdir(parents=True, exist_ok=True)
-            n = len(chd_files)
-            progress = ProgressDialog(
-                f"Converting {n} CHD image{'s' if n > 1 else ''}\u2026"
-            )
-            progress.present(self)
-
-            def _convert():
-                converted: list[Path] = []
-                for i, chd in enumerate(chd_files):
-                    GLib.idle_add(
-                        progress.set_label,
-                        f"Converting {chd.name}\u2026 ({i + 1}/{n})",
-                    )
-                    GLib.idle_add(progress.set_fraction, 0.0)
-                    cue = convert_chd(
-                        chd, chd_tmp / chd.stem,
-                        progress_cb=lambda frac: GLib.idle_add(
-                            progress.set_fraction, frac,
-                        ),
-                    )
-                    converted.append(cue)
-                    for sibling in cue.parent.iterdir():
-                        if sibling.suffix.lower() == ".bin":
-                            converted.append(sibling)
-                return converted
-
-            def _done(converted):
-                progress.force_close()
-                non_chd = [p for p in paths if p.suffix.lower() != ".chd"]
-                all_paths = non_chd + converted
-                disc_set = group_disc_files(all_paths)
-                if disc_set.isos or disc_set.cue_bins or disc_set.floppies:
-                    # _install_from_disc copies files in a background thread;
-                    # chd_tmp is cleaned up after that thread completes.
-                    self._chd_cleanup_dir = chd_tmp
-                    self._install_from_disc(project, disc_set)
-                else:
-                    shutil.rmtree(chd_tmp, ignore_errors=True)
-                    err = Adw.AlertDialog(
-                        heading="No disc images found",
-                        body=self._no_disc_images_body(disc_set),
-                    )
-                    err.add_response("ok", "OK")
-                    err.present(self)
-
-            def _error(msg):
-                progress.force_close()
-                shutil.rmtree(chd_tmp, ignore_errors=True)
-                err = Adw.AlertDialog(heading="CHD Conversion Failed", body=str(msg))
-                err.add_response("ok", "OK")
-                err.present(self)
-
-            run_in_background(_convert, _done, _error)
-            return
-
-        disc_set = group_disc_files(paths)
-        if disc_set.isos or disc_set.cue_bins or disc_set.floppies:
-            self._install_from_disc(project, disc_set)
-        else:
-            err = Adw.AlertDialog(
-                heading="No disc images found",
-                body=self._no_disc_images_body(disc_set),
-            )
-            err.add_response("ok", "OK")
-            err.present(self)
+        Delegates to ``_add_disc_images_to_project`` which handles CHD
+        conversion, CDDA track conversion, and copying files into the
+        project content directory.
+        """
+        self._add_disc_images_to_project(project, paths)
 
     def _add_disc_images_to_project(self, project, paths: list[Path]) -> None:
         """Add disc/floppy images to an existing DOS project.

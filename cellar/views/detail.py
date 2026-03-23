@@ -82,7 +82,7 @@ def _html_to_pango(text: str) -> str:
             elif low == "p":
                 if closing:
                     out.append("\n")
-            elif low in ("ul", "ol", "li", "div", "span"):
+            elif low in ("ul", "ol", "div", "span"):
                 pass  # silently skip structural tags
             else:
                 # Unknown tag — skip it (don't try to emit it as Pango)

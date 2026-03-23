@@ -463,10 +463,11 @@ def _preflight_check_chunks(
                     missing.append(uri)
                 finally:
                     _return_sftp(host, port, user, ssh_identity, sftp, ssh_password)
-        except Exception:
-            # If the check itself fails, skip preflight rather than
-            # blocking the install — the download will fail with a
+        except Exception as exc:  # noqa: BLE001
+            # If the transport check itself fails, skip preflight rather
+            # than blocking the install — the download will fail with a
             # more specific error anyway.
+            log.debug("Preflight check failed for chunk %d, skipping: %s", i, exc)
             return
 
     if missing:

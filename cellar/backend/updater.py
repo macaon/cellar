@@ -434,6 +434,10 @@ def import_user_files(
                             member.name = "drive_c/" + member.name[len(slug_prefix):]
                         elif member.name == app_id:
                             member.name = "drive_c"
+                        # Reject path traversal after remapping
+                        parts = Path(member.name).parts
+                        if any(p == ".." for p in parts) or Path(member.name).is_absolute():
+                            continue
                         tf.extract(member, path=prefix_path, filter="data")
                         if member.isfile():
                             file_count += 1

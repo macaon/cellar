@@ -224,9 +224,10 @@ def _launch_dos_installer(
         # Only clean up floppies and installer path if entry points
         # were found — the user may have aborted and needs to retry.
         if entry_points and installer_exe:
-            floppy_tmp = content_dir / "_floppy_tmp"
-            if floppy_tmp.is_dir():
-                shutil.rmtree(floppy_tmp, ignore_errors=True)
+            floppy_dir = content_dir / "floppy"
+            if floppy_dir.is_dir():
+                shutil.rmtree(floppy_dir, ignore_errors=True)
+            project.floppy_images = []
             project.installer_path = ""
 
         if entry_points:
@@ -1443,8 +1444,7 @@ class PackageBuilderView(Adw.Bin):
             # Installer section (DOS only, when disc/floppy installer detected)
             if project.project_type == "dos" and project.source_dir:
                 _has_discs = bool(
-                    project.disc_images
-                    or (project.content_path / "_floppy_tmp").is_dir()
+                    project.disc_images or project.floppy_images
                 )
                 _needs_install = _has_discs and not project.entry_points
 
@@ -2693,26 +2693,33 @@ class PackageBuilderView(Adw.Bin):
                             shutil.copy2(bin_path, cd_dir / bin_path.name)
                     new_cd.append(dest_cue)
 
-        # Copy floppy images to content/_floppy_tmp/
+        # Copy floppy images to content/floppy/
+        floppy_added = 0
         if disc_set.floppies:
-            floppy_dir = content / "_floppy_tmp"
+            floppy_dir = content / "floppy"
             floppy_dir.mkdir(parents=True, exist_ok=True)
+            existing_floppy = list(project.floppy_images or [])
             for fp in disc_set.floppies:
                 shutil.copy2(fp, floppy_dir / fp.name)
+                rel = str((floppy_dir / fp.name).relative_to(content))
+                if rel not in existing_floppy:
+                    existing_floppy.append(rel)
+                    floppy_added += 1
+            project.floppy_images = existing_floppy
 
         # Update project disc_images list
         existing_cd = list(project.disc_images or [])
-        added = 0
+        cd_added = 0
         for p in new_cd:
             rel = str(p.relative_to(content))
             if rel not in existing_cd:
                 existing_cd.append(rel)
-                added += 1
+                cd_added += 1
         project.disc_images = existing_cd
         save_project(project)
 
+        count = cd_added + floppy_added
         kind = "disc" if new_cd else "floppy"
-        count = added + len(disc_set.floppies)
         self._show_toast(f"{count} {kind} image{'s' if count != 1 else ''} added.")
         self._show_project(project)
 
@@ -2743,6 +2750,9 @@ class PackageBuilderView(Adw.Bin):
 
         def _done(_result):
             progress.force_close()
+            if not project.initialized:
+                project.source_dir = str(content)
+                project.initialized = True
             save_project(project)
             self._show_toast(f"Folder '{src_path.name}' added to C:\\")
             self._show_project(project)
@@ -3964,14 +3974,10 @@ class PackageBuilderView(Adw.Bin):
             content / p for p in project.disc_images
         ] if project.disc_images else []
 
-        # Gather floppy images from temp dir
-        floppy_paths: list[Path] = []
-        floppy_dir = content / "_floppy_tmp"
-        if floppy_dir.is_dir():
-            floppy_paths = sorted(
-                p for p in floppy_dir.iterdir()
-                if p.suffix.lower() in {".img", ".ima", ".vfd"}
-            )
+        # Gather floppy images from project metadata
+        floppy_paths = [
+            content / p for p in project.floppy_images
+        ] if project.floppy_images else []
 
         installer_exe = project.installer_path or None
         _launch_dos_installer(
@@ -3991,13 +3997,9 @@ class PackageBuilderView(Adw.Bin):
             content / p for p in project.disc_images
         ] if project.disc_images else []
 
-        floppy_paths: list[Path] = []
-        floppy_dir = content / "_floppy_tmp"
-        if floppy_dir.is_dir():
-            floppy_paths = sorted(
-                p for p in floppy_dir.iterdir()
-                if p.suffix.lower() in {".img", ".ima", ".vfd"}
-            )
+        floppy_paths = [
+            content / p for p in project.floppy_images
+        ] if project.floppy_images else []
 
         # Launch with no installer — drops user at C:\>
         _launch_dos_installer(
@@ -4026,14 +4028,13 @@ class PackageBuilderView(Adw.Bin):
                     pass
 
         # Scan floppy images
-        floppy_dir = content / "_floppy_tmp"
-        if floppy_dir.is_dir():
-            for fp in sorted(floppy_dir.iterdir()):
-                if fp.suffix.lower() in {".img", ".ima", ".vfd"}:
-                    try:
-                        file_list.extend(scan_floppy(fp))
-                    except Exception:
-                        pass
+        for rel_path in (project.floppy_images or []):
+            fp = content / rel_path
+            if fp.is_file():
+                try:
+                    file_list.extend(scan_floppy(fp))
+                except Exception:
+                    pass
 
         # Filter to executables only
         exes = [
@@ -5228,12 +5229,15 @@ class _NewProjectDialog(Adw.Dialog):
                             shutil.copy2(bin_path, cd_dir / bin_path.name)
                     disc_image_paths.append(dest_cue)
 
-            # Copy floppy images to a temp location (kept until installer runs)
+            # Copy floppy images (kept for installer and DOSBox prompt)
+            floppy_rel: list[str] = []
             if disc_set.floppies:
-                floppy_dir = content / "_floppy_tmp"
+                floppy_dir = content / "floppy"
                 floppy_dir.mkdir(parents=True, exist_ok=True)
                 for fp in disc_set.floppies:
-                    shutil.copy2(fp, floppy_dir / fp.name)
+                    dest = floppy_dir / fp.name
+                    shutil.copy2(fp, dest)
+                    floppy_rel.append(str(dest.relative_to(content)))
 
             # Step 2: Detect installer on the disc
             GLib.idle_add(progress.set_label, "Scanning disc contents\u2026")
@@ -5252,7 +5256,7 @@ class _NewProjectDialog(Adw.Dialog):
 
             elif disc_set.floppies:
                 from cellar.backend.disc_image import scan_floppy
-                floppy_dir = content / "_floppy_tmp"
+                floppy_dir = content / "floppy"
                 first_floppy = floppy_dir / disc_set.floppies[0].name
                 try:
                     file_list = scan_floppy(first_floppy)
@@ -5267,10 +5271,11 @@ class _NewProjectDialog(Adw.Dialog):
             GLib.idle_add(progress.set_label, "Setting up DOSBox\u2026")
             prepare_dos_layout(content)
 
-            return installer_exe
+            return installer_exe, floppy_rel
 
-        def _done(installer_exe):
+        def _done(result):
             progress.force_close()
+            installer_exe, floppy_paths = result
 
             # Store disc image paths relative to content
             cd_dir = content / "cd"
@@ -5280,6 +5285,10 @@ class _NewProjectDialog(Adw.Dialog):
                     for p in sorted(cd_dir.iterdir())
                     if p.suffix.lower() in {".iso", ".cue"}
                 ]
+
+            # Store floppy image paths
+            if floppy_paths:
+                project.floppy_images = floppy_paths
 
             # Save detected installer so the project view can show
             # a "Run Installer" button.

@@ -52,6 +52,7 @@ class Project:
     installer_path: str = ""   # Smart import: path to .exe/.msi/.sh/.run to run in prefix
     installer_type: str = ""   # "", "isolated" (bwrap sandbox), "folder" (direct copy)
     disc_images: list[str] = field(default_factory=list)  # ordered relative paths to CD images in content/cd/
+    floppy_images: list[str] = field(default_factory=list)  # ordered relative paths to floppies in content/floppy/
 
     # ── Launch options (committed to catalogue metadata on publish) ───────
     dxvk: bool = True
@@ -126,6 +127,7 @@ class Project:
             installer_path=data.get("installer_path", ""),
             installer_type=data.get("installer_type", ""),
             disc_images=list(data.get("disc_images", [])),
+            floppy_images=list(data.get("floppy_images", [])),
             dxvk=bool(data.get("dxvk", True)),
             vkd3d=bool(data.get("vkd3d", True)),
             audio_driver=data.get("audio_driver", "auto"),
@@ -181,6 +183,8 @@ class Project:
             d["installer_type"] = self.installer_type
         if self.disc_images:
             d["disc_images"] = list(self.disc_images)
+        if self.floppy_images:
+            d["floppy_images"] = list(self.floppy_images)
         if not self.dxvk:
             d["dxvk"] = False
         if not self.vkd3d:

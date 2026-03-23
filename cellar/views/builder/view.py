@@ -4943,13 +4943,12 @@ class _NewProjectDialog(Adw.Dialog):
                 err.present(self._parent_view)
                 return
 
+            import tempfile
+
             from cellar.utils.async_work import run_in_background
             from cellar.views.builder.progress import ProgressDialog
 
-            chd_tmp = Path.home() / ".cache" / "cellar" / "chd_convert"
-            if chd_tmp.exists():
-                shutil.rmtree(chd_tmp, ignore_errors=True)
-            chd_tmp.mkdir(parents=True, exist_ok=True)
+            chd_tmp = Path(tempfile.mkdtemp(prefix="cellar_chd_"))
             n = len(chd_files)
             progress = ProgressDialog(
                 f"Converting {n} CHD image{'s' if n > 1 else ''}\u2026"

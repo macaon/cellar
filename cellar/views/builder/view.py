@@ -72,7 +72,7 @@ def _launch_dos_installer(
     floppy_paths: list[Path],
     installer_exe: str | None,
 ) -> None:
-    """Show the DOSBox installer dialog and run the installer.
+    """Show the DOSBox session dialog and run DOSBox.
 
     *presenter* is the GTK widget used as parent for the dialog and for
     calling ``_show_project()`` when done.
@@ -86,31 +86,8 @@ def _launch_dos_installer(
     has_multi_disc = len(disc_image_paths) > 1
     has_multi_floppy = len(floppy_paths) > 1
 
-    info_parts: list[str] = []
-    if installer_exe:
-        exe_name = installer_exe.lstrip("/")
-        info_parts.append(
-            f"Running <b>{GLib.markup_escape_text(exe_name)}</b> automatically."
-        )
-    else:
-        info_parts.append(
-            "No installer was detected.\n"
-            "Browse the mounted drive and run the installer manually."
-        )
-
-    shortcuts = [
-        "<b>Ctrl+F10</b>  Release mouse capture",
-        "<b>Alt+Enter</b>  Toggle fullscreen",
-    ]
-    if has_multi_disc or has_multi_floppy:
-        media = "disc" if has_multi_disc else "floppy"
-        count = len(disc_image_paths) if has_multi_disc else len(floppy_paths)
-        shortcuts.insert(
-            0, f"<b>Ctrl+F4</b>   Swap to next {media} ({count} mounted)",
-        )
-
     # ── Build dialog ──────────────────────────────────────────────────
-    info_dialog = Adw.Dialog(content_width=420, content_height=-1)
+    info_dialog = Adw.Dialog(content_width=520, content_height=620)
     info_dialog.set_can_close(False)
 
     toolbar = Adw.ToolbarView()
@@ -118,30 +95,103 @@ def _launch_dos_installer(
         show_start_title_buttons=False,
         show_end_title_buttons=False,
     )
-    header.set_title_widget(Gtk.Label(label="DOSBox Installer"))
+    if installer_exe:
+        header.set_title_widget(Adw.WindowTitle(
+            title="DOSBox Staging", subtitle=installer_exe.lstrip("/"),
+        ))
+    else:
+        header.set_title_widget(Gtk.Label(label="DOSBox Staging"))
     toolbar.add_top_bar(header)
 
-    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-    set_margins(box, 20)
+    page = Adw.PreferencesPage()
 
-    info_label = Gtk.Label(
-        label="\n".join(info_parts), use_markup=True, xalign=0, wrap=True,
-    )
-    box.append(info_label)
+    # ── Info section ──────────────────────────────────────────────────
+    info_group = Adw.PreferencesGroup()
 
-    shortcut_label = Gtk.Label(
-        label="\n".join(shortcuts), use_markup=True, xalign=0,
-    )
-    shortcut_label.add_css_class("caption")
-    shortcut_label.add_css_class("dim-label")
-    box.append(shortcut_label)
+    if installer_exe:
+        exe_name = installer_exe.lstrip("/")
+        info_label = Gtk.Label(
+            label=f"Running <b>{GLib.markup_escape_text(exe_name)}</b> automatically.",
+            use_markup=True, xalign=0, wrap=True,
+        )
+    else:
+        info_label = Gtk.Label(
+            label="No installer detected. Browse the mounted drives manually.",
+            xalign=0, wrap=True,
+        )
+    info_label.add_css_class("dim-label")
+    info_label.set_margin_bottom(4)
+    info_group.add(info_label)
+    page.add(info_group)
 
-    status_label = Gtk.Label(
-        label="Waiting for DOSBox\u2026", xalign=0,
-        ellipsize=3,  # Pango.EllipsizeMode.END
-    )
-    status_label.add_css_class("caption")
-    box.append(status_label)
+    # ── Mounted media ────────────────────────────────────────────────
+    media_group = Adw.PreferencesGroup(title="Mounted Drives")
+
+    drive_c_row = Adw.ActionRow(title="C:", subtitle="Hard Drive (hdd/)")
+    drive_c_row.add_prefix(Gtk.Image.new_from_icon_name("drive-harddisk-symbolic"))
+    media_group.add(drive_c_row)
+
+    if disc_image_paths:
+        n = len(disc_image_paths)
+        first_name = disc_image_paths[0].name
+        disc_sub = first_name if n == 1 else f"{first_name} (1 of {n})"
+        disc_row = Adw.ActionRow(title="D:", subtitle=disc_sub)
+        disc_row.add_prefix(Gtk.Image.new_from_icon_name("media-optical-symbolic"))
+        media_group.add(disc_row)
+
+    if floppy_paths:
+        n = len(floppy_paths)
+        first_name = floppy_paths[0].name
+        floppy_sub = first_name if n == 1 else f"{first_name} (1 of {n})"
+        floppy_row = Adw.ActionRow(title="A:", subtitle=floppy_sub)
+        floppy_row.add_prefix(Gtk.Image.new_from_icon_name("media-floppy-symbolic"))
+        media_group.add(floppy_row)
+
+    page.add(media_group)
+
+    # ── Audio (populated from stderr) ────────────────────────────────
+    audio_group = Adw.PreferencesGroup(title="Audio")
+
+    sb_row = Adw.ActionRow(title="Sound Blaster", subtitle="Detecting\u2026")
+    sb_row.add_prefix(Gtk.Image.new_from_icon_name("audio-card-symbolic"))
+    audio_group.add(sb_row)
+
+    midi_row = Adw.ActionRow(title="MIDI", subtitle="Detecting\u2026")
+    midi_row.add_prefix(Gtk.Image.new_from_icon_name("audio-x-midi-symbolic"))
+    audio_group.add(midi_row)
+
+    page.add(audio_group)
+
+    # ── Keyboard shortcuts ───────────────────────────────────────────
+    keys_group = Adw.PreferencesGroup(title="Keyboard Shortcuts")
+
+    _shortcuts = [
+        ("Ctrl+F11", "Decrease CPU cycles (slower)"),
+        ("Ctrl+F12", "Increase CPU cycles (faster)"),
+    ]
+    if has_multi_disc or has_multi_floppy:
+        media = "disc" if has_multi_disc else "floppy"
+        count = len(disc_image_paths) if has_multi_disc else len(floppy_paths)
+        _shortcuts.insert(0, ("Ctrl+F4", f"Swap {media} ({count} mounted)"))
+    _shortcuts += [
+        ("Ctrl+F10", "Release mouse capture"),
+        ("Alt+Enter", "Toggle fullscreen"),
+        ("Alt+Pause", "Pause emulation"),
+    ]
+
+    for key, desc in _shortcuts:
+        row = Adw.ActionRow(title=desc)
+        badge = Gtk.Label(label=key)
+        badge.add_css_class("dim-label")
+        badge.add_css_class("caption")
+        badge.add_css_class("monospace")
+        row.add_suffix(badge)
+        keys_group.add(row)
+
+    page.add(keys_group)
+
+    # ── DOSBox Output (collapsible log) ──────────────────────────────
+    log_group = Adw.PreferencesGroup()
 
     expander = Gtk.Expander(label="DOSBox Output")
     expander.set_expanded(False)
@@ -150,6 +200,10 @@ def _launch_dos_installer(
     scroll.set_min_content_height(180)
     scroll.set_max_content_height(300)
     scroll.add_css_class("card")
+
+    # Smaller monospace font for log output
+    _log_css = Gtk.CssProvider()
+    _log_css.load_from_string("textview { font-size: 0.85em; }")
 
     log_buffer = Gtk.TextBuffer()
     log_view = Gtk.TextView(
@@ -161,34 +215,92 @@ def _launch_dos_installer(
     log_view.set_margin_bottom(6)
     log_view.set_margin_start(8)
     log_view.set_margin_end(8)
+    log_view.get_style_context().add_provider(
+        _log_css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+    )
     scroll.set_child(log_view)
     expander.set_child(scroll)
-    box.append(expander)
+    log_group.add(expander)
 
+    page.add(log_group)
+
+    # ── Stderr parsing ───────────────────────────────────────────────
     log_lines: list[str] = []
     _MAX_LOG = 300
 
-    _RE_STATUS = re.compile(
-        r"(?:"
-        r"Drive [A-Z]: disk \d+ of \d+ now active"
-        r"|(?:MOUNT|IMGMOUNT): .+"
-        r"|FAT: Mounted .+"
-        r"|SB\d*: Running on port .+"
-        r"|FSYNTH: Using SoundFont .+"
-        r"|MT32: Initialised .+"
-        r"|MIDI: (?:Opened device|Can't find device).+"
-        r"|OPL: Running .+"
-        r")",
-        re.IGNORECASE,
+    # Audio detail parsers
+    _RE_BLASTER = re.compile(
+        r"Setting 'BLASTER' environment variable to '([^']+)'",
     )
+    _RE_MIDI = re.compile(r"MIDI: Opened device (.+)", re.IGNORECASE)
+    _RE_MIDI_FAIL = re.compile(r"MIDI: Can't find device", re.IGNORECASE)
+    _RE_FSYNTH = re.compile(r"FSYNTH: Using SoundFont (.+)", re.IGNORECASE)
+    _RE_MT32 = re.compile(r"MT32: Initialised", re.IGNORECASE)
+    _RE_OPL_PORTS = re.compile(r"OPL: Running \S+ on ports? \S+ and (\S+)", re.IGNORECASE)
+    _RE_DISC_SWAP = re.compile(r"Drive ([A-Z]): disk (\d+) of (\d+) now active")
 
     def _on_stderr(line: str):
         stripped = line
         if " | " in line:
             stripped = line.split(" | ", 1)[1]
-        if _RE_STATUS.search(stripped):
-            status_label.set_text(stripped)
 
+        # Parse BLASTER env var (e.g. "A220 I7 D1 T4")
+        blaster_m = _RE_BLASTER.search(stripped)
+        if blaster_m:
+            blaster = blaster_m.group(1)
+            # Parse BLASTER string: A=address, I=IRQ, D=DMA, H=HDMA, T=type
+            parts: list[str] = []
+            for token in blaster.split():
+                if token.startswith("A"):
+                    parts.append(f"Port {token[1:]}h")
+                elif token.startswith("I"):
+                    parts.append(f"IRQ {token[1:]}")
+                elif token.startswith("D"):
+                    parts.append(f"DMA {token[1:]}")
+                elif token.startswith("H"):
+                    parts.append(f"High DMA {token[1:]}")
+            sb_row.set_subtitle(", ".join(parts) if parts else blaster)
+
+        # Parse MIDI device
+        midi_m = _RE_MIDI.search(stripped)
+        if midi_m:
+            midi_row.set_subtitle(midi_m.group(1).strip())
+
+        # MIDI not available — OPL is the fallback for FM MIDI
+        if _RE_MIDI_FAIL.search(stripped):
+            midi_row.set_subtitle("OPL FM synthesis (Sound Blaster)")
+
+        # Parse OPL ports — update MIDI subtitle if MIDI fell back to OPL
+        opl_m = _RE_OPL_PORTS.search(stripped)
+        if opl_m and "OPL FM" in midi_row.get_subtitle():
+            midi_row.set_subtitle(
+                f"OPL FM synthesis (port {opl_m.group(1)})"
+            )
+
+        # Parse FluidSynth SoundFont
+        fsynth_m = _RE_FSYNTH.search(stripped)
+        if fsynth_m:
+            sf_name = Path(fsynth_m.group(1).strip()).name
+            midi_row.set_subtitle(f"FluidSynth \u2014 {sf_name}")
+
+        # Parse MT-32
+        if _RE_MT32.search(stripped):
+            midi_row.set_subtitle("MT-32 Emulation")
+
+        # Parse disc swap
+        swap_m = _RE_DISC_SWAP.search(stripped)
+        if swap_m:
+            drive, cur, total = swap_m.group(1), swap_m.group(2), swap_m.group(3)
+            if drive == "D" and disc_image_paths:
+                idx = int(cur) - 1
+                name = disc_image_paths[idx].name if 0 <= idx < len(disc_image_paths) else f"Disc {cur}"
+                disc_row.set_subtitle(f"{name} ({cur} of {total})")
+            elif drive == "A" and floppy_paths:
+                idx = int(cur) - 1
+                name = floppy_paths[idx].name if 0 <= idx < len(floppy_paths) else f"Disk {cur}"
+                floppy_row.set_subtitle(f"{name} ({cur} of {total})")
+
+        # Append to log view
         log_lines.append(line)
         end_iter = log_buffer.get_end_iter()
         prefix = "\n" if log_buffer.get_char_count() > 0 else ""
@@ -201,7 +313,7 @@ def _launch_dos_installer(
         adj = scroll.get_vadjustment()
         adj.set_value(adj.get_upper())
 
-    toolbar.set_content(box)
+    toolbar.set_content(page)
     info_dialog.set_child(toolbar)
     info_dialog.present(presenter)
 

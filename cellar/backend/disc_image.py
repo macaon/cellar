@@ -303,34 +303,6 @@ def _msf_to_bytes(msf: str) -> int:
 # ---------------------------------------------------------------------------
 
 
-def iso_volume_label(path: Path) -> str:
-    """Read the volume label from an ISO 9660 image, or return empty string.
-
-    Falls back to reading the raw Primary Volume Descriptor if pycdlib fails.
-    """
-    # Try pycdlib first.
-    try:
-        import pycdlib
-        iso = pycdlib.PyCdlib()
-        iso.open(str(path))
-        pvd = iso.pvds[0] if iso.pvds else None
-        label = pvd.volume_identifier.decode("ascii", errors="replace").strip() if pvd else ""
-        iso.close()
-        if label:
-            return label
-    except Exception:
-        pass
-
-    # Fallback: read raw PVD from ISO (sector 16, offset 40, 32 bytes).
-    try:
-        with path.open("rb") as f:
-            f.seek(16 * 2048 + 40)
-            raw = f.read(32)
-            return raw.decode("ascii", errors="replace").strip()
-    except Exception:
-        return ""
-
-
 # ---------------------------------------------------------------------------
 # Disc ordering
 # ---------------------------------------------------------------------------

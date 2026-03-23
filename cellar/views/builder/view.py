@@ -2681,7 +2681,6 @@ class PackageBuilderView(Adw.Bin):
 
     def _show_add_disc_order_dialog(self, project, disc_set) -> None:
         """Show a reorder dialog before adding multiple discs to a project."""
-        from cellar.backend.disc_image import iso_volume_label
         from cellar.views.widgets import make_dialog_header
 
         dlg = Adw.Dialog(title="Disc Order", content_width=400, content_height=400)
@@ -2708,8 +2707,7 @@ class PackageBuilderView(Adw.Bin):
 
         rows: list[tuple[Adw.ActionRow, Path]] = []
         for p in all_paths:
-            label = iso_volume_label(p) if p.suffix.lower() == ".iso" else ""
-            subtitle = label if label else p.suffix.upper().lstrip(".")
+            subtitle = p.suffix.upper().lstrip(".")
             row = Adw.ActionRow(title=p.name, subtitle=subtitle)
 
             up_btn = Gtk.Button(icon_name="go-up-symbolic", valign=Gtk.Align.CENTER)
@@ -4847,7 +4845,6 @@ class _NewProjectDialog(Adw.Dialog):
 
     def _show_disc_order_dialog(self, disc_set) -> None:
         """Show a dialog for the user to confirm/reorder multi-disc sets."""
-        from cellar.backend.disc_image import iso_volume_label
         from cellar.views.widgets import make_dialog_header
 
         dlg = Adw.Dialog(title="Disc Order", content_width=400, content_height=400)
@@ -4881,8 +4878,7 @@ class _NewProjectDialog(Adw.Dialog):
         rows: list[tuple[Adw.ActionRow, Path]] = []
 
         for p in all_paths:
-            label = iso_volume_label(p) if p.suffix.lower() == ".iso" else ""
-            subtitle = label if label else p.suffix.upper().lstrip(".")
+            subtitle = p.suffix.upper().lstrip(".")
             row = Adw.ActionRow(title=p.name, subtitle=subtitle)
 
             up_btn = Gtk.Button(icon_name="go-up-symbolic", valign=Gtk.Align.CENTER)
@@ -4940,16 +4936,11 @@ class _NewProjectDialog(Adw.Dialog):
     def _proceed_disc_import(self, disc_set) -> None:
         """Continue disc import after ordering is confirmed."""
         from cellar.backend.detect import parse_app_name
-        from cellar.backend.disc_image import iso_volume_label
 
-        # Try to get a name from the first ISO or CUE
+        # Try to get a name from the first disc image filename
         app_name = ""
         if disc_set.isos:
-            label = iso_volume_label(disc_set.isos[0])
-            if label:
-                app_name = label.replace("_", " ").title()
-            else:
-                app_name = parse_app_name(disc_set.isos[0])
+            app_name = parse_app_name(disc_set.isos[0])
         elif disc_set.cue_bins:
             app_name = parse_app_name(disc_set.cue_bins[0].cue_path)
         elif disc_set.floppies:

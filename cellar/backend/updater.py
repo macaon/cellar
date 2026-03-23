@@ -190,8 +190,7 @@ def backup_prefix(
     dest_path.parent.mkdir(parents=True, exist_ok=True)
 
     all_files = [p for p in prefix_path.rglob("*") if p.is_file()]
-    file_sizes = {fp: fp.stat().st_size for fp in all_files}
-    total_bytes = max(sum(file_sizes.values()), 1)
+    total_bytes = max(sum((fp.stat().st_size for fp in all_files), 0), 1)
     bytes_done = 0
     t_start = time.monotonic()
     t_last_stats = t_start
@@ -201,11 +200,16 @@ def backup_prefix(
             for fp in all_files:
                 if _cancelled():
                     raise UpdateCancelled
+                if not fp.is_file():
+                    continue
                 if phase_cb and bytes_done == 0:
                     phase_cb("Backing up\u2026")
                 arcname = Path(prefix_path.name) / fp.relative_to(prefix_path)
                 tf.add(fp, arcname=str(arcname))
-                bytes_done += file_sizes[fp]
+                try:
+                    bytes_done += fp.stat().st_size
+                except OSError:
+                    pass
                 now = time.monotonic()
                 elapsed = now - t_start
                 if now - t_last_stats >= 0.1:

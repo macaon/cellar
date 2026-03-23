@@ -622,21 +622,12 @@ class AddEditRepoDialog(Adw.Dialog):
     # ------------------------------------------------------------------
 
     def _build_ui(self) -> None:
-        toolbar = Adw.ToolbarView()
-        header = Adw.HeaderBar()
-        header.set_show_end_title_buttons(False)
-
-        cancel_btn = Gtk.Button(label="Cancel")
-        cancel_btn.connect("clicked", lambda _: self.close())
-        header.pack_start(cancel_btn)
+        from cellar.views.widgets import make_dialog_header
 
         save_label = "Save" if self._existing else "Add"
-        self._save_btn = Gtk.Button(label=save_label)
-        self._save_btn.add_css_class("suggested-action")
-        self._save_btn.connect("clicked", self._on_save_clicked)
-        header.pack_end(self._save_btn)
-
-        toolbar.add_top_bar(header)
+        toolbar, _header, self._save_btn = make_dialog_header(
+            self, action_label=save_label, action_cb=self._on_save_clicked,
+        )
 
         scroll = Gtk.ScrolledWindow(
             hscrollbar_policy=Gtk.PolicyType.NEVER,

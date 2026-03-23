@@ -48,7 +48,13 @@ from cellar.views.builder.pickers import (
 )
 from cellar.views.builder.progress import ProgressDialog
 from cellar.views.metadata_editor import MetadataEditorDialog, ProjectContext, RepoContext
-from cellar.views.widgets import set_margins
+from cellar.views.widgets import (
+    BaseCard,
+    make_app_grid,
+    make_card_icon_from_name,
+    make_gear_button,
+    set_margins,
+)
 
 log = logging.getLogger(__name__)
 
@@ -248,12 +254,14 @@ class PackageBuilderView(Adw.Bin):
     def __init__(
         self,
         *,
+        nav_view: Adw.NavigationView | None = None,
         writable_repos: list | None = None,
         all_repos: list | None = None,
         on_catalogue_changed: Callable | None = None,
         publish_queue=None,
     ) -> None:
         super().__init__()
+        self._nav_view: Adw.NavigationView | None = nav_view
         self._writable_repos: list = writable_repos or []
         self._all_repos: list = all_repos or []
         self._on_catalogue_changed = on_catalogue_changed
@@ -324,8 +332,10 @@ class PackageBuilderView(Adw.Bin):
 
     def _get_detail_scroll_position(self) -> float:
         """Get current scroll position of the detail page, or 0.0."""
+        if self._nav_view is None:
+            return 0.0
         visible = self._nav_view.get_visible_page()
-        if visible is not None and visible.get_tag() == "detail":
+        if visible is not None and visible.get_tag() == "builder-detail":
             sw = self._find_scrolled_window(visible)
             if sw is not None:
                 return sw.get_vadjustment().get_value()
@@ -333,7 +343,7 @@ class PackageBuilderView(Adw.Bin):
 
     def _restore_scroll_position(self, pos: float) -> None:
         """Restore scroll position on the current detail page after it's laid out."""
-        if pos <= 0.0:
+        if pos <= 0.0 or self._nav_view is None:
             return
         visible = self._nav_view.get_visible_page()
         if visible is None:
@@ -364,11 +374,6 @@ class PackageBuilderView(Adw.Bin):
     # ------------------------------------------------------------------
 
     def _build(self) -> None:
-        # ── Navigation view (stack: list → detail) ───────────────────────
-        self._nav_view = Adw.NavigationView()
-        self._nav_view.connect("popped", self._on_nav_popped)
-
-        # ── List page ────────────────────────────────────────────────────
         # Register CSS for the dashed new-project card
         css = Gtk.CssProvider()
         css.load_from_string(
@@ -382,25 +387,13 @@ class PackageBuilderView(Adw.Bin):
             Gdk.Display.get_default(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
         )
 
-        # Project card grid — matches browse view FlowBox settings
-        self._flow_box = Gtk.FlowBox()
-        self._flow_box.set_valign(Gtk.Align.START)
-        self._flow_box.set_halign(Gtk.Align.CENTER)
-        self._flow_box.set_homogeneous(False)
-        self._flow_box.set_selection_mode(Gtk.SelectionMode.NONE)
-        self._flow_box.set_min_children_per_line(2)
-        self._flow_box.set_max_children_per_line(8)
-        set_margins(self._flow_box, 18)
-        self._flow_box.connect("child-activated", self._on_card_activated)
+        self._flow_box = make_app_grid(on_activated=self._on_card_activated)
 
         self._list_scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
         self._list_scroll.set_vexpand(True)
         self._list_scroll.set_child(self._flow_box)
 
-        self._list_page = Adw.NavigationPage(title="Package Builder", child=self._list_scroll)
-        self._nav_view.add(self._list_page)
-
-        self.set_child(self._nav_view)
+        self.set_child(self._list_scroll)
 
     # ------------------------------------------------------------------
     # Project list management
@@ -492,10 +485,19 @@ class PackageBuilderView(Adw.Bin):
         elif isinstance(child, _NewProjectCard):
             self._on_new_project_clicked(None)
 
-    def _on_nav_popped(self, _nav, _page) -> None:
-        """User navigated back to the list page."""
-        if not self._replacing_detail:
-            self._project = None
+    def _pop_detail(self) -> None:
+        """Pop the builder detail page from the main navigation view."""
+        if self._nav_view is None:
+            return
+        visible = self._nav_view.get_visible_page()
+        if visible is not None and visible.get_tag() == "builder-detail":
+            self._nav_view.pop()
+
+    def _on_nav_popped(self, _nav, page) -> None:
+        """Called by the main nav view when a page is popped."""
+        if page is not None and page.get_tag() == "builder-detail":
+            if not self._replacing_detail:
+                self._project = None
 
     def _on_new_project_clicked(self, _btn) -> None:
         """Open the guided New Project chooser dialog."""
@@ -559,7 +561,7 @@ class PackageBuilderView(Adw.Bin):
                 def _after_delete():
                     self._project = None
                     self._reload_projects()
-                    self._nav_view.pop_to_page(self._list_page)
+                    self._pop_detail()
 
                 run_in_background(
                     lambda: delete_project(slug),
@@ -570,6 +572,15 @@ class PackageBuilderView(Adw.Bin):
         dialog.present(self)
 
     def _on_project_created(self, project: Project) -> None:
+        if project.project_type == "dos":
+            from cellar.backend.dosbox import prepare_dos_layout
+            from cellar.backend.project import save_project
+            content = project.content_path
+            content.mkdir(parents=True, exist_ok=True)
+            prepare_dos_layout(content)
+            project.source_dir = str(content)
+            project.initialized = True
+            save_project(project)
         self._reload_projects()
         self._project = project
         self._show_project(project)
@@ -1078,8 +1089,6 @@ class PackageBuilderView(Adw.Bin):
         # Build toolbar with header
         toolbar = Adw.ToolbarView()
         header = Adw.HeaderBar()
-        header.set_show_start_title_buttons(False)
-        header.set_show_end_title_buttons(False)
 
         self._content_title = Adw.WindowTitle(
             title=project.name,
@@ -1088,9 +1097,7 @@ class PackageBuilderView(Adw.Bin):
         header.set_title_widget(self._content_title)
 
         # Gear menu
-        self._detail_gear_btn = Gtk.MenuButton(icon_name="view-more-symbolic")
-        self._detail_gear_btn.set_tooltip_text("Options")
-        self._detail_gear_btn.add_css_class("flat")
+        self._detail_gear_btn = make_gear_button()
         self._refresh_detail_menu(project)
         header.pack_end(self._detail_gear_btn)
 
@@ -1100,7 +1107,7 @@ class PackageBuilderView(Adw.Bin):
         toolbar.set_content(page)
 
         detail_page = Adw.NavigationPage(title=project.name, child=toolbar)
-        detail_page.set_tag("detail")
+        detail_page.set_tag("builder-detail")
 
         # ── 1. Metadata section (App / Linux / DOS projects — first, to set title/slug) ──
         if project.project_type in ("app", "linux", "dos"):
@@ -1401,25 +1408,37 @@ class PackageBuilderView(Adw.Bin):
                 files_group.add(drop_zone)
                 page.add(files_group)
 
-            # DOSBox Settings (DOS only, before launch targets)
-            if project.project_type == "dos" and project.source_dir:
+            # DOSBox Staging section (DOS only)
+            if project.project_type == "dos":
                 dos_group = Adw.PreferencesGroup(title="DOSBox Staging")
 
-                _settings_row = Adw.ActionRow(
-                    title="DOSBox Settings\u2026",
-                    subtitle="Display, CPU, sound, MIDI, mixer effects, and config files",
-                    activatable=True,
+                # DOSBox Prompt — always available
+                prompt_row = Adw.ActionRow(
+                    title="Open DOSBox Prompt",
+                    subtitle="Launch DOSBox with drives mounted (C: and any disc images)",
                 )
-                _settings_btn = Gtk.Button(label="Open\u2026", valign=Gtk.Align.CENTER)
-                _settings_btn.connect("clicked", self._on_dosbox_settings_clicked)
-                _settings_row.add_suffix(_settings_btn)
-                _settings_row.add_suffix(Gtk.Image.new_from_icon_name("go-next-symbolic"))
-                _settings_row.set_activatable_widget(_settings_btn)
-                dos_group.add(_settings_row)
+                prompt_btn = Gtk.Button(label="Open")
+                prompt_btn.set_valign(Gtk.Align.CENTER)
+                prompt_btn.connect("clicked", self._on_open_dosbox_prompt_clicked)
+                prompt_row.add_suffix(prompt_btn)
+                dos_group.add(prompt_row)
+
+                # DOSBox Settings — only when source_dir is set
+                if project.source_dir:
+                    _settings_row = Adw.ActionRow(
+                        title="DOSBox Settings",
+                        subtitle="Display, CPU, sound, MIDI, mixer effects, and config files",
+                        activatable=True,
+                    )
+                    _settings_btn = Gtk.Button(label="Open", valign=Gtk.Align.CENTER)
+                    _settings_btn.connect("clicked", self._on_dosbox_settings_clicked)
+                    _settings_row.add_suffix(_settings_btn)
+                    _settings_row.set_activatable_widget(_settings_btn)
+                    dos_group.add(_settings_row)
 
                 page.add(dos_group)
 
-            # DOS Installer / DOSBox tools (DOS only, when initialized)
+            # Installer section (DOS only, when disc/floppy installer detected)
             if project.project_type == "dos" and project.source_dir:
                 _has_discs = bool(
                     project.disc_images
@@ -1427,10 +1446,8 @@ class PackageBuilderView(Adw.Bin):
                 )
                 _needs_install = _has_discs and not project.entry_points
 
-                inst_group = Adw.PreferencesGroup(title="Installer")
-
                 if _needs_install:
-                    # Primary installer row — prominent before first install
+                    inst_group = Adw.PreferencesGroup(title="Installer")
                     installer_name = project.installer_path or "INSTALL.EXE"
                     inst_row = Adw.ActionRow(
                         title="Run Installer",
@@ -1449,19 +1466,7 @@ class PackageBuilderView(Adw.Bin):
                     )
                     inst_row.add_suffix(browse_btn)
                     inst_group.add(inst_row)
-
-                # "Open DOSBox Prompt" — always available for DOS projects
-                prompt_row = Adw.ActionRow(
-                    title="Open DOSBox Prompt",
-                    subtitle="Launch DOSBox with drives mounted (C: and any disc images)",
-                )
-                prompt_btn = Gtk.Button(label="Open")
-                prompt_btn.set_valign(Gtk.Align.CENTER)
-                prompt_btn.connect("clicked", self._on_open_dosbox_prompt_clicked)
-                prompt_row.add_suffix(prompt_btn)
-                inst_group.add(prompt_row)
-
-                page.add(inst_group)
+                    page.add(inst_group)
 
             # Launch Targets (Linux / DOS)
             targets_group = Adw.PreferencesGroup(title="Launch Targets")
@@ -1682,16 +1687,19 @@ class PackageBuilderView(Adw.Bin):
 
         page.add(pkg_group)
 
-        # Pop any existing detail page, then push the new one.
+        # Push detail page onto the main navigation view.
         # Guard against use-after-destroy: if the user navigated away during a
         # long-running installer the nav view may already be finalized.
-        if not self.get_realized():
+        if not self.get_realized() or self._nav_view is None:
             return
         # Save scroll position so refreshes don't jump to top.
         saved_scroll = self._get_detail_scroll_position()
         # Guard against _on_nav_popped clearing self._project during the swap.
         self._replacing_detail = True
-        self._nav_view.pop_to_page(self._list_page)
+        # Pop any existing builder detail page before pushing the new one.
+        visible = self._nav_view.get_visible_page()
+        if visible is not None and visible.get_tag() == "builder-detail":
+            self._nav_view.pop()
         self._replacing_detail = False
         self._nav_view.push(detail_page)
         self._restore_scroll_position(saved_scroll)
@@ -2472,7 +2480,8 @@ class PackageBuilderView(Adw.Bin):
         f.set_name("Disc Images")
         for pat in ("*.iso", "*.ISO", "*.cue", "*.CUE",
                     "*.img", "*.IMG", "*.ima", "*.IMA",
-                    "*.vfd", "*.VFD", "*.bin", "*.BIN"):
+                    "*.vfd", "*.VFD", "*.bin", "*.BIN",
+                    "*.chd", "*.CHD"):
             f.add_pattern(pat)
         all_f = Gtk.FileFilter()
         all_f.set_name("All Files")
@@ -2487,17 +2496,7 @@ class PackageBuilderView(Adw.Bin):
             paths = [Path(files.get_item(i).get_path()) for i in range(files.get_n_items())]
             if not paths:
                 return
-            from cellar.backend.disc_image import group_disc_files
-            disc_set = group_disc_files(paths)
-            if disc_set.isos or disc_set.cue_bins or disc_set.floppies:
-                self._install_from_disc(project, disc_set)
-            else:
-                err = Adw.AlertDialog(
-                    heading="No disc images found",
-                    body="No recognised disc image files were found.",
-                )
-                err.add_response("ok", "OK")
-                err.present(self)
+            self._import_disc_to_project(project, paths)
 
         chooser.connect("response", _on_response)
         win = self.get_root()
@@ -2505,6 +2504,89 @@ class PackageBuilderView(Adw.Bin):
             chooser.set_transient_for(win)
         chooser.show()
         self._file_chooser = chooser
+
+    def _import_disc_to_project(self, project, paths: list[Path]) -> None:
+        """Import disc images into an existing project, converting CHDs first."""
+        from cellar.backend.disc_image import (
+            group_disc_files,
+            has_chdman,
+            convert_chd,
+        )
+
+        chd_files = [p for p in paths if p.suffix.lower() == ".chd"]
+        if chd_files:
+            if not has_chdman():
+                err = Adw.AlertDialog(
+                    heading="chdman not found",
+                    body=(
+                        "CHD files require chdman (from mame-tools) to convert.\n\n"
+                        "Install it with:\n"
+                        "  sudo dnf install mame-tools"
+                    ),
+                )
+                err.add_response("ok", "OK")
+                err.present(self)
+                return
+
+            import tempfile
+            from cellar.utils.async_work import run_in_background
+            from cellar.views.builder.progress import ProgressDialog
+
+            chd_tmp = Path(tempfile.mkdtemp(prefix="cellar_chd_"))
+            n = len(chd_files)
+            progress = ProgressDialog(
+                f"Converting {n} CHD image{'s' if n > 1 else ''}\u2026"
+            )
+            progress.present(self)
+
+            def _convert():
+                converted: list[Path] = []
+                for i, chd in enumerate(chd_files):
+                    GLib.idle_add(
+                        progress.set_label,
+                        f"Converting {chd.name}\u2026 ({i + 1}/{n})",
+                    )
+                    cue = convert_chd(chd, chd_tmp / chd.stem)
+                    converted.append(cue)
+                    for sibling in cue.parent.iterdir():
+                        if sibling.suffix.lower() == ".bin":
+                            converted.append(sibling)
+                return converted
+
+            def _done(converted):
+                progress.force_close()
+                non_chd = [p for p in paths if p.suffix.lower() != ".chd"]
+                all_paths = non_chd + converted
+                disc_set = group_disc_files(all_paths)
+                if disc_set.isos or disc_set.cue_bins or disc_set.floppies:
+                    self._install_from_disc(project, disc_set)
+                else:
+                    err = Adw.AlertDialog(
+                        heading="No disc images found",
+                        body="No recognised disc image files were found.",
+                    )
+                    err.add_response("ok", "OK")
+                    err.present(self)
+
+            def _error(msg):
+                progress.force_close()
+                err = Adw.AlertDialog(heading="CHD Conversion Failed", body=str(msg))
+                err.add_response("ok", "OK")
+                err.present(self)
+
+            run_in_background(_convert, _done, _error)
+            return
+
+        disc_set = group_disc_files(paths)
+        if disc_set.isos or disc_set.cue_bins or disc_set.floppies:
+            self._install_from_disc(project, disc_set)
+        else:
+            err = Adw.AlertDialog(
+                heading="No disc images found",
+                body="No recognised disc image files were found.",
+            )
+            err.add_response("ok", "OK")
+            err.present(self)
 
     def _on_choose_source_dir_clicked(self, _btn) -> None:
         if self._project is None:
@@ -3441,7 +3523,7 @@ class PackageBuilderView(Adw.Bin):
             self._show_toast(f"Publishing \u2018{project.name}\u2019 in the background\u2026")
             self._project = None
             self._reload_projects()
-            self._nav_view.pop_to_page(self._list_page)
+            self._pop_detail()
 
         dlg.connect("response", _on_response)
         dlg.present(self)
@@ -3608,7 +3690,7 @@ class PackageBuilderView(Adw.Bin):
             def _after():
                 self._project = None
                 self._reload_projects()
-                self._nav_view.pop_to_page(self._list_page)
+                self._pop_detail()
 
             if response == "delete":
                 run_in_background(
@@ -3719,6 +3801,7 @@ class PackageBuilderView(Adw.Bin):
             return
         project = self._project
         content = project.content_path
+        content.mkdir(parents=True, exist_ok=True)
 
         disc_image_paths = [
             content / p for p in project.disc_images
@@ -4088,11 +4171,6 @@ class PackageBuilderView(Adw.Bin):
 # Helper widgets
 # ---------------------------------------------------------------------------
 
-_CARD_WIDTH = 300
-_CARD_HEIGHT = 96
-_ICON_SIZE = 52
-_ICON_MARGIN = 22
-
 _TYPE_ICONS = {
     "base": "package-x-generic-symbolic",
     "linux": "penguin-alt-symbolic",
@@ -4137,13 +4215,8 @@ class _NewProjectDialog(Adw.Dialog):
         self._parent_view = parent_view
         self._file_chooser = None  # prevent GC
 
-        toolbar = Adw.ToolbarView()
-        header = Adw.HeaderBar()
-        header.set_show_end_title_buttons(False)
-        cancel_btn = Gtk.Button(label="Cancel")
-        cancel_btn.connect("clicked", lambda _: self.close())
-        header.pack_start(cancel_btn)
-        toolbar.add_top_bar(header)
+        from cellar.views.widgets import make_dialog_header
+        toolbar, _header, _action_btn = make_dialog_header(self)
 
         # ── Outer scrollable container ──────────────────────────────────
         scroll = Gtk.ScrolledWindow(vscrollbar_policy=Gtk.PolicyType.AUTOMATIC)
@@ -4314,7 +4387,7 @@ class _NewProjectDialog(Adw.Dialog):
             return False
         paths = [Path(f.get_path()) for f in files]
         # Check if any dropped file is a disc image
-        _disc_exts = {".iso", ".cue", ".img", ".ima", ".vfd", ".bin"}
+        _disc_exts = {".iso", ".cue", ".img", ".ima", ".vfd", ".bin", ".chd"}
         if any(p.suffix.lower() in _disc_exts for p in paths):
             self.close()
             self._start_disc_import(paths)
@@ -4343,7 +4416,8 @@ class _NewProjectDialog(Adw.Dialog):
         disc_f.set_name("Disc Images")
         for pat in ("*.iso", "*.ISO", "*.cue", "*.CUE",
                     "*.img", "*.IMG", "*.ima", "*.IMA",
-                    "*.vfd", "*.VFD", "*.bin", "*.BIN"):
+                    "*.vfd", "*.VFD", "*.bin", "*.BIN",
+                    "*.chd", "*.CHD"):
             disc_f.add_pattern(pat)
         all_f = Gtk.FileFilter()
         all_f.set_name("All Files")
@@ -4377,7 +4451,7 @@ class _NewProjectDialog(Adw.Dialog):
         if not paths:
             return
         self.close()
-        _disc_exts = {".iso", ".cue", ".img", ".ima", ".vfd", ".bin"}
+        _disc_exts = {".iso", ".cue", ".img", ".ima", ".vfd", ".bin", ".chd"}
         if any(p.suffix.lower() in _disc_exts for p in paths):
             self._start_disc_import(paths)
         else:
@@ -4472,6 +4546,77 @@ class _NewProjectDialog(Adw.Dialog):
 
     def _start_disc_import(self, paths: list[Path]) -> None:
         """Handle dropped/selected disc image files."""
+        from cellar.backend.disc_image import (
+            DiscSet,
+            group_disc_files,
+            has_chdman,
+            convert_chd,
+            iso_volume_label,
+            scan_iso,
+            find_dos_installer,
+        )
+
+        # Check for CHD files that need conversion first.
+        chd_files = [p for p in paths if p.suffix.lower() == ".chd"]
+        if chd_files:
+            if not has_chdman():
+                err = Adw.AlertDialog(
+                    heading="chdman not found",
+                    body=(
+                        "CHD files require chdman (from mame-tools) to convert.\n\n"
+                        "Install it with:\n"
+                        "  sudo dnf install mame-tools"
+                    ),
+                )
+                err.add_response("ok", "OK")
+                err.present(self._parent_view)
+                return
+
+            import tempfile
+            from cellar.utils.async_work import run_in_background
+            from cellar.views.builder.progress import ProgressDialog
+
+            chd_tmp = Path(tempfile.mkdtemp(prefix="cellar_chd_"))
+            n = len(chd_files)
+            progress = ProgressDialog(
+                f"Converting {n} CHD image{'s' if n > 1 else ''}\u2026"
+            )
+            progress.present(self._parent_view)
+
+            def _convert():
+                converted: list[Path] = []
+                for i, chd in enumerate(chd_files):
+                    GLib.idle_add(
+                        progress.set_label,
+                        f"Converting {chd.name}\u2026 ({i + 1}/{n})",
+                    )
+                    cue = convert_chd(chd, chd_tmp / chd.stem)
+                    converted.append(cue)
+                    # Also include the BIN files referenced by the CUE.
+                    for sibling in cue.parent.iterdir():
+                        if sibling.suffix.lower() == ".bin":
+                            converted.append(sibling)
+                return converted
+
+            def _done(converted):
+                progress.force_close()
+                # Replace CHD paths with converted CUE/BIN paths.
+                non_chd = [p for p in paths if p.suffix.lower() != ".chd"]
+                self._continue_disc_import(non_chd + converted)
+
+            def _error(msg):
+                progress.force_close()
+                err = Adw.AlertDialog(heading="CHD Conversion Failed", body=str(msg))
+                err.add_response("ok", "OK")
+                err.present(self._parent_view)
+
+            run_in_background(_convert, _done, _error)
+            return
+
+        self._continue_disc_import(paths)
+
+    def _continue_disc_import(self, paths: list[Path]) -> None:
+        """Continue disc import after any CHD conversion."""
         from cellar.backend.detect import parse_app_name
         from cellar.backend.disc_image import (
             DiscSet,
@@ -4506,19 +4651,12 @@ class _NewProjectDialog(Adw.Dialog):
         """Show a dialog for the user to confirm/reorder multi-disc sets."""
         from cellar.backend.disc_image import iso_volume_label
 
+        from cellar.views.widgets import make_dialog_header
+
         dlg = Adw.Dialog(title="Disc Order", content_width=400, content_height=400)
-        toolbar = Adw.ToolbarView()
-        header = Adw.HeaderBar()
-        header.set_show_end_title_buttons(False)
-
-        cancel_btn = Gtk.Button(label="Cancel")
-        cancel_btn.connect("clicked", lambda _: dlg.close())
-        header.pack_start(cancel_btn)
-
-        ok_btn = Gtk.Button(label="Continue")
-        ok_btn.add_css_class("suggested-action")
-        header.pack_end(ok_btn)
-        toolbar.add_top_bar(header)
+        toolbar, _header, ok_btn = make_dialog_header(
+            dlg, action_label="Continue",
+        )
 
         content = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL, spacing=12,
@@ -4670,8 +4808,13 @@ class _NewProjectDialog(Adw.Dialog):
                 project.installer_path = str(path)
                 project.installer_type = "isolated"
                 changed = True
-            elif platform in ("linux", "dos") and path.is_dir():
-                # Linux/DOS folder: set source_dir and detect entry points
+            elif platform == "dos" and path.is_dir():
+                # DOS folder: copy into content/hdd/<folder> so it
+                # appears as C:\<folder> in DOSBox.
+                self._import_dos_folder(project, path)
+                return  # _import_dos_folder calls _on_import when done
+            elif platform == "linux" and path.is_dir():
+                # Linux folder: set source_dir and detect entry points
                 project.source_dir = str(path)
                 project.initialized = True
                 candidates = find_linux_executables(path)
@@ -4741,6 +4884,52 @@ class _NewProjectDialog(Adw.Dialog):
             err = Adw.AlertDialog(
                 heading="Extraction failed",
                 body=f"Could not extract GOG installer:\n{msg}",
+            )
+            err.add_response("ok", "OK")
+            err.present(self._parent_view)
+
+        run_in_background(work=_work, on_done=_done, on_error=_error)
+
+    def _import_dos_folder(self, project, src_path: Path) -> None:
+        """Copy a dropped folder into content/hdd/<folder> for DOSBox C:\\ access."""
+        from cellar.backend.dosbox import prepare_dos_layout
+        from cellar.backend.project import save_project
+        from cellar.utils.async_work import run_in_background
+        from cellar.views.builder.progress import ProgressDialog
+
+        content = project.content_path
+        content.mkdir(parents=True, exist_ok=True)
+
+        progress = ProgressDialog(label="Copying folder\u2026")
+        progress.present(self._parent_view)
+
+        def _work():
+            prepare_dos_layout(content)
+            hdd_dir = content / "hdd"
+            dest = hdd_dir / src_path.name
+            dest.mkdir(parents=True, exist_ok=True)
+            for src in src_path.rglob("*"):
+                rel = src.relative_to(src_path)
+                dst = dest / rel
+                if src.is_dir():
+                    dst.mkdir(parents=True, exist_ok=True)
+                elif src.is_file():
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(src, dst)
+
+        def _done(_result):
+            progress.force_close()
+            project.source_dir = str(content)
+            project.initialized = True
+            save_project(project)
+            self._on_import(project)
+
+        def _error(msg):
+            progress.force_close()
+            log.error("DOS folder import failed: %s", msg)
+            err = Adw.AlertDialog(
+                heading="Import failed",
+                body=f"Could not import folder:\n{msg}",
             )
             err.add_response("ok", "OK")
             err.present(self._parent_view)
@@ -4938,6 +5127,8 @@ class _NewProjectCard(Gtk.FlowBoxChild):
     """Persistent 'New Project' card — always first in the grid."""
 
     def __init__(self) -> None:
+        from cellar.views.widgets import CARD_HEIGHT, CARD_WIDTH, FixedBox
+
         super().__init__()
         self.add_css_class("app-card-cell")
         set_margins(self, 6)
@@ -4947,18 +5138,13 @@ class _NewProjectCard(Gtk.FlowBoxChild):
         card.add_css_class("activatable")
         card.set_overflow(Gtk.Overflow.HIDDEN)
 
-        icon = Gtk.Image.new_from_icon_name("list-add-symbolic")
-        icon.set_pixel_size(_ICON_SIZE)
-        icon.set_halign(Gtk.Align.CENTER)
-        icon.set_valign(Gtk.Align.CENTER)
-        icon.set_margin_start(_ICON_MARGIN)
-        icon.add_css_class("dim-label")
+        icon = make_card_icon_from_name("list-add-symbolic", dim=True)
         card.append(icon)
 
         text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         text_box.set_valign(Gtk.Align.CENTER)
         text_box.set_hexpand(True)
-        text_box.set_margin_start(_ICON_MARGIN)
+        text_box.set_margin_start(22)
         text_box.set_margin_end(18)
         card.append(text_box)
 
@@ -4972,67 +5158,28 @@ class _NewProjectCard(Gtk.FlowBoxChild):
         subtitle.set_halign(Gtk.Align.START)
         text_box.append(subtitle)
 
-        from cellar.views.browse import _FixedBox
-        fixed = _FixedBox(_CARD_WIDTH, _CARD_HEIGHT, clip=False)
+        fixed = FixedBox(CARD_WIDTH, CARD_HEIGHT, clip=False)
         fixed.set_child(card)
         self.set_child(fixed)
 
 
 
-class _ProjectCard(Gtk.FlowBoxChild):
+class _ProjectCard(BaseCard):
     """A project card matching the browse view's AppCard layout."""
 
     def __init__(self, project: Project) -> None:
-        super().__init__()
-        self.project = project
-        self.add_css_class("app-card-cell")
-
-        set_margins(self, 6)
-
-        card = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
-        card.add_css_class("card")
-        card.add_css_class("activatable")
-        card.add_css_class("app-card")
-        card.set_overflow(Gtk.Overflow.HIDDEN)
-
-        # Left: type icon
-        icon = Gtk.Image.new_from_icon_name(
-            _TYPE_ICONS.get(project.project_type, "grid-large-symbolic")
-        )
-        icon.set_pixel_size(_ICON_SIZE)
-        icon.set_halign(Gtk.Align.CENTER)
-        icon.set_valign(Gtk.Align.CENTER)
-        icon.set_margin_start(_ICON_MARGIN)
-        icon.add_css_class("dim-label")
-        card.append(icon)
-
-        # Right: name + type subtitle
-        text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        text_box.set_valign(Gtk.Align.CENTER)
-        text_box.set_hexpand(True)
-        text_box.set_margin_start(_ICON_MARGIN)
-        text_box.set_margin_end(18)
-        card.append(text_box)
-
-        self._name_label = Gtk.Label(label=project.name)
-        self._name_label.add_css_class("heading")
-        self._name_label.set_halign(Gtk.Align.START)
-        self._name_label.set_ellipsize(Pango.EllipsizeMode.END)
-        self._name_label.set_tooltip_text(project.name)
-        text_box.append(self._name_label)
-
+        icon_name = _TYPE_ICONS.get(project.project_type, "grid-large-symbolic")
         type_label = _TYPE_LABELS.get(project.project_type, "")
         if not project.origin_app_id:
             type_label += " \u00b7 Draft"
-        subtitle = Gtk.Label(label=type_label)
-        subtitle.add_css_class("dim-label")
-        subtitle.set_halign(Gtk.Align.START)
-        text_box.append(subtitle)
 
-        from cellar.views.browse import _FixedBox
-        fixed = _FixedBox(_CARD_WIDTH, _CARD_HEIGHT, clip=False)
-        fixed.set_child(card)
-        self.set_child(fixed)
+        super().__init__(
+            name=project.name,
+            subtitle=type_label,
+            icon_widget=make_card_icon_from_name(icon_name, dim=True),
+        )
+        self.project = project
+        self._name_label.set_tooltip_text(project.name)
 
     def matches(self, search: str, active_types: set[str], active_repos: set[str]) -> bool:
         """Return True if this card should be visible given the current filters."""
@@ -5042,7 +5189,6 @@ class _ProjectCard(Gtk.FlowBoxChild):
                 return False
         if search and search.lower() not in self.project.name.lower():
             return False
-        # Projects are local — always pass repo filter.
         return True
 
     def refresh_label(self) -> None:
@@ -5051,7 +5197,7 @@ class _ProjectCard(Gtk.FlowBoxChild):
         self._name_label.set_tooltip_text(self.project.name)
 
 
-class _CatalogueCard(Gtk.FlowBoxChild):
+class _CatalogueCard(BaseCard):
     """A dimmed card for a published catalogue entry — edit, download, or delete actions."""
 
     def __init__(
@@ -5067,20 +5213,6 @@ class _CatalogueCard(Gtk.FlowBoxChild):
         has_dependants: bool = False,
         show_repo: bool = False,
     ) -> None:
-        super().__init__()
-        self.entry = entry
-        self.repo = repo
-        self.kind = kind  # "app" or "base"
-        self.add_css_class("app-card-cell")
-
-        set_margins(self, 6)
-
-        card = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
-        card.add_css_class("card")
-        card.add_css_class("app-card")
-        card.set_overflow(Gtk.Overflow.HIDDEN)
-
-        # Left: type icon
         if kind == "base":
             icon_name = "package-x-generic-symbolic"
             type_label = "Base Image"
@@ -5090,34 +5222,19 @@ class _CatalogueCard(Gtk.FlowBoxChild):
             icon_name = _TYPE_ICONS.get(ptype, "grid-large-symbolic")
             type_label = {"linux": "Native App", "dos": "DOS App"}.get(platform, "Proton App")
 
-        icon = Gtk.Image.new_from_icon_name(icon_name)
-        icon.set_pixel_size(_ICON_SIZE)
-        icon.set_halign(Gtk.Align.CENTER)
-        icon.set_valign(Gtk.Align.CENTER)
-        icon.set_margin_start(_ICON_MARGIN)
-        icon.add_css_class("dim-label")
-        card.append(icon)
-
-        # Middle: name + type subtitle
-        text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        text_box.set_valign(Gtk.Align.CENTER)
-        text_box.set_hexpand(True)
-        text_box.set_margin_start(_ICON_MARGIN)
-        card.append(text_box)
-
-        name_label = Gtk.Label(label=entry.name)
-        name_label.add_css_class("heading")
-        name_label.set_halign(Gtk.Align.START)
-        name_label.set_ellipsize(Pango.EllipsizeMode.END)
-        name_label.set_tooltip_text(entry.name)
-        text_box.append(name_label)
-
         subtitle_text = (repo.name or repo.uri) if show_repo else type_label
-        subtitle = Gtk.Label(label=subtitle_text)
-        subtitle.add_css_class("dim-label")
-        subtitle.set_halign(Gtk.Align.START)
-        subtitle.set_ellipsize(Pango.EllipsizeMode.END)
-        text_box.append(subtitle)
+        icon_widget = make_card_icon_from_name(icon_name, dim=True)
+
+        super().__init__(
+            name=entry.name,
+            subtitle=subtitle_text,
+            icon_widget=icon_widget,
+            activatable=False,
+        )
+        self.entry = entry
+        self.repo = repo
+        self.kind = kind  # "app" or "base"
+        self._name_label.set_tooltip_text(entry.name)
 
         # Right: single actions menu button
         action_group = Gio.SimpleActionGroup()
@@ -5148,20 +5265,15 @@ class _CatalogueCard(Gtk.FlowBoxChild):
         )
         menu.append(del_label, "card.delete")
 
-        menu_btn = Gtk.MenuButton(icon_name="view-more-symbolic", menu_model=menu)
-        menu_btn.add_css_class("flat")
+        menu_btn = make_gear_button(menu_model=menu)
         menu_btn.set_valign(Gtk.Align.CENTER)
         menu_btn.set_margin_end(8)
-        card.append(menu_btn)
+        self._card.append(menu_btn)
 
         # Dim icon + text but keep action button fully opaque
-        icon.set_opacity(0.6)
-        text_box.set_opacity(0.6)
+        icon_widget.set_opacity(0.6)
+        self._text_box.set_opacity(0.6)
 
-        from cellar.views.browse import _FixedBox
-        fixed = _FixedBox(_CARD_WIDTH, _CARD_HEIGHT, clip=False)
-        fixed.set_child(card)
-        self.set_child(fixed)
         self.insert_action_group("card", action_group)
 
     def matches(self, search: str, active_types: set[str], active_repos: set[str]) -> bool:

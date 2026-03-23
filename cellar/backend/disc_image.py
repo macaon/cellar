@@ -21,7 +21,7 @@ log = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-_DISC_IMAGE_EXTS = {".iso", ".cue", ".img", ".ima", ".vfd"}
+_DISC_IMAGE_EXTS = {".iso", ".cue", ".img", ".ima", ".vfd", ".chd"}
 
 # Standard floppy image sizes in bytes.
 _FLOPPY_SIZES = {
@@ -101,7 +101,7 @@ class DiscSet:
     unknown: list[Path] = field(default_factory=list)
 
 
-DiscType = Literal["iso", "cue", "floppy", "unknown"]
+DiscType = Literal["iso", "cue", "chd", "floppy", "unknown"]
 
 
 # ---------------------------------------------------------------------------
@@ -110,12 +110,14 @@ DiscType = Literal["iso", "cue", "floppy", "unknown"]
 
 
 def classify_disc_image(path: Path) -> DiscType:
-    """Classify a file as an ISO, CUE, floppy image, or unknown."""
+    """Classify a file as an ISO, CUE, CHD, floppy image, or unknown."""
     suffix = path.suffix.lower()
     if suffix == ".iso":
         return "iso"
     if suffix == ".cue":
         return "cue"
+    if suffix == ".chd":
+        return "chd"
     if suffix in {".img", ".ima", ".vfd"}:
         return "floppy"
     return "unknown"
@@ -529,6 +531,50 @@ def _extract_roman(path: Path) -> int | None:
     if m:
         return _ROMAN_MAP.get(m.group(1).lower())
     return None
+
+
+# ---------------------------------------------------------------------------
+# CHD conversion
+# ---------------------------------------------------------------------------
+
+
+def has_chdman() -> bool:
+    """Return True if ``chdman`` (from mame-tools) is available."""
+    return bool(shutil.which("chdman"))
+
+
+def convert_chd(chd_path: Path, dest_dir: Path) -> Path:
+    """Convert a CHD disc image to CUE/BIN using ``chdman extractcd``.
+
+    The resulting CUE and BIN files are written to *dest_dir*.
+    Returns the path to the generated ``.cue`` file.
+
+    Raises :class:`RuntimeError` if chdman is not available or fails.
+    """
+    chdman = shutil.which("chdman")
+    if not chdman:
+        raise RuntimeError(
+            "chdman not found — install mame-tools to import CHD files"
+        )
+
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    cue_out = dest_dir / (chd_path.stem + ".cue")
+
+    result = subprocess.run(
+        [chdman, "extractcd", "-i", str(chd_path), "-o", str(cue_out), "-f"],
+        capture_output=True,
+        text=True,
+        timeout=600,
+    )
+    if result.returncode != 0:
+        stderr = result.stderr.strip()[:500]
+        raise RuntimeError(f"chdman extractcd failed: {stderr}")
+
+    if not cue_out.is_file():
+        raise RuntimeError(f"chdman produced no output CUE file at {cue_out}")
+
+    log.info("Converted CHD → CUE/BIN: %s → %s", chd_path.name, cue_out.name)
+    return cue_out
 
 
 # ---------------------------------------------------------------------------

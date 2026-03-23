@@ -701,6 +701,10 @@ def run_dos_installer(
     hdd_dir.mkdir(parents=True, exist_ok=True)
     config_dir = content_dir / "config"
 
+    # Ensure layout exists (config/, dosbox/ binary, base config).
+    if not config_dir.is_dir() or not (content_dir / "dosbox" / "dosbox").is_file():
+        prepare_dos_layout(content_dir)
+
     # Step 4: Build autoexec for installer session
     autoexec_lines: list[str] = []
     autoexec_lines.append('mount C "hdd"')
@@ -749,9 +753,6 @@ def run_dos_installer(
     )
 
     # Step 5: Launch DOSBox
-    if progress_cb:
-        progress_cb("Running installer in DOSBox…")
-
     dosbox_bin = content_dir / "dosbox" / "dosbox"
     cmd = [
         str(dosbox_bin),
@@ -808,9 +809,6 @@ def run_dos_installer(
     )
 
     # Step 7: Scan hdd/ for entry point candidates
-    if progress_cb:
-        progress_cb("Detecting game executables…")
-
     from cellar.backend.detect import is_dos_executable, _LAUNCH_EXCLUDE
 
     entry_points: list[dict] = []

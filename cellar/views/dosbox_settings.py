@@ -75,22 +75,11 @@ class DosboxSettingsDialog(Adw.Dialog):
     # ------------------------------------------------------------------
 
     def _build_ui(self) -> None:
-        toolbar = Adw.ToolbarView()
+        from cellar.views.widgets import make_dialog_header
 
-        # Header
-        header = Adw.HeaderBar()
-        header.set_show_end_title_buttons(False)
-
-        cancel_btn = Gtk.Button(label="Cancel")
-        cancel_btn.connect("clicked", lambda _: self.close())
-        header.pack_start(cancel_btn)
-
-        save_btn = Gtk.Button(label="Save")
-        save_btn.add_css_class("suggested-action")
-        save_btn.connect("clicked", self._on_save_clicked)
-        header.pack_end(save_btn)
-
-        toolbar.add_top_bar(header)
+        toolbar, _header, _save_btn = make_dialog_header(
+            self, action_label="Save", action_cb=self._on_save_clicked,
+        )
 
         # Content
         scroll = Gtk.ScrolledWindow(vscrollbar_policy=Gtk.PolicyType.AUTOMATIC)

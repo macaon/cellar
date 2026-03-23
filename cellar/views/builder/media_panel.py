@@ -20,8 +20,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk
 
-from cellar.views.browse import _FixedBox
-from cellar.views.widgets import set_margins
+from cellar.views.widgets import FixedBox as _FixedBox, set_margins
 
 log = logging.getLogger(__name__)
 

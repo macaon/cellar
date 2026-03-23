@@ -346,9 +346,11 @@ class CellarWindow(Adw.ApplicationWindow):
 
         from cellar.views.builder import PackageBuilderView
         self._package_builder = PackageBuilderView(
+            nav_view=self.nav_view,
             on_catalogue_changed=self._load_catalogue,
             publish_queue=self._publish_queue,
         )
+        self.nav_view.connect("popped", self._package_builder._on_nav_popped)
         self._package_builder.set_vexpand(True)
         self.builder_box.append(self._package_builder)
 

@@ -16,81 +16,41 @@ from gi.repository import Adw, Gdk, GLib, GObject, Gtk, Pango
 
 from cellar.models.app_entry import AppEntry
 from cellar.utils import natural_sort_key
-from cellar.views.widgets import set_margins
+from cellar.views.widgets import (
+    CAPSULE_HEIGHT,
+    CAPSULE_WIDTH,
+    CARD_HEIGHT,
+    CARD_WIDTH,
+    ICON_MARGIN,
+    ICON_SIZE,
+    BaseCard,
+    FixedBox,
+    make_app_grid,
+    make_card_icon_from_name,
+    set_margins,
+)
 
 log = logging.getLogger(__name__)
 
-# Fixed card dimensions (GNOME Software-style horizontal cards).
-_CARD_WIDTH   = 300
-_CARD_HEIGHT  = 96
-_ICON_SIZE    = 52   # matches GNOME Software app tiles
-_ICON_MARGIN  = 22   # px from left edge — matches vertical centering: (96-52)/2
-
-# Capsule card dimensions (portrait cover art, 2:3 ratio like Steam capsules).
-_CAPSULE_WIDTH  = 200
-_CAPSULE_HEIGHT = 300
-
-
-# ---------------------------------------------------------------------------
-# _FixedBox — single-child container with a hard-coded natural size
-# ---------------------------------------------------------------------------
-
-class _FixedBox(Gtk.Box):
-    """Single-child container that always reports a fixed natural size.
-
-    ``Gtk.Box`` propagates its children's natural sizes upward, which would
-    let the image's pixel dimensions leak into ``FlowBox`` layout.  This
-    subclass overrides ``do_measure`` so the FlowBox sees the correct
-    capsule dimensions regardless of the child's natural size.
-
-    Inheriting from ``Gtk.Box`` (rather than bare ``Gtk.Widget``) ensures
-    the native C dispose reliably unparents children even when PyGObject's
-    GC does not call a Python ``do_dispose`` override.
-    """
-
-    __gtype_name__ = "CellarFixedBox"
-
-    def __init__(self, width: int, height: int, *, clip: bool = True) -> None:
-        super().__init__()
-        # Remove Gtk.Box's built-in GtkBoxLayout so GTK falls through to
-        # our do_measure / do_size_allocate overrides.
-        self.set_layout_manager(None)
-        self._w = width
-        self._h = height
-        if clip:
-            self.set_overflow(Gtk.Overflow.HIDDEN)
-
-    def set_child(self, child: Gtk.Widget | None) -> None:
-        old = self.get_first_child()
-        if old is not None:
-            self.remove(old)
-        if child is not None:
-            self.append(child)
-
-    # GTK virtual methods ──────────────────────────────────────────────────
-
-    def do_measure(self, orientation, for_size):
-        size = self._w if orientation == Gtk.Orientation.HORIZONTAL else self._h
-        return size, size, -1, -1
-
-    def do_size_allocate(self, width: int, height: int, baseline: int) -> None:
-        child = self.get_first_child()
-        if child is not None:
-            child.allocate(width, height, baseline, None)
+# Backwards-compat aliases for external importers.
+_FixedBox = FixedBox
+_CARD_WIDTH = CARD_WIDTH
+_CARD_HEIGHT = CARD_HEIGHT
+_ICON_SIZE = ICON_SIZE
+_ICON_MARGIN = ICON_MARGIN
+_CAPSULE_WIDTH = CAPSULE_WIDTH
+_CAPSULE_HEIGHT = CAPSULE_HEIGHT
 
 
 # ---------------------------------------------------------------------------
 # AppCard
 # ---------------------------------------------------------------------------
 
-class AppCard(Gtk.FlowBoxChild):
+class AppCard(BaseCard):
     """A single app row in the browse grid.
 
     Horizontal layout matching GNOME Software's style:
       [52×52 icon] [name (bold) / summary (dim)]
-
-    The left column shows the app icon (52 px, 23 px from left edge,
-    vertically centred) or a generic icon.
     """
 
     def __init__(
@@ -102,71 +62,35 @@ class AppCard(Gtk.FlowBoxChild):
         is_installed: bool = False,
         repo_uris: set[str] | None = None,
     ) -> None:
-        super().__init__()
-        self.entry = entry
-        self.repo_uris: set[str] = repo_uris or set()
-        self.add_css_class("app-card-cell")
-
-        set_margins(self, 6)
-
-        # Outer card — horizontal box with .card styling.
-        card = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
-        card.add_css_class("card")
-        card.add_css_class("activatable")
-        card.add_css_class("app-card")
-        card.set_overflow(Gtk.Overflow.HIDDEN)
-
-        # ── Left: icon column ────────────────────────────────────────────
-        # Icon: 52×52 with 23 px left margin, vertically centred.
+        # Resolve icon
         icon_path = asset_path
         if icon_path is None and resolve_asset and entry.icon:
             icon_path = resolve_asset(entry.icon)
-        icon_shown = False
+
         if icon_path and os.path.isfile(icon_path):
             pic = Gtk.Picture.new_for_filename(icon_path)
             pic.set_content_fit(Gtk.ContentFit.SCALE_DOWN)
-            img_area = _FixedBox(_ICON_SIZE, _ICON_SIZE)
-            img_area.set_margin_start(_ICON_MARGIN)
+            img_area = FixedBox(ICON_SIZE, ICON_SIZE)
+            img_area.set_margin_start(ICON_MARGIN)
             img_area.set_valign(Gtk.Align.CENTER)
             img_area.set_child(pic)
-            card.append(img_area)
-            icon_shown = True
-        if not icon_shown:
-            icon = Gtk.Image.new_from_icon_name("application-x-executable")
-            icon.set_pixel_size(_ICON_SIZE)
-            icon.set_halign(Gtk.Align.CENTER)
-            icon.set_valign(Gtk.Align.CENTER)
-            icon.set_margin_start(_ICON_MARGIN)
-            card.append(icon)
+            icon_widget = img_area
+        else:
+            icon_widget = make_card_icon_from_name("application-x-executable")
 
-        # ── Right: text column ────────────────────────────────────────────
-        text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        text_box.set_valign(Gtk.Align.CENTER)
-        text_box.set_hexpand(True)
-        text_box.set_margin_start(_ICON_MARGIN)
-        text_box.set_margin_end(18)
-        card.append(text_box)
+        # Build summary subtitle with word wrap
+        summary = entry.summary or ""
 
-        name_lbl = Gtk.Label(label=entry.name)
-        name_lbl.add_css_class("heading")
-        name_lbl.set_halign(Gtk.Align.START)
-        name_lbl.set_ellipsize(Pango.EllipsizeMode.END)
-        text_box.append(name_lbl)
-
-        if entry.summary:
-            summary_lbl = Gtk.Label(label=entry.summary)
-            summary_lbl.add_css_class("dim-label")
-            summary_lbl.set_halign(Gtk.Align.START)
-            summary_lbl.set_wrap(True)
-            summary_lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
-            summary_lbl.set_lines(2)
-            summary_lbl.set_ellipsize(Pango.EllipsizeMode.END)
-            text_box.append(summary_lbl)
-
-        overlay = Gtk.Overlay()
-        overlay.set_child(card)
-        self._overlay = overlay
+        super().__init__(name=entry.name, subtitle=summary, icon_widget=icon_widget)
+        self.entry = entry
+        self.repo_uris: set[str] = repo_uris or set()
         self._publish_overlay: Gtk.Box | None = None
+
+        # Summary needs word wrap — replace the default single-line label
+        if summary and self._subtitle_label is not None:
+            self._subtitle_label.set_wrap(True)
+            self._subtitle_label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            self._subtitle_label.set_lines(2)
 
         if is_installed:
             check = Gtk.Image.new_from_icon_name("check-round-outline2-symbolic")
@@ -176,11 +100,7 @@ class AppCard(Gtk.FlowBoxChild):
             check.set_margin_top(9)
             check.set_margin_end(9)
             check.add_css_class("success")
-            overlay.add_overlay(check)
-
-        fixed = _FixedBox(_CARD_WIDTH, _CARD_HEIGHT, clip=False)
-        fixed.set_child(overlay)
-        self.set_child(fixed)
+            self._overlay.add_overlay(check)
 
     def set_publishing(self, active: bool) -> None:
         """Show or hide a spinner overlay indicating a background publish."""
@@ -488,15 +408,7 @@ class BrowseView(Gtk.Box):
         grid_scroll = Gtk.ScrolledWindow()
         grid_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
 
-        self._flow_box = Gtk.FlowBox()
-        self._flow_box.set_valign(Gtk.Align.START)
-        self._flow_box.set_min_children_per_line(2)
-        self._flow_box.set_max_children_per_line(8)
-        self._flow_box.set_selection_mode(Gtk.SelectionMode.NONE)
-        self._flow_box.set_homogeneous(False)
-        self._flow_box.set_halign(Gtk.Align.CENTER)
-        set_margins(self._flow_box, 18)
-        self._flow_box.connect("child-activated", self._on_card_activated)
+        self._flow_box = make_app_grid(on_activated=self._on_card_activated)
         grid_scroll.set_child(self._flow_box)
         self._stack.add_named(grid_scroll, "grid")
 

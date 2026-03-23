@@ -59,26 +59,17 @@ class LaunchParamsDialog(Adw.Dialog):
 
         overrides = database.get_launch_overrides(self._entry.id)
 
-        toolbar = Adw.ToolbarView()
-        header = Adw.HeaderBar()
-        header.set_show_end_title_buttons(False)
+        from cellar.views.widgets import make_dialog_header
 
-        cancel_btn = Gtk.Button(label="Cancel")
-        cancel_btn.connect("clicked", lambda _: self.close())
-        header.pack_start(cancel_btn)
+        toolbar, header, _save_btn = make_dialog_header(
+            self, action_label="Save", action_cb=self._on_save_clicked,
+        )
 
         reset_btn = Gtk.Button(label="Reset")
         reset_btn.add_css_class("destructive-action")
         reset_btn.set_tooltip_text("Reset all overrides to catalogue defaults")
         reset_btn.connect("clicked", self._on_reset_clicked)
         header.pack_start(reset_btn)
-
-        save_btn = Gtk.Button(label="Save")
-        save_btn.add_css_class("suggested-action")
-        save_btn.connect("clicked", self._on_save_clicked)
-        header.pack_end(save_btn)
-
-        toolbar.add_top_bar(header)
 
         page = Adw.PreferencesPage()
         toolbar.set_content(page)

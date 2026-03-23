@@ -691,13 +691,7 @@ class MetadataEditorDialog(Adw.Dialog):
         categories = ctx.get_categories()
 
         # Header
-        toolbar = Adw.ToolbarView()
-        header = Adw.HeaderBar()
-        header.set_show_end_title_buttons(False)
-
-        cancel_btn = Gtk.Button(label="Cancel")
-        cancel_btn.connect("clicked", self._on_cancel_clicked)
-        header.pack_start(cancel_btn)
+        from cellar.views.widgets import make_dialog_header
 
         if ctx.is_create:
             action_label = "Create"
@@ -709,13 +703,13 @@ class MetadataEditorDialog(Adw.Dialog):
             action_label = "Done"
             action_sensitive = True
 
-        self._action_btn = Gtk.Button(label=action_label)
-        self._action_btn.add_css_class("suggested-action")
-        self._action_btn.set_sensitive(action_sensitive)
-        self._action_btn.connect("clicked", self._on_action_clicked)
-        header.pack_end(self._action_btn)
-
-        toolbar.add_top_bar(header)
+        toolbar, _header, self._action_btn = make_dialog_header(
+            self,
+            cancel_cb=self._on_cancel_clicked,
+            action_label=action_label,
+            action_cb=self._on_action_clicked,
+            action_sensitive=action_sensitive,
+        )
 
         # Stack
         self._stack = Gtk.Stack()

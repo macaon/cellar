@@ -154,6 +154,14 @@ def group_disc_files(paths: list[Path]) -> DiscSet:
     for cue_path in cue_paths:
         try:
             sheet = parse_cue(cue_path)
+            problems = validate_cue(sheet)
+            if problems:
+                for w in problems:
+                    log.warning("CUE %s: %s", cue_path.name, w)
+                # Missing files are fatal — can't mount an incomplete disc
+                if any(w.startswith("Missing file:") for w in problems):
+                    result.unknown.append(cue_path)
+                    continue
             result.cue_bins.append(sheet)
             consumed_bins.update(sheet.bin_files)
         except (OSError, ValueError) as exc:
@@ -263,6 +271,24 @@ def parse_cue(path: Path) -> CueSheet:
         bin_files=tuple(bin_files_seen.values()),
         has_audio=has_audio,
     )
+
+
+def validate_cue(sheet: CueSheet) -> list[str]:
+    """Check a parsed CUE sheet for problems.
+
+    Returns a list of human-readable warning strings.  An empty list means
+    the CUE is valid and all referenced files exist.
+    """
+    warnings: list[str] = []
+    for ref_path in sheet.bin_files:
+        if not ref_path.is_file():
+            warnings.append(f"Missing file: {ref_path.name}")
+    if not sheet.tracks:
+        warnings.append("CUE sheet contains no tracks")
+    data_tracks = [t for t in sheet.tracks if not t.is_audio]
+    if not data_tracks:
+        warnings.append("CUE sheet has no data track (audio-only disc)")
+    return warnings
 
 
 def _msf_to_bytes(msf: str) -> int:
@@ -635,6 +661,22 @@ def convert_cdda_tracks(
         for bin_path in sheet.bin_files:
             if bin_path.is_file():
                 shutil.copy2(bin_path, dest_dir / bin_path.name)
+        new_cue = dest_dir / cue_path.name
+        shutil.copy2(cue_path, new_cue)
+        return new_cue
+
+    # Audio tracks already converted (CUE references .ogg/.mp3/.wav/.flac
+    # instead of raw BINARY) — copy everything as-is.
+    _COMPRESSED_EXTS = {".ogg", ".mp3", ".wav", ".flac"}
+    audio_already_converted = all(
+        Path(t.filename).suffix.lower() in _COMPRESSED_EXTS
+        for t in sheet.tracks if t.is_audio
+    )
+    if audio_already_converted:
+        log.info("CUE audio tracks already converted — copying as-is")
+        for ref_path in sheet.bin_files:
+            if ref_path.is_file():
+                shutil.copy2(ref_path, dest_dir / ref_path.name)
         new_cue = dest_dir / cue_path.name
         shutil.copy2(cue_path, new_cue)
         return new_cue

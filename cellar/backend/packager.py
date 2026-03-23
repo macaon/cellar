@@ -494,9 +494,13 @@ def compress_prefix_zst(
         compressor.close()
         cw.close()
     except CancelledError:
+        tf.close()
+        compressor.close()
         _cleanup_chunks(dest_path)
         raise
     except (tarfile.TarError, OSError) as exc:
+        tf.close()
+        compressor.close()
         _cleanup_chunks(dest_path)
         raise RuntimeError(f"Failed to compress prefix: {exc}") from exc
 
@@ -576,9 +580,13 @@ def compress_runner_zst(
         compressor.close()
         cw.close()
     except CancelledError:
+        tf.close()
+        compressor.close()
         _cleanup_chunks(dest_path)
         raise
     except (tarfile.TarError, OSError) as exc:
+        tf.close()
+        compressor.close()
         _cleanup_chunks(dest_path)
         raise RuntimeError(f"Failed to compress runner: {exc}") from exc
 
@@ -726,9 +734,13 @@ def compress_prefix_delta_zst(
         compressor.close()
         cw.close()
     except CancelledError:
+        tf.close()
+        compressor.close()
         _cleanup_chunks(dest_path)
         raise
     except (tarfile.TarError, OSError) as exc:
+        tf.close()
+        compressor.close()
         _cleanup_chunks(dest_path)
         raise RuntimeError(f"Failed to create delta archive: {exc}") from exc
 

@@ -678,14 +678,14 @@ def run_dos_installer(
     content_dir: Path,
     disc_images: list[Path],
     floppy_images: list[Path],
-    installer_exe: str | None,
     *,
     stderr_cb: Callable[[str], None] | None = None,
 ) -> list[dict]:
     """Launch DOSBox with disc images mounted for installation.
 
     The directory layout (``hdd/``, ``config/``, ``dosbox/``) must already
-    exist — call :func:`prepare_dos_layout` first.
+    exist — call :func:`prepare_dos_layout` first.  Drops the user at the
+    DOSBox prompt with C:, D: (CD), and A: (floppy) mounted as appropriate.
 
     Returns a list of entry point dicts found on the C: drive (``hdd/``)
     after DOSBox exits.
@@ -705,7 +705,7 @@ def run_dos_installer(
     if not config_dir.is_dir() or not (content_dir / "dosbox" / "dosbox").is_file():
         prepare_dos_layout(content_dir)
 
-    # Step 4: Build autoexec for installer session
+    # Build autoexec — mount drives and drop to prompt
     autoexec_lines: list[str] = []
     autoexec_lines.append('mount C "hdd"')
     autoexec_lines.append("C:")
@@ -724,19 +724,6 @@ def run_dos_installer(
             f'"{p.relative_to(content_dir)}"' for p in floppy_images
         )
         autoexec_lines.append(f'imgmount A {floppy_args} -t floppy')
-
-    # Run installer if detected
-    if installer_exe:
-        # Strip leading slash — scan_iso/scan_floppy return "/INSTALL.EXE"
-        exe = installer_exe.lstrip("/")
-        # Switch to the drive so the installer can find its sibling files
-        if disc_images:
-            autoexec_lines.append("D:")
-            autoexec_lines.append(exe)
-        elif floppy_images:
-            autoexec_lines.append("A:")
-            autoexec_lines.append(exe)
-        autoexec_lines.append("EXIT")
 
     # Write installer overrides conf — preserve user settings from other sections.
     preserved = _read_user_sections(config_dir / "dosbox-overrides.conf")

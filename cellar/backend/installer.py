@@ -957,6 +957,12 @@ def install_dos_app(
     from cellar.backend.manifest import write_manifest  # noqa: PLC0415
     write_manifest(install_dest)
 
+    # ── Step 5: Detect and apply DOSBox game profile ─────────────────
+    from cellar.backend.dosbox_profiles import apply_profile  # noqa: PLC0415
+    profile_id = apply_profile(install_dest)
+    if profile_id:
+        log.info("Applied DOSBox profile %r for %s", profile_id, entry.id)
+
     if install_cb:
         install_cb(1.0)
     return entry.id, install_dest

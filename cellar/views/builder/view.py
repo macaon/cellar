@@ -319,6 +319,11 @@ def _launch_dos_installer(
 
         if entry_points:
             project.entry_points = entry_points
+
+            # Now that the game is installed on the HDD, detect a profile.
+            from cellar.backend.dosbox_profiles import apply_profile
+            apply_profile(content_dir)
+
         save_project(project)
         if hasattr(presenter, "_show_project"):
             presenter._show_project(project)
@@ -4251,6 +4256,11 @@ class PackageBuilderView(Adw.Bin):
             project.runner = ""
             if entry_points:
                 project.entry_points = entry_points
+
+                # Game files are on the HDD now — detect a profile.
+                from cellar.backend.dosbox_profiles import apply_profile
+                apply_profile(project.content_path)
+
             save_project(project)
             # Reload project list so the card icon/label updates
             self._reload_projects()

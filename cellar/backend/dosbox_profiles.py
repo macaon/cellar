@@ -1,0 +1,315 @@
+"""DOSBox game profile auto-detection and configuration.
+
+Detects known DOS games at install time and writes a ``dosbox-profile.conf``
+with proven-good settings.  The profile conf is loaded *between* the base
+config and the user's overrides so user settings always win::
+
+    -conf dosbox-staging.conf
+    -conf dosbox-profile.conf        # ← auto-detected
+    -conf dosbox-overrides.conf      # ← user edits (always wins)
+
+The profile database lives in ``data/dosbox-profiles.json`` (bundled) and can
+be updated from GitHub at runtime.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+from pathlib import Path
+
+log = logging.getLogger(__name__)
+
+_CACHE_DIR = (
+    Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "cellar"
+)
+_PROFILES_CACHE = _CACHE_DIR / "dosbox-profiles.json"
+
+_PROFILES_URL = (
+    "https://raw.githubusercontent.com/macaon/cellar"
+    "/main/data/dosbox-profiles.json"
+)
+
+# Sentinel so we only log "no profiles found" once.
+_warned_missing = False
+
+
+# ---------------------------------------------------------------------------
+# Loading
+# ---------------------------------------------------------------------------
+
+def _bundled_profiles_path() -> Path | None:
+    """Return the path to the bundled profiles JSON, or ``None``."""
+    from cellar.utils.paths import _SRC_DATA, _PKG_DATA, _installed_data_dirs
+
+    candidates = (
+        [_SRC_DATA / "dosbox-profiles.json", _PKG_DATA / "dosbox-profiles.json"]
+        + [d / "dosbox-profiles.json" for d in _installed_data_dirs()]
+    )
+    for c in candidates:
+        if c.is_file():
+            return c
+    return None
+
+
+def load_profiles() -> dict:
+    """Load the profiles database.
+
+    Resolution order: cached (from GitHub fetch) → bundled (source/Flatpak).
+    Returns the full JSON dict, or an empty ``{"profiles": {}}`` fallback.
+    """
+    global _warned_missing  # noqa: PLW0603
+
+    for path in (_PROFILES_CACHE, _bundled_profiles_path()):
+        if path is not None and path.is_file():
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                if "profiles" in data:
+                    return data
+            except (json.JSONDecodeError, OSError) as exc:
+                log.warning("Failed to load profiles from %s: %s", path, exc)
+
+    if not _warned_missing:
+        log.info("No DOSBox profiles database found; game detection disabled")
+        _warned_missing = True
+    return {"profiles": {}}
+
+
+# ---------------------------------------------------------------------------
+# Detection
+# ---------------------------------------------------------------------------
+
+def _content_root(game_dir: Path) -> Path:
+    """Return the game content root (``hdd/`` if present, else *game_dir*)."""
+    hdd = game_dir / "hdd"
+    return hdd if hdd.is_dir() else game_dir
+
+
+def _find_file_casefold(root: Path, rel_path: str) -> Path | None:
+    """Find *rel_path* under *root* using case-insensitive matching.
+
+    Walks each path segment individually so ``SKY.EXE`` matches ``sky.exe``,
+    ``Sky.Exe``, etc.  Returns the resolved ``Path`` or ``None``.
+    """
+    parts = Path(rel_path).parts
+    current = root
+    for part in parts:
+        want = part.lower()
+        try:
+            match = None
+            for entry in current.iterdir():
+                if entry.name.lower() == want:
+                    match = entry
+                    break
+            if match is None:
+                return None
+            current = match
+        except OSError:
+            return None
+    return current if current.is_file() else None
+
+
+def _match_gog_ids(content_root: Path, gog_ids: list[str]) -> bool:
+    """Return ``True`` if any ``goggame-*.info`` file has a matching gameId."""
+    if not gog_ids:
+        return False
+    want = set(str(g) for g in gog_ids)
+    for info_path in content_root.glob("goggame-*.info"):
+        try:
+            data = json.loads(
+                info_path.read_text(encoding="utf-8", errors="replace")
+            )
+            if str(data.get("gameId", "")) in want:
+                return True
+        except (json.JSONDecodeError, OSError):
+            continue
+    return False
+
+
+def _find_file_recursive(root: Path, filename: str) -> Path | None:
+    """Find *filename* anywhere under *root* (case-insensitive, recursive).
+
+    Used for bare filenames (no path separator) where the install directory
+    name is unpredictable.
+    """
+    want = filename.lower()
+    try:
+        for path in root.rglob("*"):
+            if path.is_file() and path.name.lower() == want:
+                return path
+    except OSError:
+        pass
+    return None
+
+
+def _match_files(content_root: Path, files: list[str]) -> bool:
+    """Return ``True`` if ALL listed files exist (case-insensitive).
+
+    Requires at least 2 fingerprint files to reduce false positives.
+    Bare filenames (no ``/``) are searched recursively under the content root.
+    Paths containing ``/`` are matched from the content root directly.
+    """
+    if len(files) < 2:
+        return False
+    for f in files:
+        if "/" in f:
+            if _find_file_casefold(content_root, f) is None:
+                return False
+        else:
+            if _find_file_recursive(content_root, f) is None:
+                return False
+    return True
+
+
+def detect_profile(game_dir: Path) -> str | None:
+    """Detect which profile matches the DOS game in *game_dir*.
+
+    Detection priority:
+    1. GOG ID match (fast, exact)
+    2. File fingerprint match on HDD content (recursive for bare names)
+
+    Returns the profile slug (dict key) or ``None``.
+    """
+    db = load_profiles()
+    profiles = db.get("profiles", {})
+    if not profiles:
+        return None
+
+    root = _content_root(game_dir)
+
+    # Pass 1: GOG ID match (highest priority)
+    for slug, profile in profiles.items():
+        match = profile.get("match", {})
+        if _match_gog_ids(root, match.get("gog_ids", [])):
+            log.info("Detected DOS profile %r via GOG ID", slug)
+            return slug
+
+    # Pass 2: file fingerprint match (HDD content only)
+    for slug, profile in profiles.items():
+        match = profile.get("match", {})
+        if _match_files(root, match.get("files", [])):
+            log.info("Detected DOS profile %r via file fingerprint", slug)
+            return slug
+
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Writing
+# ---------------------------------------------------------------------------
+
+def write_profile_conf(game_dir: Path, profile_id: str) -> Path | None:
+    """Write ``config/dosbox-profile.conf`` from the named profile.
+
+    Returns the written path, or ``None`` if the profile was not found.
+    """
+    db = load_profiles()
+    profile = db.get("profiles", {}).get(profile_id)
+    if profile is None:
+        log.warning("Profile %r not found in database", profile_id)
+        return None
+
+    conf_dir = game_dir / "config"
+    conf_dir.mkdir(parents=True, exist_ok=True)
+    conf_path = conf_dir / "dosbox-profile.conf"
+
+    lines: list[str] = [
+        f"# Auto-detected profile: {profile.get('name', profile_id)}",
+        "# Edit dosbox-overrides.conf (or use the settings dialog) to override.",
+        "",
+    ]
+
+    for section, keys in profile.get("settings", {}).items():
+        lines.append(f"[{section}]")
+        for key, value in keys.items():
+            lines.append(f"{key} = {value}")
+        lines.append("")
+
+    conf_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    log.info("Wrote profile conf: %s", conf_path)
+    return conf_path
+
+
+def remove_profile_conf(game_dir: Path) -> None:
+    """Delete ``config/dosbox-profile.conf`` if it exists."""
+    conf = game_dir / "config" / "dosbox-profile.conf"
+    if conf.is_file():
+        conf.unlink()
+        log.info("Removed profile conf: %s", conf)
+
+
+def read_profile_name(game_dir: Path) -> str | None:
+    """Read the profile name from the header of ``dosbox-profile.conf``.
+
+    Returns the human-readable name, or ``None`` if no profile is applied.
+    """
+    conf = game_dir / "config" / "dosbox-profile.conf"
+    if not conf.is_file():
+        return None
+    try:
+        first_line = conf.read_text(encoding="utf-8").split("\n", 1)[0]
+        # Header format: "# Auto-detected profile: <name>"
+        prefix = "# Auto-detected profile: "
+        if first_line.startswith(prefix):
+            return first_line[len(prefix):].strip()
+    except OSError:
+        pass
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Convenience
+# ---------------------------------------------------------------------------
+
+def apply_profile(game_dir: Path) -> str | None:
+    """Detect and apply a DOSBox profile for the game in *game_dir*.
+
+    Returns the profile slug if a profile was applied, ``None`` otherwise.
+    """
+    slug = detect_profile(game_dir)
+    if slug is None:
+        return None
+    write_profile_conf(game_dir, slug)
+    return slug
+
+
+# ---------------------------------------------------------------------------
+# Remote fetch
+# ---------------------------------------------------------------------------
+
+def fetch_profiles_update(on_complete: callable | None = None) -> None:
+    """Download the latest profiles database from GitHub.
+
+    Writes to ``~/.cache/cellar/dosbox-profiles.json``.  Intended to be called
+    on a background thread.  Calls *on_complete(success)* when done.
+    """
+    try:
+        from cellar.utils.http import make_session
+
+        session = make_session()
+        resp = session.get(_PROFILES_URL, timeout=15)
+        resp.raise_for_status()
+
+        # Validate JSON before writing.
+        data = resp.json()
+        if "profiles" not in data:
+            log.warning("Fetched profiles JSON missing 'profiles' key")
+            if on_complete:
+                on_complete(False)
+            return
+
+        _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        _PROFILES_CACHE.write_text(
+            json.dumps(data, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        log.info("Updated DOSBox profiles cache (%d profiles)",
+                 len(data["profiles"]))
+        if on_complete:
+            on_complete(True)
+
+    except Exception as exc:
+        log.debug("Failed to fetch profiles update: %s", exc)
+        if on_complete:
+            on_complete(False)

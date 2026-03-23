@@ -852,12 +852,16 @@ def build_dos_launch_cmd(
     from cellar.backend.umu import is_cellar_sandboxed
 
     dosbox_bin = game_dir / "dosbox" / "dosbox"
+    conf_dir = game_dir / "config"
     cmd = [
         str(dosbox_bin),
         "--noprimaryconf",
-        "-conf", str(game_dir / "config" / "dosbox-staging.conf"),
-        "-conf", str(game_dir / "config" / "dosbox-overrides.conf"),
+        "-conf", str(conf_dir / "dosbox-staging.conf"),
     ]
+    profile_conf = conf_dir / "dosbox-profile.conf"
+    if profile_conf.is_file():
+        cmd += ["-conf", str(profile_conf)]
+    cmd += ["-conf", str(conf_dir / "dosbox-overrides.conf")]
 
     # Detect layout: hdd/ present → disc-import layout, else flat
     use_hdd = (game_dir / "hdd").is_dir()

@@ -10,4 +10,8 @@ install_data('dosbox-staging.conf',
   install_dir: get_option('datadir') / 'cellar',
 )
 
+install_data('dosbox-profiles.json',
+  install_dir: get_option('datadir') / 'cellar',
+)
+
 subdir('ui')

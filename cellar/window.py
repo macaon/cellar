@@ -363,6 +363,13 @@ class CellarWindow(Adw.ApplicationWindow):
             on_error=lambda msg: log.debug("Runner pre-warm failed: %s", msg),
         )
 
+        # Fetch updated DOSBox game profiles in the background.
+        from cellar.backend.dosbox_profiles import fetch_profiles_update
+        run_in_background(
+            fetch_profiles_update,
+            on_error=lambda msg: log.debug("Profiles fetch failed: %s", msg),
+        )
+
     # ── Catalogue loading ─────────────────────────────────────────────────
 
     def _load_catalogue(self) -> None:

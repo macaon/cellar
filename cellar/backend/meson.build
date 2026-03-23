@@ -6,6 +6,7 @@ python_sources = files(
   'detect.py',
   'disc_image.py',
   'dosbox.py',
+  'dosbox_profiles.py',
   'install_queue.py',
   'installer.py',
   'publish_queue.py',

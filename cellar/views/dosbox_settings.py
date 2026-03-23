@@ -85,6 +85,7 @@ class DosboxSettingsDialog(Adw.Dialog):
         scroll = Gtk.ScrolledWindow(vscrollbar_policy=Gtk.PolicyType.AUTOMATIC)
         page = Adw.PreferencesPage()
 
+        self._build_profile_group(page)
         self._build_display_group(page)
         self._build_performance_group(page)
         self._build_sound_group(page)
@@ -95,6 +96,68 @@ class DosboxSettingsDialog(Adw.Dialog):
         scroll.set_child(page)
         toolbar.set_content(scroll)
         self.set_child(toolbar)
+
+    # ── Game Profile ──────────────────────────────────────────────────
+
+    def _build_profile_group(self, page: Adw.PreferencesPage) -> None:
+        from cellar.backend.dosbox_profiles import (
+            apply_profile,
+            read_profile_name,
+            remove_profile_conf,
+        )
+
+        game_dir = self._config_dir.parent
+        profile_name = read_profile_name(game_dir)
+
+        group = Adw.PreferencesGroup(title="Game Profile")
+        self._profile_row = Adw.ActionRow(
+            title=profile_name or "No profile detected",
+            subtitle=(
+                "Recommended settings applied automatically"
+                if profile_name
+                else "Install a known game to auto-detect its profile"
+            ),
+        )
+
+        redetect_btn = Gtk.Button(
+            icon_name="view-refresh-symbolic", valign=Gtk.Align.CENTER,
+        )
+        redetect_btn.add_css_class("flat")
+        redetect_btn.set_tooltip_text("Re-detect game profile")
+
+        def _on_redetect(_btn):
+            slug = apply_profile(game_dir)
+            name = read_profile_name(game_dir)
+            self._profile_row.set_title(name or "No profile detected")
+            self._profile_row.set_subtitle(
+                "Recommended settings applied automatically"
+                if name
+                else "No matching profile found"
+            )
+            self._remove_profile_btn.set_visible(name is not None)
+
+        redetect_btn.connect("clicked", _on_redetect)
+        self._profile_row.add_suffix(redetect_btn)
+
+        remove_btn = Gtk.Button(
+            icon_name="edit-clear-symbolic", valign=Gtk.Align.CENTER,
+        )
+        remove_btn.add_css_class("flat")
+        remove_btn.set_tooltip_text("Remove auto-detected profile")
+        remove_btn.set_visible(profile_name is not None)
+        self._remove_profile_btn = remove_btn
+
+        def _on_remove(_btn):
+            remove_profile_conf(game_dir)
+            self._profile_row.set_title("No profile detected")
+            self._profile_row.set_subtitle("Profile removed")
+            remove_btn.set_visible(False)
+
+        remove_btn.connect("clicked", _on_remove)
+        self._profile_row.add_suffix(remove_btn)
+
+        group.add(self._profile_row)
+        page.add(group)
 
     # ── Display ────────────────────────────────────────────────────────
 

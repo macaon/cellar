@@ -568,8 +568,11 @@ def _order_indices(paths: list[Path]) -> list[int]:
     # Try each detection strategy in order.
     for strategy in (_extract_numeric, _extract_alpha, _extract_roman):
         keys = [strategy(p) for p in paths]
-        if all(k is not None for k in keys) and len(set(keys)) == len(keys):
-            return sorted(range(len(paths)), key=lambda i: keys[i])
+        if all(k is not None for k in keys):
+            if len(set(keys)) == len(keys):
+                return sorted(range(len(paths)), key=lambda i: keys[i])
+            log.debug("Disc order strategy %s produced duplicate keys, skipping",
+                       strategy.__name__)
 
     # Semantic: "install"/"program"/"setup" prefixed discs sort first.
     semantic = [(0 if _DISC_SEMANTIC_RE.search(p.stem) else 1, p.name.lower())

@@ -1522,31 +1522,40 @@ class PackageBuilderView(Adw.Bin):
                     dos_group.add(_settings_row)
 
                 # DOSBox Prompt — always available
+                _has_discs = bool(
+                    project.disc_images or project.floppy_images
+                )
+                _needs_install = _has_discs and not project.entry_points
+                _has_detected_installer = bool(project.installer_path)
+
                 prompt_row = Adw.ActionRow(
                     title="Open DOSBox Prompt",
                     subtitle="Launch DOSBox with drives mounted (C: and any disc images)",
                 )
                 prompt_btn = Gtk.Button(label="Open")
                 prompt_btn.set_valign(Gtk.Align.CENTER)
+                # Highlight prompt when no installer was auto-detected
+                if _needs_install and not _has_detected_installer:
+                    prompt_btn.add_css_class("suggested-action")
                 prompt_btn.connect("clicked", self._on_open_dosbox_prompt_clicked)
                 prompt_row.add_suffix(prompt_btn)
                 dos_group.add(prompt_row)
 
                 page.add(dos_group)
 
-            # Installer section (DOS only, when disc/floppy installer detected)
+            # Installer section (DOS only, when installer was detected)
             if project.project_type == "dos" and project.source_dir:
                 _has_discs = bool(
                     project.disc_images or project.floppy_images
                 )
                 _needs_install = _has_discs and not project.entry_points
+                _has_detected_installer = bool(project.installer_path)
 
-                if _needs_install:
+                if _needs_install and _has_detected_installer:
                     inst_group = Adw.PreferencesGroup(title="Installer")
-                    installer_name = project.installer_path or "INSTALL.EXE"
                     inst_row = Adw.ActionRow(
                         title="Run Installer",
-                        subtitle=installer_name,
+                        subtitle=project.installer_path,
                     )
                     run_btn = Gtk.Button(label="Launch")
                     run_btn.set_valign(Gtk.Align.CENTER)
@@ -5382,29 +5391,28 @@ class _NewProjectDialog(Adw.Dialog):
             GLib.idle_add(progress.set_label, "Scanning disc contents\u2026")
             installer_exe = None
             if disc_image_paths:
-                first_disc = disc_image_paths[0]
-                if first_disc.suffix.lower() == ".iso":
-                    try:
-                        file_list = scan_iso(first_disc)
-                        installer_exe = find_dos_installer(file_list)
-                    except Exception as exc:
-                        log.warning("Could not scan ISO: %s", exc)
+                for disc_path in disc_image_paths:
+                    if disc_path.suffix.lower() == ".iso":
+                        try:
+                            file_list = scan_iso(disc_path)
+                            installer_exe = find_dos_installer(file_list)
+                        except Exception as exc:
+                            log.warning("Could not scan ISO %s: %s", disc_path.name, exc)
+                    if installer_exe:
+                        break
 
-                if installer_exe is None:
-                    installer_exe = "INSTALL.EXE"
-
-            elif disc_set.floppies:
+            if not installer_exe and disc_set.floppies:
                 from cellar.backend.disc_image import scan_floppy
                 floppy_dir = content / "floppy"
-                first_floppy = floppy_dir / disc_set.floppies[0].name
-                try:
-                    file_list = scan_floppy(first_floppy)
-                    installer_exe = find_dos_installer(file_list)
-                except Exception as exc:
-                    log.warning("Could not scan floppy: %s", exc)
-
-                if installer_exe is None:
-                    installer_exe = "INSTALL.EXE"
+                for fp in disc_set.floppies:
+                    floppy_path = floppy_dir / fp.name
+                    try:
+                        file_list = scan_floppy(floppy_path)
+                        installer_exe = find_dos_installer(file_list)
+                    except Exception as exc:
+                        log.warning("Could not scan floppy %s: %s", fp.name, exc)
+                    if installer_exe:
+                        break
 
             # Step 3: Prepare DOSBox layout (hdd/, config/, dosbox/)
             GLib.idle_add(progress.set_label, "Setting up DOSBox\u2026")

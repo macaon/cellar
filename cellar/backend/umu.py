@@ -264,7 +264,8 @@ def launch_app(
     # emulators) resolve config files relative to the working directory.
     exe_dir = str(Path(exe).parent) if "/" in exe else None
     log.info(
-        "Launching app %s via %s\n  WINEPREFIX=%s\n  PROTONPATH=%s\n  GAMEID=%s\n  EXE=%s\n  CWD=%s%s",
+        "Launching app %s via %s\n  WINEPREFIX=%s\n  PROTONPATH=%s"
+        "\n  GAMEID=%s\n  EXE=%s\n  CWD=%s%s",
         app_id, "proton direct" if direct_proton else "umu-run",
         umu_env["WINEPREFIX"], umu_env["PROTONPATH"], umu_env["GAMEID"], exe,
         exe_dir or "(default)",

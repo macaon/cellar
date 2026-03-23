@@ -51,8 +51,8 @@ class Project:
     source_dir: str = ""       # Linux projects only: path to the pre-installed app directory
     installer_path: str = ""   # Smart import: path to .exe/.msi/.sh/.run to run in prefix
     installer_type: str = ""   # "", "isolated" (bwrap sandbox), "folder" (direct copy)
-    disc_images: list[str] = field(default_factory=list)  # ordered relative paths to CD images in content/cd/
-    floppy_images: list[str] = field(default_factory=list)  # ordered relative paths to floppies in content/floppy/
+    disc_images: list[str] = field(default_factory=list)    # relative paths to CDs
+    floppy_images: list[str] = field(default_factory=list)  # relative paths to floppies
 
     # ── Launch options (committed to catalogue metadata on publish) ───────
     dxvk: bool = True

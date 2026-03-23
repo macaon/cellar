@@ -733,7 +733,8 @@ class MetadataEditorDialog(Adw.Dialog):
                 self._debug_row.set_active(bool(fields.get("debug", False)))
                 self._direct_proton_row.set_active(bool(fields.get("direct_proton", False)))
                 if self._no_lsteamclient_row is not None:
-                    self._no_lsteamclient_row.set_active(bool(fields.get("no_lsteamclient", False)))
+                    self._no_lsteamclient_row.set_active(
+                        bool(fields.get("no_lsteamclient", False)))
                 audio = fields.get("audio_driver", "auto")
                 if audio in self._AUDIO_VALUES:
                     self._audio_driver_row.set_selected(self._AUDIO_VALUES.index(audio))

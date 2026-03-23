@@ -164,7 +164,10 @@ class _SshFetcher:
             try:
                 yield sftp
             finally:
-                _return_sftp(self._host, self._port, self._user, self._identity, sftp, self._password)
+                _return_sftp(
+                    self._host, self._port, self._user,
+                    self._identity, sftp, self._password,
+                )
         return _checkout()
 
     def fetch_bytes(self, rel_path: str) -> bytes:

@@ -696,7 +696,9 @@ class DetailView(Gtk.Box):
             from cellar.backend.umu import apply_run_as_admin  # noqa: PLC0415
             prefix_folder = self._get_install_folder()
             prefix = Path(prefix_folder) if prefix_folder else None
-            exe_base = entry_path.rsplit("\\", 1)[-1] if "\\" in entry_path else Path(entry_path).name
+            exe_base = (entry_path.rsplit("\\", 1)[-1]
+                        if "\\" in entry_path
+                        else Path(entry_path).name)
             if prefix and exe_base:
                 apply_run_as_admin(prefix, exe_base, enable=True)
 

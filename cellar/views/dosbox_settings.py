@@ -234,7 +234,8 @@ class DosboxSettingsDialog(Adw.Dialog):
         # MT-32 ROMs row — uses shared central storage.
         self._rom_row = Adw.ActionRow(title="MT-32 ROMs")
         shared_rom_dir = self._shared_mt32_dir()
-        shared_rom_count = len(list(shared_rom_dir.glob("*.rom"))) if shared_rom_dir.is_dir() else 0
+        shared_rom_count = (len(list(shared_rom_dir.glob("*.rom")))
+                            if shared_rom_dir.is_dir() else 0)
         if shared_rom_count:
             self._rom_row.set_subtitle(f"Installed ({shared_rom_count} ROM files)")
         else:

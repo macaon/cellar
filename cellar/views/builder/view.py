@@ -274,7 +274,9 @@ def _launch_dos_installer(
             drive, cur, total = swap_m.group(1), swap_m.group(2), swap_m.group(3)
             if drive == "D" and disc_image_paths:
                 idx = int(cur) - 1
-                name = disc_image_paths[idx].name if 0 <= idx < len(disc_image_paths) else f"Disc {cur}"
+                name = (disc_image_paths[idx].name
+                        if 0 <= idx < len(disc_image_paths)
+                        else f"Disc {cur}")
                 disc_row.set_subtitle(f"{name} ({cur} of {total})")
             elif drive == "A" and floppy_paths:
                 idx = int(cur) - 1
@@ -1673,7 +1675,9 @@ class PackageBuilderView(Adw.Bin):
                     subtitle="Wine audio backend",
                     model=_audio_model,
                 )
-                _cur_audio = project.audio_driver if project.audio_driver in _audio_choices else "auto"
+                _cur_audio = (project.audio_driver
+                              if project.audio_driver in _audio_choices
+                              else "auto")
                 self._audio_row.set_selected(_audio_choices.index(_cur_audio))
                 self._audio_row.connect("notify::selected", self._on_audio_driver_changed)
                 launch_group.add(self._audio_row)

@@ -135,6 +135,7 @@ class DetailView(Gtk.Box):
         self._peek = _first.peek_asset_cache if _first else (lambda _: "")
         self._token = _first.token if _first else None
         self._ssh_identity = _first.ssh_identity if _first else None
+        self._ssh_password = _first.ssh_password if _first else None
         self._is_installed = is_installed
         self._installed_record = installed_record
         self._install_queue = install_queue
@@ -516,6 +517,7 @@ class DetailView(Gtk.Box):
             self._resolve = repo.resolve_asset_uri
             self._token = repo.token
             self._ssh_identity = repo.ssh_identity
+            self._ssh_password = repo.ssh_password
             self._proceed_to_install()
             return
 
@@ -537,6 +539,7 @@ class DetailView(Gtk.Box):
             self._resolve = repo.resolve_asset_uri
             self._token = repo.token
             self._ssh_identity = repo.ssh_identity
+            self._ssh_password = repo.ssh_password
             self._proceed_to_install()
 
         dialog.connect("response", _on_response)
@@ -578,6 +581,7 @@ class DetailView(Gtk.Box):
                 platform=entry.platform,
                 token=self._token,
                 ssh_identity=self._ssh_identity,
+                ssh_password=self._ssh_password,
                 base_entry=base_entry,
                 base_archive_uri=base_archive_uri,
                 runner_entry=runner_entry,
@@ -598,6 +602,7 @@ class DetailView(Gtk.Box):
             on_success=self._on_install_success,
             token=self._token,
             ssh_identity=self._ssh_identity,
+            ssh_password=self._ssh_password,
             base_entry=base_entry,
             base_archive_uri=base_archive_uri,
             runner_entry=runner_entry,
@@ -2377,6 +2382,7 @@ class InstallProgressDialog(Adw.Dialog):
         on_success: Callable,  # (prefix_dir, install_path, runner, ...) -> None
         token: str | None = None,
         ssh_identity: str | None = None,
+        ssh_password: str | None = None,
         base_entry=None,            # BaseEntry | None — for delta installs
         base_archive_uri: str = "", # resolved URI for the base archive
         runner_entry=None,            # RunnerEntry | None
@@ -2388,6 +2394,7 @@ class InstallProgressDialog(Adw.Dialog):
         self._on_success = on_success
         self._token = token
         self._ssh_identity = ssh_identity
+        self._ssh_password = ssh_password
         self._cancel_event = threading.Event()
         self._base_entry = base_entry
         self._base_archive_uri = base_archive_uri
@@ -2470,6 +2477,7 @@ class InstallProgressDialog(Adw.Dialog):
                     cancel_event=self._cancel_event,
                     token=self._token,
                     ssh_identity=self._ssh_identity,
+                    ssh_password=self._ssh_password,
                 )
                 from cellar.backend.umu import prefixes_dir as _prefixes_dir
                 from cellar.utils.paths import dir_size_bytes as _dir_size
@@ -2517,6 +2525,7 @@ class InstallProgressDialog(Adw.Dialog):
                     cancel_event=self._cancel_event,
                     token=self._token,
                     ssh_identity=self._ssh_identity,
+                    ssh_password=self._ssh_password,
                 )
                 from cellar.utils.paths import dir_size_bytes as _dir_size
                 _install_size = _dir_size(install_dest)

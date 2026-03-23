@@ -273,6 +273,7 @@ def _build_source(
     ssl_verify: bool = True,
     ca_cert: str | None = None,
     ssh_identity: str | None = None,
+    ssh_password: str | None = None,
 ) -> tuple[Iterator[bytes], int]:
     """Return ``(chunk_iterator, total_bytes)`` for *uri*."""
     parsed = urlparse(uri)
@@ -322,6 +323,7 @@ def _build_source(
             user=parsed.username or None,
             port=parsed.port or None,
             identity=ssh_identity,
+            password=ssh_password,
         ), expected_size
 
     raise InstallError(
@@ -412,6 +414,7 @@ def _preflight_check_chunks(
     ssl_verify: bool = True,
     ca_cert: str | None = None,
     ssh_identity: str | None = None,
+    ssh_password: str | None = None,
 ) -> None:
     """Verify that all chunk files exist before starting a download.
 
@@ -452,14 +455,14 @@ def _preflight_check_chunks(
                 host = parsed.hostname or ""
                 port = parsed.port or 22
                 user = parsed.username or None
-                sftp = _get_sftp(host, port, user, ssh_identity)
+                sftp = _get_sftp(host, port, user, ssh_identity, ssh_password)
                 try:
                     chunk_path = urlparse(uri).path
                     sftp.stat(chunk_path)
                 except FileNotFoundError:
                     missing.append(uri)
                 finally:
-                    _return_sftp(host, port, user, ssh_identity, sftp, password=None)
+                    _return_sftp(host, port, user, ssh_identity, sftp, ssh_password)
         except Exception:
             # If the check itself fails, skip preflight rather than
             # blocking the install — the download will fail with a
@@ -488,6 +491,7 @@ def _install_chunks(
     ssl_verify: bool = True,
     ca_cert: str | None = None,
     ssh_identity: str | None = None,
+    ssh_password: str | None = None,
 ) -> None:
     """Download, verify, extract, and delete chunks one at a time.
 
@@ -508,6 +512,7 @@ def _install_chunks(
         archive_uri, n,
         token=token, ssl_verify=ssl_verify,
         ca_cert=ca_cert, ssh_identity=ssh_identity,
+        ssh_password=ssh_password,
     )
 
     total_size = sum(c["size"] for c in archive_chunks)
@@ -532,6 +537,7 @@ def _install_chunks(
                 ssl_verify=ssl_verify,
                 ca_cert=ca_cert,
                 ssh_identity=ssh_identity,
+                ssh_password=ssh_password,
             )
 
             def _wrap_progress(frac: float, _base=cumulative, _chunk_sz=chunk_meta["size"],
@@ -636,6 +642,7 @@ def install_app(
     ssl_verify: bool = True,
     ca_cert: str | None = None,
     ssh_identity: str | None = None,
+    ssh_password: str | None = None,
 ) -> str:
     """Download, verify, extract, and install *entry* to the Cellar prefix store.
 
@@ -685,6 +692,7 @@ def install_app(
             ssl_verify=ssl_verify,
             ca_cert=ca_cert,
             ssh_identity=ssh_identity,
+            ssh_password=ssh_password,
         )
 
     # ── Step 0b (delta only): Ensure base image is installed ───────────
@@ -702,6 +710,7 @@ def install_app(
             ssl_verify=ssl_verify,
             ca_cert=ca_cert,
             ssh_identity=ssh_identity,
+            ssh_password=ssh_password,
         )
 
     # ── Steps 1-3: Stream, verify CRC32, extract ────────────────────────
@@ -714,7 +723,7 @@ def install_app(
     _check_cancel(cancel_event)
 
     _transport_kw = dict(token=token, ssl_verify=ssl_verify, ca_cert=ca_cert,
-                         ssh_identity=ssh_identity)
+                         ssh_identity=ssh_identity, ssh_password=ssh_password)
 
     # Delta path: extract to a temp dir on the same filesystem, then
     # seed from base + overlay.  The delta is small so temp space is fine.
@@ -796,6 +805,7 @@ def install_linux_app(
     ssl_verify: bool = True,
     ca_cert: str | None = None,
     ssh_identity: str | None = None,
+    ssh_password: str | None = None,
 ) -> tuple[str, Path]:
     """Download, verify, extract, and install a Linux native app.
 
@@ -821,7 +831,7 @@ def install_linux_app(
     _check_cancel(cancel_event)
 
     _transport_kw = dict(token=token, ssl_verify=ssl_verify, ca_cert=ca_cert,
-                         ssh_identity=ssh_identity)
+                         ssh_identity=ssh_identity, ssh_password=ssh_password)
 
     # Stream directly into the final install directory, stripping the single
     # top-level directory from the archive.
@@ -881,6 +891,7 @@ def install_dos_app(
     ssl_verify: bool = True,
     ca_cert: str | None = None,
     ssh_identity: str | None = None,
+    ssh_password: str | None = None,
 ) -> tuple[str, Path]:
     """Download, verify, extract, and install a DOS game.
 
@@ -906,7 +917,7 @@ def install_dos_app(
     _check_cancel(cancel_event)
 
     _transport_kw = dict(token=token, ssl_verify=ssl_verify, ca_cert=ca_cert,
-                         ssh_identity=ssh_identity)
+                         ssh_identity=ssh_identity, ssh_password=ssh_password)
 
     install_dest.mkdir(parents=True, exist_ok=True)
     try:
@@ -1114,6 +1125,7 @@ def _ensure_base_installed(
     ssl_verify: bool,
     ca_cert: str | None,
     ssh_identity: str | None = None,
+    ssh_password: str | None = None,
 ) -> None:
     """Download, verify, and install the base image for *runner* if not already present.
 
@@ -1141,7 +1153,7 @@ def _ensure_base_installed(
     expected_crc32 = (base_entry.archive_crc32 if base_entry else "") or ""
 
     _transport_kw = dict(token=token, ssl_verify=ssl_verify, ca_cert=ca_cert,
-                         ssh_identity=ssh_identity)
+                         ssh_identity=ssh_identity, ssh_password=ssh_password)
     archive_chunks = base_entry.archive_chunks if base_entry else ()
 
     dest = base_path(runner)
@@ -1195,6 +1207,7 @@ def _ensure_runner_installed(
     ssl_verify: bool,
     ca_cert: str | None,
     ssh_identity: str | None = None,
+    ssh_password: str | None = None,
 ) -> None:
     """Download and install the runner (GE-Proton) if not already present.
 
@@ -1219,7 +1232,7 @@ def _ensure_runner_installed(
     expected_size = runner_entry.archive_size if runner_entry else 0
     expected_crc32 = (runner_entry.archive_crc32 if runner_entry else "") or ""
     _transport_kw = dict(token=token, ssl_verify=ssl_verify, ca_cert=ca_cert,
-                         ssh_identity=ssh_identity)
+                         ssh_identity=ssh_identity, ssh_password=ssh_password)
     archive_chunks = runner_entry.archive_chunks if runner_entry else ()
 
     dest = runners_dir() / runner_name

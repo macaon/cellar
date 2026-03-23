@@ -353,6 +353,7 @@ class Repo:
         self._ssl_verify = ssl_verify
         self._ca_cert = ca_cert
         self._ssh_identity = ssh_identity
+        self._ssh_password = ssh_password
         self._smb_username = smb_username
         self._cache_dir: Path | None = None
         self._runners: dict[str, RunnerEntry] = {}
@@ -391,6 +392,11 @@ class Repo:
     def ssh_identity(self) -> str | None:
         """Path to the SSH identity file, or ``None`` (use agent/config)."""
         return self._ssh_identity
+
+    @property
+    def ssh_password(self) -> str | None:
+        """SSH password, or ``None`` (use agent/key auth)."""
+        return self._ssh_password
 
     @property
     def ssl_verify(self) -> bool:

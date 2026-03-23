@@ -28,6 +28,7 @@ class InstallJob:
     platform: str               # "windows", "linux", "dos"
     token: str | None = None
     ssh_identity: str | None = None
+    ssh_password: str | None = None
     base_entry: object | None = None
     base_archive_uri: str = ""
     runner_entry: object | None = None
@@ -246,6 +247,7 @@ class InstallQueue:
                 cancel_event=job.cancel_event,
                 token=job.token,
                 ssh_identity=job.ssh_identity,
+                ssh_password=job.ssh_password,
             )
             from cellar.utils.paths import dir_size_bytes
             _install_size = dir_size_bytes(install_dest)
@@ -271,6 +273,7 @@ class InstallQueue:
             cancel_event=job.cancel_event,
             token=job.token,
             ssh_identity=job.ssh_identity,
+            ssh_password=job.ssh_password,
         )
         from cellar.backend.umu import prefixes_dir
         from cellar.utils.paths import dir_size_bytes

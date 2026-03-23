@@ -9,7 +9,6 @@ from __future__ import annotations
 import logging
 import re
 import shutil
-import struct
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -405,6 +404,46 @@ def _scan_iso_fallback(path: Path) -> list[str]:
 
     log.warning("No ISO scanner available for %s", path)
     return []
+
+
+def scan_bin(path: Path) -> list[str]:
+    """List files in a raw BIN disc image using 7z.
+
+    CUE/BIN data tracks use raw 2352-byte sectors which pycdlib cannot
+    read directly.  7z handles the sector format internally.
+
+    Returns file paths as strings (e.g. ``"/INSTALL.EXE"``), matching
+    the format returned by :func:`scan_iso`.  Returns an empty list if
+    7z is not available or the image cannot be read.
+    """
+    _7z = shutil.which("7z")
+    if not _7z:
+        log.debug("7z not found, cannot scan BIN image %s", path)
+        return []
+    try:
+        result = subprocess.run(
+            [_7z, "l", "-ba", str(path)],
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode != 0:
+            log.debug("7z failed for %s: %s", path, result.stderr.strip())
+            return []
+        files: list[str] = []
+        for line in result.stdout.splitlines():
+            # -ba format: "YYYY-MM-DD HH:MM:SS ATTR SIZE COMPRESSED NAME"
+            # Fields are fixed-width: date(10) space time(8) space attr(5)
+            # space size(12) space compressed(12) space name(rest)
+            parts = line.split(maxsplit=5)
+            if len(parts) >= 6:
+                name = parts[5].strip()
+                if name and not name.endswith("/"):
+                    # Normalise to /UPPER format like scan_iso
+                    name = "/" + name.replace("\\", "/").lstrip("/")
+                    files.append(name)
+        return files
+    except Exception as exc:
+        log.debug("7z scan failed for %s: %s", path, exc)
+        return []
 
 
 def iso_volume_label(path: Path) -> str:

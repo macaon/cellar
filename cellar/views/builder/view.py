@@ -4052,18 +4052,30 @@ class PackageBuilderView(Adw.Bin):
         project = self._project
         content = project.content_path
 
-        from cellar.backend.disc_image import scan_floppy, scan_iso
+        from cellar.backend.disc_image import scan_bin, scan_floppy, scan_iso
 
         file_list: list[str] = []
 
         # Scan CD images
         for rel_path in (project.disc_images or []):
             img = content / rel_path
-            if img.suffix.lower() == ".iso" and img.is_file():
-                try:
+            if not img.is_file():
+                continue
+            try:
+                ext = img.suffix.lower()
+                if ext == ".iso":
                     file_list.extend(scan_iso(img))
-                except Exception:
-                    pass
+                elif ext in (".bin", ".cue"):
+                    # For CUE, scan the data BIN; for standalone BIN, scan directly
+                    bin_path = img
+                    if ext == ".cue":
+                        from cellar.backend.disc_image import parse_cue
+                        cue_info = parse_cue(img)
+                        if cue_info.bin_files:
+                            bin_path = cue_info.bin_files[0]
+                    file_list.extend(scan_bin(bin_path))
+            except Exception:
+                pass
 
         # Scan floppy images
         for rel_path in (project.floppy_images or []):
@@ -5246,6 +5258,7 @@ class _NewProjectDialog(Adw.Dialog):
             convert_cdda_tracks,
             find_dos_installer,
             has_cdda_tools,
+            scan_bin,
             scan_iso,
         )
         from cellar.backend.dosbox import prepare_dos_layout
@@ -5305,12 +5318,24 @@ class _NewProjectDialog(Adw.Dialog):
             installer_exe = None
             if disc_image_paths:
                 for disc_path in disc_image_paths:
-                    if disc_path.suffix.lower() == ".iso":
-                        try:
+                    ext = disc_path.suffix.lower()
+                    try:
+                        if ext == ".iso":
                             file_list = scan_iso(disc_path)
-                            installer_exe = find_dos_installer(file_list)
-                        except Exception as exc:
-                            log.warning("Could not scan ISO %s: %s", disc_path.name, exc)
+                        elif ext == ".cue":
+                            from cellar.backend.disc_image import parse_cue
+                            cue_info = parse_cue(disc_path)
+                            if cue_info.bin_files:
+                                file_list = scan_bin(cue_info.bin_files[0])
+                            else:
+                                continue
+                        elif ext == ".bin":
+                            file_list = scan_bin(disc_path)
+                        else:
+                            continue
+                        installer_exe = find_dos_installer(file_list)
+                    except Exception as exc:
+                        log.warning("Could not scan %s: %s", disc_path.name, exc)
                     if installer_exe:
                         break
 

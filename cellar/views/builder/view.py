@@ -2507,6 +2507,19 @@ class PackageBuilderView(Adw.Bin):
         chooser.show()
         self._file_chooser = chooser
 
+    @staticmethod
+    def _no_disc_images_body(disc_set) -> str:
+        """Build error body for 'no disc images found' dialogs."""
+        body = "No recognised disc image files were found."
+        if disc_set.unknown:
+            names = ", ".join(p.name for p in disc_set.unknown[:5])
+            body += (
+                f"\n\nUnsupported files: {names}"
+                "\n\nSupported formats: ISO, CUE/BIN, CHD, IMG/IMA/VFD."
+                "\nStandalone BIN files need a matching CUE sheet."
+            )
+        return body
+
     def _import_disc_to_project(self, project, paths: list[Path]) -> None:
         """Import disc images into an existing project, converting CHDs first."""
         from cellar.backend.disc_image import (
@@ -2577,7 +2590,7 @@ class PackageBuilderView(Adw.Bin):
                     shutil.rmtree(chd_tmp, ignore_errors=True)
                     err = Adw.AlertDialog(
                         heading="No disc images found",
-                        body="No recognised disc image files were found.",
+                        body=self._no_disc_images_body(disc_set),
                     )
                     err.add_response("ok", "OK")
                     err.present(self)
@@ -2598,7 +2611,7 @@ class PackageBuilderView(Adw.Bin):
         else:
             err = Adw.AlertDialog(
                 heading="No disc images found",
-                body="No recognised disc image files were found.",
+                body=self._no_disc_images_body(disc_set),
             )
             err.add_response("ok", "OK")
             err.present(self)
@@ -4849,7 +4862,7 @@ class _NewProjectDialog(Adw.Dialog):
         if not disc_set.isos and not disc_set.cue_bins and not disc_set.floppies:
             err = Adw.AlertDialog(
                 heading="No disc images found",
-                body="No recognised disc image files were found in the selection.",
+                body=PackageBuilderView._no_disc_images_body(disc_set),
             )
             err.add_response("ok", "OK")
             err.present(self._parent_view)

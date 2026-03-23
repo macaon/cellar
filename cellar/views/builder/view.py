@@ -2705,6 +2705,99 @@ class PackageBuilderView(Adw.Bin):
             return
 
         disc_set = group_disc_files(paths)
+
+        # Show reorder dialog for multi-disc sets
+        all_cd = list(disc_set.isos) + [cs.cue_path for cs in disc_set.cue_bins]
+        if len(all_cd) > 1 or len(disc_set.floppies) > 1:
+            self._show_add_disc_order_dialog(project, disc_set)
+            return
+
+        self._do_disc_copy(project, disc_set)
+
+    def _show_add_disc_order_dialog(self, project, disc_set) -> None:
+        """Show a reorder dialog before adding multiple discs to a project."""
+        from cellar.backend.disc_image import iso_volume_label
+        from cellar.views.widgets import make_dialog_header
+
+        dlg = Adw.Dialog(title="Disc Order", content_width=400, content_height=400)
+        toolbar, _header, ok_btn = make_dialog_header(
+            dlg, action_label="Continue",
+        )
+
+        box = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL, spacing=12,
+            margin_top=18, margin_bottom=18, margin_start=18, margin_end=18,
+        )
+        desc = Gtk.Label(
+            label="Confirm the disc order. Use the arrows to reorder if needed.",
+            wrap=True,
+        )
+        desc.add_css_class("dim-label")
+        box.append(desc)
+
+        group = Adw.PreferencesGroup(title="Discs")
+        all_paths: list[Path] = list(disc_set.isos)
+        for cs in disc_set.cue_bins:
+            all_paths.append(cs.cue_path)
+        all_paths.extend(disc_set.floppies)
+
+        rows: list[tuple[Adw.ActionRow, Path]] = []
+        for p in all_paths:
+            label = iso_volume_label(p) if p.suffix.lower() == ".iso" else ""
+            subtitle = label if label else p.suffix.upper().lstrip(".")
+            row = Adw.ActionRow(title=p.name, subtitle=subtitle)
+
+            up_btn = Gtk.Button(icon_name="go-up-symbolic", valign=Gtk.Align.CENTER)
+            up_btn.add_css_class("flat")
+            down_btn = Gtk.Button(icon_name="go-down-symbolic", valign=Gtk.Align.CENTER)
+            down_btn.add_css_class("flat")
+            row.add_suffix(up_btn)
+            row.add_suffix(down_btn)
+            rows.append((row, p))
+            group.add(row)
+
+            def _make_move(direction, current_row=row):
+                def _move(_btn):
+                    idx = next(i for i, (r, _) in enumerate(rows) if r is current_row)
+                    new_idx = idx + direction
+                    if 0 <= new_idx < len(rows):
+                        rows[idx], rows[new_idx] = rows[new_idx], rows[idx]
+                        for r, _ in rows:
+                            group.remove(r)
+                        for r, _ in rows:
+                            group.add(r)
+                return _move
+
+            up_btn.connect("clicked", _make_move(-1))
+            down_btn.connect("clicked", _make_move(1))
+
+        box.append(group)
+        toolbar.set_content(box)
+        dlg.set_child(toolbar)
+
+        def _on_ok(_btn):
+            dlg.close()
+            from cellar.backend.disc_image import DiscSet
+            new_set = DiscSet()
+            for _, p in rows:
+                suffix = p.suffix.lower()
+                if suffix == ".iso":
+                    new_set.isos.append(p)
+                elif suffix == ".cue":
+                    for cs in disc_set.cue_bins:
+                        if cs.cue_path == p:
+                            new_set.cue_bins.append(cs)
+                            break
+                elif suffix in {".img", ".ima", ".vfd"}:
+                    new_set.floppies.append(p)
+            self._do_disc_copy(project, new_set)
+
+        ok_btn.connect("clicked", _on_ok)
+        dlg.present(self)
+
+    def _do_disc_copy(self, project, disc_set) -> None:
+        """Copy disc images into a project in a background thread."""
+        from cellar.backend.project import save_project
         from cellar.utils.async_work import run_in_background
 
         progress = ProgressDialog("Copying disc images\u2026")

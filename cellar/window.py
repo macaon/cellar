@@ -1047,6 +1047,7 @@ class CellarWindow(Adw.ApplicationWindow):
 
     def _on_view_switched(self, stack: Adw.ViewStack, _param) -> None:
         in_builder = stack.get_visible_child_name() == "builder"
+        self.view_toggle_button.set_visible(not in_builder)
         if in_builder:
             self._rebuild_builder_filter_popover()
         else:

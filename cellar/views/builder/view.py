@@ -105,25 +105,6 @@ def _launch_dos_installer(
 
     page = Adw.PreferencesPage()
 
-    # ── Info section ──────────────────────────────────────────────────
-    info_group = Adw.PreferencesGroup()
-
-    if installer_exe:
-        exe_name = installer_exe.lstrip("/")
-        info_label = Gtk.Label(
-            label=f"Running <b>{GLib.markup_escape_text(exe_name)}</b> automatically.",
-            use_markup=True, xalign=0, wrap=True,
-        )
-    else:
-        info_label = Gtk.Label(
-            label="No installer detected. Browse the mounted drives manually.",
-            xalign=0, wrap=True,
-        )
-    info_label.add_css_class("dim-label")
-    info_label.set_margin_bottom(4)
-    info_group.add(info_label)
-    page.add(info_group)
-
     # ── Mounted media ────────────────────────────────────────────────
     media_group = Adw.PreferencesGroup(title="Mounted Drives")
 
@@ -4725,8 +4706,7 @@ class _NewProjectDialog(Adw.Dialog):
             self.close()
             self._start_disc_import(disc_paths)
         else:
-            self.close()
-            self._start_import(paths[0])
+            self._try_import(paths[0])
         return True
 
     # ── Browse handlers ─────────────────────────────────────────────────
@@ -4783,14 +4763,33 @@ class _NewProjectDialog(Adw.Dialog):
         paths = [Path(files.get_item(i).get_path()) for i in range(files.get_n_items())]
         if not paths:
             return
-        self.close()
         disc_paths = self._collect_disc_images(paths)
         if disc_paths:
+            self.close()
             self._start_disc_import(disc_paths)
         else:
-            self._start_import(paths[0])
+            self._try_import(paths[0])
 
     # ── Import dispatch ─────────────────────────────────────────────────
+
+    def _try_import(self, path: Path) -> None:
+        """Validate the file, then close the dialog and start import.
+
+        If the file is unsupported, show an error without closing the
+        dialog so the user can try again.
+        """
+        from cellar.backend.detect import detect_platform, unsupported_reason
+
+        platform = detect_platform(path)
+        if platform == "unsupported":
+            msg = unsupported_reason(path)
+            err = Adw.AlertDialog(heading="Cannot import", body=msg)
+            err.add_response("ok", "OK")
+            err.present(self)
+            return
+
+        self.close()
+        self._start_import(path)
 
     def _start_import(self, path: Path) -> None:
         """Detect platform, parse name, and open MetadataEditorDialog pre-filled."""

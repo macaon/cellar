@@ -52,6 +52,196 @@ from cellar.views.widgets import set_margins
 
 log = logging.getLogger(__name__)
 
+
+# ---------------------------------------------------------------------------
+# DOS installer launch helper (shared by PackageBuilderView and
+# _NewProjectDialog so it lives at module level).
+# ---------------------------------------------------------------------------
+
+def _launch_dos_installer(
+    presenter,
+    project,
+    content_dir: Path,
+    disc_image_paths: list[Path],
+    floppy_paths: list[Path],
+    installer_exe: str | None,
+) -> None:
+    """Show the DOSBox installer dialog and run the installer.
+
+    *presenter* is the GTK widget used as parent for the dialog and for
+    calling ``_show_project()`` when done.
+    """
+    import re
+
+    from cellar.backend.dosbox import run_dos_installer
+    from cellar.backend.project import save_project
+    from cellar.utils.async_work import run_in_background
+
+    has_multi_disc = len(disc_image_paths) > 1
+    has_multi_floppy = len(floppy_paths) > 1
+
+    info_parts: list[str] = []
+    if installer_exe:
+        exe_name = installer_exe.lstrip("/")
+        info_parts.append(
+            f"Running <b>{GLib.markup_escape_text(exe_name)}</b> automatically."
+        )
+    else:
+        info_parts.append(
+            "No installer was detected.\n"
+            "Browse the mounted drive and run the installer manually."
+        )
+
+    shortcuts = [
+        "<b>Ctrl+F10</b>  Release mouse capture",
+        "<b>Alt+Enter</b>  Toggle fullscreen",
+    ]
+    if has_multi_disc or has_multi_floppy:
+        media = "disc" if has_multi_disc else "floppy"
+        count = len(disc_image_paths) if has_multi_disc else len(floppy_paths)
+        shortcuts.insert(
+            0, f"<b>Ctrl+F4</b>   Swap to next {media} ({count} mounted)",
+        )
+
+    # ── Build dialog ──────────────────────────────────────────────────
+    info_dialog = Adw.Dialog(content_width=420, content_height=-1)
+    info_dialog.set_can_close(False)
+
+    toolbar = Adw.ToolbarView()
+    header = Adw.HeaderBar(
+        show_start_title_buttons=False,
+        show_end_title_buttons=False,
+    )
+    header.set_title_widget(Gtk.Label(label="DOSBox Installer"))
+    toolbar.add_top_bar(header)
+
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+    set_margins(box, 20)
+
+    info_label = Gtk.Label(
+        label="\n".join(info_parts), use_markup=True, xalign=0, wrap=True,
+    )
+    box.append(info_label)
+
+    shortcut_label = Gtk.Label(
+        label="\n".join(shortcuts), use_markup=True, xalign=0,
+    )
+    shortcut_label.add_css_class("caption")
+    shortcut_label.add_css_class("dim-label")
+    box.append(shortcut_label)
+
+    status_label = Gtk.Label(
+        label="Waiting for DOSBox\u2026", xalign=0,
+        ellipsize=3,  # Pango.EllipsizeMode.END
+    )
+    status_label.add_css_class("caption")
+    box.append(status_label)
+
+    expander = Gtk.Expander(label="DOSBox Output")
+    expander.set_expanded(False)
+
+    scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
+    scroll.set_min_content_height(180)
+    scroll.set_max_content_height(300)
+    scroll.add_css_class("card")
+
+    log_buffer = Gtk.TextBuffer()
+    log_view = Gtk.TextView(
+        buffer=log_buffer, editable=False, cursor_visible=False,
+    )
+    log_view.set_monospace(True)
+    log_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+    log_view.set_margin_top(6)
+    log_view.set_margin_bottom(6)
+    log_view.set_margin_start(8)
+    log_view.set_margin_end(8)
+    scroll.set_child(log_view)
+    expander.set_child(scroll)
+    box.append(expander)
+
+    log_lines: list[str] = []
+    _MAX_LOG = 300
+
+    _RE_STATUS = re.compile(
+        r"(?:"
+        r"Drive [A-Z]: disk \d+ of \d+ now active"
+        r"|(?:MOUNT|IMGMOUNT): .+"
+        r"|FAT: Mounted .+"
+        r"|SB\d*: Running on port .+"
+        r"|FSYNTH: Using SoundFont .+"
+        r"|MT32: Initialised .+"
+        r"|MIDI: (?:Opened device|Can't find device).+"
+        r"|OPL: Running .+"
+        r")",
+        re.IGNORECASE,
+    )
+
+    def _on_stderr(line: str):
+        stripped = line
+        if " | " in line:
+            stripped = line.split(" | ", 1)[1]
+        if _RE_STATUS.search(stripped):
+            status_label.set_text(stripped)
+
+        log_lines.append(line)
+        end_iter = log_buffer.get_end_iter()
+        prefix = "\n" if log_buffer.get_char_count() > 0 else ""
+        log_buffer.insert(end_iter, prefix + line)
+        while len(log_lines) > _MAX_LOG:
+            log_lines.pop(0)
+            start = log_buffer.get_start_iter()
+            first_nl = log_buffer.get_iter_at_line(1)
+            log_buffer.delete(start, first_nl)
+        adj = scroll.get_vadjustment()
+        adj.set_value(adj.get_upper())
+
+    toolbar.set_content(box)
+    info_dialog.set_child(toolbar)
+    info_dialog.present(presenter)
+
+    def _close_dialog():
+        info_dialog.set_can_close(True)
+        info_dialog.close()
+
+    def _work():
+        return run_dos_installer(
+            content_dir=content_dir,
+            disc_images=disc_image_paths,
+            floppy_images=floppy_paths,
+            installer_exe=installer_exe,
+            stderr_cb=lambda line: GLib.idle_add(_on_stderr, line),
+        )
+
+    def _done(entry_points):
+        _close_dialog()
+
+        # Clean up temp floppy directory after installer has run
+        if installer_exe:
+            floppy_tmp = content_dir / "_floppy_tmp"
+            if floppy_tmp.is_dir():
+                shutil.rmtree(floppy_tmp, ignore_errors=True)
+            # Clear installer_path so the "Run Installer" row disappears
+            project.installer_path = ""
+
+        if entry_points:
+            project.entry_points = entry_points
+        save_project(project)
+        if hasattr(presenter, "_show_project"):
+            presenter._show_project(project)
+
+    def _error(msg):
+        _close_dialog()
+        log.error("DOSBox installer failed: %s", msg)
+        err = Adw.AlertDialog(
+            heading="Installation failed",
+            body=f"DOSBox installer encountered an error:\n{msg}",
+        )
+        err.add_response("ok", "OK")
+        err.present(presenter)
+
+    run_in_background(work=_work, on_done=_done, on_error=_error)
+
+
 class PackageBuilderView(Adw.Bin):
     """Package builder: project list → detail page via stack navigation."""
 
@@ -1143,30 +1333,38 @@ class PackageBuilderView(Adw.Bin):
             files_group = Adw.PreferencesGroup(title="Files")
 
             if _linux_ready and project.source_dir:
-                # Initialized — show source folder + browse content
-                src_row = Adw.ActionRow(title="Folder")
-                src_row.set_subtitle(project.source_dir)
-                src_row.set_subtitle_selectable(True)
-                _open_btn = Gtk.Button(icon_name="folder-open-symbolic")
-                _open_btn.set_valign(Gtk.Align.CENTER)
-                _open_btn.add_css_class("flat")
-                _open_btn.connect("clicked", self._on_browse_prefix_clicked)
-                src_row.add_suffix(_open_btn)
-                files_group.add(src_row)
-
-                if _is_installer_project and not project.installer_path:
-                    # Post-first-install: drop zone for DLC / patches
+                if _is_dos:
+                    # DOS: drop zone + browse content (matches Proton layout)
                     drop_zone = self._build_installer_drop_zone(
-                        hint="Drop disc images or folders here" if _is_dos
-                            else "Drop executables or folders here",
-                        subtitle="Installers are not supported" if not _is_dos else "",
-                        on_browse_file=(
-                            self._on_dos_browse_file if _is_dos
-                            else self._on_run_linux_installer_clicked
-                        ),
+                        hint="Drop disc images or folders here",
+                        subtitle="Images will be mounted in DOSBox",
+                        on_browse_file=self._on_dos_browse_file,
                         on_browse_folder=self._on_browse_dlc_folder_clicked,
+                        show_browse_content=True,
+                        on_browse_content=self._on_browse_prefix_clicked,
                     )
                     files_group.add(drop_zone)
+                else:
+                    # Linux: show source folder + browse content
+                    src_row = Adw.ActionRow(title="Folder")
+                    src_row.set_subtitle(project.source_dir)
+                    src_row.set_subtitle_selectable(True)
+                    _open_btn = Gtk.Button(icon_name="folder-open-symbolic")
+                    _open_btn.set_valign(Gtk.Align.CENTER)
+                    _open_btn.add_css_class("flat")
+                    _open_btn.connect("clicked", self._on_browse_prefix_clicked)
+                    src_row.add_suffix(_open_btn)
+                    files_group.add(src_row)
+
+                    if _is_installer_project and not project.installer_path:
+                        # Post-first-install: drop zone for DLC / patches
+                        drop_zone = self._build_installer_drop_zone(
+                            hint="Drop executables or folders here",
+                            subtitle="Installers are not supported",
+                            on_browse_file=self._on_run_linux_installer_clicked,
+                            on_browse_folder=self._on_browse_dlc_folder_clicked,
+                        )
+                        files_group.add(drop_zone)
 
                 page.add(files_group)
 
@@ -1220,6 +1418,50 @@ class PackageBuilderView(Adw.Bin):
                 dos_group.add(_settings_row)
 
                 page.add(dos_group)
+
+            # DOS Installer / DOSBox tools (DOS only, when initialized)
+            if project.project_type == "dos" and project.source_dir:
+                _has_discs = bool(
+                    project.disc_images
+                    or (project.content_path / "_floppy_tmp").is_dir()
+                )
+                _needs_install = _has_discs and not project.entry_points
+
+                inst_group = Adw.PreferencesGroup(title="Installer")
+
+                if _needs_install:
+                    # Primary installer row — prominent before first install
+                    installer_name = project.installer_path or "INSTALL.EXE"
+                    inst_row = Adw.ActionRow(
+                        title="Run Installer",
+                        subtitle=installer_name,
+                    )
+                    run_btn = Gtk.Button(label="Launch")
+                    run_btn.set_valign(Gtk.Align.CENTER)
+                    run_btn.add_css_class("suggested-action")
+                    run_btn.connect("clicked", self._on_run_dos_installer_clicked)
+                    inst_row.add_suffix(run_btn)
+
+                    browse_btn = Gtk.Button(label="Browse\u2026")
+                    browse_btn.set_valign(Gtk.Align.CENTER)
+                    browse_btn.connect(
+                        "clicked", self._on_browse_disc_installer_clicked,
+                    )
+                    inst_row.add_suffix(browse_btn)
+                    inst_group.add(inst_row)
+
+                # "Open DOSBox Prompt" — always available for DOS projects
+                prompt_row = Adw.ActionRow(
+                    title="Open DOSBox Prompt",
+                    subtitle="Launch DOSBox with drives mounted (C: and any disc images)",
+                )
+                prompt_btn = Gtk.Button(label="Open")
+                prompt_btn.set_valign(Gtk.Align.CENTER)
+                prompt_btn.connect("clicked", self._on_open_dosbox_prompt_clicked)
+                prompt_row.add_suffix(prompt_btn)
+                inst_group.add(prompt_row)
+
+                page.add(inst_group)
 
             # Launch Targets (Linux / DOS)
             targets_group = Adw.PreferencesGroup(title="Launch Targets")
@@ -2814,7 +3056,9 @@ class PackageBuilderView(Adw.Bin):
     def _on_browse_prefix_clicked(self, _btn) -> None:
         if self._project is None:
             return
-        if self._project.project_type in ("linux", "dos"):
+        if self._project.project_type == "dos":
+            target = self._project.content_path / "hdd" if self._project.source_dir else None
+        elif self._project.project_type == "linux":
             target = Path(self._project.source_dir) if self._project.source_dir else None
         else:
             target = self._project.content_path / "drive_c"
@@ -3441,6 +3685,161 @@ class PackageBuilderView(Adw.Bin):
             assets_dir=src / "assets",
             on_saved=lambda: self._show_project(self._project) if self._project else None,
         ).present(self)
+
+    def _on_run_dos_installer_clicked(self, _btn) -> None:
+        """Launch DOSBox to run the detected disc installer."""
+        if self._project is None:
+            return
+        project = self._project
+        content = project.content_path
+
+        # Gather disc image paths
+        disc_image_paths = [
+            content / p for p in project.disc_images
+        ] if project.disc_images else []
+
+        # Gather floppy images from temp dir
+        floppy_paths: list[Path] = []
+        floppy_dir = content / "_floppy_tmp"
+        if floppy_dir.is_dir():
+            floppy_paths = sorted(
+                p for p in floppy_dir.iterdir()
+                if p.suffix.lower() in {".img", ".ima", ".vfd"}
+            )
+
+        installer_exe = project.installer_path or None
+        _launch_dos_installer(
+            self, project, content, disc_image_paths, floppy_paths,
+            installer_exe,
+        )
+
+    def _on_open_dosbox_prompt_clicked(self, _btn) -> None:
+        """Launch DOSBox with drives mounted but no auto-run — just a prompt."""
+        if self._project is None:
+            return
+        project = self._project
+        content = project.content_path
+
+        disc_image_paths = [
+            content / p for p in project.disc_images
+        ] if project.disc_images else []
+
+        floppy_paths: list[Path] = []
+        floppy_dir = content / "_floppy_tmp"
+        if floppy_dir.is_dir():
+            floppy_paths = sorted(
+                p for p in floppy_dir.iterdir()
+                if p.suffix.lower() in {".img", ".ima", ".vfd"}
+            )
+
+        # Launch with no installer — drops user at C:\>
+        _launch_dos_installer(
+            self, project, content, disc_image_paths, floppy_paths,
+            None,
+        )
+
+    def _on_browse_disc_installer_clicked(self, _btn) -> None:
+        """Show a picker with executables found on the disc images."""
+        if self._project is None:
+            return
+        project = self._project
+        content = project.content_path
+
+        from cellar.backend.disc_image import scan_floppy, scan_iso
+
+        file_list: list[str] = []
+
+        # Scan CD images
+        for rel_path in (project.disc_images or []):
+            img = content / rel_path
+            if img.suffix.lower() == ".iso" and img.is_file():
+                try:
+                    file_list.extend(scan_iso(img))
+                except Exception:
+                    pass
+
+        # Scan floppy images
+        floppy_dir = content / "_floppy_tmp"
+        if floppy_dir.is_dir():
+            for fp in sorted(floppy_dir.iterdir()):
+                if fp.suffix.lower() in {".img", ".ima", ".vfd"}:
+                    try:
+                        file_list.extend(scan_floppy(fp))
+                    except Exception:
+                        pass
+
+        # Filter to executables only
+        exes = [
+            f for f in file_list
+            if Path(f).suffix.upper() in {".EXE", ".COM", ".BAT"}
+        ]
+
+        if not exes:
+            err = Adw.AlertDialog(
+                heading="No executables found",
+                body="Could not find any executables on the mounted disc images.",
+            )
+            err.add_response("ok", "OK")
+            err.present(self)
+            return
+
+        # Build a picker dialog
+        dialog = Adw.AlertDialog(heading="Select Installer")
+        dialog.add_response("cancel", "Cancel")
+
+        listbox = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE)
+        listbox.add_css_class("boxed-list")
+        selected_exe: list[str] = []
+
+        for exe in sorted(set(exes)):
+            display_name = exe.lstrip("/")
+            row = Adw.ActionRow(title=display_name)
+            listbox.append(row)
+
+        def _on_row_activated(_lb, row):
+            idx = row.get_index()
+            sorted_exes = sorted(set(exes))
+            if 0 <= idx < len(sorted_exes):
+                selected_exe.clear()
+                selected_exe.append(sorted_exes[idx])
+                dialog.response("select", selected_exe[0])
+
+        listbox.connect("row-activated", _on_row_activated)
+
+        scroll = Gtk.ScrolledWindow(
+            hscrollbar_policy=Gtk.PolicyType.NEVER,
+        )
+        scroll.set_min_content_height(200)
+        scroll.set_max_content_height(400)
+        scroll.set_child(listbox)
+        dialog.set_extra_child(scroll)
+
+        dialog.add_response("select", "Select")
+        dialog.set_response_appearance("select", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_response_enabled("select", False)
+
+        # Enable select button when a row is selected
+        def _on_selected(_lb):
+            row = listbox.get_selected_row()
+            dialog.set_response_enabled("select", row is not None)
+
+        listbox.connect("selected-rows-changed", _on_selected)
+
+        def _on_response(_dlg, response):
+            if response == "select":
+                row = listbox.get_selected_row()
+                if row is not None:
+                    idx = row.get_index()
+                    sorted_exes = sorted(set(exes))
+                    if 0 <= idx < len(sorted_exes):
+                        chosen = sorted_exes[idx].lstrip("/")
+                        project.installer_path = chosen
+                        from cellar.backend.project import save_project
+                        save_project(project)
+                        self._show_project(project)
+
+        dialog.connect("response", _on_response)
+        dialog.present(self)
 
     # ── DOS config helpers ─────────────────────────────────────────
 
@@ -4390,14 +4789,14 @@ class _NewProjectDialog(Adw.Dialog):
     # ── Disc image installation ──────────────────────────────────────────
 
     def _install_from_disc(self, project, disc_set) -> None:
-        """Set up a DOS game from disc images — CDDA conversion + DOSBox installer."""
+        """Set up a DOS game from disc images — copy, CDDA conversion, detect installer."""
         from cellar.backend.disc_image import (
             convert_cdda_tracks,
             find_dos_installer,
             has_cdda_tools,
             scan_iso,
         )
-        from cellar.backend.dosbox import run_dos_installer
+        from cellar.backend.dosbox import prepare_dos_layout
 
         content = project.content_path
         content.mkdir(parents=True, exist_ok=True)
@@ -4439,15 +4838,12 @@ class _NewProjectDialog(Adw.Dialog):
                             shutil.copy2(bin_path, cd_dir / bin_path.name)
                     disc_image_paths.append(dest_cue)
 
-            # Copy floppy images to a temp location (not persisted)
-            floppy_paths: list[Path] = []
+            # Copy floppy images to a temp location (kept until installer runs)
             if disc_set.floppies:
                 floppy_dir = content / "_floppy_tmp"
                 floppy_dir.mkdir(parents=True, exist_ok=True)
                 for fp in disc_set.floppies:
-                    dest = floppy_dir / fp.name
-                    shutil.copy2(fp, dest)
-                    floppy_paths.append(dest)
+                    shutil.copy2(fp, floppy_dir / fp.name)
 
             # Step 2: Detect installer on the disc
             GLib.idle_add(progress.set_label, "Scanning disc contents\u2026")
@@ -4461,29 +4857,49 @@ class _NewProjectDialog(Adw.Dialog):
                     except Exception as exc:
                         log.warning("Could not scan ISO: %s", exc)
 
-                # Fallback: if scanning failed or found nothing, guess
-                # common installer names.  DOSBox will simply show "Bad
-                # command" if the file doesn't exist — no harm done.
                 if installer_exe is None:
                     installer_exe = "INSTALL.EXE"
 
-            return disc_image_paths, floppy_paths, installer_exe
+            elif disc_set.floppies:
+                from cellar.backend.disc_image import scan_floppy
+                floppy_dir = content / "_floppy_tmp"
+                first_floppy = floppy_dir / disc_set.floppies[0].name
+                try:
+                    file_list = scan_floppy(first_floppy)
+                    installer_exe = find_dos_installer(file_list)
+                except Exception as exc:
+                    log.warning("Could not scan floppy: %s", exc)
 
-        def _done(result):
+                if installer_exe is None:
+                    installer_exe = "INSTALL.EXE"
+
+            # Step 3: Prepare DOSBox layout (hdd/, config/, dosbox/)
+            GLib.idle_add(progress.set_label, "Setting up DOSBox\u2026")
+            prepare_dos_layout(content)
+
+            return installer_exe
+
+        def _done(installer_exe):
             progress.force_close()
-            disc_image_paths, floppy_paths, installer_exe = result
 
-            # If no installer auto-detected and we have disc images,
-            # ask the user (for CUE/BIN or when scan fails)
-            if installer_exe is None and not disc_set.floppies:
-                # Try to let the user pick, or just drop to prompt
-                self._run_disc_installer(
-                    project, disc_image_paths, floppy_paths, None,
-                )
-            else:
-                self._run_disc_installer(
-                    project, disc_image_paths, floppy_paths, installer_exe,
-                )
+            # Store disc image paths relative to content
+            cd_dir = content / "cd"
+            if cd_dir.is_dir():
+                project.disc_images = [
+                    str(p.relative_to(content))
+                    for p in sorted(cd_dir.iterdir())
+                    if p.suffix.lower() in {".iso", ".cue"}
+                ]
+
+            # Save detected installer so the project view can show
+            # a "Run Installer" button.
+            if installer_exe:
+                project.installer_path = installer_exe.lstrip("/")
+
+            project.source_dir = str(content)
+            project.initialized = True
+            save_project(project)
+            self._on_import(project)
 
         def _error(msg):
             progress.force_close()
@@ -4497,61 +4913,7 @@ class _NewProjectDialog(Adw.Dialog):
 
         run_in_background(work=_work, on_done=_done, on_error=_error)
 
-    def _run_disc_installer(
-        self, project, disc_image_paths, floppy_paths, installer_exe,
-    ) -> None:
-        """Launch DOSBox with disc images mounted for installation."""
-        from cellar.backend.dosbox import run_dos_installer
-
-        content = project.content_path
-
-        progress = ProgressDialog(label="Running installer in DOSBox\u2026")
-        progress.present(self._parent_view)
-
-        def _work():
-            return run_dos_installer(
-                content_dir=content,
-                disc_images=disc_image_paths,
-                floppy_images=floppy_paths,
-                installer_exe=installer_exe,
-                progress_cb=lambda msg: GLib.idle_add(progress.set_label, msg),
-            )
-
-        def _done(entry_points):
-            progress.force_close()
-
-            # Clean up temp floppy directory
-            floppy_tmp = content / "_floppy_tmp"
-            if floppy_tmp.is_dir():
-                shutil.rmtree(floppy_tmp, ignore_errors=True)
-
-            # Store disc image paths relative to content
-            cd_dir = content / "cd"
-            if cd_dir.is_dir():
-                project.disc_images = [
-                    str(p.relative_to(content))
-                    for p in sorted(cd_dir.iterdir())
-                    if p.suffix.lower() in {".iso", ".cue"}
-                ]
-
-            project.source_dir = str(content)
-            project.initialized = True
-            if entry_points:
-                project.entry_points = entry_points
-            save_project(project)
-            self._on_import(project)
-
-        def _error(msg):
-            progress.force_close()
-            log.error("DOSBox installer failed: %s", msg)
-            err = Adw.AlertDialog(
-                heading="Installation failed",
-                body=f"DOSBox installer encountered an error:\n{msg}",
-            )
-            err.add_response("ok", "OK")
-            err.present(self._parent_view)
-
-        run_in_background(work=_work, on_done=_done, on_error=_error)
+    # _run_disc_installer removed — use module-level _launch_dos_installer()
 
     # ── Manual platform row handlers ────────────────────────────────────
 

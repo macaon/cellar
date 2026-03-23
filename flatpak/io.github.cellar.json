@@ -253,6 +253,17 @@
       ]
     },
     {
+      "name": "mtools",
+      "buildsystem": "autotools",
+      "sources": [
+        {
+          "type": "archive",
+          "url": "https://ftp.gnu.org/gnu/mtools/mtools-4.0.45.tar.bz2",
+          "sha256": "0b008a96bd0efe0e542fa4383d469af66bc4a93394990b103730a8160a67d618"
+        }
+      ]
+    },
+    {
       "name": "i386-compat",
       "buildsystem": "simple",
       "build-commands": ["mkdir -p /app/lib/i386-linux-gnu /app/lib/i386-linux-gnu/GL"]

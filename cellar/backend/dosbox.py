@@ -651,44 +651,55 @@ def _copy_base_config(staging: Path, config_dest: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
+def prepare_dos_layout(
+    content_dir: Path,
+    *,
+    progress_cb: Callable[[str], None] | None = None,
+) -> None:
+    """Create the DOS game directory layout and copy DOSBox runtime.
+
+    Sets up ``hdd/``, ``config/``, and ``dosbox/`` under *content_dir*.
+    Does **not** launch DOSBox — call :func:`run_dos_installer` for that.
+    """
+    if progress_cb:
+        progress_cb("Preparing DOSBox Staging\u2026")
+    dosbox_binary = ensure_dosbox_staging(progress_cb=None)
+    staging = dosbox_binary.parent
+
+    hdd_dir = content_dir / "hdd"
+    hdd_dir.mkdir(parents=True, exist_ok=True)
+    config_dir = content_dir / "config"
+
+    _copy_dosbox_runtime(staging, content_dir)
+    _copy_base_config(staging, config_dir)
+
+
 def run_dos_installer(
     content_dir: Path,
     disc_images: list[Path],
     floppy_images: list[Path],
     installer_exe: str | None,
     *,
-    progress_cb: Callable[[str], None] | None = None,
+    stderr_cb: Callable[[str], None] | None = None,
 ) -> list[dict]:
-    """Set up a DOS game directory and run an installer inside DOSBox.
+    """Launch DOSBox with disc images mounted for installation.
 
-    Creates the ``hdd/``, ``cd/``, ``config/``, and ``dosbox/`` layout under
-    *content_dir*.  Launches DOSBox with the disc images mounted and waits
-    for the user to complete the installation.
+    The directory layout (``hdd/``, ``config/``, ``dosbox/``) must already
+    exist — call :func:`prepare_dos_layout` first.
 
     Returns a list of entry point dicts found on the C: drive (``hdd/``)
     after DOSBox exits.
 
-    *disc_images* are ISO or CUE files (already copied to ``content_dir/cd/``).
+    *disc_images* are ISO or CUE files (already in ``content_dir/cd/``).
     *floppy_images* are temporary — the caller should clean them up after.
     """
     import subprocess
 
     from cellar.backend.umu import is_cellar_sandboxed
 
-    # Step 1: Ensure DOSBox Staging is available
-    if progress_cb:
-        progress_cb("Preparing DOSBox Staging…")
-    dosbox_binary = ensure_dosbox_staging(progress_cb=None)
-    staging = dosbox_binary.parent
-
-    # Step 2: Create directory layout
     hdd_dir = content_dir / "hdd"
     hdd_dir.mkdir(parents=True, exist_ok=True)
     config_dir = content_dir / "config"
-
-    # Step 3: Copy DOSBox runtime + base config
-    _copy_dosbox_runtime(staging, content_dir)
-    _copy_base_config(staging, config_dir)
 
     # Step 4: Build autoexec for installer session
     autoexec_lines: list[str] = []
@@ -712,12 +723,13 @@ def run_dos_installer(
 
     # Run installer if detected
     if installer_exe:
+        # Strip leading slash — scan_iso/scan_floppy return "/INSTALL.EXE"
+        exe = installer_exe.lstrip("/")
         # Determine which drive the installer is on
         if disc_images:
-            autoexec_lines.append(f"D:\\{installer_exe}")
+            autoexec_lines.append(f"D:\\{exe}")
         elif floppy_images:
-            autoexec_lines.append(f"A:\\{installer_exe}")
-    if installer_exe:
+            autoexec_lines.append(f"A:\\{exe}")
         autoexec_lines.append("EXIT")
 
     # Write installer overrides conf
@@ -751,8 +763,19 @@ def run_dos_installer(
     if is_cellar_sandboxed():
         cmd = ["flatpak-spawn", "--host"] + cmd
 
-    # Run DOSBox with cwd set to content_dir so relative paths work
-    subprocess.run(cmd, cwd=str(content_dir))
+    # Run DOSBox with cwd set to content_dir so relative paths work.
+    # Stream stderr line-by-line so the UI can show status updates.
+    proc = subprocess.Popen(
+        cmd, cwd=str(content_dir),
+        stderr=subprocess.PIPE if stderr_cb else None,
+        stdout=subprocess.DEVNULL,
+    )
+    if stderr_cb and proc.stderr:
+        for raw_line in proc.stderr:
+            line = raw_line.decode("utf-8", errors="replace").rstrip("\n\r")
+            if line:
+                stderr_cb(line)
+    proc.wait()
 
     # Step 6: Rewrite overrides conf for normal launch (not installer).
     launch_lines = [

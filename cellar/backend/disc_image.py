@@ -408,6 +408,48 @@ def iso_volume_label(path: Path) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Floppy scanning
+# ---------------------------------------------------------------------------
+
+
+def scan_floppy(path: Path) -> list[str]:
+    """List files on a FAT floppy image using mtools ``mdir``.
+
+    Returns file paths as strings (e.g. ``"/INSTALL.EXE"``).
+    Requires ``mdir`` (from mtools) to be available.
+    """
+    mdir = shutil.which("mdir")
+    if not mdir:
+        log.warning("mdir (mtools) not available — cannot scan floppy %s", path)
+        return []
+
+    try:
+        result = subprocess.run(
+            [mdir, "-i", str(path), "-b", "::"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode != 0:
+            log.warning("mdir failed for %s: %s", path, result.stderr.strip())
+            return []
+
+        files: list[str] = []
+        for line in result.stdout.splitlines():
+            line = line.strip()
+            if line:
+                # mdir -b outputs paths like ::/INSTALL.EXE
+                if line.startswith("::/"):
+                    line = line[2:]  # strip "::" prefix → "/INSTALL.EXE"
+                elif not line.startswith("/"):
+                    line = "/" + line
+                files.append(line)
+        return files
+
+    except Exception as exc:
+        log.warning("Could not scan floppy %s: %s", path, exc)
+        return []
+
+
+# ---------------------------------------------------------------------------
 # Installer detection
 # ---------------------------------------------------------------------------
 

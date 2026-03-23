@@ -736,13 +736,15 @@ def run_dos_installer(
             autoexec_lines.append(f"A:\\{exe}")
         autoexec_lines.append("EXIT")
 
-    # Write installer overrides conf
+    # Write installer overrides conf — preserve user settings from other sections.
+    preserved = _read_user_sections(config_dir / "dosbox-overrides.conf")
     overrides_lines = [
         "# DOSBox overrides — disc image installer session",
         "# This file will be regenerated after installation.",
         "",
         "[dosbox]",
         "startup_verbosity = quiet",
+    ] + preserved + [
         "",
         "[autoexec]",
         "@echo off",
@@ -779,11 +781,14 @@ def run_dos_installer(
     proc.wait()
 
     # Step 6: Rewrite overrides conf for normal launch (not installer).
+    # Preserve user settings (cpu, sound, etc.) from other sections.
+    preserved = _read_user_sections(config_dir / "dosbox-overrides.conf")
     launch_lines = [
         "# DOSBox overrides — edit to customise game-specific settings.",
         "",
         "[dosbox]",
         "startup_verbosity = quiet",
+    ] + preserved + [
         "",
         "[autoexec]",
         "@echo off",
@@ -924,6 +929,31 @@ def build_dos_launch_cmd(
 # ---------------------------------------------------------------------------
 # Config file read/write helpers (shared by builder + detail view)
 # ---------------------------------------------------------------------------
+
+
+def _read_user_sections(conf_path: Path) -> list[str]:
+    """Extract user-configured sections from a dosbox-overrides.conf.
+
+    Returns lines for all sections **except** ``[dosbox]`` and ``[autoexec]``,
+    so they can be preserved when the conf is regenerated.
+    """
+    if not conf_path.is_file():
+        return []
+    text = conf_path.read_text(encoding="utf-8", errors="replace")
+    preserved: list[str] = []
+    skip = True  # start skipping (preamble / [dosbox])
+    for line in text.splitlines():
+        stripped = line.strip().lower()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            section = stripped[1:-1]
+            skip = section in ("dosbox", "autoexec")
+            if not skip:
+                preserved.append("")
+                preserved.append(line.strip())
+            continue
+        if not skip:
+            preserved.append(line)
+    return preserved
 
 
 def read_override(conf_path: Path, section: str, key: str) -> str:

@@ -1259,7 +1259,6 @@ def _move_install_data(old_dir: Path, new_dir: Path) -> None:
     import shutil
 
     from cellar.backend import database
-
     from cellar.backend.prefix_fixup import fixup_prefix
 
     for subdir in ("prefixes", "native", "dos"):

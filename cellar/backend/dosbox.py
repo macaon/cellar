@@ -816,7 +816,7 @@ def run_dos_installer(
     )
 
     # Step 7: Scan hdd/ for entry point candidates
-    from cellar.backend.detect import is_dos_executable, _LAUNCH_EXCLUDE
+    from cellar.backend.detect import _LAUNCH_EXCLUDE, is_dos_executable
 
     entry_points: list[dict] = []
     if hdd_dir.is_dir():

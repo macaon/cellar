@@ -2643,11 +2643,10 @@ class PackageBuilderView(Adw.Bin):
         of the same type, the reorder dialog is shown.
         """
         from cellar.backend.disc_image import (
+            convert_chd,
             group_disc_files,
             has_chdman,
-            convert_chd,
         )
-        from cellar.backend.project import save_project
 
         # CHD conversion first (reuse existing pattern)
         chd_files = [p for p in paths if p.suffix.lower() == ".chd"]
@@ -2662,6 +2661,7 @@ class PackageBuilderView(Adw.Bin):
                 return
 
             import tempfile
+
             from cellar.utils.async_work import run_in_background
 
             chd_tmp = Path(tempfile.mkdtemp(prefix="cellar_chd_"))
@@ -5026,7 +5026,6 @@ class _NewProjectDialog(Adw.Dialog):
     def _show_disc_order_dialog(self, disc_set) -> None:
         """Show a dialog for the user to confirm/reorder multi-disc sets."""
         from cellar.backend.disc_image import iso_volume_label
-
         from cellar.views.widgets import make_dialog_header
 
         dlg = Adw.Dialog(title="Disc Order", content_width=400, content_height=400)

@@ -221,12 +221,12 @@ def _launch_dos_installer(
     def _done(entry_points):
         _close_dialog()
 
-        # Clean up temp floppy directory after installer has run
-        if installer_exe:
+        # Only clean up floppies and installer path if entry points
+        # were found — the user may have aborted and needs to retry.
+        if entry_points and installer_exe:
             floppy_tmp = content_dir / "_floppy_tmp"
             if floppy_tmp.is_dir():
                 shutil.rmtree(floppy_tmp, ignore_errors=True)
-            # Clear installer_path so the "Run Installer" row disappears
             project.installer_path = ""
 
         if entry_points:
@@ -2596,6 +2596,169 @@ class PackageBuilderView(Adw.Bin):
             err.add_response("ok", "OK")
             err.present(self)
 
+    def _add_disc_images_to_project(self, project, paths: list[Path]) -> None:
+        """Add disc/floppy images to an existing DOS project.
+
+        CD/CUE images are copied to ``content/cd/``, floppies to
+        ``content/_floppy_tmp/``.  If the project already has disc images
+        of the same type, the reorder dialog is shown.
+        """
+        from cellar.backend.disc_image import (
+            group_disc_files,
+            has_chdman,
+            convert_chd,
+        )
+        from cellar.backend.project import save_project
+
+        # CHD conversion first (reuse existing pattern)
+        chd_files = [p for p in paths if p.suffix.lower() == ".chd"]
+        if chd_files:
+            if not has_chdman():
+                err = Adw.AlertDialog(
+                    heading="chdman not found",
+                    body="CHD files require chdman (from mame-tools) to convert.",
+                )
+                err.add_response("ok", "OK")
+                err.present(self)
+                return
+
+            import tempfile
+            from cellar.utils.async_work import run_in_background
+
+            chd_tmp = Path(tempfile.mkdtemp(prefix="cellar_chd_"))
+            n = len(chd_files)
+            progress = ProgressDialog(
+                f"Converting {n} CHD image{'s' if n > 1 else ''}\u2026"
+            )
+            progress.present(self)
+
+            def _convert():
+                converted: list[Path] = []
+                for i, chd in enumerate(chd_files):
+                    GLib.idle_add(
+                        progress.set_label,
+                        f"Converting {chd.name}\u2026 ({i + 1}/{n})",
+                    )
+                    GLib.idle_add(progress.set_fraction, 0.0)
+                    cue = convert_chd(
+                        chd, chd_tmp / chd.stem,
+                        progress_cb=lambda frac: GLib.idle_add(
+                            progress.set_fraction, frac,
+                        ),
+                    )
+                    converted.append(cue)
+                    for sibling in cue.parent.iterdir():
+                        if sibling.suffix.lower() == ".bin":
+                            converted.append(sibling)
+                return converted
+
+            def _done(converted):
+                progress.force_close()
+                non_chd = [p for p in paths if p.suffix.lower() != ".chd"]
+                self._add_disc_images_to_project(project, non_chd + converted)
+
+            def _error(msg):
+                progress.force_close()
+                err = Adw.AlertDialog(heading="CHD Conversion Failed", body=str(msg))
+                err.add_response("ok", "OK")
+                err.present(self)
+
+            run_in_background(_convert, _done, _error)
+            return
+
+        disc_set = group_disc_files(paths)
+        content = project.content_path
+        content.mkdir(parents=True, exist_ok=True)
+
+        # Copy CD images to content/cd/
+        cd_dir = content / "cd"
+        new_cd: list[Path] = []
+        if disc_set.isos or disc_set.cue_bins:
+            from cellar.backend.disc_image import convert_cdda_tracks, has_cdda_tools
+
+            cd_dir.mkdir(parents=True, exist_ok=True)
+            for iso in disc_set.isos:
+                dest = cd_dir / iso.name
+                shutil.copy2(iso, dest)
+                new_cd.append(dest)
+            for cue_sheet in disc_set.cue_bins:
+                if cue_sheet.has_audio and has_cdda_tools():
+                    new_cue = convert_cdda_tracks(cue_sheet.cue_path, cd_dir)
+                    new_cd.append(new_cue)
+                else:
+                    dest_cue = cd_dir / cue_sheet.cue_path.name
+                    shutil.copy2(cue_sheet.cue_path, dest_cue)
+                    for bin_path in cue_sheet.bin_files:
+                        if bin_path.is_file():
+                            shutil.copy2(bin_path, cd_dir / bin_path.name)
+                    new_cd.append(dest_cue)
+
+        # Copy floppy images to content/_floppy_tmp/
+        if disc_set.floppies:
+            floppy_dir = content / "_floppy_tmp"
+            floppy_dir.mkdir(parents=True, exist_ok=True)
+            for fp in disc_set.floppies:
+                shutil.copy2(fp, floppy_dir / fp.name)
+
+        # Update project disc_images list
+        existing_cd = list(project.disc_images or [])
+        added = 0
+        for p in new_cd:
+            rel = str(p.relative_to(content))
+            if rel not in existing_cd:
+                existing_cd.append(rel)
+                added += 1
+        project.disc_images = existing_cd
+        save_project(project)
+
+        kind = "disc" if new_cd else "floppy"
+        count = added + len(disc_set.floppies)
+        self._show_toast(f"{count} {kind} image{'s' if count != 1 else ''} added.")
+        self._show_project(project)
+
+    def _import_dos_folder_to_hdd(self, project, src_path: Path) -> None:
+        """Copy a dropped folder into content/hdd/<folder> for DOSBox C:\\ access."""
+        from cellar.backend.project import save_project
+        from cellar.utils.async_work import run_in_background
+
+        content = project.content_path
+        content.mkdir(parents=True, exist_ok=True)
+
+        progress = ProgressDialog(label="Copying folder\u2026")
+        progress.present(self)
+
+        def _work():
+            hdd_dir = content / "hdd"
+            hdd_dir.mkdir(parents=True, exist_ok=True)
+            dest = hdd_dir / src_path.name
+            dest.mkdir(parents=True, exist_ok=True)
+            for src in src_path.rglob("*"):
+                rel = src.relative_to(src_path)
+                dst = dest / rel
+                if src.is_dir():
+                    dst.mkdir(parents=True, exist_ok=True)
+                elif src.is_file():
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(src, dst)
+
+        def _done(_result):
+            progress.force_close()
+            save_project(project)
+            self._show_toast(f"Folder '{src_path.name}' added to C:\\")
+            self._show_project(project)
+
+        def _error(msg):
+            progress.force_close()
+            log.error("DOS folder import failed: %s", msg)
+            err = Adw.AlertDialog(
+                heading="Import failed",
+                body=f"Could not import folder:\n{msg}",
+            )
+            err.add_response("ok", "OK")
+            err.present(self)
+
+        run_in_background(work=_work, on_done=_done, on_error=_error)
+
     def _on_choose_source_dir_clicked(self, _btn) -> None:
         if self._project is None:
             return
@@ -2897,26 +3060,39 @@ class PackageBuilderView(Adw.Bin):
             return False
 
         paths = [Path(f.get_path()) for f in gfiles]
+        project = self._project
+
+        # DOS projects: route disc images and folders containing them
+        if project.project_type == "dos":
+            disc_paths = _NewProjectDialog._collect_disc_images(paths)
+            if disc_paths:
+                self._add_disc_images_to_project(project, disc_paths)
+                return True
+            # Folder without disc images: copy into hdd/ as subfolder
+            if len(paths) == 1 and paths[0].is_dir():
+                self._import_dos_folder_to_hdd(project, paths[0])
+                return True
+            return True
 
         # Single folder drop → scan the folder for installers
         if len(paths) == 1 and paths[0].is_dir():
-            self._install_dlc_from_folder(self._project, paths[0])
+            self._install_dlc_from_folder(project, paths[0])
             return True
 
         # Single file → install directly
         installers = [p for p in paths if p.is_file()]
         if len(installers) == 1:
-            self._install_single_dlc(self._project, installers[0])
+            self._install_single_dlc(project, installers[0])
             return True
 
         # Multiple files → filter, confirm, and queue
         if installers:
-            skipped = self._filter_already_installed(self._project, installers)
+            skipped = self._filter_already_installed(project, installers)
             remaining = [p for p in installers if p not in skipped]
             if not remaining:
                 self._show_toast("All dropped installers have already been applied.")
                 return True
-            self._confirm_and_queue_dlc(self._project, remaining, len(skipped))
+            self._confirm_and_queue_dlc(project, remaining, len(skipped))
         return True
 
     def _confirm_and_queue_dlc(

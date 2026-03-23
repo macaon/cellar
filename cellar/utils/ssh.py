@@ -65,7 +65,7 @@ def _get_sftp(
     """
     import paramiko  # type: ignore[import]
 
-    conn_key = (host, port, user, identity)
+    conn_key = (host, port, user, identity, password)
     with _sftp_lock:
         # Try to pop an idle channel from the pool.
         pool = _sftp_pool.get(conn_key, [])
@@ -132,9 +132,10 @@ def _return_sftp(
     user: str | None,
     identity: str | None,
     sftp: "paramiko.SFTPClient",
+    password: str | None = None,
 ) -> None:
     """Return a checked-out SFTP channel to the pool for reuse."""
-    conn_key = (host, port, user, identity)
+    conn_key = (host, port, user, identity, password)
     with _sftp_lock:
         pool = _sftp_pool.setdefault(conn_key, [])
         if len(pool) < _MAX_POOL:
@@ -151,11 +152,12 @@ def get_transport(
     port: int,
     user: str | None,
     identity: str | None,
+    password: str | None = None,
 ):
     """Return the underlying :class:`paramiko.Transport` for streaming."""
-    sftp = _get_sftp(host, port, user, identity)
+    sftp = _get_sftp(host, port, user, identity, password)
     transport = sftp.get_channel().get_transport()
-    _return_sftp(host, port, user, identity, sftp)
+    _return_sftp(host, port, user, identity, sftp, password)
     return transport
 
 
@@ -180,15 +182,17 @@ class _SshWriteStream:
     connection pool on :meth:`close`.
     """
 
-    __slots__ = ("_fh", "_remote", "_closed", "_sftp", "_conn")
+    __slots__ = ("_fh", "_remote", "_closed", "_sftp", "_conn", "_password")
 
     def __init__(self, fh, remote: str, *,
-                 sftp=None, conn: tuple | None = None) -> None:
+                 sftp=None, conn: tuple | None = None,
+                 password: str | None = None) -> None:
         self._fh = fh
         self._remote = remote
         self._closed = False
         self._sftp = sftp
         self._conn = conn  # (host, port, user, identity)
+        self._password = password
 
     def write(self, data: bytes) -> int:
         if self._closed:
@@ -206,7 +210,7 @@ class _SshWriteStream:
         self._closed = True
         self._fh.close()
         if self._sftp and self._conn:
-            _return_sftp(*self._conn, self._sftp)
+            _return_sftp(*self._conn, self._sftp, self._password)
             self._sftp = None
 
     def __enter__(self):
@@ -260,7 +264,7 @@ class SshPath(RemotePathMixin):
         try:
             yield sftp
         finally:
-            _return_sftp(self._host, self._port, self._user, self._identity, sftp)
+            _return_sftp(self._host, self._port, self._user, self._identity, sftp, self._password)
 
     def _child(self, name: str) -> "SshPath":
         return SshPath(
@@ -394,6 +398,7 @@ class SshPath(RemotePathMixin):
             return _SshWriteStream(
                 fh, f"{self._host}:{self._path}",
                 sftp=sftp, conn=(self._host, self._port, self._user, self._identity),
+                password=self._password,
             )
         else:
             import io

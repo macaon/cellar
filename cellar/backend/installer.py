@@ -238,13 +238,14 @@ def _ssh_chunks(
     user: str | None = None,
     port: int | None = None,
     identity: str | None = None,
+    password: str | None = None,
 ) -> Iterator[bytes]:
     """Stream *remote_path* from *host* via ``paramiko`` SFTP, yielding 1 MB chunks."""
     from cellar.utils.ssh import _get_sftp, _return_sftp
 
     _CHUNK = 1 * 1024 * 1024
     _port = port or 22
-    sftp = _get_sftp(host, _port, user, identity)
+    sftp = _get_sftp(host, _port, user, identity, password)
     try:
         with sftp.open(remote_path, "rb", bufsize=_CHUNK) as f:
             f.MAX_REQUEST_SIZE = _CHUNK  # 1 MB per request vs 32 KB default
@@ -259,7 +260,7 @@ def _ssh_chunks(
     except Exception as exc:
         raise InstallError(f"SSH stream error for {remote_path}: {exc}") from exc
     finally:
-        _return_sftp(host, _port, user, identity, sftp)
+        _return_sftp(host, _port, user, identity, sftp, password)
 
 
 
@@ -458,7 +459,7 @@ def _preflight_check_chunks(
                 except FileNotFoundError:
                     missing.append(uri)
                 finally:
-                    _return_sftp(host, port, user, ssh_identity, sftp)
+                    _return_sftp(host, port, user, ssh_identity, sftp, password=None)
         except Exception:
             # If the check itself fails, skip preflight rather than
             # blocking the install — the download will fail with a

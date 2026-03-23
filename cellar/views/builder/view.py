@@ -4923,13 +4923,8 @@ class _NewProjectDialog(Adw.Dialog):
     def _start_disc_import(self, paths: list[Path]) -> None:
         """Handle dropped/selected disc image files."""
         from cellar.backend.disc_image import (
-            DiscSet,
-            group_disc_files,
-            has_chdman,
             convert_chd,
-            iso_volume_label,
-            scan_iso,
-            find_dos_installer,
+            has_chdman,
         )
 
         # Check for CHD files that need conversion first.
@@ -5002,14 +4997,7 @@ class _NewProjectDialog(Adw.Dialog):
 
     def _continue_disc_import(self, paths: list[Path]) -> None:
         """Continue disc import after any CHD conversion."""
-        from cellar.backend.detect import parse_app_name
-        from cellar.backend.disc_image import (
-            DiscSet,
-            group_disc_files,
-            iso_volume_label,
-            scan_iso,
-            find_dos_installer,
-        )
+        from cellar.backend.disc_image import group_disc_files
 
         disc_set = group_disc_files(paths)
 
@@ -5128,7 +5116,7 @@ class _NewProjectDialog(Adw.Dialog):
     def _proceed_disc_import(self, disc_set) -> None:
         """Continue disc import after ordering is confirmed."""
         from cellar.backend.detect import parse_app_name
-        from cellar.backend.disc_image import iso_volume_label, scan_iso
+        from cellar.backend.disc_image import iso_volume_label
 
         # Try to get a name from the first ISO or CUE
         app_name = ""

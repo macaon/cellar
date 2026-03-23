@@ -2546,7 +2546,13 @@ class PackageBuilderView(Adw.Bin):
                         progress.set_label,
                         f"Converting {chd.name}\u2026 ({i + 1}/{n})",
                     )
-                    cue = convert_chd(chd, chd_tmp / chd.stem)
+                    GLib.idle_add(progress.set_fraction, 0.0)
+                    cue = convert_chd(
+                        chd, chd_tmp / chd.stem,
+                        progress_cb=lambda frac: GLib.idle_add(
+                            progress.set_fraction, frac,
+                        ),
+                    )
                     converted.append(cue)
                     for sibling in cue.parent.iterdir():
                         if sibling.suffix.lower() == ".bin":
@@ -4590,9 +4596,14 @@ class _NewProjectDialog(Adw.Dialog):
                         progress.set_label,
                         f"Converting {chd.name}\u2026 ({i + 1}/{n})",
                     )
-                    cue = convert_chd(chd, chd_tmp / chd.stem)
+                    GLib.idle_add(progress.set_fraction, 0.0)
+                    cue = convert_chd(
+                        chd, chd_tmp / chd.stem,
+                        progress_cb=lambda frac: GLib.idle_add(
+                            progress.set_fraction, frac,
+                        ),
+                    )
                     converted.append(cue)
-                    # Also include the BIN files referenced by the CUE.
                     for sibling in cue.parent.iterdir():
                         if sibling.suffix.lower() == ".bin":
                             converted.append(sibling)
@@ -4600,7 +4611,6 @@ class _NewProjectDialog(Adw.Dialog):
 
             def _done(converted):
                 progress.force_close()
-                # Replace CHD paths with converted CUE/BIN paths.
                 non_chd = [p for p in paths if p.suffix.lower() != ".chd"]
                 self._continue_disc_import(non_chd + converted)
 

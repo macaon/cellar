@@ -543,10 +543,21 @@ def has_chdman() -> bool:
     return bool(shutil.which("chdman"))
 
 
-def convert_chd(chd_path: Path, dest_dir: Path) -> Path:
+_CHD_PROGRESS_RE = re.compile(r"(\d+(?:\.\d+)?)% complete")
+
+
+def convert_chd(
+    chd_path: Path,
+    dest_dir: Path,
+    *,
+    progress_cb: Callable[[float], None] | None = None,
+) -> Path:
     """Convert a CHD disc image to CUE/BIN using ``chdman extractcd``.
 
     The resulting CUE and BIN files are written to *dest_dir*.
+    *progress_cb*, if provided, is called with a fraction (0.0–1.0) as
+    chdman reports progress on stderr.
+
     Returns the path to the generated ``.cue`` file.
 
     Raises :class:`RuntimeError` if chdman is not available or fails.
@@ -560,15 +571,31 @@ def convert_chd(chd_path: Path, dest_dir: Path) -> Path:
     dest_dir.mkdir(parents=True, exist_ok=True)
     cue_out = dest_dir / (chd_path.stem + ".cue")
 
-    result = subprocess.run(
+    proc = subprocess.Popen(
         [chdman, "extractcd", "-i", str(chd_path), "-o", str(cue_out), "-f"],
-        capture_output=True,
-        text=True,
-        timeout=600,
+        stderr=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
     )
-    if result.returncode != 0:
-        stderr = result.stderr.strip()[:500]
-        raise RuntimeError(f"chdman extractcd failed: {stderr}")
+
+    if proc.stderr:
+        buf = ""
+        while True:
+            ch = proc.stderr.read(1)
+            if not ch:
+                break
+            c = ch.decode("utf-8", errors="replace")
+            buf += c
+            # chdman uses \r to overwrite the progress line
+            if c in ("\r", "\n"):
+                if progress_cb:
+                    m = _CHD_PROGRESS_RE.search(buf)
+                    if m:
+                        progress_cb(float(m.group(1)) / 100.0)
+                buf = ""
+
+    proc.wait()
+    if proc.returncode != 0:
+        raise RuntimeError(f"chdman extractcd failed (exit {proc.returncode})")
 
     if not cue_out.is_file():
         raise RuntimeError(f"chdman produced no output CUE file at {cue_out}")

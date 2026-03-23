@@ -1414,17 +1414,6 @@ class PackageBuilderView(Adw.Bin):
             if project.project_type == "dos":
                 dos_group = Adw.PreferencesGroup(title="DOSBox Staging")
 
-                # DOSBox Prompt — always available
-                prompt_row = Adw.ActionRow(
-                    title="Open DOSBox Prompt",
-                    subtitle="Launch DOSBox with drives mounted (C: and any disc images)",
-                )
-                prompt_btn = Gtk.Button(label="Open")
-                prompt_btn.set_valign(Gtk.Align.CENTER)
-                prompt_btn.connect("clicked", self._on_open_dosbox_prompt_clicked)
-                prompt_row.add_suffix(prompt_btn)
-                dos_group.add(prompt_row)
-
                 # DOSBox Settings — only when source_dir is set
                 if project.source_dir:
                     _settings_row = Adw.ActionRow(
@@ -1437,6 +1426,17 @@ class PackageBuilderView(Adw.Bin):
                     _settings_row.add_suffix(_settings_btn)
                     _settings_row.set_activatable_widget(_settings_btn)
                     dos_group.add(_settings_row)
+
+                # DOSBox Prompt — always available
+                prompt_row = Adw.ActionRow(
+                    title="Open DOSBox Prompt",
+                    subtitle="Launch DOSBox with drives mounted (C: and any disc images)",
+                )
+                prompt_btn = Gtk.Button(label="Open")
+                prompt_btn.set_valign(Gtk.Align.CENTER)
+                prompt_btn.connect("clicked", self._on_open_dosbox_prompt_clicked)
+                prompt_row.add_suffix(prompt_btn)
+                dos_group.add(prompt_row)
 
                 page.add(dos_group)
 

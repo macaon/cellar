@@ -729,11 +729,13 @@ def run_dos_installer(
     if installer_exe:
         # Strip leading slash — scan_iso/scan_floppy return "/INSTALL.EXE"
         exe = installer_exe.lstrip("/")
-        # Determine which drive the installer is on
+        # Switch to the drive so the installer can find its sibling files
         if disc_images:
-            autoexec_lines.append(f"D:\\{exe}")
+            autoexec_lines.append("D:")
+            autoexec_lines.append(exe)
         elif floppy_images:
-            autoexec_lines.append(f"A:\\{exe}")
+            autoexec_lines.append("A:")
+            autoexec_lines.append(exe)
         autoexec_lines.append("EXIT")
 
     # Write installer overrides conf — preserve user settings from other sections.

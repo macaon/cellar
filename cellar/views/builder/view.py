@@ -2530,11 +2530,13 @@ class PackageBuilderView(Adw.Bin):
                 err.present(self)
                 return
 
-            import tempfile
             from cellar.utils.async_work import run_in_background
             from cellar.views.builder.progress import ProgressDialog
 
-            chd_tmp = Path(tempfile.mkdtemp(prefix="cellar_chd_"))
+            chd_tmp = Path.home() / ".cache" / "cellar" / "chd_convert"
+            if chd_tmp.exists():
+                shutil.rmtree(chd_tmp, ignore_errors=True)
+            chd_tmp.mkdir(parents=True, exist_ok=True)
             n = len(chd_files)
             progress = ProgressDialog(
                 f"Converting {n} CHD image{'s' if n > 1 else ''}\u2026"
@@ -2567,8 +2569,12 @@ class PackageBuilderView(Adw.Bin):
                 all_paths = non_chd + converted
                 disc_set = group_disc_files(all_paths)
                 if disc_set.isos or disc_set.cue_bins or disc_set.floppies:
+                    # _install_from_disc copies files in a background thread;
+                    # chd_tmp is cleaned up after that thread completes.
+                    self._chd_cleanup_dir = chd_tmp
                     self._install_from_disc(project, disc_set)
                 else:
+                    shutil.rmtree(chd_tmp, ignore_errors=True)
                     err = Adw.AlertDialog(
                         heading="No disc images found",
                         body="No recognised disc image files were found.",
@@ -2578,6 +2584,7 @@ class PackageBuilderView(Adw.Bin):
 
             def _error(msg):
                 progress.force_close()
+                shutil.rmtree(chd_tmp, ignore_errors=True)
                 err = Adw.AlertDialog(heading="CHD Conversion Failed", body=str(msg))
                 err.add_response("ok", "OK")
                 err.present(self)
@@ -2655,10 +2662,13 @@ class PackageBuilderView(Adw.Bin):
             def _done(converted):
                 progress.force_close()
                 non_chd = [p for p in paths if p.suffix.lower() != ".chd"]
+                # _add_disc_images_to_project copies files synchronously
                 self._add_disc_images_to_project(project, non_chd + converted)
+                shutil.rmtree(chd_tmp, ignore_errors=True)
 
             def _error(msg):
                 progress.force_close()
+                shutil.rmtree(chd_tmp, ignore_errors=True)
                 err = Adw.AlertDialog(heading="CHD Conversion Failed", body=str(msg))
                 err.add_response("ok", "OK")
                 err.present(self)
@@ -4770,11 +4780,13 @@ class _NewProjectDialog(Adw.Dialog):
                 err.present(self._parent_view)
                 return
 
-            import tempfile
             from cellar.utils.async_work import run_in_background
             from cellar.views.builder.progress import ProgressDialog
 
-            chd_tmp = Path(tempfile.mkdtemp(prefix="cellar_chd_"))
+            chd_tmp = Path.home() / ".cache" / "cellar" / "chd_convert"
+            if chd_tmp.exists():
+                shutil.rmtree(chd_tmp, ignore_errors=True)
+            chd_tmp.mkdir(parents=True, exist_ok=True)
             n = len(chd_files)
             progress = ProgressDialog(
                 f"Converting {n} CHD image{'s' if n > 1 else ''}\u2026"
@@ -4804,10 +4816,13 @@ class _NewProjectDialog(Adw.Dialog):
             def _done(converted):
                 progress.force_close()
                 non_chd = [p for p in paths if p.suffix.lower() != ".chd"]
+                # Store for cleanup after _install_from_disc completes
+                self._chd_cleanup_dir = chd_tmp
                 self._continue_disc_import(non_chd + converted)
 
             def _error(msg):
                 progress.force_close()
+                shutil.rmtree(chd_tmp, ignore_errors=True)
                 err = Adw.AlertDialog(heading="CHD Conversion Failed", body=str(msg))
                 err.add_response("ok", "OK")
                 err.present(self._parent_view)
@@ -5298,10 +5313,19 @@ class _NewProjectDialog(Adw.Dialog):
             project.source_dir = str(content)
             project.initialized = True
             save_project(project)
+            # Clean up CHD conversion temp dir if present
+            chd_dir = getattr(self, "_chd_cleanup_dir", None)
+            if chd_dir and chd_dir.is_dir():
+                shutil.rmtree(chd_dir, ignore_errors=True)
+                self._chd_cleanup_dir = None
             self._on_import(project)
 
         def _error(msg):
             progress.force_close()
+            chd_dir = getattr(self, "_chd_cleanup_dir", None)
+            if chd_dir and chd_dir.is_dir():
+                shutil.rmtree(chd_dir, ignore_errors=True)
+                self._chd_cleanup_dir = None
             log.error("Disc import failed: %s", msg)
             err = Adw.AlertDialog(
                 heading="Import failed",

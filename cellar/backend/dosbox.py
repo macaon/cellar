@@ -834,6 +834,7 @@ def run_dos_installer(
                 entry_points.append({
                     "name": p.stem,
                     "path": rel,
+                    "args": "",
                 })
 
     return entry_points

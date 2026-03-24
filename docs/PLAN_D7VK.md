@@ -2,16 +2,16 @@
 
 ## Background
 
-[d7vk](https://github.com/WinterSnowfall/d7vk) is a Vulkan-based translation layer for Direct3D 7/6/5/3 — the oldest 3D DirectX APIs (~1996–2001 era). It's a DXVK spin-off providing a replacement `ddraw.dll` that routes old D3D calls through D3D9 → Vulkan. Useful for titles like HoMM3, Sacrifice, GTA 2, Midtown Madness 2, etc.
+[d7vk](https://github.com/WinterSnowfall/d7vk) is a Vulkan-based translation layer for Direct3D 7/6/5/3 - the oldest 3D DirectX APIs (~1996–2001 era). It's a DXVK spin-off providing a replacement `ddraw.dll` that routes old D3D calls through D3D9 → Vulkan. Useful for titles like HoMM3, Sacrifice, GTA 2, Midtown Madness 2, etc.
 
 GE-Proton does **not** bundle d7vk, so Cellar needs to manage it separately.
 
 ## Design Decisions
 
-- **Install-time injection**, not runtime — users who launch via `.desktop` shortcuts bypass Cellar's launch flow, so the DLL and registry override must be baked into the prefix.
-- **Shared download, per-prefix copy** — d7vk releases are downloaded once to `~/.local/share/cellar/d7vk/<version>/`, then the DLL is copied into each prefix that needs it.
-- **Per-game version tracking** — each installed game records which d7vk version it has. Updates are offered individually per game in the Updates tab, so a broken release can be skipped for specific titles.
-- **Registry override** — `HKCU\Software\Wine\DllOverrides` → `ddraw` = `native,builtin` written into the prefix so it works without `WINEDLLOVERRIDES` env var. Cellar-launched games also set `WINEDLLOVERRIDES` for belt-and-suspenders.
+- **Install-time injection**, not runtime - users who launch via `.desktop` shortcuts bypass Cellar's launch flow, so the DLL and registry override must be baked into the prefix.
+- **Shared download, per-prefix copy** - d7vk releases are downloaded once to `~/.local/share/cellar/d7vk/<version>/`, then the DLL is copied into each prefix that needs it.
+- **Per-game version tracking** - each installed game records which d7vk version it has. Updates are offered individually per game in the Updates tab, so a broken release can be skipped for specific titles.
+- **Registry override** - `HKCU\Software\Wine\DllOverrides` → `ddraw` = `native,builtin` written into the prefix so it works without `WINEDLLOVERRIDES` env var. Cellar-launched games also set `WINEDLLOVERRIDES` for belt-and-suspenders.
 
 ## Changes Required
 
@@ -47,7 +47,7 @@ GE-Proton does **not** bundle d7vk, so Cellar needs to manage it separately.
 
 ### 8. Updates Tab
 - Check installed d7vk_version against latest GitHub release for each game with d7vk enabled.
-- Show per-game update entries — user can update individually.
+- Show per-game update entries - user can update individually.
 - Update = replace DLL in prefix, bump version in DB.
 
 ### 9. Builder Metadata (`cellar/views/builder/metadata.py`)
@@ -59,7 +59,7 @@ GE-Proton does **not** bundle d7vk, so Cellar needs to manage it separately.
 |------|--------|
 | `cellar/models/app_entry.py` | Add `d7vk` field |
 | `cellar/backend/database.py` | Two columns + migration |
-| `cellar/backend/d7vk.py` | **New** — GitHub release fetch, download, version management |
+| `cellar/backend/d7vk.py` | **New** - GitHub release fetch, download, version management |
 | `cellar/backend/installer.py` | Post-extract DLL injection |
 | `cellar/backend/umu.py` | `dll_overrides()` + `merge_launch_params()` |
 | `cellar/views/launch_params.py` | SwitchRow toggle |

@@ -12,7 +12,7 @@ GTK4's CSS engine does not implement `@media` queries. They parse silently witho
 
 ### Named colors for dark mode adaptation
 
-Prefer libadwaita's semantic named colors over hardcoded values or manual dark-mode overrides — they resolve to the correct value in both light and dark mode automatically.
+Prefer libadwaita's semantic named colors over hardcoded values or manual dark-mode overrides - they resolve to the correct value in both light and dark mode automatically.
 
 | Token | Use |
 |---|---|

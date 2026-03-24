@@ -122,12 +122,17 @@ class DetailView(Gtk.Box):
         on_update_done: Callable | None = None,
         on_genre_filter: Callable[[str], None] | None = None,
         is_offline: bool = False,
+        on_catalogue_changed: Callable | None = None,
     ) -> None:
         super().__init__()
         self._entry = entry
         self._source_repos = source_repos or []
         self._on_genre_filter = on_genre_filter
+        self._on_catalogue_changed = on_catalogue_changed
         self._is_offline = is_offline
+        self._writable_repo = next(
+            (r for r in (source_repos or []) if r.is_writable), None,
+        )
         # Prefer an online repo for asset resolution; fall back to first repo.
         _online = next((r for r in self._source_repos if not r.is_offline), None)
         _first = _online or (self._source_repos[0] if self._source_repos else None)
@@ -203,6 +208,15 @@ class DetailView(Gtk.Box):
         """
         toolbar = self._toolbar
 
+        # ── Edit button (writable repos only, added once) ──────────────────
+        if self._writable_repo and not getattr(self, "_edit_btn", None):
+            self._edit_btn = Gtk.Button(
+                icon_name="document-edit-symbolic",
+                tooltip_text="Edit catalogue entry",
+            )
+            self._edit_btn.connect("clicked", self._on_edit_clicked)
+            self._header_bar.pack_end(self._edit_btn)
+
         # ── Scrollable body ───────────────────────────────────────────────
         scroll = Gtk.ScrolledWindow(vexpand=True)
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -263,6 +277,42 @@ class DetailView(Gtk.Box):
         spacer = Gtk.Box()
         spacer.set_vexpand(True)
         self._outer.append(spacer)
+
+    # ------------------------------------------------------------------
+    # Edit catalogue entry
+    # ------------------------------------------------------------------
+
+    def _on_edit_clicked(self, _btn: Gtk.Button) -> None:
+        """Open MetadataEditorDialog for the current entry."""
+        from cellar.views.metadata_editor import MetadataEditorDialog, RepoContext
+
+        repo = self._writable_repo
+        if repo is None:
+            return
+
+        def _open(full_entry: AppEntry) -> None:
+            def _on_done(updated_entry: AppEntry) -> None:
+                self._entry = updated_entry
+                self._metadata_loaded = True
+                self._build_content()
+                if self._on_catalogue_changed:
+                    self._on_catalogue_changed()
+
+            MetadataEditorDialog(
+                context=RepoContext(entry=full_entry, repo=repo),
+                on_done=_on_done,
+            ).present(self.get_root())
+
+        if self._entry.is_partial:
+            def _fetch():
+                return repo.fetch_app_metadata(self._entry.id)
+
+            def _error(msg: str) -> None:
+                log.error("Failed to load metadata for %s: %s", self._entry.id, msg)
+
+            run_in_background(_fetch, on_done=_open, on_error=_error)
+        else:
+            _open(self._entry)
 
     # ------------------------------------------------------------------
     # Lazy metadata loading

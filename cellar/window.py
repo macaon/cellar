@@ -866,6 +866,7 @@ class CellarWindow(Adw.ApplicationWindow):
             on_update_done=_on_update_done,
             on_genre_filter=_on_genre_filter,
             is_offline=is_offline,
+            on_catalogue_changed=lambda: self._load_catalogue(),
         )
         page = Adw.NavigationPage(title=entry.name, child=detail)
         self.nav_view.push(page)

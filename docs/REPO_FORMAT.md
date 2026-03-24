@@ -9,9 +9,9 @@ repo/
   apps/
     <id>/
       metadata.json                full app metadata (fetched on demand)
-      icon.png                     square icon — PNG, JPG, ICO, or SVG
-      cover.png                    portrait cover (2:3) — shown in browse cards
-      logo.png                     transparent logo — replaces icon in detail view
+      icon.png                     square icon - PNG, JPG, ICO, or SVG
+      cover.png                    portrait cover (2:3) - shown in browse cards
+      logo.png                     transparent logo - replaces icon in detail view
       screenshots/
         01.png
       <id>-1.0.tar.zst.001         chunked archive (1 GB per chunk)
@@ -30,11 +30,11 @@ Archives contain a single top-level `prefix/` directory holding the WINEPREFIX
 
 The catalogue is split into a **slim index** and **per-app metadata**:
 
-- `catalogue.json` — contains only the fields needed for the browse grid and
+- `catalogue.json` - contains only the fields needed for the browse grid and
   update detection (id, name, category, summary, icon, cover, platform,
   archive_crc32, base_image). Also holds runners, bases, categories, and
   category_icons.
-- `apps/<id>/metadata.json` — the full `AppEntry` with all fields. Fetched on
+- `apps/<id>/metadata.json` - the full `AppEntry` with all fields. Fetched on
   demand when the user opens the detail view. Cached locally for offline use.
 
 This keeps the initial catalogue fetch small even for repos with many apps.

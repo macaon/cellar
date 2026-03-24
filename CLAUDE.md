@@ -1,4 +1,4 @@
-# Cellar — Project Brief
+# Cellar - Project Brief
 
 ## What this project is
 
@@ -27,8 +27,8 @@ The project is called **Cellar**.
 
 Catalogue v2 splits data into a **slim index** (`catalogue.json`) and **per-app metadata** (`apps/<id>/metadata.json`).
 
-- `catalogue.json` — contains only the fields needed for the browse grid and update detection (id, name, category, summary, icon, cover, platform, archive_crc32, base_image). Runners, bases, categories, and category_icons also live here.
-- `apps/<id>/metadata.json` — contains the full `AppEntry` (all fields, self-contained). Fetched on demand when the detail view opens.
+- `catalogue.json` - contains only the fields needed for the browse grid and update detection (id, name, category, summary, icon, cover, platform, archive_crc32, base_image). Runners, bases, categories, and category_icons also live here.
+- `apps/<id>/metadata.json` - contains the full `AppEntry` (all fields, self-contained). Fetched on demand when the detail view opens.
 - `INDEX_FIELDS` in `app_entry.py` defines which fields go in the index.
 - `AppEntry.is_partial` returns `True` for index-only entries (no `archive` field).
 - `Repo.fetch_app_metadata(app_id)` fetches and caches per-app metadata.
@@ -46,7 +46,7 @@ App assets live under `repo/apps/<id>/` (icon, cover, screenshots, archive, meta
 | `sftp://[user@]host[:port]/path` | Yes | Pure-Python via `paramiko`; key auth via agent, `~/.ssh/config`, or `ssh_identity=` |
 | `smb://` | Yes | Via `smbprotocol` (pure Python, no GVFS) |
 
-HTTP(S) image assets are downloaded to a persistent cache (`Repo._fetch_to_cache`) — GdkPixbuf can't pass auth headers. Per-app metadata is cached to `~/.cache/cellar/metadata/<hash>/`. Archives return URLs (installer handles auth). Bearer token stored per-repo in `config.json`, sent as `Authorization: Bearer <token>`.
+HTTP(S) image assets are downloaded to a persistent cache (`Repo._fetch_to_cache`) - GdkPixbuf can't pass auth headers. Per-app metadata is cached to `~/.cache/cellar/metadata/<hash>/`. Archives return URLs (installer handles auth). Bearer token stored per-repo in `config.json`, sent as `Authorization: Bearer <token>`.
 
 ---
 
@@ -74,7 +74,7 @@ umu-launcher replaces Bottles for all Windows app management. GE-Proton is the o
 
 ## Local database schema
 
-`~/.local/share/cellar/cellar.db` — schema v3 with versioned migrations.
+`~/.local/share/cellar/cellar.db` - schema v3 with versioned migrations.
 
 ```sql
 CREATE TABLE schema_version (version INTEGER PRIMARY KEY);
@@ -113,7 +113,7 @@ Modelled on GNOME Software. libadwaita throughout.
 - **Main window:** `AdwViewSwitcher` → Explore / Installed / Updates tabs. Category filter strip of linked `GtkToggleButton` pills. `GtkFlowBox` of 300×96 px `.card` app cards. `GtkSearchBar` + `set_key_capture_widget`.
 - **Detail view:** Icon + name + category. Description, components, changelog. `AdwCarousel` screenshots. Install/Update/Remove action button. Edit pencil for writable repos.
 - **Progress dialog:** `AdwDialog` + progress bar + cancel. `AdwToast` on completion.
-- **Settings:** `Adw.PreferencesDialog` — Repositories group (add/remove, bearer token), Access Control group (token generator), Delta Base Images group.
+- **Settings:** `Adw.PreferencesDialog` - Repositories group (add/remove, bearer token), Access Control group (token generator), Delta Base Images group.
 - Tab icons in `data/icons/hicolor/symbolic/apps/` (CC0-1.0), registered via `Gtk.IconTheme.add_search_path()`.
 
 ---
@@ -136,8 +136,8 @@ cellar/
       screenshot_grid.py # Screenshot browser, grid display, and importer
       widgets.py        # Shared UI widget helpers (progress page, etc.)
       builder/          # Package Builder subpackage
-        view.py         # Main builder view — project list, detail panel, publish
-        metadata.py     # Metadata editing — name, category, description, images
+        view.py         # Main builder view - project list, detail panel, publish
+        metadata.py     # Metadata editing - name, category, description, images
         dependencies.py # Winetricks dependency picker dialog
         pickers.py      # Runner, base image, and entry point pickers
         catalogue_import.py  # Import existing catalogue entries into projects
@@ -160,9 +160,9 @@ cellar/
     utils/
       http.py           # requests.Session (User-Agent: Mozilla/5.0 compatible; Cellar/1.0)
       images.py         # Pillow helpers
-      smb.py            # SmbPath — pathlib.Path-like SMB abstraction via smbprotocol
-      ssh.py            # SshPath — pathlib.Path-like SSH/SFTP abstraction via paramiko
-      _remote_path.py   # RemotePathMixin — shared base for SmbPath and SshPath
+      smb.py            # SmbPath - pathlib.Path-like SMB abstraction via smbprotocol
+      ssh.py            # SshPath - pathlib.Path-like SSH/SFTP abstraction via paramiko
+      _remote_path.py   # RemotePathMixin - shared base for SmbPath and SshPath
       async_work.py     # Threading helpers (run_in_background)
       desktop.py        # .desktop entry creation for installed apps
       progress.py       # Shared progress-formatting helpers (fmt_size, fmt_stats)
@@ -185,8 +185,8 @@ cellar/
 ## Development priorities
 
 1–9. ~~Repo backend, Browse UI, Network transports, Detail view, Wine/umu backend, Local DB, Update logic, HTTP(S) auth, Delta packages~~ ✅ all done
-10. **Flatpak packaging** — `flatpak/io.github.cellar.json`
-11. **KDE support** — GVFS/smbclient fallback, KWallet, `XDG_CURRENT_DESKTOP`
+10. **Flatpak packaging** - `flatpak/io.github.cellar.json`
+11. **KDE support** - GVFS/smbclient fallback, KWallet, `XDG_CURRENT_DESKTOP`
 
 ---
 
@@ -198,7 +198,7 @@ PYTHONPATH=. CELLAR_REPO=tests/fixtures python3 -m cellar.main
 
 `CELLAR_REPO` accepts a local path or any supported URI. Tests: `PYTHONPATH=. python3 -m pytest tests/ -v`.
 
-`paths.py` checks `data/ui/` first, then `/app/share/cellar/ui/` — no build step needed.
+`paths.py` checks `data/ui/` first, then `/app/share/cellar/ui/` - no build step needed.
 
 ---
 

@@ -46,6 +46,7 @@ class InstallResult:
     runner: str = ""
     install_size: int = 0
     delta_size: int = 0
+    scummvm_slug: str = ""
 
 
 class InstallQueue:
@@ -237,7 +238,7 @@ class InstallQueue:
 
         if job.platform in ("linux", "dos"):
             _installer = install_dos_app if job.platform == "dos" else install_linux_app
-            _app_id, install_dest = _installer(
+            result = _installer(
                 job.entry,
                 job.archive_uri,
                 download_cb=progress_cb,
@@ -249,6 +250,12 @@ class InstallQueue:
                 ssh_identity=job.ssh_identity,
                 ssh_password=job.ssh_password,
             )
+            # DOS returns (app_id, dest, scummvm_slug); Linux returns (app_id, dest)
+            if len(result) == 3:
+                _app_id, install_dest, _scummvm_slug = result
+            else:
+                _app_id, install_dest = result
+                _scummvm_slug = ""
             from cellar.utils.paths import dir_size_bytes
             _install_size = dir_size_bytes(install_dest)
             return InstallResult(
@@ -256,6 +263,7 @@ class InstallQueue:
                 prefix_dir=_app_id,
                 install_path=str(install_dest.parent),
                 install_size=_install_size,
+                scummvm_slug=_scummvm_slug,
             )
 
         # Windows app.

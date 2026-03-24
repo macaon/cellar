@@ -963,9 +963,16 @@ def install_dos_app(
     if profile_id:
         log.info("Applied DOSBox profile %r for %s", profile_id, entry.id)
 
+    # ── Step 6: Detect ScummVM compatibility ───────────────────────
+    from cellar.backend.scummvm_profiles import detect_scummvm_profile  # noqa: PLC0415
+    scummvm_slug = detect_scummvm_profile(install_dest)
+    if scummvm_slug:
+        log.info("ScummVM-compatible game detected: %r for %s",
+                 scummvm_slug, entry.id)
+
     if install_cb:
         install_cb(1.0)
-    return entry.id, install_dest
+    return entry.id, install_dest, scummvm_slug or ""
 
 
 def _safe_linux_name(dir_name: str, base_path: Path) -> str:

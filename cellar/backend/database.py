@@ -67,7 +67,7 @@ from cellar.backend.config import data_dir
 
 log = logging.getLogger(__name__)
 
-_CURRENT_VERSION = 6
+_CURRENT_VERSION = 7
 
 
 # ---------------------------------------------------------------------------
@@ -138,6 +138,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
         _migrate_v4_to_v5(conn)
     if current < 6:
         _migrate_v5_to_v6(conn)
+    if current < 7:
+        _migrate_v6_to_v7(conn)
 
 
 def _create_schema_v1(conn: sqlite3.Connection) -> None:
@@ -158,6 +160,7 @@ def _create_schema_v1(conn: sqlite3.Connection) -> None:
             install_path    TEXT,
             install_size    INTEGER,
             delta_size      INTEGER,
+            engine          TEXT DEFAULT '',
             repo_source     TEXT,
             installed_at    TEXT,
             last_updated    TEXT
@@ -354,6 +357,23 @@ def _migrate_v5_to_v6(conn: sqlite3.Connection) -> None:
         raise
 
 
+def _migrate_v6_to_v7(conn: sqlite3.Connection) -> None:
+    """Add ``engine`` column to the ``installed`` table."""
+    log.info("Migrating cellar.db from v6 to v7")
+    try:
+        with conn:
+            conn.execute(
+                "ALTER TABLE installed ADD COLUMN engine TEXT DEFAULT ''"
+            )
+            conn.execute(
+                "INSERT OR REPLACE INTO schema_version (version) VALUES (?)",
+                (7,),
+            )
+    except Exception:
+        log.exception("v6->v7 migration failed; database left unchanged")
+        raise
+
+
 # ---------------------------------------------------------------------------
 # Public API — installed apps
 # ---------------------------------------------------------------------------
@@ -370,6 +390,7 @@ def mark_installed(
     archive_crc32: str = "",
     install_size: int = 0,
     delta_size: int = 0,
+    engine: str = "",
 ) -> None:
     """Record (or update) an installed app.
 
@@ -418,8 +439,8 @@ def mark_installed(
             INSERT INTO installed
                 (id, prefix_dir, platform, version, archive_crc32, runner,
                  steam_appid, install_path, install_size, delta_size,
-                 repo_source, installed_at, last_updated)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 engine, repo_source, installed_at, last_updated)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 prefix_dir    = excluded.prefix_dir,
                 platform      = excluded.platform,
@@ -430,12 +451,14 @@ def mark_installed(
                 install_path  = excluded.install_path,
                 install_size  = COALESCE(excluded.install_size, install_size),
                 delta_size    = COALESCE(excluded.delta_size, delta_size),
+                engine        = excluded.engine,
                 repo_source   = excluded.repo_source,
                 last_updated  = excluded.last_updated
             """,
             (app_id, prefix_dir, platform, version, archive_crc32 or None,
              runner or None, steam_appid, install_path or None,
-             install_size or None, delta_size or None, repo_source, now, now),
+             install_size or None, delta_size or None, engine,
+             repo_source, now, now),
         )
 
 
@@ -446,6 +469,15 @@ def get_installed(app_id: str) -> dict | None:
             "SELECT * FROM installed WHERE id = ?", (app_id,)
         ).fetchone()
         return dict(row) if row else None
+
+
+def update_engine(app_id: str, engine: str) -> None:
+    """Update the engine field for an installed app."""
+    with _open_db() as conn:
+        conn.execute(
+            "UPDATE installed SET engine = ? WHERE id = ?",
+            (engine, app_id),
+        )
 
 
 def is_installed(app_id: str) -> bool:

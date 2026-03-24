@@ -1,5 +1,6 @@
 python_sources = files(
   '__init__.py',
+  '_profile_matching.py',
   'base_store.py',
   'config.py',
   'database.py',
@@ -7,6 +8,9 @@ python_sources = files(
   'disc_image.py',
   'dosbox.py',
   'dosbox_profiles.py',
+  'scummvm.py',
+  'scummvm_convert.py',
+  'scummvm_profiles.py',
   'install_queue.py',
   'installer.py',
   'publish_queue.py',

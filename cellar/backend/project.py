@@ -53,6 +53,8 @@ class Project:
     installer_type: str = ""   # "", "isolated" (bwrap sandbox), "folder" (direct copy)
     disc_images: list[str] = field(default_factory=list)    # relative paths to CDs
     floppy_images: list[str] = field(default_factory=list)  # relative paths to floppies
+    engine: str = ""               # "dosbox" or "scummvm"; empty = platform default
+    scummvm_id: str = ""           # ScummVM game ID (e.g. "sky")
 
     # ── Launch options (committed to catalogue metadata on publish) ───────
     dxvk: bool = True
@@ -128,6 +130,8 @@ class Project:
             installer_type=data.get("installer_type", ""),
             disc_images=list(data.get("disc_images", [])),
             floppy_images=list(data.get("floppy_images", [])),
+            engine=data.get("engine", ""),
+            scummvm_id=data.get("scummvm_id", ""),
             dxvk=bool(data.get("dxvk", True)),
             vkd3d=bool(data.get("vkd3d", True)),
             audio_driver=data.get("audio_driver", "auto"),
@@ -185,6 +189,10 @@ class Project:
             d["disc_images"] = list(self.disc_images)
         if self.floppy_images:
             d["floppy_images"] = list(self.floppy_images)
+        if self.engine:
+            d["engine"] = self.engine
+        if self.scummvm_id:
+            d["scummvm_id"] = self.scummvm_id
         if not self.dxvk:
             d["dxvk"] = False
         if not self.vkd3d:

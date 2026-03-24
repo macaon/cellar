@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "profiles": {
+    "beneath-a-steel-sky": {
+      "name": "Beneath a Steel Sky",
+      "scummvm_id": "sky",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": ["1207658695"],
+        "files": ["SKY.BAT", "SKY.CFG"]
+      },
+      "required_files": ["SKY.DNR", "SKY.DSK"],
+      "cd_files": ["SKY.DNR", "SKY.DSK"]
+    }
+  }
+}

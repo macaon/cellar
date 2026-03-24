@@ -683,27 +683,8 @@ def run_dos_installer(
     if not config_dir.is_dir() or not (content_dir / "dosbox" / "dosbox").is_file():
         prepare_dos_layout(content_dir)
 
-    # Build autoexec — mount drives and drop to prompt
-    autoexec_lines: list[str] = []
-    autoexec_lines.append('mount C "hdd"')
-    autoexec_lines.append("C:")
-
-    # Mount CD images (all on D: for disc-swap via Ctrl+F4)
-    # Paths must be relative to content_dir (DOSBox's cwd).
-    if disc_images:
-        img_args = " ".join(
-            f'"{p.relative_to(content_dir)}"' for p in disc_images
-        )
-        autoexec_lines.append(f'imgmount D {img_args} -t cdrom')
-
-    # Mount floppy images (all on A: for disc-swap via Ctrl+F4)
-    if floppy_images:
-        floppy_args = " ".join(
-            f'"{p.relative_to(content_dir)}"' for p in floppy_images
-        )
-        autoexec_lines.append(f'imgmount A {floppy_args} -t floppy')
-
-    # Write installer overrides conf — preserve user settings from other sections.
+    # Write installer overrides conf — settings only, no autoexec.
+    # Mounts are handled via -c args at launch time.
     preserved = _read_user_sections(config_dir / "dosbox-overrides.conf")
     overrides_lines = [
         "# DOSBox overrides — disc image installer session",
@@ -711,24 +692,41 @@ def run_dos_installer(
         "",
         "[dosbox]",
         "startup_verbosity = quiet",
-    ] + preserved + [
-        "",
-        "[autoexec]",
-        "@echo off",
-    ] + autoexec_lines + [""]
+    ] + preserved + [""]
 
     (config_dir / "dosbox-overrides.conf").write_text(
         "\n".join(overrides_lines) + "\n", encoding="utf-8",
     )
 
-    # Step 5: Launch DOSBox
+    # Step 5: Launch DOSBox — all mounts via -c args
     dosbox_bin = content_dir / "dosbox" / "dosbox"
     cmd = [
         str(dosbox_bin),
         "--noprimaryconf",
         "-conf", str(config_dir / "dosbox-staging.conf"),
         "-conf", str(config_dir / "dosbox-overrides.conf"),
+        "-c", "@echo off",
     ]
+
+    # Mount CD images (all on D: for disc-swap via Ctrl+F4)
+    if disc_images:
+        img_args = " ".join(
+            f'"cd/{p.name}"' for p in disc_images
+        )
+        cmd += ["-c", f"imgmount D {img_args} -t cdrom"]
+
+    # Mount floppy images (all on A: for disc-swap via Ctrl+F4)
+    if floppy_images:
+        floppy_args = " ".join(
+            f'"floppy/{p.name}"' for p in floppy_images
+        )
+        cmd += ["-c", f"imgmount A {floppy_args} -t floppy"]
+
+    cmd += ["-c", 'mount C "hdd"', "-c", "C:"]
+
+    # Dump CD directory tree before dropping to prompt (for ScummVM detection)
+    if disc_images:
+        cmd += ["-c", "dir /s D: > cdtree.txt"]
 
     if is_cellar_sandboxed():
         cmd = ["flatpak-spawn", "--host"] + cmd
@@ -804,6 +802,7 @@ def _build_dos_cmd(
         "--noprimaryconf",
         "-conf", str(conf_dir / "dosbox-staging.conf"),
         "-conf", str(conf_dir / "dosbox-overrides.conf"),
+        "-c", "@echo off",
     ]
 
     # Mount CD images if present

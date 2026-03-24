@@ -363,11 +363,18 @@ class CellarWindow(Adw.ApplicationWindow):
             on_error=lambda msg: log.debug("Runner pre-warm failed: %s", msg),
         )
 
-        # Fetch updated DOSBox game profiles in the background.
+        # Fetch updated game profiles in the background.
         from cellar.backend.dosbox_profiles import fetch_profiles_update
         run_in_background(
             fetch_profiles_update,
-            on_error=lambda msg: log.debug("Profiles fetch failed: %s", msg),
+            on_error=lambda msg: log.debug("DOSBox profiles fetch failed: %s", msg),
+        )
+        from cellar.backend.scummvm_profiles import (
+            fetch_profiles_update as fetch_scummvm_profiles,
+        )
+        run_in_background(
+            fetch_scummvm_profiles,
+            on_error=lambda msg: log.debug("ScummVM profiles fetch failed: %s", msg),
         )
 
     # ── Catalogue loading ─────────────────────────────────────────────────
@@ -938,6 +945,12 @@ class CellarWindow(Adw.ApplicationWindow):
                     child._runner_label.set_label(result.runner)
                 child._update_install_button()
                 child._rebuild_info_cards()
+
+                # Prompt ScummVM switch if a compatible profile was detected.
+                if result.scummvm_slug and entry is not None:
+                    child._prompt_scummvm_switch(
+                        entry, result.scummvm_slug,
+                    )
 
         self._load_catalogue()
 

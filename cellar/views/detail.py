@@ -663,6 +663,7 @@ class DetailView(Gtk.Box):
     def _on_install_success(
         self, prefix_dir: str, install_path: str = "", runner: str = "",
         install_size: int = 0, delta_size: int = 0,
+        scummvm_slug: str = "",
     ) -> None:
         """Legacy callback for InstallProgressDialog fallback path."""
         self._is_installed = True
@@ -678,6 +679,112 @@ class DetailView(Gtk.Box):
             self._runner_label.set_label(runner)
         self._update_install_button()
         self._rebuild_info_cards()
+
+        if scummvm_slug:
+            self._prompt_scummvm_switch(self._entry, scummvm_slug)
+
+    def _prompt_scummvm_switch(
+        self, entry: AppEntry, scummvm_slug: str,
+    ) -> None:
+        """Show ScummVM switch prompt after a compatible game is detected."""
+        from cellar.backend.scummvm_profiles import get_profile
+
+        profile = get_profile(scummvm_slug)
+        if profile is None:
+            return
+
+        compat = profile.get("compatibility", "Unknown")
+        dlg = Adw.AlertDialog(
+            heading=f"ScummVM Compatible ({compat})",
+            body=(
+                f"{entry.name} is compatible with ScummVM, which provides "
+                "better graphics scaling, input handling, and save management "
+                "for this game.\n\n"
+                "Reverting to DOSBox requires a full reinstallation."
+            ),
+        )
+        dlg.add_response("keep", "Keep DOSBox")
+        dlg.add_response("switch", "Switch to ScummVM")
+        dlg.set_response_appearance(
+            "switch", Adw.ResponseAppearance.SUGGESTED,
+        )
+        dlg.set_default_response("switch")
+        dlg.set_close_response("keep")
+        dlg.connect("response", self._on_scummvm_switch_response,
+                     entry, profile)
+        dlg.present(self.get_root())
+
+    def _on_scummvm_switch_response(
+        self, _dialog, response: str,
+        entry: AppEntry, profile: dict,
+    ) -> None:
+        if response != "switch":
+            return
+
+        from cellar.backend.scummvm import is_scummvm_available
+
+        if not is_scummvm_available():
+            self._show_scummvm_install_prompt(entry, profile)
+            return
+
+        self._run_scummvm_conversion(entry, profile)
+
+    def _show_scummvm_install_prompt(
+        self, entry: AppEntry, profile: dict,
+    ) -> None:
+        """Prompt the user to install ScummVM before converting."""
+        dlg = Adw.AlertDialog(
+            heading="ScummVM Not Found",
+            body=(
+                "ScummVM must be installed before switching.\n\n"
+                "Install it via your package manager or run:\n"
+                "flatpak install org.scummvm.ScummVM"
+            ),
+        )
+        dlg.add_response("cancel", "Cancel")
+        dlg.add_response("check", "Check Again")
+        dlg.set_default_response("check")
+        dlg.set_close_response("cancel")
+
+        def _on_check(_d, response):
+            if response != "check":
+                return
+            from cellar.backend.scummvm import is_scummvm_available
+            if is_scummvm_available():
+                self._run_scummvm_conversion(entry, profile)
+            else:
+                self._add_toast("ScummVM still not found")
+
+        dlg.connect("response", _on_check)
+        dlg.present(self.get_root())
+
+    def _run_scummvm_conversion(
+        self, entry: AppEntry, profile: dict,
+    ) -> None:
+        """Run the actual DOSBox-to-ScummVM conversion."""
+        install_folder = self._get_install_folder()
+        if not install_folder:
+            self._add_toast("Install folder not found")
+            return
+
+        game_dir = Path(install_folder)
+
+        def _convert() -> None:
+            from cellar.backend.scummvm_convert import convert_to_scummvm
+            convert_to_scummvm(game_dir, profile)
+
+        def _done(_result: object) -> None:
+            from cellar.backend import database
+            database.update_engine(entry.id, "scummvm")
+            self._add_toast(f"Switched {entry.name} to ScummVM")
+            self._rebuild_info_cards()
+            self._refresh_gear_menu()
+
+        def _error(msg: str) -> None:
+            self._add_toast(f"ScummVM conversion failed: {msg}")
+
+        from cellar.utils.async_work import run_in_background
+        run_in_background(_convert, on_done=_done, on_error=_error)
 
     def _effective_launch_targets(self) -> list[dict]:
         """Return the launch targets to use, honouring local overrides."""
@@ -861,8 +968,20 @@ class DetailView(Gtk.Box):
         threading.Thread(target=_work, daemon=True).start()
         progress.present(self.get_root())
 
+    def _get_effective_engine(self) -> str:
+        """Return the engine for the current entry (from DB or entry)."""
+        rec = self._installed_record or {}
+        engine = rec.get("engine", "") or self._entry.engine
+        if engine:
+            return engine
+        return "dosbox" if self._entry.platform == "dos" else ""
+
     def _launch_dos_target(self, entry_path: str, entry_args: str) -> None:
-        """Launch a DOS game via the bundled DOSBox Staging binary."""
+        """Launch a DOS game via DOSBox Staging or ScummVM."""
+        if self._get_effective_engine() == "scummvm":
+            self._launch_scummvm_target()
+            return
+
         import subprocess as _sp
 
         from cellar.backend.dosbox import build_dos_launch_cmd
@@ -892,6 +1011,48 @@ class DetailView(Gtk.Box):
             _sp.Popen(cmd, cwd=str(game_dir), start_new_session=True)
             launch_event = threading.Event()
             monitor_process_tree("dosbox", launch_event, _on_line)
+            GLib.idle_add(progress.force_close)
+
+        threading.Thread(target=_work, daemon=True).start()
+        progress.present(self.get_root())
+
+    def _launch_scummvm_target(self) -> None:
+        """Launch a DOS game via the ScummVM engine."""
+        import subprocess as _sp
+
+        from cellar.backend.scummvm import build_scummvm_launch_cmd, read_scummvm_id
+        from cellar.backend.umu import monitor_process_tree
+        from cellar.views.builder.progress import ProgressDialog
+
+        install_folder = self._get_install_folder()
+        if not install_folder:
+            self._add_toast("Install folder not found")
+            return
+        game_dir = Path(install_folder)
+
+        scummvm_id = self._entry.scummvm_id or read_scummvm_id(game_dir)
+        if not scummvm_id:
+            self._add_toast("ScummVM game ID not found")
+            return
+
+        from cellar.backend.scummvm import is_scummvm_available
+        if not is_scummvm_available():
+            self._add_toast("ScummVM is not installed")
+            return
+
+        cmd, _ = build_scummvm_launch_cmd(game_dir, scummvm_id)
+
+        progress = ProgressDialog(label="Launching\u2026")
+        progress.set_can_close(True)
+
+        def _on_line(line: str) -> None:
+            if line.startswith("[pid]"):
+                GLib.idle_add(progress.set_label, "Game started")
+
+        def _work() -> None:
+            _sp.Popen(cmd, cwd=str(game_dir), start_new_session=True)
+            launch_event = threading.Event()
+            monitor_process_tree("scummvm", launch_event, _on_line)
             GLib.idle_add(progress.force_close)
 
         threading.Thread(target=_work, daemon=True).start()
@@ -1074,6 +1235,10 @@ class DetailView(Gtk.Box):
         dosbox_config_act.connect("activate", lambda *_: self._on_dosbox_config_clicked())
         ag.add_action(dosbox_config_act)
 
+        scummvm_config_act = Gio.SimpleAction.new("scummvm-config", None)
+        scummvm_config_act.connect("activate", lambda *_: self._on_scummvm_config_clicked())
+        ag.add_action(scummvm_config_act)
+
         backup_user_act = Gio.SimpleAction.new("backup-user-files", None)
         backup_user_act.connect("activate", lambda *_: self._on_backup_user_files())
         ag.add_action(backup_user_act)
@@ -1110,7 +1275,7 @@ class DetailView(Gtk.Box):
         else:
             main_section.append("Create Desktop Shortcut", "detail.create-shortcut")
 
-        if self._entry.platform == "dos":
+        if self._entry.platform == "dos" and self._get_effective_engine() != "scummvm":
             main_section.append("DOSBox Configuration\u2026", "detail.dosbox-config")
 
         main_section.append("Open Install Folder", "detail.open-folder")
@@ -1429,6 +1594,21 @@ class DetailView(Gtk.Box):
             assets_dir=install_path / "assets",
             allow_assets=True,
         ).present(self.get_root())
+
+    def _on_scummvm_config_clicked(self) -> None:
+        """Open the ScummVM config file for editing."""
+        install_folder = self._get_install_folder()
+        if not install_folder:
+            return
+        conf_path = Path(install_folder) / "config" / "scummvm.ini"
+        if not conf_path.is_file():
+            self._add_toast("No ScummVM config file found")
+            return
+        import subprocess
+        try:
+            subprocess.Popen(["xdg-open", str(conf_path)])
+        except OSError as exc:
+            self._add_toast(f"Could not open config: {exc}")
 
     def _on_launch_params_clicked(self) -> None:
         from cellar.views.launch_params import LaunchParamsDialog  # noqa: PLC0415
@@ -1961,7 +2141,8 @@ class DetailView(Gtk.Box):
         if e.platform == "linux":
             _add(_simple_card("penguin-alt-symbolic", "Native", "Linux")[0])
         elif e.platform == "dos":
-            _add(_simple_card("floppy-symbolic", "DOSBox", "DOS")[0])
+            engine_label = "ScummVM" if self._get_effective_engine() == "scummvm" else "DOSBox"
+            _add(_simple_card("floppy-symbolic", engine_label, "DOS")[0])
         else:
             _add(self._make_wine_card())
             self._resolve_base_async()
@@ -2565,7 +2746,7 @@ class InstallProgressDialog(Adw.Dialog):
 
         def _run() -> None:
             try:
-                _app_id, install_dest = _installer(
+                result = _installer(
                     self._entry,
                     self._archive_uri,
                     download_cb=_dl_progress,
@@ -2577,11 +2758,17 @@ class InstallProgressDialog(Adw.Dialog):
                     ssh_identity=self._ssh_identity,
                     ssh_password=self._ssh_password,
                 )
+                # DOS returns (app_id, dest, scummvm_slug); Linux returns (app_id, dest)
+                if len(result) == 3:
+                    _app_id, install_dest, _scummvm_slug = result
+                else:
+                    _app_id, install_dest = result
+                    _scummvm_slug = ""
                 from cellar.utils.paths import dir_size_bytes as _dir_size
                 _install_size = _dir_size(install_dest)
                 GLib.idle_add(
                     self._on_done, self._entry.id, str(install_dest.parent), "",
-                    _install_size, 0,
+                    _install_size, 0, _scummvm_slug,
                 )
             except InstallCancelled:
                 GLib.idle_add(self._on_cancelled)
@@ -2622,10 +2809,12 @@ class InstallProgressDialog(Adw.Dialog):
     def _on_done(
         self, prefix_dir: str, install_path: str = "", runner: str = "",
         install_size: int = 0, delta_size: int = 0,
+        scummvm_slug: str = "",
     ) -> None:
         self._stop_pulse()
         self.close()
-        self._on_success(prefix_dir, install_path, runner, install_size, delta_size)
+        self._on_success(prefix_dir, install_path, runner, install_size,
+                         delta_size, scummvm_slug)
 
     def _on_cancelled(self) -> None:
         self._stop_pulse()

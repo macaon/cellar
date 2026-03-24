@@ -505,30 +505,8 @@ def generate_overrides_conf(
             lines.append(f"{key} = {settings[section][key]}")
         lines.append("")
 
-    autoexec: AutoexecInfo = gog_settings.get("autoexec", AutoexecInfo())
-    if autoexec.raw_lines:
-        rewritten = _rewrite_autoexec(autoexec.raw_lines, dosbox_subdir)
-        lines.append("[autoexec]")
-        # Autoexec order: mounts → drive change → NoUniVBE → primary game command.
-        # Only the FIRST (primary) game command is included. Secondary targets
-        # (setup.exe, fixsave.exe) are launched by passing an extra -conf file
-        # at runtime that overrides the autoexec with a different game command.
-        primary_cmd = autoexec.game_commands[0] if autoexec.game_commands else ""
-        for line in rewritten:
-            lower = line.strip().lower()
-            if lower.startswith("mount ") or (len(lower) == 2 and lower.endswith(":")):
-                lines.append(line)
-                continue
-            if lower.startswith("#"):
-                lines.append(line)
-                continue
-            # Skip all game commands — primary is added after NoUniVBE below
-        if include_nounivbe:
-            lines.append("nounivbe\\NOUNIVBE.EXE")
-        if primary_cmd:
-            lines.append(primary_cmd)
-            lines.append("EXIT")
-        lines.append("")
+    # Mounts and game commands are now handled via -c args at launch time.
+    # The overrides conf is settings-only.
 
     return "\n".join(lines) + "\n"
 
@@ -769,40 +747,7 @@ def run_dos_installer(
                 stderr_cb(line)
     proc.wait()
 
-    # Step 6: Rewrite overrides conf for normal launch (not installer).
-    # Preserve user settings (cpu, sound, etc.) from other sections.
-    preserved = _read_user_sections(config_dir / "dosbox-overrides.conf")
-    launch_lines = [
-        "# DOSBox overrides — edit to customise game-specific settings.",
-        "",
-        "[dosbox]",
-        "startup_verbosity = quiet",
-    ] + preserved + [
-        "",
-        "[autoexec]",
-        "@echo off",
-        'mount C "hdd"',
-        "C:",
-    ]
-    # Re-add CD mount if present
-    cd_dir = content_dir / "cd"
-    if cd_dir.is_dir():
-        cd_imgs = sorted(
-            p for p in cd_dir.iterdir()
-            if p.suffix.lower() in {".iso", ".cue"}
-        )
-        if cd_imgs:
-            img_args = " ".join(
-                f'"cd/{p.name}"' for p in cd_imgs
-            )
-            launch_lines.append(f"imgmount D {img_args} -t cdrom")
-    launch_lines.append("")
-
-    (config_dir / "dosbox-overrides.conf").write_text(
-        "\n".join(launch_lines) + "\n", encoding="utf-8",
-    )
-
-    # Step 7: Scan hdd/ for entry point candidates
+    # Step 6: Scan hdd/ for entry point candidates
     from cellar.backend.detect import _LAUNCH_EXCLUDE, is_dos_executable
 
     entry_points: list[dict] = []
@@ -824,6 +769,20 @@ def run_dos_installer(
                     "args": "",
                 })
 
+    # Step 7: Rewrite overrides conf for normal launch (not installer).
+    # Preserve user settings (cpu, sound, etc.) from other sections.
+    preserved = _read_user_sections(config_dir / "dosbox-overrides.conf")
+    launch_lines = [
+        "# DOSBox overrides — edit to customise game-specific settings.",
+        "",
+        "[dosbox]",
+        "startup_verbosity = quiet",
+    ] + preserved + [""]
+
+    (config_dir / "dosbox-overrides.conf").write_text(
+        "\n".join(launch_lines) + "\n", encoding="utf-8",
+    )
+
     return entry_points
 
 
@@ -836,19 +795,15 @@ def build_dos_launch_cmd(
     game_dir: Path,
     entry_path: str,
     entry_args: str,
-) -> tuple[list[str], Path | None]:
+) -> tuple[list[str], None]:
     """Build the DOSBox Staging command line for launching a DOS game.
 
-    Supports two layouts:
-    - **hdd layout**: ``hdd/`` for C:, ``cd/`` for D: (disc image imports)
-    - **flat layout**: game root is C: (GOG conversions, legacy)
+    The overrides conf contains settings only (no autoexec).  All mounts
+    and the game command are passed via ``-c`` so the entry point can be
+    swapped at launch time (e.g. for desktop shortcuts).
 
-    Returns ``(cmd, tmp_conf_path)`` where *tmp_conf_path* is a temporary
-    config file that the caller must delete after DOSBox has read it, or
-    ``None`` if no target-specific override was needed.
+    Returns ``(cmd, None)``.  The second element is kept for API compat.
     """
-    import tempfile
-
     from cellar.backend.umu import is_cellar_sandboxed
 
     dosbox_bin = game_dir / "dosbox" / "dosbox"
@@ -857,64 +812,53 @@ def build_dos_launch_cmd(
         str(dosbox_bin),
         "--noprimaryconf",
         "-conf", str(conf_dir / "dosbox-staging.conf"),
+        "-conf", str(conf_dir / "dosbox-overrides.conf"),
     ]
-    cmd += ["-conf", str(conf_dir / "dosbox-overrides.conf")]
 
-    # Detect layout: hdd/ present → disc-import layout, else flat
-    use_hdd = (game_dir / "hdd").is_dir()
-
-    tmp_conf: Path | None = None
-    if entry_path:
-        tmp = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".conf", prefix="cellar-dos-",
-            delete=False, dir=str(game_dir / "config"),
+    # Mount CD images if present
+    cd_dir = game_dir / "cd"
+    if cd_dir.is_dir():
+        cd_images = sorted(
+            p for p in cd_dir.iterdir()
+            if p.suffix.lower() in {".iso", ".cue"}
         )
-        tmp.write("[dosbox]\nautoexec_section = overwrite\n\n")
-        tmp.write("[autoexec]\n")
-        tmp.write("@echo off\n")
+        if cd_images:
+            img_args = " ".join(f'"cd/{p.name}"' for p in cd_images)
+            cmd += ["-c", f"imgmount D {img_args} -t cdrom"]
 
-        if use_hdd:
-            tmp.write('mount C "hdd"\n')
-        else:
-            tmp.write('mount C "."\n')
-        tmp.write("C:\n")
+    # Mount C: drive
+    use_hdd = (game_dir / "hdd").is_dir()
+    if use_hdd:
+        cmd += ["-c", 'mount C "hdd"']
+    else:
+        cmd += ["-c", 'mount C "."']
+    cmd += ["-c", "C:"]
 
-        # Mount CD images if present
-        cd_dir = game_dir / "cd"
-        if cd_dir.is_dir():
-            cd_images = sorted(
-                p for p in cd_dir.iterdir()
-                if p.suffix.lower() in {".iso", ".cue"}
-            )
-            if cd_images:
-                img_args = " ".join(f'"cd/{p.name}"' for p in cd_images)
-                tmp.write(f"imgmount D {img_args} -t cdrom\n")
+    # NoUniVBE (must run before the game)
+    nounivbe = game_dir / "nounivbe" / "NOUNIVBE.EXE"
+    if nounivbe.is_file():
+        cmd += ["-c", "nounivbe\\NOUNIVBE.EXE"]
 
-        nounivbe = game_dir / "nounivbe" / "NOUNIVBE.EXE"
-        if nounivbe.is_file():
-            tmp.write("nounivbe\\NOUNIVBE.EXE\n")
-
-        # CD into the executable's directory so the game finds its files.
-        # Parse with forward slashes (Linux paths) BEFORE converting to DOS.
+    # Entry point
+    if entry_path:
         exe_parent = str(Path(entry_path).parent)
         exe_name = Path(entry_path).name
         if exe_parent and exe_parent != ".":
-            tmp.write(f"CD {exe_parent.replace('/', chr(92))}\n")
+            cmd += ["-c", f"CD {exe_parent.replace('/', chr(92))}"]
 
         game_cmd = exe_name
         if entry_args:
             game_cmd += f" {entry_args}"
-
-        tmp.write(f"{game_cmd}\n")
-        tmp.write("EXIT\n")
-        tmp.close()
-        tmp_conf = Path(tmp.name)
-        cmd += ["-conf", str(tmp_conf)]
+        if exe_name.lower().endswith(".bat"):
+            cmd += ["-c", f"CALL {game_cmd}"]
+        else:
+            cmd += ["-c", game_cmd]
+        cmd += ["--exit"]
 
     if is_cellar_sandboxed():
         cmd = ["flatpak-spawn", "--host"] + cmd
 
-    return cmd, tmp_conf
+    return cmd, None
 
 
 # ---------------------------------------------------------------------------

@@ -3588,18 +3588,8 @@ class PackageBuilderView(Adw.Bin):
             if not dosbox_bin.is_file():
                 self._show_toast("DOSBox Staging binary not found. Re-convert the project.")
                 return
-            cmd, tmp_conf = build_dos_launch_cmd(game_dir, entry_path, entry_args)
+            cmd, _ = build_dos_launch_cmd(game_dir, entry_path, entry_args)
             subprocess.Popen(cmd, cwd=str(game_dir), start_new_session=True)
-            # Clean up temp conf after DOSBox has read it
-            if tmp_conf:
-                from cellar.backend.umu import monitor_process_tree
-                threading.Thread(
-                    target=lambda p=tmp_conf: (
-                        monitor_process_tree("dosbox", threading.Event(), lambda _: None),
-                        p.unlink(missing_ok=True),
-                    ),
-                    daemon=True,
-                ).start()
             return
         if project.project_type == "linux":
             if not project.source_dir:

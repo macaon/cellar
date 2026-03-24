@@ -829,7 +829,7 @@ class DetailView(Gtk.Box):
             self._add_toast("DOSBox Staging binary not found in package")
             return
 
-        cmd, tmp_conf = build_dos_launch_cmd(game_dir, entry_path, entry_args)
+        cmd, _ = build_dos_launch_cmd(game_dir, entry_path, entry_args)
 
         progress = ProgressDialog(label="Launching\u2026")
         progress.set_can_close(True)
@@ -842,8 +842,6 @@ class DetailView(Gtk.Box):
             _sp.Popen(cmd, cwd=str(game_dir), start_new_session=True)
             launch_event = threading.Event()
             monitor_process_tree("dosbox", launch_event, _on_line)
-            if tmp_conf and tmp_conf.is_file():
-                tmp_conf.unlink(missing_ok=True)
             GLib.idle_add(progress.force_close)
 
         threading.Thread(target=_work, daemon=True).start()

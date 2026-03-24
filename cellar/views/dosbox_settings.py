@@ -103,7 +103,7 @@ class DosboxSettingsDialog(Adw.Dialog):
         from cellar.backend.dosbox_profiles import (
             apply_profile,
             read_profile_name,
-            remove_profile_conf,
+            remove_profile,
         )
 
         game_dir = self._config_dir.parent
@@ -148,7 +148,7 @@ class DosboxSettingsDialog(Adw.Dialog):
         self._remove_profile_btn = remove_btn
 
         def _on_remove(_btn):
-            remove_profile_conf(game_dir)
+            remove_profile(game_dir)
             self._profile_row.set_title("No profile detected")
             self._profile_row.set_subtitle("Profile removed")
             remove_btn.set_visible(False)

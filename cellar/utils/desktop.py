@@ -149,19 +149,10 @@ def create_desktop_entry(
     # Exec — branch on platform
     platform = getattr(entry, "platform", "windows")
     if platform == "dos":
+        from cellar.backend.dosbox import build_dos_exec_line
         from cellar.backend.umu import dos_dir
         game_dir = dos_dir() / entry.id
-        dosbox_bin = game_dir / "dosbox" / "dosbox"
-        exec_line = (
-            f'"{dosbox_bin}" --noprimaryconf'
-            f' -conf "{game_dir / "config" / "dosbox-staging.conf"}"'
-            f' -conf "{game_dir / "config" / "dosbox-overrides.conf"}"'
-        )
-        if exe_path:
-            game_cmd = exe_path
-            if launch_args:
-                game_cmd += f" {launch_args}"
-            exec_line += f' -c "{game_cmd}"'
+        exec_line = build_dos_exec_line(game_dir, exe_path, launch_args)
         comment = (entry.summary or f"Launch {entry.name}.").replace("\n", " ")
     elif platform == "linux":
         if exe_path:

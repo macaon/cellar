@@ -791,21 +791,12 @@ def run_dos_installer(
 # ---------------------------------------------------------------------------
 
 
-def build_dos_launch_cmd(
+def _build_dos_cmd(
     game_dir: Path,
     entry_path: str,
     entry_args: str,
-) -> tuple[list[str], None]:
-    """Build the DOSBox Staging command line for launching a DOS game.
-
-    The overrides conf contains settings only (no autoexec).  All mounts
-    and the game command are passed via ``-c`` so the entry point can be
-    swapped at launch time (e.g. for desktop shortcuts).
-
-    Returns ``(cmd, None)``.  The second element is kept for API compat.
-    """
-    from cellar.backend.umu import is_cellar_sandboxed
-
+) -> list[str]:
+    """Build the raw DOSBox command list (no sandbox wrapper)."""
     dosbox_bin = game_dir / "dosbox" / "dosbox"
     conf_dir = game_dir / "config"
     cmd = [
@@ -855,10 +846,39 @@ def build_dos_launch_cmd(
             cmd += ["-c", game_cmd]
         cmd += ["--exit"]
 
+    return cmd
+
+
+def build_dos_launch_cmd(
+    game_dir: Path,
+    entry_path: str,
+    entry_args: str,
+) -> tuple[list[str], None]:
+    """Build the DOSBox Staging command line for launching a DOS game.
+
+    The overrides conf contains settings only (no autoexec).  All mounts
+    and the game command are passed via ``-c`` so the entry point can be
+    swapped at launch time (e.g. for desktop shortcuts).
+
+    Returns ``(cmd, None)``.  The second element is kept for API compat.
+    """
+    from cellar.backend.umu import is_cellar_sandboxed
+
+    cmd = _build_dos_cmd(game_dir, entry_path, entry_args)
+
     if is_cellar_sandboxed():
         cmd = ["flatpak-spawn", "--host"] + cmd
 
     return cmd, None
+
+
+def build_dos_exec_line(game_dir: Path, entry_path: str, entry_args: str) -> str:
+    """Return a shell-escaped Exec string for a ``.desktop`` entry."""
+    import shlex
+
+    return " ".join(shlex.quote(a) for a in _build_dos_cmd(
+        game_dir, entry_path, entry_args,
+    ))
 
 
 # ---------------------------------------------------------------------------

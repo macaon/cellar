@@ -29,6 +29,15 @@ class CellarApplication(Adw.Application):
             flags=Gio.ApplicationFlags.FLAGS_NONE,
         )
 
+    def do_shutdown(self):
+        """Clean up SMB connections before the atexit hook fires."""
+        Adw.Application.do_shutdown(self)
+        try:
+            import smbclient
+            smbclient.reset_connection_cache()
+        except Exception:
+            pass
+
     def do_activate(self):
         from gi.repository import Gdk, Gtk
 

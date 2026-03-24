@@ -1447,26 +1447,15 @@ class PackageBuilderView(Adw.Bin):
                     )
                     files_group.add(drop_zone)
                 else:
-                    # Linux: show source folder + browse content
-                    src_row = Adw.ActionRow(title="Folder")
-                    src_row.set_subtitle(project.source_dir)
-                    src_row.set_subtitle_selectable(True)
-                    _open_btn = Gtk.Button(icon_name="folder-open-symbolic")
-                    _open_btn.set_valign(Gtk.Align.CENTER)
-                    _open_btn.add_css_class("flat")
-                    _open_btn.connect("clicked", self._on_browse_prefix_clicked)
-                    src_row.add_suffix(_open_btn)
-                    files_group.add(src_row)
-
-                    if _is_installer_project and not project.installer_path:
-                        # Post-first-install: drop zone for DLC / patches
-                        drop_zone = self._build_installer_drop_zone(
-                            hint="Drop executables or folders here",
-                            subtitle="Installers are not supported",
-                            on_browse_file=self._on_run_linux_installer_clicked,
-                            on_browse_folder=self._on_browse_dlc_folder_clicked,
-                        )
-                        files_group.add(drop_zone)
+                    # Linux: drop zone + browse content (matches Proton/DOS layout)
+                    drop_zone = self._build_installer_drop_zone(
+                        hint="Drop executables or folders here",
+                        on_browse_file=self._on_run_linux_installer_clicked,
+                        on_browse_folder=self._on_browse_dlc_folder_clicked,
+                        show_browse_content=True,
+                        on_browse_content=self._on_browse_prefix_clicked,
+                    )
+                    files_group.add(drop_zone)
 
                 page.add(files_group)
 

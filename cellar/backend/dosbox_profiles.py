@@ -1,12 +1,8 @@
 """DOSBox game profile auto-detection and configuration.
 
-Detects known DOS games at install time and writes a ``dosbox-profile.conf``
-with proven-good settings.  The profile conf is loaded *between* the base
-config and the user's overrides so user settings always win::
-
-    -conf dosbox-staging.conf
-    -conf dosbox-profile.conf        # ← auto-detected
-    -conf dosbox-overrides.conf      # ← user edits (always wins)
+Detects known DOS games at install time and merges proven-good settings
+into ``dosbox-overrides.conf``.  A marker ``dosbox-profile.conf`` records
+which profile was detected (used by the settings dialog).
 
 The profile database lives in ``data/dosbox-profiles.json`` (bundled) and can
 be updated from GitHub at runtime.
@@ -227,7 +223,7 @@ def write_profile_conf(game_dir: Path, profile_id: str) -> Path | None:
         lines.append("")
 
     conf_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    log.info("Wrote profile conf: %s", conf_path)
+    log.debug("Wrote profile marker: %s", conf_path)
     return conf_path
 
 
@@ -265,12 +261,32 @@ def read_profile_name(game_dir: Path) -> str | None:
 def apply_profile(game_dir: Path) -> str | None:
     """Detect and apply a DOSBox profile for the game in *game_dir*.
 
+    Writes the profile marker conf and merges the detected settings into
+    ``dosbox-overrides.conf`` so they are visible in the settings dialog.
+
     Returns the profile slug if a profile was applied, ``None`` otherwise.
     """
     slug = detect_profile(game_dir)
     if slug is None:
         return None
     write_profile_conf(game_dir, slug)
+
+    # Merge profile settings into the overrides conf.
+    db = load_profiles()
+    profile = db.get("profiles", {}).get(slug)
+    if profile:
+        settings = profile.get("settings", {})
+        if settings:
+            from cellar.backend.dosbox import write_overrides_batch
+
+            overrides_conf = game_dir / "config" / "dosbox-overrides.conf"
+            changes: dict[tuple[str, str], str] = {}
+            for section, keys in settings.items():
+                for key, value in keys.items():
+                    changes[(section, key)] = str(value)
+            write_overrides_batch(overrides_conf, changes)
+            log.info("Applied profile %r settings to overrides conf", slug)
+
     return slug
 
 

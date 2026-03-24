@@ -858,9 +858,6 @@ def build_dos_launch_cmd(
         "--noprimaryconf",
         "-conf", str(conf_dir / "dosbox-staging.conf"),
     ]
-    profile_conf = conf_dir / "dosbox-profile.conf"
-    if profile_conf.is_file():
-        cmd += ["-conf", str(profile_conf)]
     cmd += ["-conf", str(conf_dir / "dosbox-overrides.conf")]
 
     # Detect layout: hdd/ present → disc-import layout, else flat

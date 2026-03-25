@@ -26,6 +26,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gio, Gtk
 
+from cellar.models.app_entry import AppEntry
 from cellar.backend.dosbox import (
     ASPECT_OPTIONS,
     CHORUS_OPTIONS,
@@ -54,16 +55,23 @@ class DosboxSettingsDialog(Adw.Dialog):
         config_dir: Path,
         assets_dir: Path | None = None,
         *,
+        entry: AppEntry | None = None,
+        install_folder: str = "",
+        user_data_callbacks: dict[str, Callable] | None = None,
         on_saved: Callable | None = None,
         allow_assets: bool = True,
     ) -> None:
         super().__init__(title="DOSBox Settings", content_width=500, content_height=700)
         self._config_dir = config_dir
         self._assets_dir = assets_dir
+        self._entry = entry
+        self._install_folder = install_folder
+        self._user_data_cbs = user_data_callbacks or {}
         self._on_saved = on_saved
         self._allow_assets = allow_assets
         self._conf = config_dir / "dosbox-overrides.conf"
         self._chooser = None  # prevent GC of file choosers
+        self._targets_group = None  # LaunchTargetsGroup (if entry provided)
 
         # Collect all changes to write on Save
         self._pending: dict[tuple[str, str], str] = {}
@@ -85,6 +93,8 @@ class DosboxSettingsDialog(Adw.Dialog):
         scroll = Gtk.ScrolledWindow(vscrollbar_policy=Gtk.PolicyType.AUTOMATIC)
         page = Adw.PreferencesPage()
 
+        self._build_launch_targets_group(page)
+        self._build_user_data_group(page)
         self._build_profile_group(page)
         self._build_display_group(page)
         self._build_performance_group(page)
@@ -96,6 +106,18 @@ class DosboxSettingsDialog(Adw.Dialog):
         scroll.set_child(page)
         toolbar.set_content(scroll)
         self.set_child(toolbar)
+
+    # ── Launch Targets ──────────────────────────────────────────────────
+
+    def _build_launch_targets_group(self, page: Adw.PreferencesPage) -> None:
+        if self._entry is None:
+            return
+        from cellar.backend import database
+        from cellar.views.launch_targets_group import LaunchTargetsGroup
+
+        overrides = database.get_launch_overrides(self._entry.id)
+        self._targets_group = LaunchTargetsGroup(self._entry, overrides)
+        page.add(self._targets_group.widget)
 
     # ── Game Profile ──────────────────────────────────────────────────
 
@@ -388,6 +410,22 @@ class DosboxSettingsDialog(Adw.Dialog):
 
         page.add(group)
 
+    # ── User Data ───────────────────────────────────────────────────
+
+    def _build_user_data_group(self, page: Adw.PreferencesPage) -> None:
+        if not self._install_folder and not self._user_data_cbs:
+            return
+        from cellar.views.user_data_group import UserDataGroup
+
+        group = UserDataGroup(
+            self._install_folder,
+            on_open_folder=self._user_data_cbs.get("open_folder"),
+            on_change_location=self._user_data_cbs.get("change_location"),
+            on_backup=self._user_data_cbs.get("backup"),
+            on_import=self._user_data_cbs.get("import"),
+        )
+        page.add(group.widget)
+
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
@@ -461,9 +499,30 @@ class DosboxSettingsDialog(Adw.Dialog):
 
     def _on_save_clicked(self, _btn) -> None:
         self._flush_pending()
+        self._save_launch_targets()
         self.close()
         if self._on_saved:
             self._on_saved()
+
+    def _save_launch_targets(self) -> None:
+        """Persist launch target overrides if an entry was provided."""
+        if self._entry is None or self._targets_group is None:
+            return
+        from cellar.backend import database
+
+        catalogue_targets = [dict(t) for t in self._entry.launch_targets]
+        if self._targets_group.has_changes(catalogue_targets):
+            overrides = database.get_launch_overrides(self._entry.id)
+            overrides["launch_targets"] = self._targets_group.get_targets()
+            database.set_launch_overrides(self._entry.id, overrides)
+        else:
+            # Remove launch_targets from overrides if they match catalogue
+            overrides = database.get_launch_overrides(self._entry.id)
+            overrides.pop("launch_targets", None)
+            if overrides:
+                database.set_launch_overrides(self._entry.id, overrides)
+            else:
+                database.clear_launch_overrides(self._entry.id)
 
     def _on_edit_overrides_clicked(self, _btn) -> None:
         """Flush pending changes, then open overrides conf in text editor.

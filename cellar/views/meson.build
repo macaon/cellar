@@ -7,10 +7,13 @@ python_sources = files(
   'metadata_editor.py',
   'install_runner.py',
   'launch_params.py',
+  'launch_targets_group.py',
+  'scummvm_settings.py',
   'settings.py',
   'screenshot_grid.py',
   'steam_picker.py',
   'update_app.py',
+  'user_data_group.py',
   'widgets.py',
 )
 

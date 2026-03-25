@@ -1534,10 +1534,11 @@ class DetailView(Gtk.Box):
                 GLib.idle_add(_on_done, None, 0, exc)
 
         def _on_done(app_id, count, error):
+            was_cancelled = cancel_event.is_set()
             dlg.close()
             if error:
                 self._add_toast(f"Import failed: {error}")
-            elif cancel_event.is_set():
+            elif was_cancelled:
                 self._add_toast("Import cancelled")
             else:
                 self._add_toast(f"Imported {count} file{'s' if count != 1 else ''}")

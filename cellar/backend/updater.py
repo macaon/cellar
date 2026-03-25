@@ -413,7 +413,12 @@ def import_user_files(
             "Install the app first, then import the backup."
         )
 
-    prefix_path = Path(row["prefix_dir"])
+    install_path = row.get("install_path") or ""
+    prefix_dir = row.get("prefix_dir") or app_id
+    if install_path:
+        prefix_path = Path(install_path) / prefix_dir
+    else:
+        prefix_path = Path(prefix_dir)
     if not prefix_path.is_dir():
         raise UpdateError(f"Prefix directory not found: {prefix_path}")
 

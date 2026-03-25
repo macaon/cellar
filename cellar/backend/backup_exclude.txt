@@ -8,5 +8,8 @@ drive_c/openxr
 drive_c/windows
 drive_c/vrclient
 
-# User-profile caches managed by the runtime
-drive_c/users/steamuser/AppData
+# User-profile caches managed by the runtime (keep AppData/Local, LocalLow, Roaming for saves)
+drive_c/users/steamuser/AppData/Local/dxvk
+drive_c/users/steamuser/AppData/Local/D3DTX
+drive_c/users/steamuser/AppData/Local/Microsoft
+drive_c/users/steamuser/AppData/Local/Temp

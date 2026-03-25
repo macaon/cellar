@@ -25,6 +25,7 @@ from any thread (the UI layer wraps it in ``GLib.idle_add``).
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import subprocess
 import tarfile
@@ -84,10 +85,20 @@ def _safe_extract(
     # would pass the tar filter, then subsequent members extracted
     # through it land outside the destination.
     if member.issym() or member.islnk():
-        link_parts = Path(member.linkname).parts
-        if Path(member.linkname).is_absolute() or ".." in link_parts:
+        link_target = Path(member.linkname)
+        if link_target.is_absolute():
             log.warning(
-                "Skipping link with unsafe target: %r -> %r",
+                "Skipping link with absolute target: %r -> %r",
+                member.name, member.linkname,
+            )
+            return
+        # Resolve ".." components relative to the member's parent dir.
+        # If the resolved path escapes the archive root, reject it.
+        member_parent = Path(member.name).parent
+        normalised = os.path.normpath(member_parent / link_target)
+        if normalised.startswith(".."):
+            log.warning(
+                "Skipping link escaping archive root: %r -> %r",
                 member.name, member.linkname,
             )
             return

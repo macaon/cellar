@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import configparser
 import logging
+import shutil
 from pathlib import Path
 from typing import Callable
 
@@ -52,19 +53,28 @@ _MUSIC_DRIVERS = (
     ("No music", "null"),
 )
 
-# Graphics scaling modes
-_GFX_MODES = (
+# Graphics scalers (written to "scaler" key, not "gfx_mode")
+_SCALERS = (
     ("Default", ""),
-    ("Normal (no scaling)", "normal"),
-    ("HQ 2x", "hq2x"),
-    ("HQ 3x", "hq3x"),
-    ("2x SAI", "2xsai"),
-    ("Super 2x SAI", "super2xsai"),
+    ("Normal", "normal"),
+    ("HQ", "hq"),
+    ("Edge", "edge"),
+    ("AdvMAME", "advmame"),
+    ("SAI", "sai"),
+    ("SuperSAI", "supersai"),
     ("SuperEagle", "supereagle"),
-    ("AdvMAME 2x", "advmame2x"),
-    ("AdvMAME 3x", "advmame3x"),
-    ("TV 2x", "tv2x"),
+    ("PM", "pm"),
     ("DotMatrix", "dotmatrix"),
+    ("TV", "tv"),
+)
+
+# Scale factors
+_SCALE_FACTORS = (
+    ("Auto", ""),
+    ("1x", "1"),
+    ("2x", "2"),
+    ("3x", "3"),
+    ("4x", "4"),
 )
 
 # Stretch modes
@@ -74,6 +84,27 @@ _STRETCH_MODES = (
     ("Stretch to fill", "stretch"),
     ("Center (no scaling)", "center"),
     ("Fit, force aspect ratio", "fit_force_aspect"),
+)
+
+# Languages
+_LANGUAGES = (
+    ("Default", ""),
+    ("English", "en"),
+    ("German", "de"),
+    ("French", "fr"),
+    ("Italian", "it"),
+    ("Portuguese", "pt"),
+    ("Spanish", "es"),
+    ("Japanese", "ja"),
+    ("Chinese", "zh"),
+    ("Korean", "ko"),
+    ("Swedish", "sv"),
+    ("Hebrew", "he"),
+    ("Russian", "ru"),
+    ("Czech", "cz"),
+    ("Dutch", "nl"),
+    ("Norwegian", "nb"),
+    ("Polish", "pl"),
 )
 
 
@@ -115,6 +146,14 @@ class ScummvmSettingsDialog(Adw.Dialog):
                 self._game_section = section
                 break
 
+        # Ensure gameid is set (required for ScummVM to recognize the target)
+        if self._game_section and not self._config.has_option(self._game_section, "gameid"):
+            self._config.set(self._game_section, "gameid", self._game_section)
+            self._flush()
+
+        # Migrate legacy gfx_mode key → scaler + scale_factor
+        self._migrate_gfx_mode()
+
         self._build_ui()
 
     # ------------------------------------------------------------------
@@ -130,7 +169,7 @@ class ScummvmSettingsDialog(Adw.Dialog):
         return ""
 
     def _set(self, key: str, value: str) -> None:
-        """Set a key in the game section."""
+        """Set a key in the game section and flush to disk immediately."""
         section = self._game_section or "scummvm"
         if not self._config.has_section(section):
             self._config.add_section(section)
@@ -138,6 +177,32 @@ class ScummvmSettingsDialog(Adw.Dialog):
             self._config.set(section, key, value)
         elif self._config.has_option(section, key):
             self._config.remove_option(section, key)
+        self._flush()
+
+    def _migrate_gfx_mode(self) -> None:
+        """Migrate legacy ``gfx_mode`` values to ``scaler`` + ``scale_factor``.
+
+        Earlier versions wrote combined values like ``tv2x`` to ``gfx_mode``.
+        ScummVM expects ``scaler=tv`` and ``scale_factor=2`` as separate keys.
+        """
+        old = self._read("gfx_mode")
+        if not old or self._read("scaler"):
+            return  # nothing to migrate, or already migrated
+
+        import re
+        m = re.match(r"^([a-z]+?)(\d)x?$", old, re.IGNORECASE)
+        if m:
+            self._set("scaler", m.group(1))
+            self._set("scale_factor", m.group(2))
+        else:
+            # Not a combined value — might be a plain scaler name
+            self._set("scaler", old)
+
+        # Remove the stale key
+        section = self._game_section or "scummvm"
+        if self._config.has_option(section, "gfx_mode"):
+            self._config.remove_option(section, "gfx_mode")
+            self._flush()
 
     # ------------------------------------------------------------------
     # UI construction
@@ -155,8 +220,10 @@ class ScummvmSettingsDialog(Adw.Dialog):
 
         self._build_launch_targets_group(page)
         self._build_user_data_group(page)
+        self._build_game_group(page)
         self._build_graphics_group(page)
         self._build_audio_group(page)
+        self._build_midi_group(page)
         self._build_advanced_group(page)
 
         scroll.set_child(page)
@@ -174,6 +241,39 @@ class ScummvmSettingsDialog(Adw.Dialog):
         overrides = database.get_launch_overrides(self._entry.id)
         self._targets_group = LaunchTargetsGroup(self._entry, overrides)
         page.add(self._targets_group.widget)
+
+    # ── Game ──────────────────────────────────────────────────────────
+
+    def _build_game_group(self, page: Adw.PreferencesPage) -> None:
+        group = Adw.PreferencesGroup(title="Game")
+
+        # Language
+        group.add(self._make_combo(
+            "Language", "Override game language",
+            _LANGUAGES, self._read("language"),
+            "language",
+        ))
+
+        # Talk speed (0–255)
+        talk_speed = self._make_scale(
+            "Talk Speed", 0, 255,
+            int(self._read("talkspeed") or "60"),
+            "talkspeed",
+        )
+        group.add(talk_speed)
+
+        # Copy protection
+        copy_prot = Adw.SwitchRow(
+            title="Copy Protection",
+            subtitle="Enable original copy protection prompts",
+        )
+        copy_prot.set_active(self._read("copy_protection") == "true")
+        copy_prot.connect("notify::active", lambda r, _: self._set(
+            "copy_protection", "true" if r.get_active() else "false",
+        ))
+        group.add(copy_prot)
+
+        page.add(group)
 
     # ── Graphics ───────────────────────────────────────────────────────
 
@@ -213,11 +313,18 @@ class ScummvmSettingsDialog(Adw.Dialog):
         ))
         group.add(filtering)
 
-        # Graphics scaler
+        # Scaler
         group.add(self._make_combo(
-            "Graphics Mode", "Scaling algorithm",
-            _GFX_MODES, self._read("gfx_mode"),
-            "gfx_mode",
+            "Scaler", "Pixel-art scaling filter",
+            _SCALERS, self._read("scaler"),
+            "scaler",
+        ))
+
+        # Scale factor
+        group.add(self._make_combo(
+            "Scale Factor", "Scaling multiplier",
+            _SCALE_FACTORS, self._read("scale_factor"),
+            "scale_factor",
         ))
 
         # Stretch mode
@@ -242,11 +349,36 @@ class ScummvmSettingsDialog(Adw.Dialog):
         group = Adw.PreferencesGroup(title="Audio")
 
         # Music driver
-        group.add(self._make_combo(
+        music_combo = self._make_combo(
             "Music Device", "Music/MIDI output",
             _MUSIC_DRIVERS, self._read("music_driver"),
             "music_driver",
-        ))
+        )
+        group.add(music_combo)
+
+        # Music volume (0–255)
+        music_vol = self._make_scale(
+            "Music Volume", 0, 255,
+            int(self._read("music_volume") or "192"),
+            "music_volume",
+        )
+        group.add(music_vol)
+
+        # SFX volume (0–255)
+        sfx_vol = self._make_scale(
+            "Sound Effects Volume", 0, 255,
+            int(self._read("sfx_volume") or "192"),
+            "sfx_volume",
+        )
+        group.add(sfx_vol)
+
+        # Speech volume (0–255)
+        speech_vol = self._make_scale(
+            "Speech Volume", 0, 255,
+            int(self._read("speech_volume") or "192"),
+            "speech_volume",
+        )
+        group.add(speech_vol)
 
         # Subtitles
         subtitles = Adw.SwitchRow(
@@ -271,6 +403,66 @@ class ScummvmSettingsDialog(Adw.Dialog):
         group.add(speech)
 
         page.add(group)
+
+    # ── MIDI Assets ───────────────────────────────────────────────────
+
+    def _build_midi_group(self, page: Adw.PreferencesPage) -> None:
+        from cellar.backend.config import ensure_mt32_symlinks
+        ensure_mt32_symlinks(self._shared_mt32_dir())
+
+        group = Adw.PreferencesGroup(title="MIDI")
+
+        # SoundFont row
+        self._sf_row = Adw.ActionRow(title="SoundFont")
+        current_sf = self._read("soundfont")
+        current_sf_name = Path(current_sf).name if current_sf else ""
+        self._sf_row.set_subtitle(current_sf_name or "No SoundFont selected")
+
+        sf_btn = Gtk.Button(label="Select\u2026", valign=Gtk.Align.CENTER)
+        sf_btn.connect("clicked", self._on_select_soundfont)
+        self._sf_row.add_suffix(sf_btn)
+
+        if current_sf_name:
+            sf_rm = Gtk.Button(
+                icon_name="edit-clear-symbolic", valign=Gtk.Align.CENTER,
+            )
+            sf_rm.add_css_class("flat")
+            sf_rm.set_tooltip_text("Clear SoundFont selection")
+            sf_rm.connect("clicked", self._on_clear_soundfont)
+            self._sf_row.add_suffix(sf_rm)
+
+        group.add(self._sf_row)
+
+        # MT-32 ROMs row
+        self._rom_row = Adw.ActionRow(title="MT-32 ROMs")
+        shared_rom_dir = self._shared_mt32_dir()
+        rom_count = (
+            len(list(shared_rom_dir.glob("*.rom")))
+            if shared_rom_dir.is_dir() else 0
+        )
+        self._rom_row.set_subtitle(
+            f"Installed ({rom_count} ROM files)" if rom_count
+            else "Not installed"
+        )
+
+        rom_btn = Gtk.Button(label="Import\u2026", valign=Gtk.Align.CENTER)
+        rom_btn.connect("clicked", self._on_browse_roms)
+        rom_btn.set_sensitive(rom_count == 0)
+        self._rom_row.add_suffix(rom_btn)
+        group.add(self._rom_row)
+
+        # Show/hide based on music driver
+        self._update_midi_rows(self._read("music_driver"))
+
+        page.add(group)
+
+    def _update_midi_rows(self, driver: str) -> None:
+        """Show/hide SoundFont and MT-32 rows based on music driver."""
+        if not hasattr(self, "_sf_row"):
+            return
+        effective = driver if driver else "auto"
+        self._sf_row.set_visible(effective in ("auto", "fluidsynth"))
+        self._rom_row.set_visible(effective in ("auto", "mt32"))
 
     # ── Advanced ───────────────────────────────────────────────────────
 
@@ -356,22 +548,173 @@ class ScummvmSettingsDialog(Adw.Dialog):
             idx = r.get_selected()
             if 0 <= idx < len(opts):
                 self._set(k, opts[idx][1])
+                if k == "music_driver":
+                    self._update_midi_rows(opts[idx][1])
 
         row.connect("notify::selected", _on_changed)
         return row
+
+    def _make_scale(
+        self,
+        title: str,
+        min_val: int,
+        max_val: int,
+        current: int,
+        key: str,
+    ) -> Adw.ActionRow:
+        row = Adw.ActionRow(title=title)
+        scale = Gtk.Scale.new_with_range(
+            Gtk.Orientation.HORIZONTAL, min_val, max_val, 1,
+        )
+        scale.set_value(current)
+        scale.set_draw_value(True)
+        scale.set_hexpand(False)
+        scale.set_size_request(200, -1)
+        scale.set_valign(Gtk.Align.CENTER)
+
+        def _on_changed(s, k=key):
+            self._set(k, str(int(s.get_value())))
+
+        scale.connect("value-changed", _on_changed)
+        row.add_suffix(scale)
+        return row
+
+    # ------------------------------------------------------------------
+    # SoundFont / MT-32 helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _shared_soundfonts_dir() -> Path:
+        from cellar.backend.config import soundfonts_dir
+        return soundfonts_dir()
+
+    @staticmethod
+    def _shared_mt32_dir() -> Path:
+        from cellar.backend.config import mt32_roms_dir
+        return mt32_roms_dir()
+
+    def _list_shared_soundfonts(self) -> list[Path]:
+        sf_dir = self._shared_soundfonts_dir()
+        return sorted(
+            p for p in sf_dir.iterdir()
+            if p.is_file() and p.suffix.lower() in {".sf2", ".sf3"}
+        ) if sf_dir.is_dir() else []
+
+    def _on_select_soundfont(self, _btn) -> None:
+        available = self._list_shared_soundfonts()
+        if not available:
+            self._on_browse_new_soundfont()
+            return
+
+        dlg = Adw.AlertDialog(
+            heading="Select SoundFont",
+            body="Choose from your SoundFont library or import a new one.",
+        )
+        for sf in available:
+            dlg.add_response(sf.name, sf.name)
+        dlg.add_response("_import", "Import new\u2026")
+        dlg.add_response("_cancel", "Cancel")
+        dlg.set_close_response("_cancel")
+
+        def _on_response(_dlg, response):
+            if response == "_cancel":
+                return
+            if response == "_import":
+                self._on_browse_new_soundfont()
+                return
+            self._apply_soundfont(response)
+
+        dlg.connect("response", _on_response)
+        dlg.present(self.get_root())
+
+    def _on_browse_new_soundfont(self) -> None:
+        chooser = Gtk.FileChooserNative(
+            title="Import SoundFont",
+            transient_for=self.get_root(),
+            action=Gtk.FileChooserAction.OPEN,
+            accept_label="Import",
+        )
+        f = Gtk.FileFilter()
+        f.set_name("SoundFonts (*.sf2, *.sf3)")
+        f.add_pattern("*.sf2")
+        f.add_pattern("*.SF2")
+        f.add_pattern("*.sf3")
+        f.add_pattern("*.SF3")
+        chooser.add_filter(f)
+        chooser.connect("response", self._on_new_sf_chosen, chooser)
+        chooser.show()
+        self._chooser = chooser
+
+    def _on_new_sf_chosen(self, _c, response, chooser) -> None:
+        if response != Gtk.ResponseType.ACCEPT:
+            return
+        src = Path(chooser.get_file().get_path())
+        shared_dir = self._shared_soundfonts_dir()
+        dest = shared_dir / src.name
+        if not dest.exists():
+            shutil.copy2(src, dest)
+        self._apply_soundfont(src.name)
+
+    def _apply_soundfont(self, sf_name: str) -> None:
+        shared_dir = self._shared_soundfonts_dir()
+        self._set("music_driver", "fluidsynth")
+        self._set("soundfont", str(shared_dir / sf_name))
+        self._sf_row.set_subtitle(sf_name)
+
+    def _on_clear_soundfont(self, _btn) -> None:
+        self._set("soundfont", "")
+        self._sf_row.set_subtitle("No SoundFont selected")
+
+    def _on_browse_roms(self, _btn) -> None:
+        chooser = Gtk.FileChooserNative(
+            title="Select MT-32 ROM Files",
+            transient_for=self.get_root(),
+            action=Gtk.FileChooserAction.OPEN,
+            accept_label="Add",
+        )
+        chooser.set_select_multiple(True)
+        f = Gtk.FileFilter()
+        f.set_name("ROM files (*.rom)")
+        f.add_pattern("*.rom")
+        f.add_pattern("*.ROM")
+        chooser.add_filter(f)
+        chooser.connect("response", self._on_roms_chosen, chooser)
+        chooser.show()
+        self._chooser = chooser
+
+    def _on_roms_chosen(self, _c, response, chooser) -> None:
+        if response != Gtk.ResponseType.ACCEPT:
+            return
+        from cellar.backend.config import ensure_mt32_symlinks
+
+        shared_dir = self._shared_mt32_dir()
+        shared_dir.mkdir(parents=True, exist_ok=True)
+        files = chooser.get_files()
+        for i in range(files.get_n_items()):
+            src = Path(files.get_item(i).get_path())
+            dest = shared_dir / src.name
+            if not dest.exists():
+                shutil.copy2(src, dest)
+        ensure_mt32_symlinks(shared_dir)
+        self._set("music_driver", "mt32")
+        self._set("native_mt32", "true")
+        self._set("extrapath", str(shared_dir))
+        count = len(list(shared_dir.glob("*.rom"))) - len(list(shared_dir.glob("*.ROM")))
+        self._rom_row.set_subtitle(f"Installed ({count} ROM files)")
 
     # ------------------------------------------------------------------
     # Save
     # ------------------------------------------------------------------
 
-    def _on_save_clicked(self, _btn) -> None:
-        # Write ScummVM config
+    def _flush(self) -> None:
+        """Write the current config to disk."""
         self._conf_path.parent.mkdir(parents=True, exist_ok=True)
         with open(self._conf_path, "w", encoding="utf-8") as f:
             self._config.write(f)
-        log.info("Saved ScummVM config: %s", self._conf_path)
 
-        # Save launch target overrides
+    def _on_save_clicked(self, _btn) -> None:
+        # Config is already on disk (flushed on each change).
+        # Save launch target overrides (DB-backed, not INI).
         self._save_launch_targets()
 
         self.close()

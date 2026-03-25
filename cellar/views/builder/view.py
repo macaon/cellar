@@ -1653,14 +1653,32 @@ class PackageBuilderView(Adw.Bin):
 
                 page.add(dos_group)
 
-            # Launch Targets (Linux / DOS — hidden for ScummVM)
+            # ScummVM section (replaces Launch Targets for ScummVM projects)
             if _is_scummvm:
                 scummvm_group = Adw.PreferencesGroup(title="ScummVM")
-                scummvm_row = Adw.ActionRow(
-                    title="Engine: ScummVM",
-                    subtitle=f"Game ID: {project.scummvm_id or 'detected at runtime'}",
+
+                scummvm_id_row = Adw.ActionRow(
+                    title="Game ID",
+                    subtitle=project.scummvm_id or "detected at runtime",
                 )
-                scummvm_group.add(scummvm_row)
+                scummvm_group.add(scummvm_id_row)
+
+                if project.source_dir:
+                    _scummvm_settings_row = Adw.ActionRow(
+                        title="ScummVM Settings",
+                        subtitle="Game, graphics, audio, MIDI, and config files",
+                        activatable=True,
+                    )
+                    _scummvm_btn = Gtk.Button(
+                        label="Open", valign=Gtk.Align.CENTER,
+                    )
+                    _scummvm_btn.connect(
+                        "clicked", self._on_scummvm_settings_clicked,
+                    )
+                    _scummvm_settings_row.add_suffix(_scummvm_btn)
+                    _scummvm_settings_row.set_activatable_widget(_scummvm_btn)
+                    scummvm_group.add(_scummvm_settings_row)
+
                 page.add(scummvm_group)
             else:
                 targets_group = Adw.PreferencesGroup(title="Launch Targets")
@@ -4145,6 +4163,18 @@ class PackageBuilderView(Adw.Bin):
         win = self.get_root()
         if hasattr(win, "toast_overlay"):
             win.toast_overlay.add_toast(Adw.Toast(title=message))
+
+    def _on_scummvm_settings_clicked(self, _btn) -> None:
+        """Open the ScummVM Settings dialog for the current project."""
+        if self._project is None or not self._project.source_dir:
+            return
+        from cellar.views.scummvm_settings import ScummvmSettingsDialog
+
+        config_dir = Path(self._project.source_dir) / "config"
+        ScummvmSettingsDialog(
+            config_dir=config_dir,
+            on_saved=lambda: self._show_project(self._project) if self._project else None,
+        ).present(self)
 
     def _on_dosbox_settings_clicked(self, _btn) -> None:
         """Open the DOSBox Settings dialog for the current DOS project."""

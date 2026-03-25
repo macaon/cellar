@@ -72,6 +72,7 @@ def _build_scummvm_cmd(
     scummvm_id: str,
 ) -> list[str]:
     """Build the ScummVM command list."""
+    from cellar.backend.config import data_dir as cellar_data_dir
     from cellar.backend.umu import is_cellar_sandboxed
 
     method = find_scummvm()
@@ -79,11 +80,12 @@ def _build_scummvm_cmd(
     data_dir = game_dir / "data"
 
     if method == "flatpak":
-        # Grant ScummVM access to game data (may be inside Cellar's Flatpak sandbox).
-        # The -p path must also resolve on the host, so pass the game_dir itself.
+        # Grant ScummVM access to game data and shared MIDI assets
+        # (soundfonts, MT-32 ROMs) which live in Cellar's data dir.
         cmd = [
             "flatpak", "run",
             f"--filesystem={game_dir}",
+            f"--filesystem={cellar_data_dir()}",
             _FLATPAK_ID,
         ]
     else:
@@ -91,8 +93,10 @@ def _build_scummvm_cmd(
 
     if conf_path.is_file():
         cmd += ["-c", str(conf_path)]
+    else:
+        cmd += ["-p", str(data_dir)]
 
-    cmd += ["-p", str(data_dir), scummvm_id]
+    cmd.append(scummvm_id)
 
     if is_cellar_sandboxed():
         cmd = ["flatpak-spawn", "--host"] + cmd
@@ -147,9 +151,10 @@ def write_scummvm_conf(
     if conf_path.is_file():
         config.read(str(conf_path), encoding="utf-8")
 
-    # Ensure the game target section exists
+    # Ensure the game target section exists with required keys
     if not config.has_section(scummvm_id):
         config.add_section(scummvm_id)
+    config.set(scummvm_id, "gameid", scummvm_id)
     config.set(scummvm_id, "path", str(game_dir / "data"))
 
     # Apply any profile settings

@@ -559,3 +559,67 @@ def save_sgdb_key(key: str) -> None:
         cfg = _load()
         cfg.pop("sgdb_key", None)
         _save(cfg)
+
+
+# ---------------------------------------------------------------------------
+# Shared MIDI asset directories (used by both DOSBox and ScummVM)
+# ---------------------------------------------------------------------------
+
+def soundfonts_dir() -> Path:
+    """Return (and create if needed) the shared SoundFont directory."""
+    d = data_dir() / "soundfonts"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def mt32_roms_dir() -> Path:
+    """Return (and create if needed) the shared MT-32 ROM directory."""
+    d = data_dir() / "mt32-roms"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def ensure_mt32_symlinks(rom_dir: Path) -> None:
+    """Create ScummVM-compatible symlinks for MT-32/CM-32L ROMs.
+
+    ScummVM requires exact filenames: ``MT32_CONTROL.ROM`` +
+    ``MT32_PCM.ROM`` or ``CM32L_CONTROL.ROM`` + ``CM32L_PCM.ROM``.
+    DOSBox Staging and munt use different naming (e.g.
+    ``ctrl_mt32_2_07.rom``, ``pcm_mt32.rom``).  This function
+    creates symlinks so both engines can share the same directory.
+    """
+    roms = {p.name.lower(): p.name for p in rom_dir.iterdir() if p.is_file()}
+
+    # MT-32 control — v1 ROMs only (original MT-32, what classic games
+    # were composed for).  v2 ROMs are CM-32L-like and sound different.
+    _MT32_CTRL = [
+        "ctrl_mt32_1_07.rom", "ctrl_mt32_1_06.rom", "ctrl_mt32_1_05.rom",
+        "ctrl_mt32_1_04.rom",
+    ]
+    link = rom_dir / "MT32_CONTROL.ROM"
+    if not link.exists():
+        for name in _MT32_CTRL:
+            if name in roms:
+                link.symlink_to(roms[name])
+                break
+
+    # MT-32 PCM
+    link = rom_dir / "MT32_PCM.ROM"
+    if not link.exists() and "pcm_mt32.rom" in roms:
+        link.symlink_to(roms["pcm_mt32.rom"])
+
+    # CM-32L control — prefer newest revision
+    _CM32L_CTRL = [
+        "ctrl_cm32l_1_02.rom", "ctrl_cm32l_1_00.rom", "ctrl_cm32ln_1_00.rom",
+    ]
+    link = rom_dir / "CM32L_CONTROL.ROM"
+    if not link.exists():
+        for name in _CM32L_CTRL:
+            if name in roms:
+                link.symlink_to(roms[name])
+                break
+
+    # CM-32L PCM
+    link = rom_dir / "CM32L_PCM.ROM"
+    if not link.exists() and "pcm_cm32l.rom" in roms:
+        link.symlink_to(roms["pcm_cm32l.rom"])

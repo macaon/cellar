@@ -435,8 +435,9 @@ class DosboxSettingsDialog(Adw.Dialog):
         return read_override(self._conf, section, key)
 
     def _set(self, section: str, key: str, value: str) -> None:
-        """Stage a change to be written on Save."""
+        """Write a change to disk immediately."""
         self._pending[(section, key)] = value
+        self._flush_pending()
 
     def _make_combo(
         self,
@@ -542,18 +543,14 @@ class DosboxSettingsDialog(Adw.Dialog):
     @staticmethod
     def _shared_soundfonts_dir() -> Path:
         """Return the shared central SoundFont directory."""
-        from cellar.backend.dosbox import dosbox_staging_dir
-        d = dosbox_staging_dir() / "soundfonts"
-        d.mkdir(parents=True, exist_ok=True)
-        return d
+        from cellar.backend.config import soundfonts_dir
+        return soundfonts_dir()
 
     @staticmethod
     def _shared_mt32_dir() -> Path:
         """Return the shared central MT-32 ROM directory."""
-        from cellar.backend.dosbox import dosbox_staging_dir
-        d = dosbox_staging_dir() / "mt32-roms"
-        d.mkdir(parents=True, exist_ok=True)
-        return d
+        from cellar.backend.config import mt32_roms_dir
+        return mt32_roms_dir()
 
     def _list_shared_soundfonts(self) -> list[Path]:
         """Return all SoundFont files in the shared library."""

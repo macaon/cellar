@@ -356,6 +356,8 @@ class SettingsDialog(Adw.PreferencesDialog):
             body=f"Moving installs to {new_dir}\u2026",
             extra_child=spinner,
         )
+        progress_dialog.add_response("cancel", "Cancel")
+        progress_dialog.set_close_response("cancel")
         progress_dialog.present(self)
 
         def _finish(_result: object) -> None:
@@ -363,9 +365,20 @@ class SettingsDialog(Adw.PreferencesDialog):
             if self._on_repos_changed:
                 self._on_repos_changed()
 
+        def _on_move_error(msg: str) -> None:
+            progress_dialog.close()
+            err = Adw.AlertDialog(
+                heading="Move Failed",
+                body=msg,
+            )
+            err.add_response("close", "Close")
+            err.set_close_response("close")
+            err.present(self)
+
         run_in_background(
             work=lambda: _move_install_data(old_dir, new_dir),
             on_done=_finish,
+            on_error=_on_move_error,
         )
 
     # ------------------------------------------------------------------

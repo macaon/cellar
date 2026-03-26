@@ -192,8 +192,6 @@ def _ensure_capsule_css() -> None:
         "}"
         ".capsule-name-label {"
         "  color: white;"
-        "  font-weight: bold;"
-        "  font-size: 14px;"
         "}"
     )
     Gtk.StyleContext.add_provider_for_display(
@@ -286,6 +284,7 @@ class CapsuleCard(Gtk.FlowBoxChild):
         name_box.set_visible(False)
 
         name_lbl = Gtk.Label(label=entry.name)
+        name_lbl.add_css_class("heading")
         name_lbl.add_css_class("capsule-name-label")
         name_lbl.set_halign(Gtk.Align.CENTER)
         name_lbl.set_ellipsize(Pango.EllipsizeMode.END)

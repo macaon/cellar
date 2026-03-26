@@ -109,7 +109,7 @@ class UpdateDialog(Adw.Dialog):
         # ── Warning ───────────────────────────────────────────────────────
         warn_group = Adw.PreferencesGroup()
         warn_row = Adw.ActionRow(
-            title="Data safety is not guaranteed",
+            title="Data Safety Is Not Guaranteed",
             subtitle=(
                 "Files written by the app to its own directory may be "
                 "overwritten if they were included in the original package. "

@@ -3753,7 +3753,7 @@ class PackageBuilderView(Adw.Bin):
         from cellar.backend.publish_queue import PublishJob
 
         dlg = Adw.AlertDialog(
-            heading="Keep project?",
+            heading="Keep Project?",
             body=(
                 "Do you want to keep the project in the builder for future "
                 "updates, or delete it after publishing?"
@@ -3934,7 +3934,7 @@ class PackageBuilderView(Adw.Bin):
     def _ask_keep_project(self, slug: str) -> None:
         """Ask the user whether to keep or delete the project after publishing."""
         dlg = Adw.AlertDialog(
-            heading="Keep project?",
+            heading="Keep Project?",
             body=(
                 "The project was published successfully."
                 " Do you want to keep it in the builder for future updates?"
@@ -5310,15 +5310,15 @@ class _CatalogueCard(BaseCard):
             edit_action = Gio.SimpleAction.new("edit", None)
             edit_action.connect("activate", lambda *_: on_edit(self))
             action_group.add_action(edit_action)
-            menu.append("Edit metadata", "card.edit")
+            menu.append("Edit Metadata", "card.edit")
         if on_change_base:
             cb_action = Gio.SimpleAction.new("change_base", None)
             cb_action.connect("activate", lambda *_: on_change_base(self))
             action_group.add_action(cb_action)
-            menu.append("Change base image\u2026", "card.change_base")
-        menu.append("Download for editing", "card.download")
+            menu.append("Change Base Image\u2026", "card.change_base")
+        menu.append("Download for Editing", "card.download")
         del_label = (
-            "Delete from catalogue" if not has_dependants else "Delete (base has dependants)"
+            "Delete from Catalogue" if not has_dependants else "Delete (Base Has Dependants)"
         )
         menu.append(del_label, "card.delete")
 

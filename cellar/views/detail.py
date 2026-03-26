@@ -1022,7 +1022,7 @@ class DetailView(Gtk.Box):
     def _ask_remove_runner_base(self, runner: str) -> None:
         """Ask the maintainer whether to keep or remove an orphaned runner/base."""
         dlg = Adw.AlertDialog(
-            heading="Keep runner and base image?",
+            heading="Keep Runner and Base Image?",
             body=(
                 f"No installed apps use \u201c{runner}\u201d anymore. "
                 "Keep it for future package building, or remove it to free disk space?"

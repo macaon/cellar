@@ -224,6 +224,15 @@ class CellarWindow(Adw.ApplicationWindow):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
+        self._settings = Gio.Settings(schema_id="io.github.cellar")
+        w = self._settings.get_int("window-width")
+        h = self._settings.get_int("window-height")
+        if w > 0 and h > 0:
+            self.set_default_size(w, h)
+        if self._settings.get_boolean("window-maximized"):
+            self.maximize()
+        self.connect("close-request", self._save_window_state)
+
         # Category/genre/platform check buttons in filter popover — rebuilt after catalogue load.
         self._category_btns: dict[str, Gtk.CheckButton] = {}
         self._active_categories: set[str] = set()
@@ -897,6 +906,14 @@ class CellarWindow(Adw.ApplicationWindow):
         self._transfers_dialog = dialog
         dialog.connect("closed", lambda _d: setattr(self, "_transfers_dialog", None))
         dialog.present(self)
+
+    def _save_window_state(self, _widget) -> bool:
+        self._settings.set_boolean("window-maximized", self.is_maximized())
+        if not self.is_maximized():
+            w, h = self.get_default_size()
+            self._settings.set_int("window-width", w)
+            self._settings.set_int("window-height", h)
+        return False
 
     def _on_preferences_activated(self, _action, _param) -> None:
         from cellar.views.settings import SettingsDialog

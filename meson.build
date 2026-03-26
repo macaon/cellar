@@ -1,5 +1,5 @@
 project('cellar',
-  version: '0.94.6',
+  version: '0.94.7',
   meson_version: '>= 1.0.0',
   license: 'GPL-3.0-or-later',
 )
@@ -19,6 +19,7 @@ subdir('cellar')
 subdir('data')
 
 gnome.post_install(
+  glib_compile_schemas: true,
   gtk_update_icon_cache: true,
   update_desktop_database: true,
 )

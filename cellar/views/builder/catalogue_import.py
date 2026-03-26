@@ -388,6 +388,7 @@ class CatalogueEntriesDialog(Adw.Dialog):
             log.error("Base import failed: %s", msg)
             err = Adw.AlertDialog(heading="Import failed", body=msg)
             err.add_response("close", "Close")
+            err.set_close_response("close")
             err.present(root)
 
         run_in_background(_work, on_done=_done, on_error=_error)
@@ -474,6 +475,7 @@ class CatalogueEntriesDialog(Adw.Dialog):
             log.error("Runner import failed: %s", msg)
             err = Adw.AlertDialog(heading="Import failed", body=msg)
             err.add_response("close", "Close")
+            err.set_close_response("close")
             err.present(root)
 
         run_in_background(_work, on_done=_done, on_error=_error)
@@ -669,6 +671,7 @@ class CatalogueEntriesDialog(Adw.Dialog):
             log.error("Import failed: %s", msg)
             err = Adw.AlertDialog(heading="Import failed", body=msg)
             err.add_response("close", "Close")
+            err.set_close_response("close")
             err.present(root)
 
         run_in_background(_work, on_done=_done, on_error=_error)
@@ -733,6 +736,7 @@ class CatalogueEntriesDialog(Adw.Dialog):
             log.error("Delete failed: %s", msg)
             err = Adw.AlertDialog(heading="Delete failed", body=msg)
             err.add_response("close", "Close")
+            err.set_close_response("close")
             err.present(self)
 
         run_in_background(_work, on_done=_done, on_error=_error)

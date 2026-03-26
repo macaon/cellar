@@ -169,6 +169,7 @@ class InstallRunnerDialog(Adw.Dialog):
         self._cancel_body_btn.set_sensitive(False)
         alert = Adw.AlertDialog(heading="Install Failed", body=message)
         alert.add_response("close", "Close")
+        alert.set_close_response("close")
         alert.connect("response", lambda _d, _r: self.close())
         alert.present(self)
 

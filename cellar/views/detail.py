@@ -1198,6 +1198,7 @@ class DetailView(Gtk.Box):
                     ),
                 )
                 dlg.add_response("close", "Close")
+                dlg.set_close_response("close")
                 dlg.present(self._dialog_parent())
                 return
             self._show_backup_file_chooser(prefix_path, len(all_files))
@@ -2653,6 +2654,7 @@ class InstallProgressDialog(Adw.Dialog):
         self._cancel_body_btn.set_sensitive(False)
         alert = Adw.AlertDialog(heading="Install Failed", body=message)
         alert.add_response("close", "Close")
+        alert.set_close_response("close")
         alert.connect("response", lambda _d, _r: self.close())
         alert.present(self)
 

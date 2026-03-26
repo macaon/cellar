@@ -337,6 +337,7 @@ def _launch_dos_installer(
             body=f"DOSBox installer encountered an error:\n{msg}",
         )
         err.add_response("close", "Close")
+        err.set_close_response("close")
         err.present(presenter)
 
     run_in_background(work=_work, on_done=_done, on_error=_error)
@@ -876,6 +877,7 @@ class PackageBuilderView(Adw.Bin):
             log.error("Import failed: %s", msg)
             err = Adw.AlertDialog(heading="Import failed", body=msg)
             err.add_response("close", "Close")
+            err.set_close_response("close")
             err.present(self)
 
         run_in_background(_work, on_done=_done, on_error=_error)
@@ -990,6 +992,7 @@ class PackageBuilderView(Adw.Bin):
             log.error("Base import failed: %s", msg)
             err = Adw.AlertDialog(heading="Import failed", body=msg)
             err.add_response("close", "Close")
+            err.set_close_response("close")
             err.present(self)
 
         run_in_background(_work, on_done=_done, on_error=_error)
@@ -1030,6 +1033,7 @@ class PackageBuilderView(Adw.Bin):
             log.error("Delete failed: %s", msg)
             err = Adw.AlertDialog(heading="Delete failed", body=msg)
             err.add_response("close", "Close")
+            err.set_close_response("close")
             err.present(self)
 
         run_in_background(_work, on_done=_done, on_error=_error)
@@ -1056,6 +1060,7 @@ class PackageBuilderView(Adw.Bin):
             log.error("Failed to load metadata for %s: %s", entry.id, msg)
             err = Adw.AlertDialog(heading="Could not load metadata", body=msg)
             err.add_response("close", "Close")
+            err.set_close_response("close")
             err.present(self)
 
         run_in_background(_fetch, on_done=_open, on_error=_error)
@@ -1077,6 +1082,7 @@ class PackageBuilderView(Adw.Bin):
                     body="This repository has no base images published.",
                 )
                 err.add_response("close", "Close")
+                err.set_close_response("close")
                 err.present(self)
                 return
             self._show_base_picker(full_entry, repo, bases)
@@ -1085,6 +1091,7 @@ class PackageBuilderView(Adw.Bin):
             log.error("Failed to load bases for %s: %s", entry.id, msg)
             err = Adw.AlertDialog(heading="Could not load bases", body=msg)
             err.add_response("close", "Close")
+            err.set_close_response("close")
             err.present(self)
 
         run_in_background(_fetch, on_done=_show, on_error=_error)
@@ -1159,6 +1166,7 @@ class PackageBuilderView(Adw.Bin):
                 apply_btn.set_sensitive(True)
                 err = Adw.AlertDialog(heading="Update failed", body=msg)
                 err.add_response("close", "Close")
+                err.set_close_response("close")
                 err.present(dlg)
 
             apply_btn.set_sensitive(False)
@@ -2773,6 +2781,7 @@ class PackageBuilderView(Adw.Bin):
             progress.force_close()
             err = Adw.AlertDialog(heading="Import Failed", body=str(msg))
             err.add_response("close", "Close")
+            err.set_close_response("close")
             err.present(self)
 
         run_in_background(_work, _done, _error)
@@ -2819,6 +2828,7 @@ class PackageBuilderView(Adw.Bin):
                 body=f"Could not import folder:\n{msg}",
             )
             err.add_response("close", "Close")
+            err.set_close_response("close")
             err.present(self)
 
         run_in_background(work=_work, on_done=_done, on_error=_error)
@@ -3911,6 +3921,7 @@ class PackageBuilderView(Adw.Bin):
                 return
             err = Adw.AlertDialog(heading="Failed", body=msg)
             err.add_response("close", "Close")
+            err.set_close_response("close")
             err.present(self)
 
         run_in_background(_work, on_done=_done, on_error=_error)
@@ -4276,6 +4287,7 @@ class PackageBuilderView(Adw.Bin):
                 body=f"Could not convert to DOS package:\n{msg}",
             )
             err.add_response("close", "Close")
+            err.set_close_response("close")
             err.present(self)
 
         run_in_background(work=_work, on_done=_done, on_error=_error)
@@ -4597,6 +4609,7 @@ class _NewProjectDialog(Adw.Dialog):
             msg = unsupported_reason(path)
             err = Adw.AlertDialog(heading="Cannot import", body=msg)
             err.add_response("close", "Close")
+            err.set_close_response("close")
             err.present(self)
             return
 
@@ -4619,6 +4632,7 @@ class _NewProjectDialog(Adw.Dialog):
             msg = unsupported_reason(path)
             err = Adw.AlertDialog(heading="Cannot import", body=msg)
             err.add_response("close", "Close")
+            err.set_close_response("close")
             err.present(self._parent_view)
             return
 
@@ -4701,6 +4715,7 @@ class _NewProjectDialog(Adw.Dialog):
                 body=PackageBuilderView._no_disc_images_body(disc_set),
             )
             err.add_response("close", "Close")
+            err.set_close_response("close")
             err.present(self._parent_view)
             return
 
@@ -4944,6 +4959,7 @@ class _NewProjectDialog(Adw.Dialog):
                 body=f"Could not extract GOG installer:\n{msg}",
             )
             err.add_response("close", "Close")
+            err.set_close_response("close")
             err.present(self._parent_view)
 
         run_in_background(work=_work, on_done=_done, on_error=_error)
@@ -4990,6 +5006,7 @@ class _NewProjectDialog(Adw.Dialog):
                 body=f"Could not import folder:\n{msg}",
             )
             err.add_response("close", "Close")
+            err.set_close_response("close")
             err.present(self._parent_view)
 
         run_in_background(work=_work, on_done=_done, on_error=_error)
@@ -5030,6 +5047,7 @@ class _NewProjectDialog(Adw.Dialog):
                 body=f"Could not convert DOSBox game:\n{msg}",
             )
             err.add_response("close", "Close")
+            err.set_close_response("close")
             err.present(self._parent_view)
 
         run_in_background(work=_work, on_done=_done, on_error=_error)
@@ -5129,6 +5147,7 @@ class _NewProjectDialog(Adw.Dialog):
                 body=f"Could not import disc images:\n{msg}",
             )
             err.add_response("close", "Close")
+            err.set_close_response("close")
             err.present(self._parent_view)
 
         run_in_background(work=_work, on_done=_done, on_error=_error)

@@ -440,6 +440,7 @@ class BasePickerDialog(Adw.Dialog):
             log.error("Base install failed: %s", msg)
             err = Adw.AlertDialog(heading="Install failed", body=msg)
             err.add_response("close", "Close")
+            err.set_close_response("close")
             err.present(parent_win)
 
         run_in_background(_work, on_done=_done, on_error=_error)

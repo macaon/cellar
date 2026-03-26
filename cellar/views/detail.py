@@ -769,13 +769,32 @@ class DetailView(Gtk.Box):
 
         game_dir = Path(install_folder)
 
-        def _convert() -> None:
+        def _convert() -> str:
+            import shutil
+
             from cellar.backend.scummvm_convert import convert_to_scummvm
+            from cellar.backend.umu import scummvm_dir
+
             convert_to_scummvm(game_dir, profile)
 
-        def _done(_result: object) -> None:
+            # Move from dos/ to scummvm/
+            dest = scummvm_dir() / entry.id
+            if dest != game_dir and not dest.exists():
+                shutil.move(str(game_dir), str(dest))
+                return str(dest)
+            return str(game_dir)
+
+        def _done(new_path: object) -> None:
             from cellar.backend import database
+
             database.update_engine(entry.id, "scummvm")
+            new_dir = Path(str(new_path))
+            if new_dir != game_dir:
+                database.update_app_location(
+                    entry.id,
+                    install_path=str(new_dir.parent),
+                    prefix_dir=new_dir.name,
+                )
             self._add_toast(f"Switched {entry.name} to ScummVM")
             self._rebuild_info_cards()
             self._refresh_gear_menu()
@@ -1643,8 +1662,11 @@ class DetailView(Gtk.Box):
             from cellar.backend.umu import native_dir
             p = native_dir() / self._entry.id
         elif self._entry.platform == "dos":
-            from cellar.backend.umu import dos_dir
-            p = dos_dir() / self._entry.id
+            # ScummVM-converted games live in scummvm/, others in dos/.
+            from cellar.backend.umu import dos_dir, scummvm_dir
+            p = scummvm_dir() / self._entry.id
+            if not p.is_dir():
+                p = dos_dir() / self._entry.id
         else:
             from cellar.backend.umu import prefixes_dir
             p = prefixes_dir() / self._entry.id

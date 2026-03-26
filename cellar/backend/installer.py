@@ -914,10 +914,13 @@ def install_dos_app(
     The caller is responsible for writing the DB record via
     ``database.mark_installed`` with ``platform="dos"``.
     """
-    from cellar.backend.umu import dos_dir  # noqa: PLC0415
+    from cellar.backend.umu import dos_dir, scummvm_dir  # noqa: PLC0415
     _check_cancel(cancel_event)
 
-    install_dest = dos_dir() / entry.id
+    if entry.engine == "scummvm":
+        install_dest = scummvm_dir() / entry.id
+    else:
+        install_dest = dos_dir() / entry.id
 
     # ── Steps 1-3: Stream, verify CRC32, extract directly ──────────────
     if phase_cb:

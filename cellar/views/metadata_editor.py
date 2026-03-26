@@ -1160,7 +1160,7 @@ class MetadataEditorDialog(Adw.Dialog):
     def _on_save_error(self, message: str) -> None:
         self._save_progress.force_close()
         alert = Adw.AlertDialog(heading="Save Failed", body=message)
-        alert.add_response("ok", "OK")
+        alert.add_response("close", "Close")
         alert.present(self)
 
     def _on_cancel_progress_clicked(self, _btn) -> None:

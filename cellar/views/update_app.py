@@ -264,6 +264,6 @@ class UpdateDialog(Adw.Dialog):
         self._stop_pulse()
         self._cancel_body_btn.set_sensitive(False)
         alert = Adw.AlertDialog(heading="Update Failed", body=message)
-        alert.add_response("ok", "OK")
+        alert.add_response("close", "Close")
         alert.connect("response", lambda _d, _r: self.close())
         alert.present(self)

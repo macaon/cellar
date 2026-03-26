@@ -1352,7 +1352,7 @@ class DetailView(Gtk.Box):
                         "installation. There is nothing to back up."
                     ),
                 )
-                dlg.add_response("ok", "OK")
+                dlg.add_response("close", "Close")
                 dlg.present(self._dialog_parent())
                 return
             self._show_backup_file_chooser(prefix_path, len(all_files))
@@ -2827,7 +2827,7 @@ class InstallProgressDialog(Adw.Dialog):
         self._stop_pulse()
         self._cancel_body_btn.set_sensitive(False)
         alert = Adw.AlertDialog(heading="Install Failed", body=message)
-        alert.add_response("ok", "OK")
+        alert.add_response("close", "Close")
         alert.connect("response", lambda _d, _r: self.close())
         alert.present(self)
 

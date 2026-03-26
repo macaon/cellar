@@ -1269,7 +1269,7 @@ class AddEditRepoDialog(Adw.Dialog):
 
     def _alert(self, heading: str, body: str) -> None:
         dialog = Adw.AlertDialog(heading=heading, body=body)
-        dialog.add_response("ok", "OK")
+        dialog.add_response("close", "Close")
         dialog.present(self)
 
 

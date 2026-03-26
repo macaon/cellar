@@ -42,7 +42,13 @@ class CellarApplication(Adw.Application):
         from gi.repository import Gdk, Gtk
 
         from cellar.utils.paths import icons_dir
+
         from cellar.window import CellarWindow
+
+        if not self.props.active_window:
+            quit_action = Gio.SimpleAction.new("quit", None)
+            quit_action.connect("activate", lambda *_: self.quit())
+            self.add_action(quit_action)
 
         display = Gdk.Display.get_default()
         if display:
@@ -176,6 +182,10 @@ class CellarApplication(Adw.Application):
             Gtk.StyleContext.add_provider_for_display(
                 display, css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
             )
+
+        self.set_accels_for_action("win.search", ["<Control>f"])
+        self.set_accels_for_action("win.close", ["<Control>w"])
+        self.set_accels_for_action("app.quit", ["<Control>q"])
 
         win = self.props.active_window
         if not win:

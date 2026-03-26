@@ -301,6 +301,18 @@ class CellarWindow(Adw.ApplicationWindow):
         self.transfers_button.connect("clicked", self._on_transfers_clicked)
         self._transfers_dialog = None
 
+        search_action = Gio.SimpleAction.new("search", None)
+        search_action.connect(
+            "activate", lambda *_: self.search_button.set_active(
+                not self.search_button.get_active()
+            ),
+        )
+        self.add_action(search_action)
+
+        close_action = Gio.SimpleAction.new("close", None)
+        close_action.connect("activate", lambda *_: self.close())
+        self.add_action(close_action)
+
         prefs_action = Gio.SimpleAction.new("preferences", None)
         prefs_action.connect("activate", self._on_preferences_activated)
         self.add_action(prefs_action)

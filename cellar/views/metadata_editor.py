@@ -649,7 +649,7 @@ class MetadataEditorDialog(Adw.Dialog):
         self._screenshots_dirty = False
         self._locally_installed = self._check_locally_installed()
         self._saved_result = None
-        self._auto_steam_query = auto_steam_query
+        self._auto_lookup_query = auto_steam_query
         self._auto_version = auto_version
 
         # Launch target state (used only when context.show_launch_settings)
@@ -666,7 +666,7 @@ class MetadataEditorDialog(Adw.Dialog):
 
         # Auto-open Steam picker after dialog is presented
         if auto_steam_query:
-            GLib.idle_add(self._auto_open_steam_picker)
+            GLib.idle_add(self._auto_open_game_picker)
 
     def _check_locally_installed(self) -> bool:
         if not isinstance(self._context, RepoContext):
@@ -787,8 +787,8 @@ class MetadataEditorDialog(Adw.Dialog):
             steam_btn = Gtk.Button(icon_name="system-search-symbolic")
             steam_btn.add_css_class("flat")
             steam_btn.set_valign(Gtk.Align.CENTER)
-            steam_btn.set_tooltip_text("Look up on Steam")
-            steam_btn.connect("clicked", self._on_steam_lookup)
+            steam_btn.set_tooltip_text("Look up game metadata")
+            steam_btn.connect("clicked", self._on_game_lookup)
             self._title_widget.add_suffix(steam_btn)
             self._locked_name = ""
         id_group.add(self._title_widget)
@@ -1194,29 +1194,29 @@ class MetadataEditorDialog(Adw.Dialog):
     def _on_screenshots_changed(self) -> None:
         self._screenshots_dirty = True
 
-    # ── Steam lookup ──────────────────────────────────────────────────────
+    # ── Game metadata lookup ─────────────────────────────────────────────
 
-    def _on_steam_lookup(self, _btn) -> None:
-        from cellar.views.steam_picker import SteamPickerDialog
+    def _on_game_lookup(self, _btn) -> None:
+        from cellar.views.game_picker import GamePickerDialog
         if isinstance(self._title_widget, Adw.EntryRow):
             query = self._title_widget.get_text().strip()
         else:
             query = self._locked_name
-        picker = SteamPickerDialog(query=query, on_picked=self._apply_steam_result)
+        picker = GamePickerDialog(query=query, on_picked=self._apply_lookup_result)
         picker.present(self.get_root())
 
-    def _auto_open_steam_picker(self) -> None:
-        """Open the Steam picker automatically with a pre-filled query (smart import)."""
-        from cellar.views.steam_picker import SteamPickerDialog
-        picker = SteamPickerDialog(
-            query=self._auto_steam_query,
-            on_picked=self._apply_steam_result,
+    def _auto_open_game_picker(self) -> None:
+        """Open the game picker automatically with a pre-filled query (smart import)."""
+        from cellar.views.game_picker import GamePickerDialog
+        picker = GamePickerDialog(
+            query=self._auto_lookup_query,
+            on_picked=self._apply_lookup_result,
         )
         picker.present(self.get_root())
-        self._auto_steam_query = ""  # only auto-open once
+        self._auto_lookup_query = ""  # only auto-open once
 
-    def _apply_steam_result(self, result: dict) -> None:
-        log.debug("Steam result: year=%r", result.get("year"))
+    def _apply_lookup_result(self, result: dict) -> None:
+        log.debug("Lookup result: source=%r year=%r", result.get("source"), result.get("year"))
         if result.get("name") and isinstance(self._title_widget, Adw.EntryRow):
             self._title_widget.set_text(result["name"])
         if result.get("developer"):
@@ -1232,15 +1232,26 @@ class MetadataEditorDialog(Adw.Dialog):
             self._genres_row.set_text(
                 ", ".join(genres) if isinstance(genres, list) else str(genres)
             )
-        if result.get("summary"):
-            self._summary_row.set_text(result["summary"])
-            self._desc_view.get_buffer().set_text(result["summary"])
+        summary = result.get("summary") or result.get("description") or ""
+        if summary:
+            self._summary_row.set_text(summary)
+            self._desc_view.get_buffer().set_text(summary)
         if result.get("steam_appid"):
             self._steam_row.set_text(str(result["steam_appid"]))
         if result.get("category") and result["category"] in self._cats:
             self._cat_row.set_selected(self._cats.index(result["category"]))
         if result.get("screenshots"):
             self._media.replace_steam_screenshots(result["screenshots"])
+        # Enable GOG download buttons when GOG images are available
+        gog_images = {}
+        if result.get("icon_image"):
+            gog_images["icon"] = result["icon_image"]
+        if result.get("header_image") and not result.get("steam_appid"):
+            gog_images["cover"] = result["header_image"]
+        if result.get("logo_image"):
+            gog_images["logo"] = result["logo_image"]
+        if gog_images:
+            self._media.set_gog_images(gog_images)
 
     # ── Description formatting ────────────────────────────────────────────
 

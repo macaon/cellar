@@ -50,6 +50,9 @@ class MediaPanel(Gtk.Box):
         self._orig_cover: str = ""
         self._orig_logo: str = ""
 
+        # GOG image URLs — set via set_gog_images(), cleared on set_steam_appid()
+        self._gog_images: dict[str, str] = {}  # slot -> URL
+
         self._build_ui()
 
     # ------------------------------------------------------------------
@@ -179,11 +182,11 @@ class MediaPanel(Gtk.Box):
             from cellar.backend.config import load_sgdb_key
             dl_btn = Gtk.Button(
                 icon_name="folder-download-symbolic",
-                tooltip_text="Download from Steam",
+                tooltip_text="Download image",
             )
             dl_btn.add_css_class("flat")
             dl_btn.set_valign(Gtk.Align.CENTER)
-            dl_btn.connect("clicked", lambda _b: self._on_steam_image_download(steam_slot))
+            dl_btn.connect("clicked", lambda _b, s=steam_slot: self._on_image_download(s))
             dl_btn.set_visible(bool(load_sgdb_key()))
             dl_btn.set_sensitive(False)
             row.add_suffix(dl_btn)
@@ -278,17 +281,75 @@ class MediaPanel(Gtk.Box):
         self._screenshot_grid.clear_steam()
         self._screenshot_grid.add_steam(screenshots)
 
+    def download_image_from_url(self, url: str, slot: str) -> None:
+        """Download an image URL and set it as *slot* (``"icon"`` or ``"cover"``)."""
+        current = getattr(self, f"_{slot}_path", "")
+        if not url or current:
+            return  # don't overwrite an existing image
+
+        from cellar.utils.async_work import run_in_background
+
+        def _work() -> str | None:
+            import tempfile
+            from pathlib import PurePosixPath
+            from cellar.utils.http import make_session
+            try:
+                r = make_session().get(url, timeout=20)
+                if not r.ok:
+                    return None
+                ext = PurePosixPath(url.split("?")[0]).suffix or ".jpg"
+                dest = tempfile.NamedTemporaryFile(suffix=ext, delete=False).name
+                with open(dest, "wb") as f:
+                    f.write(r.content)
+                return dest
+            except Exception:
+                return None
+
+        def _done(path: str | None) -> None:
+            if not path or getattr(self, f"_{slot}_path", ""):
+                return
+            display = self._convert_if_needed(path)
+            setattr(self, f"_{slot}_path", path)
+            row = getattr(self, f"_{slot}_row")
+            row.set_subtitle(GLib.markup_escape_text(Path(path).name))
+            getattr(self, f"_{slot}_clear_btn").set_visible(True)
+            thumb = getattr(self, f"_{slot}_thumb")
+            thumb.set_filename(display)
+            getattr(self, f"_{slot}_thumb_wrap").set_visible(True)
+
+        run_in_background(_work, on_done=_done)
+
     def select_steam_by_urls(self, urls: set[str]) -> None:
         self._screenshot_grid.select_steam_by_urls(urls)
 
     def set_steam_appid(self, appid: int | None, *, notify: bool = True) -> None:
         """Enable/disable Steam download buttons based on appid."""
         has_appid = appid is not None
-        for btn in self._steam_dl_btns:
-            btn.set_sensitive(has_appid)
         self._steam_appid = appid
         if has_appid:
+            self._gog_images = {}  # Steam takes precedence
+        self._update_dl_buttons()
+        if has_appid:
             self._fetch_steam_screenshots(appid, notify=notify)
+
+    def set_gog_images(self, images: dict[str, str]) -> None:
+        """Set GOG CDN image URLs for download buttons.
+
+        *images* maps slot names to URLs, e.g.
+        ``{"icon": "https://...", "cover": "https://...", "logo": "https://..."}``.
+        """
+        self._gog_images = {k: v for k, v in images.items() if v}
+        self._update_dl_buttons()
+
+    def _update_dl_buttons(self) -> None:
+        """Show and enable download buttons when any image source is available."""
+        has_steam = getattr(self, "_steam_appid", None) is not None
+        from cellar.backend.config import load_sgdb_key
+        has_sgdb = bool(load_sgdb_key())
+        has_gog = bool(self._gog_images)
+        for btn in self._steam_dl_btns:
+            btn.set_visible(has_sgdb or has_gog)
+            btn.set_sensitive(has_steam or has_gog)
 
     # ------------------------------------------------------------------
     # Public API — read back
@@ -461,6 +522,18 @@ class MediaPanel(Gtk.Box):
             "cover": self._cover_dl_btn,
             "logo": self._logo_dl_btn,
         }.get(slot)
+
+    def _on_image_download(self, slot: str) -> None:
+        """Dispatch download to GOG or Steam depending on what's available."""
+        gog_url = self._gog_images.get(slot)
+        if gog_url:
+            self._on_gog_image_download(slot, gog_url)
+        else:
+            self._on_steam_image_download(slot)
+
+    def _on_gog_image_download(self, slot: str, url: str) -> None:
+        """Download an image from a GOG CDN URL into *slot*."""
+        self.download_image_from_url(url, slot)
 
     def _on_steam_image_download(self, slot: str) -> None:
         appid = getattr(self, "_steam_appid", None)

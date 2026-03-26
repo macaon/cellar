@@ -1,11 +1,11 @@
-"""Steam game search picker dialog.
+"""Unified game metadata picker dialog.
 
-Presented from the metadata dialog when the user wants to look up game
-metadata from Steam.  Searches by title, shows results, fetches full
-appdetails on selection, and calls ``on_picked`` with the result dict.
+Searches multiple sources (Steam, Lutris, GOG DB) in parallel and
+presents results in a single list.  Each row shows the source so
+the user can pick the best metadata.
 
-Result dict keys: appid, name, year, developer, publisher, summary,
-description, category, steam_appid, header_image, screenshots.
+Result dict keys match :func:`cellar.backend.steam.fetch_details` so
+that existing consumers (``_apply_lookup_result``) work unchanged.
 """
 
 from __future__ import annotations
@@ -26,15 +26,15 @@ log = logging.getLogger(__name__)
 _DEBOUNCE_MS = 400
 
 
-class SteamPickerDialog(Adw.Dialog):
-    """Modal dialog for searching Steam and picking a result."""
+class GamePickerDialog(Adw.Dialog):
+    """Modal dialog for searching multiple game metadata sources."""
 
     def __init__(self, *, query: str = "", on_picked, **kwargs) -> None:
-        super().__init__(title="Search Steam", content_width=420, **kwargs)
+        super().__init__(title="Look Up Game", content_width=420, content_height=520, **kwargs)
         self._on_picked = on_picked
         self._debounce_id: int | None = None
         self._search_gen: int = 0
-        self._results: list[dict] = []  # list of {appid, name}
+        self._results: list = []  # list of SearchResult
         self._suppress_search_changed: bool = False
 
         self._build_ui()
@@ -155,9 +155,9 @@ class SteamPickerDialog(Adw.Dialog):
         gen = self._search_gen
         self._stack.set_visible_child_name("spinner")
 
-        def _work() -> list[dict]:
-            from cellar.backend.steam import fuzzy_search_games
-            return fuzzy_search_games(query)
+        def _work():
+            from cellar.backend.game_search import search_all
+            return search_all(query)
 
         run_in_background(
             work=_work,
@@ -165,7 +165,7 @@ class SteamPickerDialog(Adw.Dialog):
             on_error=self._show_error,
         )
 
-    def _on_results(self, gen: int, results: list[dict]) -> None:
+    def _on_results(self, gen: int, results: list) -> None:
         if gen != self._search_gen:
             return
 
@@ -181,8 +181,11 @@ class SteamPickerDialog(Adw.Dialog):
             return
 
         for result in results:
-            adw_row = Adw.ActionRow(title=GLib.markup_escape_text(result["name"]))
-            adw_row.set_subtitle(f"App ID {result['appid']}")
+            title = GLib.markup_escape_text(result.name)
+            if result.year:
+                title = f"{title}  ({result.year})"
+            adw_row = Adw.ActionRow(title=title)
+            adw_row.set_subtitle(result.subtitle)
             adw_row.set_activatable(True)
             self._listbox.append(adw_row)
 
@@ -200,14 +203,14 @@ class SteamPickerDialog(Adw.Dialog):
         idx = row.get_index()
         if not (0 <= idx < len(self._results)):
             return
-        appid = self._results[idx]["appid"]
+        result = self._results[idx]
         # Show spinner while fetching full details
         self._stack.set_visible_child_name("spinner")
         self._search_entry.set_sensitive(False)
 
         def _work() -> dict:
-            from cellar.backend.steam import fetch_details
-            return fetch_details(appid)
+            from cellar.backend.game_search import fetch_details
+            return fetch_details(result)
 
         def _on_fetch_error(msg: str) -> None:
             self._show_error(msg)

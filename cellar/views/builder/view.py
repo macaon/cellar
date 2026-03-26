@@ -1223,8 +1223,8 @@ class PackageBuilderView(Adw.Bin):
             _steam_btn = Gtk.Button(icon_name="system-search-symbolic")
             _steam_btn.add_css_class("flat")
             _steam_btn.set_valign(Gtk.Align.CENTER)
-            _steam_btn.set_tooltip_text("Look up on Steam")
-            _steam_btn.connect("clicked", self._on_meta_steam_lookup)
+            _steam_btn.set_tooltip_text("Look up game metadata")
+            _steam_btn.connect("clicked", self._on_meta_game_lookup)
             self._meta_name_row.add_suffix(_steam_btn)
 
             def _on_name_changed(row):
@@ -2207,17 +2207,17 @@ class PackageBuilderView(Adw.Bin):
     # Signal handlers — metadata
     # ------------------------------------------------------------------
 
-    def _on_meta_steam_lookup(self, _btn) -> None:
+    def _on_meta_game_lookup(self, _btn) -> None:
         if self._project is None:
             return
-        from cellar.views.steam_picker import SteamPickerDialog
+        from cellar.views.game_picker import GamePickerDialog
         query = self._project.name
         if hasattr(self, "_meta_name_row"):
             query = self._meta_name_row.get_text().strip() or query
-        picker = SteamPickerDialog(query=query, on_picked=self._apply_steam_to_meta)
+        picker = GamePickerDialog(query=query, on_picked=self._apply_lookup_to_meta)
         picker.present(self.get_root())
 
-    def _apply_steam_to_meta(self, result: dict) -> None:
+    def _apply_lookup_to_meta(self, result: dict) -> None:
         if self._project is None:
             return
         p = self._project
@@ -2229,10 +2229,11 @@ class PackageBuilderView(Adw.Bin):
             p.publisher = result["publisher"]
         if result.get("year") and not p.release_year:
             p.release_year = result["year"]
-        if result.get("summary") and not p.summary:
-            p.summary = result["summary"]
-        if result.get("summary") and not p.description:
-            p.description = result["summary"]
+        _text = result.get("summary") or result.get("description") or ""
+        if _text and not p.summary:
+            p.summary = _text
+        if _text and not p.description:
+            p.description = _text
         if result.get("steam_appid") and p.steam_appid is None:
             p.steam_appid = result["steam_appid"]
         if result.get("website") and not p.website:
@@ -3441,10 +3442,26 @@ class PackageBuilderView(Adw.Bin):
         else:
             content_path = project.content_path
             platform = "windows"
+        cdtree: Path | None = None
+        if platform == "dos":
+            # cdtree.txt lives at content root (next to hdd/ and cd/).
+            for name in ("cdtree.txt", "CDTREE.TXT"):
+                candidate = project.content_path / name
+                if candidate.is_file():
+                    cdtree = candidate
+                    break
+            # Legacy: older projects may have it inside hdd/.
+            if cdtree is None:
+                for name in ("cdtree.txt", "CDTREE.TXT"):
+                    candidate = project.content_path / "hdd" / name
+                    if candidate.is_file():
+                        cdtree = candidate
+                        break
         dialog = AddLaunchTargetDialog(
             content_path=content_path,
             platform=platform,
             on_added=lambda ep: self._on_entry_point_added(project, ep),
+            cdtree_path=cdtree,
         )
         dialog.present(self)
 

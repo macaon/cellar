@@ -259,7 +259,9 @@ class ScreenshotGridWidget(Gtk.Box):
             url = item.thumb_url
             if not url:
                 continue
-            dest = tmp / f"steam_{id(item)}.jpg"
+            from pathlib import PurePosixPath
+            ext = PurePosixPath(url.split("?")[0]).suffix or ".jpg"
+            dest = tmp / f"thumb_{id(item)}{ext}"
 
             def _work(url=url, dest=dest) -> str | None:
                 from cellar.utils.http import make_session
@@ -285,7 +287,14 @@ class ScreenshotGridWidget(Gtk.Box):
             if getattr(child, "_ss_item", None) is item:
                 pic = getattr(child, "_ss_picture", None)
                 if pic and item.display_path:
-                    pic.set_filename(item.display_path)
+                    # Use set_paintable with an explicit Texture — set_filename
+                    # does not reliably trigger a redraw for all image formats.
+                    from gi.repository import Gdk
+                    try:
+                        texture = Gdk.Texture.new_from_filename(item.display_path)
+                        pic.set_paintable(texture)
+                    except Exception:
+                        pic.set_filename(item.display_path)
                 break
             child = child.get_next_sibling()
 

@@ -10,7 +10,7 @@ python_sources = files(
   'launch_targets_group.py',
   'settings.py',
   'screenshot_grid.py',
-  'steam_picker.py',
+  'game_picker.py',
   'update_app.py',
   'user_data_group.py',
   'widgets.py',

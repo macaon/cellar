@@ -1657,12 +1657,6 @@ class PackageBuilderView(Adw.Bin):
             if _is_scummvm:
                 scummvm_group = Adw.PreferencesGroup(title="ScummVM")
 
-                scummvm_id_row = Adw.ActionRow(
-                    title="Game ID",
-                    subtitle=project.scummvm_id or "detected at runtime",
-                )
-                scummvm_group.add(scummvm_id_row)
-
                 if project.source_dir:
                     _scummvm_settings_row = Adw.ActionRow(
                         title="ScummVM Settings",

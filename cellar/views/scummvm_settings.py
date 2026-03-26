@@ -131,8 +131,6 @@ class ScummvmSettingsDialog(Adw.Dialog):
         self._user_data_cbs = user_data_callbacks or {}
         self._on_saved = on_saved
         self._conf_path = config_dir / "scummvm.ini"
-        self._targets_group = None
-
         # Load current config
         self._config = configparser.ConfigParser()
         self._config.optionxform = str
@@ -218,7 +216,6 @@ class ScummvmSettingsDialog(Adw.Dialog):
         scroll = Gtk.ScrolledWindow(vscrollbar_policy=Gtk.PolicyType.AUTOMATIC)
         page = Adw.PreferencesPage()
 
-        self._build_launch_targets_group(page)
         self._build_user_data_group(page)
         self._build_game_group(page)
         self._build_graphics_group(page)
@@ -229,18 +226,6 @@ class ScummvmSettingsDialog(Adw.Dialog):
         scroll.set_child(page)
         toolbar.set_content(scroll)
         self.set_child(toolbar)
-
-    # ── Launch Targets ─────────────────────────────────────────────────
-
-    def _build_launch_targets_group(self, page: Adw.PreferencesPage) -> None:
-        if self._entry is None:
-            return
-        from cellar.backend import database
-        from cellar.views.launch_targets_group import LaunchTargetsGroup
-
-        overrides = database.get_launch_overrides(self._entry.id)
-        self._targets_group = LaunchTargetsGroup(self._entry, overrides)
-        page.add(self._targets_group.widget)
 
     # ── Game ──────────────────────────────────────────────────────────
 
@@ -714,27 +699,6 @@ class ScummvmSettingsDialog(Adw.Dialog):
 
     def _on_save_clicked(self, _btn) -> None:
         # Config is already on disk (flushed on each change).
-        # Save launch target overrides (DB-backed, not INI).
-        self._save_launch_targets()
-
         self.close()
         if self._on_saved:
             self._on_saved()
-
-    def _save_launch_targets(self) -> None:
-        if self._entry is None or self._targets_group is None:
-            return
-        from cellar.backend import database
-
-        catalogue_targets = [dict(t) for t in self._entry.launch_targets]
-        if self._targets_group.has_changes(catalogue_targets):
-            overrides = database.get_launch_overrides(self._entry.id)
-            overrides["launch_targets"] = self._targets_group.get_targets()
-            database.set_launch_overrides(self._entry.id, overrides)
-        else:
-            overrides = database.get_launch_overrides(self._entry.id)
-            overrides.pop("launch_targets", None)
-            if overrides:
-                database.set_launch_overrides(self._entry.id, overrides)
-            else:
-                database.clear_launch_overrides(self._entry.id)

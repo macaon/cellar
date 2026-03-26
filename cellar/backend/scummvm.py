@@ -63,6 +63,69 @@ def is_scummvm_available() -> bool:
     return find_scummvm() is not None
 
 
+def detect_engineid(data_dir: Path, scummvm_id: str) -> str:
+    """Auto-detect the ScummVM engine ID for the game data in *data_dir*.
+
+    Runs ``scummvm --detect -p <data_dir>`` and parses the output for
+    the engine ID.  Returns the engine ID string, or empty string on
+    failure.
+    """
+    method = find_scummvm()
+    if method is None:
+        return ""
+
+    if method == "flatpak":
+        from cellar.backend.config import data_dir as cellar_data_dir
+        cmd = [
+            "flatpak", "run",
+            f"--filesystem={data_dir}",
+            f"--filesystem={cellar_data_dir()}",
+            _FLATPAK_ID,
+        ]
+    else:
+        cmd = ["scummvm"]
+
+    cmd += ["--detect", "-p", str(data_dir)]
+
+    from cellar.backend.umu import is_cellar_sandboxed
+    if is_cellar_sandboxed():
+        cmd = ["flatpak-spawn", "--host"] + cmd
+
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=30,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
+        log.warning("ScummVM --detect failed: %s", exc)
+        return ""
+
+    # Parse output lines for the game ID.  ScummVM --detect output format:
+    #   GameID           Description
+    #   ---------------- -----------
+    #   engine:gameid    Game Name
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        if not line or line.startswith("GameID") or line.startswith("---"):
+            continue
+        parts = line.split(None, 1)
+        if not parts:
+            continue
+        detected_id = parts[0]
+        # Format is "engine:gameid" or just "gameid"
+        if ":" in detected_id:
+            engine, gid = detected_id.split(":", 1)
+            if gid == scummvm_id:
+                log.info("Detected engine ID %r for %s", engine, scummvm_id)
+                return engine
+        elif detected_id == scummvm_id:
+            # No engine prefix — engine ID equals game ID
+            log.info("Detected engine ID %r for %s", detected_id, scummvm_id)
+            return detected_id
+
+    log.warning("Could not detect engine ID for %s in %s", scummvm_id, data_dir)
+    return ""
+
+
 # ---------------------------------------------------------------------------
 # Launch command building
 # ---------------------------------------------------------------------------
@@ -70,8 +133,14 @@ def is_scummvm_available() -> bool:
 def _build_scummvm_cmd(
     game_dir: Path,
     scummvm_id: str,
+    *,
+    for_host: bool = False,
 ) -> list[str]:
-    """Build the ScummVM command list."""
+    """Build the ScummVM command list.
+
+    *for_host* skips the ``flatpak-spawn --host`` wrapper — used when
+    building Exec lines for ``.desktop`` entries that run on the host.
+    """
     from cellar.backend.config import data_dir as cellar_data_dir
     from cellar.backend.umu import is_cellar_sandboxed
 
@@ -93,12 +162,12 @@ def _build_scummvm_cmd(
 
     if conf_path.is_file():
         cmd += ["-c", str(conf_path)]
-    else:
-        cmd += ["-p", str(data_dir)]
+    cmd += ["-p", str(data_dir)]
+    cmd += ["--savepath=" + str(game_dir / "saves")]
 
     cmd.append(scummvm_id)
 
-    if is_cellar_sandboxed():
+    if not for_host and is_cellar_sandboxed():
         cmd = ["flatpak-spawn", "--host"] + cmd
 
     return cmd
@@ -122,7 +191,7 @@ def build_scummvm_exec_line(
 ) -> str:
     """Return a shell-escaped Exec string for a ``.desktop`` entry."""
     return " ".join(shlex.quote(a) for a in _build_scummvm_cmd(
-        game_dir, scummvm_id,
+        game_dir, scummvm_id, for_host=True,
     ))
 
 
@@ -155,7 +224,12 @@ def write_scummvm_conf(
     if not config.has_section(scummvm_id):
         config.add_section(scummvm_id)
     config.set(scummvm_id, "gameid", scummvm_id)
-    config.set(scummvm_id, "path", str(game_dir / "data"))
+    # Auto-detect engine ID from ScummVM.
+    engineid = detect_engineid(game_dir / "data", scummvm_id)
+    if engineid:
+        config.set(scummvm_id, "engineid", engineid)
+    # path is resolved at launch time via -p; never bake absolute paths.
+    config.remove_option(scummvm_id, "path")
 
     # Apply any profile settings
     if settings:

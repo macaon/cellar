@@ -1670,8 +1670,8 @@ class DetailView(Gtk.Box):
             target=target,
             target_idx=target_idx,
         )
-        if self._entry.platform in ("linux", "dos") and install_folder:
-            kwargs["install_path"] = str(Path(install_folder).parent)
+        if install_folder:
+            kwargs["install_dir"] = install_folder
         try:
             create_desktop_entry(**kwargs)
         except Exception as exc:

@@ -30,6 +30,20 @@ _CATEGORY_MAP: dict[str, str] = {
 }
 
 
+def _desktop_quote(s: str) -> str:
+    """Quote a string for use as a ``.desktop`` Exec argument.
+
+    GLib's ``g_shell_parse_argv()`` parses the Exec value.  Arguments
+    containing spaces or special characters must be enclosed in double
+    quotes, with ``"``, ``$``, `` ` ``, and ``\\`` escaped inside.
+    """
+    special = frozenset('" $ ` \\ \t\n'.split() + [' '])
+    if not any(ch in special for ch in s):
+        return s
+    escaped = s.replace('\\', '\\\\').replace('"', '\\"').replace('$', '\\$').replace('`', '\\`')
+    return f'"{escaped}"'
+
+
 def desktop_entry_path(app_id: str, target_idx: int = 0) -> Path:
     if target_idx == 0:
         return _APPS_DIR / f"cellar-{app_id}.desktop"
@@ -109,19 +123,20 @@ def _refresh_desktop_db() -> None:
 def create_desktop_entry(
     entry,               # AppEntry — avoid circular import at module level
     icon_source: str | None = None,
-    install_path: str = "",
+    install_dir: str = "",
     target: dict | None = None,
     target_idx: int = 0,
+    # Legacy alias — callers that still pass install_path= keep working.
+    install_path: str = "",
 ) -> None:
     """Write a .desktop entry for *entry* to ~/.local/share/applications.
 
-    For Windows apps: launches via umu-run with the correct prefix and runner.
-    For Linux native apps: *install_path* is the base directory and the Exec
-    line runs the entry_point directly.
-
+    *install_dir* is the resolved game directory (e.g. from ``_get_install_folder``).
     *target* overrides the entry's primary launch target (entry_point / launch_args).
     *target_idx* selects the .desktop filename suffix (0 = primary, no suffix).
     """
+    # Accept legacy install_path (parent dir) but prefer install_dir (full path).
+    _install_dir = install_dir or install_path
     _APPS_DIR.mkdir(parents=True, exist_ok=True)
 
     # Icon — absolute path with CRC32 suffix busts GNOME Shell's icon cache.
@@ -146,11 +161,26 @@ def create_desktop_entry(
     if target_name and target_idx > 0:
         desktop_name = f"{entry.name} \u2014 {target_name}"
 
-    # Exec — branch on platform
+    # Resolve the actual game directory from the DB-backed install_path
+    # (which reflects moves) or fall back to the default platform directory.
     platform = getattr(entry, "platform", "windows")
+
+    def _resolve_game_dir() -> Path:
+        if _install_dir:
+            return Path(_install_dir)
+        if platform == "dos":
+            from cellar.backend.umu import dos_dir
+            return dos_dir() / entry.id
+        if platform == "linux":
+            from cellar.backend.umu import native_dir
+            return native_dir() / entry.id
+        from cellar.backend.umu import prefixes_dir
+        return prefixes_dir() / entry.id
+
+    game_dir = _resolve_game_dir()
+
+    # Exec — branch on platform
     if platform == "dos":
-        from cellar.backend.umu import dos_dir
-        game_dir = dos_dir() / entry.id
         engine = getattr(entry, "effective_engine", "dosbox")
         if engine == "scummvm":
             from cellar.backend.scummvm import build_scummvm_exec_line, read_scummvm_id
@@ -162,9 +192,8 @@ def create_desktop_entry(
         comment = (entry.summary or f"Launch {entry.name}.").replace("\n", " ")
     elif platform == "linux":
         if exe_path:
-            from cellar.backend.umu import native_dir
-            exe = native_dir() / entry.id / exe_path
-            exec_line = f'"{exe}"'
+            exe = game_dir / exe_path
+            exec_line = _desktop_quote(str(exe))
             if launch_args:
                 exec_line += f" {launch_args}"
         else:
@@ -175,7 +204,6 @@ def create_desktop_entry(
         # is available regardless of how the shortcut is invoked.
         from cellar.backend.umu import (  # noqa: PLC0415
             _umu_data_env,
-            prefixes_dir,
             runners_dir,
         )
 
@@ -192,20 +220,18 @@ def create_desktop_entry(
         except Exception:  # noqa: BLE001
             pass
 
-        prefix = str(prefixes_dir() / entry.id)
+        prefix = str(game_dir)
         proton = str(runners_dir() / runner_name) if runner_name else ""
 
-        # Escape backslashes so GLib's shell parser (\\→\) preserves Windows paths.
-        exe_escaped = exe_path.replace("\\", "\\\\")
-        exe_arg = f' "{exe_escaped}"' if exe_escaped else ""
+        exe_arg = f" {_desktop_quote(exe_path)}" if exe_path else ""
         args_str = f" {launch_args}" if launch_args else ""
 
         umu_data = _umu_data_env()
         env_parts = (
-            f'--env=WINEPREFIX="{prefix}"'
-            + (f' --env=PROTONPATH="{proton}"' if proton else "")
-            + f' --env=GAMEID="{gameid}"'
-            + f' --env=UMU_FOLDERS_PATH="{umu_data["UMU_FOLDERS_PATH"]}"'
+            f"--env=WINEPREFIX={_desktop_quote(prefix)}"
+            + (f" --env=PROTONPATH={_desktop_quote(proton)}" if proton else "")
+            + f" --env=GAMEID={_desktop_quote(gameid)}"
+            + f" --env=UMU_FOLDERS_PATH={_desktop_quote(umu_data['UMU_FOLDERS_PATH'])}"
         )
         exec_line = (
             f"flatpak run --command=umu-run {env_parts} io.github.cellar{exe_arg}{args_str}"
@@ -214,21 +240,18 @@ def create_desktop_entry(
 
     # Categories
     xdg_cat = _CATEGORY_MAP.get(entry.category or "", "")
-    categories = f"Application;{xdg_cat};" if xdg_cat else "Application;"
+    categories = f"{xdg_cat};" if xdg_cat else "Game;"
 
-    # Resolve the executable's directory for Path= (working directory).
-    # Windows apps: convert the Windows-style entry point to a Linux path.
+    # Working directory for Path=.
     work_dir = ""
     if platform == "windows" and exe_path:
-        from cellar.backend.umu import _win_to_linux_path, prefixes_dir  # noqa: PLC0415
-        linux_exe = _win_to_linux_path(exe_path, str(prefixes_dir() / entry.id))
+        from cellar.backend.umu import _win_to_linux_path  # noqa: PLC0415
+        linux_exe = _win_to_linux_path(exe_path, str(game_dir))
         work_dir = str(Path(linux_exe).parent)
     elif platform == "linux" and exe_path:
-        from cellar.backend.umu import native_dir  # noqa: PLC0415
-        work_dir = str((native_dir() / entry.id / exe_path).parent)
-    elif platform == "dos" and exe_path:
-        from cellar.backend.umu import dos_dir  # noqa: PLC0415
-        work_dir = str(dos_dir() / entry.id)
+        work_dir = str((game_dir / exe_path).parent)
+    elif platform == "dos":
+        work_dir = str(game_dir)
 
     lines = [
         "[Desktop Entry]",

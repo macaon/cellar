@@ -115,6 +115,7 @@ def convert_to_scummvm(
 
     data_dir = game_dir / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
+    (game_dir / "saves").mkdir(parents=True, exist_ok=True)
 
     # Step 1a: Copy files found on hdd directly
     cd_needed: list[str] = []

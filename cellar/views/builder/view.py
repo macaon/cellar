@@ -1529,6 +1529,19 @@ class PackageBuilderView(Adw.Bin):
                 prompt_row.add_suffix(prompt_btn)
                 dos_group.add(prompt_row)
 
+                if project.disc_images:
+                    self._include_cd_row = Adw.SwitchRow(
+                        title="Include CD Images in Package",
+                        subtitle="Disable if the game doesn't need the CD after installation",
+                        active=project.include_cd,
+                    )
+                    self._include_cd_row.connect(
+                        "notify::active", self._on_launch_opt_toggled, "include_cd",
+                    )
+                    dos_group.add(self._include_cd_row)
+                else:
+                    self._include_cd_row = None
+
                 page.add(dos_group)
 
             targets_group = Adw.PreferencesGroup(title="Launch Targets")
@@ -3578,7 +3591,10 @@ class PackageBuilderView(Adw.Bin):
             if not dosbox_bin.is_file():
                 self._show_toast("DOSBox Staging binary not found. Re-convert the project.")
                 return
-            cmd, _ = build_dos_launch_cmd(game_dir, entry_path, entry_args)
+            cmd, _ = build_dos_launch_cmd(
+                game_dir, entry_path, entry_args,
+                skip_cd=not project.include_cd,
+            )
             subprocess.Popen(cmd, cwd=str(game_dir), start_new_session=True)
             return
         if project.project_type == "linux":

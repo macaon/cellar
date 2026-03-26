@@ -708,6 +708,9 @@ def run_dos_installer(
         "-c", "@echo off",
     ]
 
+    # MT-32 ROM directory — set at runtime via config command
+    cmd += _midi_config_args(content_dir)
+
     # Mount CD images (all on D: for disc-swap via Ctrl+F4)
     if disc_images:
         img_args = " ".join(
@@ -793,6 +796,8 @@ def _build_dos_cmd(
     game_dir: Path,
     entry_path: str,
     entry_args: str,
+    *,
+    skip_cd: bool = False,
 ) -> list[str]:
     """Build the raw DOSBox command list (no sandbox wrapper)."""
     dosbox_bin = game_dir / "dosbox" / "dosbox"
@@ -805,26 +810,30 @@ def _build_dos_cmd(
         "-c", "@echo off",
     ]
 
-    # Mount CD images if present
-    cd_dir = game_dir / "cd"
-    if cd_dir.is_dir():
-        cd_images = sorted(
-            p for p in cd_dir.iterdir()
-            if p.suffix.lower() in {".iso", ".cue"}
-        )
-        if cd_images:
-            img_args = " ".join(f'"cd/{p.name}"' for p in cd_images)
-            cmd += ["-c", f"imgmount D {img_args} -t cdrom"]
+    # MIDI config — paths resolved dynamically at launch time
+    cmd += _midi_config_args(game_dir)
+
+    # Mount CD images if present (and not skipped)
+    if not skip_cd:
+        cd_dir = game_dir / "cd"
+        if cd_dir.is_dir():
+            cd_images = sorted(
+                p for p in cd_dir.iterdir()
+                if p.suffix.lower() in {".iso", ".cue"}
+            )
+            if cd_images:
+                img_args = " ".join(f'"{p}"' for p in cd_images)
+                cmd += ["-c", f"imgmount D {img_args} -t cdrom"]
 
     # Mount C: drive
-    use_hdd = (game_dir / "hdd").is_dir()
-    if use_hdd:
-        cmd += ["-c", 'mount C "hdd"']
+    hdd_dir = game_dir / "hdd"
+    if hdd_dir.is_dir():
+        cmd += ["-c", f'mount C "{hdd_dir}"']
     else:
-        cmd += ["-c", 'mount C "."']
+        cmd += ["-c", f'mount C "{game_dir}"']
     cmd += ["-c", "C:"]
 
-    # NoUniVBE (must run before the game)
+    # NoUniVBE (must run before the game — lives inside the mounted C: drive)
     nounivbe = game_dir / "nounivbe" / "NOUNIVBE.EXE"
     if nounivbe.is_file():
         cmd += ["-c", "nounivbe\\NOUNIVBE.EXE"]
@@ -848,10 +857,116 @@ def _build_dos_cmd(
     return cmd
 
 
+def _midi_settings_path(config_dir: Path) -> Path:
+    """Return the path to ``midi-settings.json`` in the config directory."""
+    return config_dir / "midi-settings.json"
+
+
+def read_midi_settings(config_dir: Path) -> dict:
+    """Read MIDI settings from ``midi-settings.json``.
+
+    Returns a dict with optional keys: ``device``, ``model``.
+    Missing file or keys means "use DOSBox defaults".
+    """
+    p = _midi_settings_path(config_dir)
+    if p.is_file():
+        try:
+            return json.loads(p.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {}
+
+
+def write_midi_settings(config_dir: Path, settings: dict) -> None:
+    """Write MIDI settings to ``midi-settings.json``."""
+    p = _midi_settings_path(config_dir)
+    config_dir.mkdir(parents=True, exist_ok=True)
+    p.write_text(
+        json.dumps(settings, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _midi_config_args(game_dir: Path) -> list[str]:
+    """Return ``-c 'config -set …'`` args to configure MIDI at launch.
+
+    Reads ``midi-settings.json`` to determine which MIDI device the user
+    selected, then injects runtime ``config -set`` commands with the
+    correct paths and initialisation order.
+
+    Order matters: paths (romdir / soundfont) and model must be set
+    *before* mididevice, because ``config -set midi mididevice=…``
+    triggers device initialisation using whatever settings are active
+    at that point.
+    """
+    settings = read_midi_settings(game_dir / "config")
+    device = settings.get("device", "").lower()
+
+    if device == "mt32":
+        return _mt32_args(game_dir, settings)
+    if device == "fluidsynth":
+        return _fluidsynth_args(game_dir, settings)
+    return []
+
+
+def _mt32_args(game_dir: Path, settings: dict) -> list[str]:
+    from cellar.backend.config import mt32_roms_dir
+
+    shared = mt32_roms_dir()
+    if not any(shared.glob("*.rom")):
+        return []
+
+    args: list[str] = [
+        "-c", f"config -set mt32 romdir={shared}",
+    ]
+
+    model = settings.get("model", "")
+    if model:
+        args += ["-c", f"config -set mt32 model={model}"]
+
+    # Set mididevice last — this triggers MT-32 initialisation
+    args += ["-c", "config -set midi mididevice=mt32"]
+    return args
+
+
+def _fluidsynth_args(game_dir: Path, settings: dict) -> list[str]:
+    sf_name = settings.get("soundfont", "")
+
+    # Check for project-bundled soundfont first
+    if sf_name:
+        bundled = game_dir / "assets" / "soundfonts" / sf_name
+        if bundled.is_file():
+            return [
+                "-c", f"config -set fluidsynth soundfont={bundled}",
+                "-c", "config -set midi mididevice=fluidsynth",
+            ]
+
+    # Fall back to shared soundfont directory
+    from cellar.backend.config import soundfonts_dir
+
+    shared = soundfonts_dir()
+    if sf_name:
+        sf_file = shared / sf_name
+        if not sf_file.is_file():
+            return []
+    else:
+        sfs = sorted(shared.glob("*.sf[23]"))
+        if not sfs:
+            return []
+        sf_file = sfs[0]
+
+    return [
+        "-c", f"config -set fluidsynth soundfont={sf_file}",
+        "-c", "config -set midi mididevice=fluidsynth",
+    ]
+
+
 def build_dos_launch_cmd(
     game_dir: Path,
     entry_path: str,
     entry_args: str,
+    *,
+    skip_cd: bool = False,
 ) -> tuple[list[str], None]:
     """Build the DOSBox Staging command line for launching a DOS game.
 
@@ -863,7 +978,7 @@ def build_dos_launch_cmd(
     """
     from cellar.backend.umu import is_cellar_sandboxed
 
-    cmd = _build_dos_cmd(game_dir, entry_path, entry_args)
+    cmd = _build_dos_cmd(game_dir, entry_path, entry_args, skip_cd=skip_cd)
 
     if is_cellar_sandboxed():
         cmd = ["flatpak-spawn", "--host"] + cmd
@@ -872,12 +987,24 @@ def build_dos_launch_cmd(
 
 
 def build_dos_exec_line(game_dir: Path, entry_path: str, entry_args: str) -> str:
-    """Return a shell-escaped Exec string for a ``.desktop`` entry."""
+    """Return an Exec string for a ``.desktop`` entry.
+
+    DOSBox commands with nested quotes can't be represented in a
+    ``.desktop`` Exec field (GLib's parser doesn't support it).
+    Instead, write a shell launcher script and point Exec at it.
+    """
     import shlex
 
-    return " ".join(shlex.quote(a) for a in _build_dos_cmd(
-        game_dir, entry_path, entry_args,
-    ))
+    cmd = _build_dos_cmd(game_dir, entry_path, entry_args)
+    script = game_dir / "launch.sh"
+    script.write_text(
+        "#!/bin/sh\n"
+        + " ".join(shlex.quote(a) for a in cmd)
+        + "\n",
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+    return str(script)
 
 
 # ---------------------------------------------------------------------------
@@ -1040,79 +1167,31 @@ def update_audio_config(
     has_soundfont: bool,
     has_mt32: bool,
 ) -> None:
-    """Rewrite MIDI/FluidSynth/MT-32 sections in a DOSBox overrides conf.
+    """Update MIDI settings based on the current audio asset state.
 
-    Strips existing audio config lines and re-adds them based on the
-    current asset state.  Inserts new sections before ``[autoexec]``.
+    Writes to ``midi-settings.json`` in the config directory.  MIDI
+    settings are applied at launch time via ``-c 'config -set …'``
+    commands — they are never written to the DOSBox conf.
     """
-    if not overrides_path.is_file():
-        return
-
-    text = overrides_path.read_text(encoding="utf-8")
-    lines = text.splitlines()
-    new_lines: list[str] = []
-
-    in_section = ""
-
-    # Strip existing audio config lines — we'll re-add them
-    for line in lines:
-        stripped = line.strip().lower()
-        if stripped.startswith("[") and stripped.endswith("]"):
-            in_section = stripped[1:-1]
-
-        # Remove existing midi/fluidsynth/mt32 lines we manage
-        if in_section == "midi" and stripped.startswith("mididevice"):
-            continue
-        if in_section == "fluidsynth" and stripped.startswith("soundfont"):
-            continue
-        if in_section == "mt32" and stripped.startswith("romdir"):
-            continue
-        # Remove section headers for sections we manage
-        if stripped in ("[fluidsynth]", "[mt32]", "[midi]"):
-            continue
-
-        new_lines.append(line)
-
-    # Remove trailing blank lines
-    while new_lines and not new_lines[-1].strip():
-        new_lines.pop()
-
-    # Add audio config before [autoexec] if present
-    autoexec_idx = None
-    for i, line in enumerate(new_lines):
-        if line.strip().lower() == "[autoexec]":
-            autoexec_idx = i
-            break
-
-    audio_lines: list[str] = []
+    config_dir = overrides_path.parent
 
     if has_soundfont:
         sf_dir = assets_dir / "soundfonts"
         sfs = sorted(sf_dir.glob("*.sf[23]")) if sf_dir.is_dir() else []
         if sfs:
-            audio_lines.append("")
-            audio_lines.append("[midi]")
-            audio_lines.append("mididevice = fluidsynth")
-            audio_lines.append("")
-            audio_lines.append("[fluidsynth]")
-            audio_lines.append(f"soundfont = assets/soundfonts/{sfs[0].name}")
-    elif has_mt32:
-        audio_lines.append("")
-        audio_lines.append("[midi]")
-        audio_lines.append("mididevice = mt32")
-        audio_lines.append("")
-        audio_lines.append("[mt32]")
-        audio_lines.append("romdir = assets/mt32-roms")
+            write_midi_settings(config_dir, {
+                "device": "fluidsynth",
+                "soundfont": sfs[0].name,
+            })
+            return
+    if has_mt32:
+        write_midi_settings(config_dir, {"device": "mt32"})
+        return
 
-    if audio_lines:
-        if autoexec_idx is not None:
-            for i, al in enumerate(audio_lines):
-                new_lines.insert(autoexec_idx + i, al)
-        else:
-            new_lines.extend(audio_lines)
-
-    new_lines.append("")  # trailing newline
-    overrides_path.write_text("\n".join(new_lines), encoding="utf-8")
+    # No MIDI assets — clear settings
+    midi_path = _midi_settings_path(config_dir)
+    if midi_path.is_file():
+        midi_path.unlink()
 
 
 # ---------------------------------------------------------------------------

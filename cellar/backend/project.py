@@ -54,6 +54,7 @@ class Project:
     disc_images: list[str] = field(default_factory=list)    # relative paths to CDs
     floppy_images: list[str] = field(default_factory=list)  # relative paths to floppies
     engine: str = ""               # "dosbox" or empty (platform default)
+    include_cd: bool = True        # include CD images in published package
 
     # ── Launch options (committed to catalogue metadata on publish) ───────
     dxvk: bool = True
@@ -130,6 +131,7 @@ class Project:
             disc_images=list(data.get("disc_images", [])),
             floppy_images=list(data.get("floppy_images", [])),
             engine=data.get("engine", ""),
+            include_cd=bool(data.get("include_cd", True)),
             dxvk=bool(data.get("dxvk", True)),
             vkd3d=bool(data.get("vkd3d", True)),
             audio_driver=data.get("audio_driver", "auto"),
@@ -189,6 +191,8 @@ class Project:
             d["floppy_images"] = list(self.floppy_images)
         if self.engine:
             d["engine"] = self.engine
+        if not self.include_cd:
+            d["include_cd"] = False
         if not self.dxvk:
             d["dxvk"] = False
         if not self.vkd3d:

@@ -182,7 +182,9 @@ def create_desktop_entry(
     # Exec — branch on platform
     if platform == "dos":
         from cellar.backend.dosbox import build_dos_exec_line
-        exec_line = build_dos_exec_line(game_dir, exe_path, launch_args)
+        exec_line = _desktop_quote(
+            build_dos_exec_line(game_dir, exe_path, launch_args)
+        )
         comment = (entry.summary or f"Launch {entry.name}.").replace("\n", " ")
     elif platform == "linux":
         if exe_path:

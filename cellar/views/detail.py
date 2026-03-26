@@ -1146,6 +1146,10 @@ class DetailView(Gtk.Box):
             return
 
         def _work():
+            # Remove desktop entry — paths will be stale after move
+            from cellar.utils.desktop import remove_desktop_entry
+            remove_desktop_entry(self._entry.id)
+
             old_path = str(src)
             shutil.move(old_path, dest)
             database.update_app_location(

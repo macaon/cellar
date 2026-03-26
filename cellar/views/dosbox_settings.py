@@ -40,7 +40,9 @@ from cellar.backend.dosbox import (
     REVERB_OPTIONS,
     SBTYPE_OPTIONS,
     SHADER_OPTIONS,
+    read_midi_settings,
     read_override,
+    write_midi_settings,
     write_overrides_batch,
 )
 
@@ -288,21 +290,46 @@ class DosboxSettingsDialog(Adw.Dialog):
     def _build_midi_group(self, page: Adw.PreferencesPage) -> None:
         group = Adw.PreferencesGroup(title="MIDI &amp; Music")
 
-        # MIDI device
-        midi_combo = self._make_combo(
-            "MIDI Device", "MIDI output synthesizer",
-            MIDIDEVICE_OPTIONS, self._read("midi", "mididevice"), "midi", "mididevice",
+        # Load MIDI settings from JSON (not the DOSBox conf)
+        self._midi = read_midi_settings(self._config_dir)
+
+        # MIDI device combo — backed by midi-settings.json
+        current_device = self._midi.get("device", "")
+        labels = Gtk.StringList()
+        selected_idx = 0
+        default_idx = 0
+        for i, (label, value) in enumerate(MIDIDEVICE_OPTIONS):
+            labels.append(label)
+            if value == current_device:
+                selected_idx = i
+            if "(default)" in label.lower() or "(recommended)" in label.lower():
+                default_idx = i
+        if not current_device:
+            selected_idx = default_idx
+
+        midi_combo = Adw.ComboRow(
+            title="MIDI Device", subtitle="MIDI output synthesizer",
+            model=labels,
         )
+        midi_combo.set_selected(selected_idx)
+
+        def _on_midi_changed(r, _pspec):
+            idx = r.get_selected()
+            if 0 <= idx < len(MIDIDEVICE_OPTIONS):
+                device = MIDIDEVICE_OPTIONS[idx][1]
+                self._midi["device"] = device
+                self._save_midi_settings()
+                self._update_midi_rows(device)
+
+        midi_combo.connect("notify::selected", _on_midi_changed)
         group.add(midi_combo)
 
         # SoundFont row — uses shared central storage, selectable per game.
         self._sf_row = Adw.ActionRow(title="SoundFont")
-        current_sf_path = self._read("fluidsynth", "soundfont")
-        current_sf_name = Path(current_sf_path).name if current_sf_path else ""
+        current_sf_name = self._midi.get("soundfont", "")
         self._sf_row.set_subtitle(current_sf_name or "No SoundFont selected")
 
         if self._allow_assets:
-            # "Select" button — pick from shared library or browse for new file
             sf_btn = Gtk.Button(label="Select\u2026", valign=Gtk.Align.CENTER)
             sf_btn.connect("clicked", self._on_select_soundfont)
             self._sf_row.add_suffix(sf_btn)
@@ -335,7 +362,7 @@ class DosboxSettingsDialog(Adw.Dialog):
         group.add(self._rom_row)
 
         # Show/hide based on MIDI device
-        self._update_midi_rows(self._read("midi", "mididevice"))
+        self._update_midi_rows(current_device)
 
         page.add(group)
 
@@ -621,15 +648,23 @@ class DosboxSettingsDialog(Adw.Dialog):
             shutil.copy2(src, dest)
         self._apply_soundfont(src.name)
 
+    def _save_midi_settings(self, **updates) -> None:
+        """Persist MIDI settings to ``midi-settings.json``."""
+        self._midi.update(updates)
+        # Remove empty keys
+        self._midi = {k: v for k, v in self._midi.items() if v}
+        write_midi_settings(self._config_dir, self._midi)
+
     def _apply_soundfont(self, sf_name: str) -> None:
-        """Set the given SoundFont for this game — points at shared central dir."""
-        shared_dir = self._shared_soundfonts_dir()
-        self._set("midi", "mididevice", "fluidsynth")
-        self._set("fluidsynth", "soundfont", str(shared_dir / sf_name))
+        """Set FluidSynth as the MIDI device with the named SoundFont."""
+        self._save_midi_settings(device="fluidsynth", soundfont=sf_name)
         self._sf_row.set_subtitle(sf_name)
 
     def _on_clear_soundfont(self, _btn) -> None:
-        self._set("fluidsynth", "soundfont", "")
+        self._midi.pop("soundfont", None)
+        if self._midi.get("device") == "fluidsynth":
+            self._midi.pop("device", None)
+        self._save_midi_settings()
         self._sf_row.set_subtitle("No SoundFont selected")
 
     def _on_browse_roms(self, _btn) -> None:
@@ -661,9 +696,7 @@ class DosboxSettingsDialog(Adw.Dialog):
             dest = shared_dir / src.name
             if not dest.exists():
                 shutil.copy2(src, dest)
-        # Point config at shared central dir
-        self._set("midi", "mididevice", "mt32")
-        self._set("mt32", "romdir", str(shared_dir))
+        self._save_midi_settings(device="mt32")
         # Update UI
         count = len(list(shared_dir.glob("*.rom")))
         self._rom_row.set_subtitle(f"Installed ({count} ROM files)")

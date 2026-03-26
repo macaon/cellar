@@ -638,11 +638,20 @@ class CatalogueEntriesDialog(Adw.Dialog):
                             )
                     project.screenshot_sources = import_sources
 
-                    # Linux imports: pre-fill source_dir with the extracted prefix
-                    # so the project is immediately publishable. User can still
-                    # pick a different folder via "Choose…" if needed.
-                    if project.project_type == "linux":
+                    # Linux/DOS imports: pre-fill source_dir with the extracted
+                    # prefix so the project is immediately publishable.
+                    if project.project_type in ("linux", "dos"):
                         project.source_dir = str(project.content_path)
+
+                    # DOS imports: discover disc images in the extracted content
+                    if project.project_type == "dos":
+                        cd_dir = project.content_path / "cd"
+                        if cd_dir.is_dir():
+                            project.disc_images = [
+                                f"cd/{p.name}"
+                                for p in sorted(cd_dir.iterdir())
+                                if p.suffix.lower() in {".iso", ".cue"}
+                            ]
 
                     save_project(project)
                     return project

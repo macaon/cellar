@@ -403,6 +403,7 @@ def compress_prefix_zst(
     stats_cb: Callable[[int, int, float], None] | None = None,
     file_cb: Callable[[str], None] | None = None,
     bytes_cb: Callable[[int], None] | None = None,
+    exclude_dirs: set[str] | None = None,
 ) -> tuple[int, str, tuple[dict, ...]]:
     """Archive *prefix_path* as a Cellar-native ``prefix/``-rooted ``.tar.zst``.
 
@@ -422,9 +423,13 @@ def compress_prefix_zst(
 
     dest_path.parent.mkdir(parents=True, exist_ok=True)
 
+    _exclude = exclude_dirs or set()
+
     total_files = 0
     total_bytes = 0
-    for dirpath, _, filenames in os.walk(prefix_path):
+    for dirpath, dirnames, filenames in os.walk(prefix_path):
+        if _exclude and dirpath == str(prefix_path):
+            dirnames[:] = [d for d in dirnames if d not in _exclude]
         for fn in filenames:
             total_files += 1
             try:
@@ -441,6 +446,9 @@ def compress_prefix_zst(
         if cancel_event and cancel_event.is_set():
             raise CancelledError("Cancelled")
         if (ti.issym() or ti.islnk()) and "drive_c/users/" in ti.name:
+            return None
+        # Skip installer diagnostics
+        if ti.isfile() and ti.name.lower().endswith("/cdtree.txt"):
             return None
         if ti.isfile():
             done += 1
@@ -464,6 +472,8 @@ def compress_prefix_zst(
         for dirpath, dirnames, filenames in os.walk(prefix_path):
             if cancel_event and cancel_event.is_set():
                 raise CancelledError("Cancelled")
+            if _exclude and dirpath == str(prefix_path):
+                dirnames[:] = [d for d in dirnames if d not in _exclude]
             rel = os.path.relpath(dirpath, prefix_path)
             arcname = "prefix" if rel == "." else f"prefix/{rel}"
 

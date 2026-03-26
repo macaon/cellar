@@ -318,11 +318,15 @@ class PublishQueue:
             _delta_uncompressed = 0
             if project.project_type in ("linux", "dos"):
                 _partial_dest = archive_dest
+                _exclude: set[str] = set()
+                if project.project_type == "dos" and not project.include_cd:
+                    _exclude.add("cd")
                 size, crc32, chunks = compress_prefix_zst(
                     _src_path,
                     archive_dest,
                     cancel_event=job.cancel_event,
                     bytes_cb=_bytes_cb,
+                    exclude_dirs=_exclude or None,
                 )
                 base_image = ""
             else:

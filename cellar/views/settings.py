@@ -577,15 +577,33 @@ class SettingsDialog(Adw.PreferencesDialog):
     # ------------------------------------------------------------------
 
     def _on_delete_repo(self, _btn: Gtk.Button, uri: str) -> None:
-        repos = [r for r in load_repos() if r["uri"] != uri]
-        save_repos(repos)
-        clear_password(uri)
-        from cellar.backend.repo import Repo
-        Repo.clear_catalogue_cache(uri)
-        Repo.clear_asset_cache(uri)
-        self._rebuild_repo_rows()
-        if self._on_repos_changed:
-            self._on_repos_changed()
+        dlg = Adw.AlertDialog(
+            heading="Remove Repository?",
+            body=f"This will remove the repository and its cached data.\n{uri}",
+        )
+        dlg.add_response("cancel", "Cancel")
+        dlg.add_response("remove", "Remove")
+        dlg.set_response_appearance(
+            "remove", Adw.ResponseAppearance.DESTRUCTIVE,
+        )
+        dlg.set_default_response("cancel")
+        dlg.set_close_response("cancel")
+
+        def _on_response(_dlg: Adw.AlertDialog, response: str) -> None:
+            if response != "remove":
+                return
+            repos = [r for r in load_repos() if r["uri"] != uri]
+            save_repos(repos)
+            clear_password(uri)
+            from cellar.backend.repo import Repo
+            Repo.clear_catalogue_cache(uri)
+            Repo.clear_asset_cache(uri)
+            self._rebuild_repo_rows()
+            if self._on_repos_changed:
+                self._on_repos_changed()
+
+        dlg.connect("response", _on_response)
+        dlg.present(self)
 
 
 

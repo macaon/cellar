@@ -3721,7 +3721,6 @@ class PackageBuilderView(Adw.Bin):
             body="Choose which target to test:",
         )
         dialog.add_response("cancel", "Cancel")
-        dialog.set_response_appearance("cancel", Adw.ResponseAppearance.DESTRUCTIVE)
         dialog.set_close_response("cancel")
         for i, ep in enumerate(project.entry_points):
             dialog.add_response(str(i), ep.get("name", ep.get("path", "")))

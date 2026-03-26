@@ -824,7 +824,6 @@ class DetailView(Gtk.Box):
             body="Choose which target to launch:",
         )
         dialog.add_response("cancel", "Cancel")
-        dialog.set_response_appearance("cancel", Adw.ResponseAppearance.DESTRUCTIVE)
         dialog.set_close_response("cancel")
         for i, t in enumerate(targets):
             dialog.add_response(str(i), t.get("name", t.get("path", "")))

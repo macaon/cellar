@@ -169,9 +169,8 @@ def create_desktop_entry(
         if _install_dir:
             return Path(_install_dir)
         if platform == "dos":
-            from cellar.backend.umu import dos_dir, scummvm_dir
-            p = scummvm_dir() / entry.id
-            return p if p.is_dir() else dos_dir() / entry.id
+            from cellar.backend.umu import dos_dir
+            return dos_dir() / entry.id
         if platform == "linux":
             from cellar.backend.umu import native_dir
             return native_dir() / entry.id
@@ -182,14 +181,8 @@ def create_desktop_entry(
 
     # Exec — branch on platform
     if platform == "dos":
-        engine = getattr(entry, "effective_engine", "dosbox")
-        if engine == "scummvm":
-            from cellar.backend.scummvm import build_scummvm_exec_line, read_scummvm_id
-            scummvm_id = getattr(entry, "scummvm_id", "") or read_scummvm_id(game_dir)
-            exec_line = build_scummvm_exec_line(game_dir, scummvm_id)
-        else:
-            from cellar.backend.dosbox import build_dos_exec_line
-            exec_line = build_dos_exec_line(game_dir, exe_path, launch_args)
+        from cellar.backend.dosbox import build_dos_exec_line
+        exec_line = build_dos_exec_line(game_dir, exe_path, launch_args)
         comment = (entry.summary or f"Launch {entry.name}.").replace("\n", " ")
     elif platform == "linux":
         if exe_path:

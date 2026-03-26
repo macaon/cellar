@@ -60,110 +60,6 @@ log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# ScummVM compatibility prompt (shared by all DOS install paths)
-# ---------------------------------------------------------------------------
-
-def _check_scummvm_compat(
-    content_dir: Path,
-    project,
-    presenter,
-    *,
-    on_refreshed: Callable | None = None,
-) -> None:
-    """Detect ScummVM compatibility and prompt the user to switch.
-
-    Called after any DOS install/conversion completes (disc installer,
-    GOG conversion, smart import).  If the user accepts, converts the
-    DOSBox prefix to ScummVM in the background.
-    """
-    from cellar.backend.scummvm_profiles import detect_scummvm_profile, get_profile
-    from cellar.backend.project import save_project
-    from cellar.utils.async_work import run_in_background
-
-    slug = detect_scummvm_profile(content_dir)
-    if not slug:
-        return
-
-    profile = get_profile(slug)
-    if profile is None:
-        return
-
-    compat = profile.get("compatibility", "Unknown")
-    log.info("ScummVM-compatible game detected: %r (%s)", slug, compat)
-
-    dlg = Adw.AlertDialog(
-        heading=f"ScummVM Compatible ({compat})",
-        body=(
-            "This game is compatible with ScummVM, which provides better "
-            "graphics scaling, input handling, and save management.\n\n"
-            "Reverting to DOSBox requires a full reinstallation."
-        ),
-    )
-    dlg.add_response("keep", "Keep DOSBox")
-    dlg.add_response("switch", "Switch to ScummVM")
-    dlg.set_response_appearance("switch", Adw.ResponseAppearance.SUGGESTED)
-    dlg.set_default_response("switch")
-    dlg.set_close_response("keep")
-
-    def _do_convert():
-        def _convert():
-            from cellar.backend.scummvm_convert import convert_to_scummvm
-            convert_to_scummvm(content_dir, profile)
-
-        def _done(_r):
-            project.engine = "scummvm"
-            save_project(project)
-            if on_refreshed:
-                on_refreshed()
-            elif hasattr(presenter, "_show_project"):
-                presenter._show_project(project)
-
-        def _error(msg):
-            log.error("ScummVM conversion failed: %s", msg)
-
-        run_in_background(_convert, on_done=_done, on_error=_error)
-
-    def _check_and_convert():
-        from cellar.backend.scummvm import is_scummvm_available
-        if is_scummvm_available():
-            _do_convert()
-            return
-
-        install_dlg = Adw.AlertDialog(
-            heading="ScummVM Not Found",
-            body=(
-                "ScummVM must be installed before switching.\n\n"
-                "Install it via your package manager or run:\n"
-                "flatpak install org.scummvm.ScummVM"
-            ),
-        )
-        install_dlg.add_response("cancel", "Cancel")
-        install_dlg.add_response("check", "Check Again")
-        install_dlg.set_default_response("check")
-        install_dlg.set_close_response("cancel")
-
-        def _on_check(_d, resp):
-            if resp != "check":
-                return
-            from cellar.backend.scummvm import is_scummvm_available
-            if is_scummvm_available():
-                _do_convert()
-            else:
-                log.warning("ScummVM still not found")
-
-        install_dlg.connect("response", _on_check)
-        install_dlg.present(presenter)
-
-    def _on_resp(_d, response):
-        if response != "switch":
-            return
-        _check_and_convert()
-
-    dlg.connect("response", _on_resp)
-    dlg.present(presenter)
-
-
-# ---------------------------------------------------------------------------
 # DOS installer launch helper (shared by PackageBuilderView and
 # _NewProjectDialog so it lives at module level).
 # ---------------------------------------------------------------------------
@@ -432,11 +328,6 @@ def _launch_dos_installer(
         if hasattr(presenter, "_show_project"):
             presenter._show_project(project)
 
-        # Check for ScummVM compatibility (after save so project is up to date).
-        if entry_points:
-            GLib.idle_add(
-                _check_scummvm_compat, content_dir, project, presenter,
-            )
 
     def _error(msg):
         _close_dialog()
@@ -1542,23 +1433,10 @@ class PackageBuilderView(Adw.Bin):
             _is_installer_project = bool(project.installer_type)
             _is_dos = project.project_type == "dos"
 
-            _is_scummvm = _is_dos and project.engine == "scummvm"
 
             files_group = Adw.PreferencesGroup(title="Files")
 
-            if _is_scummvm:
-                # ScummVM: browse content only
-                browse_row = Adw.ActionRow(
-                    title="Browse Content",
-                    subtitle=str(project.content_path),
-                )
-                browse_btn = Gtk.Button(label="Open", valign=Gtk.Align.CENTER)
-                browse_btn.connect("clicked",
-                                   lambda *_: self._on_browse_prefix_clicked(None))
-                browse_row.add_suffix(browse_btn)
-                files_group.add(browse_row)
-                page.add(files_group)
-            elif _linux_ready and project.source_dir:
+            if _linux_ready and project.source_dir:
                 if _is_dos:
                     # DOS: drop zone + browse content (matches Proton layout)
                     drop_zone = self._build_installer_drop_zone(
@@ -1616,8 +1494,8 @@ class PackageBuilderView(Adw.Bin):
                 files_group.add(drop_zone)
                 page.add(files_group)
 
-            # DOSBox Staging section (DOS only, hidden after ScummVM conversion)
-            if project.project_type == "dos" and project.engine != "scummvm":
+            # DOSBox Staging section (DOS only)
+            if project.project_type == "dos":
                 dos_group = Adw.PreferencesGroup(title="DOSBox Staging")
 
                 # DOSBox Settings — only when source_dir is set
@@ -1653,43 +1531,21 @@ class PackageBuilderView(Adw.Bin):
 
                 page.add(dos_group)
 
-            # ScummVM section (replaces Launch Targets for ScummVM projects)
-            if _is_scummvm:
-                scummvm_group = Adw.PreferencesGroup(title="ScummVM")
+            targets_group = Adw.PreferencesGroup(title="Launch Targets")
+            for _ep in project.entry_points:
+                _ep_row = self._build_target_expander_row(_ep, is_proton=False)
+                targets_group.add(_ep_row)
 
-                if project.source_dir:
-                    _scummvm_settings_row = Adw.ActionRow(
-                        title="ScummVM Settings",
-                        subtitle="Game, graphics, audio, MIDI, and config files",
-                        activatable=True,
-                    )
-                    _scummvm_btn = Gtk.Button(
-                        label="Open", valign=Gtk.Align.CENTER,
-                    )
-                    _scummvm_btn.connect(
-                        "clicked", self._on_scummvm_settings_clicked,
-                    )
-                    _scummvm_settings_row.add_suffix(_scummvm_btn)
-                    _scummvm_settings_row.set_activatable_widget(_scummvm_btn)
-                    scummvm_group.add(_scummvm_settings_row)
+            _add_ep_row = Adw.ActionRow(title="Add Launch Target\u2026")
+            _add_ep_row.set_sensitive(_linux_ready)
+            _add_ep_btn = Gtk.Button(label="Add\u2026", valign=Gtk.Align.CENTER)
+            _add_ep_btn.add_css_class("suggested-action")
+            _add_ep_btn.connect("clicked", self._on_add_entry_point_clicked)
+            _add_ep_row.add_suffix(_add_ep_btn)
+            _add_ep_row.set_activatable_widget(_add_ep_btn)
+            targets_group.add(_add_ep_row)
 
-                page.add(scummvm_group)
-            else:
-                targets_group = Adw.PreferencesGroup(title="Launch Targets")
-                for _ep in project.entry_points:
-                    _ep_row = self._build_target_expander_row(_ep, is_proton=False)
-                    targets_group.add(_ep_row)
-
-                _add_ep_row = Adw.ActionRow(title="Add Launch Target\u2026")
-                _add_ep_row.set_sensitive(_linux_ready)
-                _add_ep_btn = Gtk.Button(label="Add\u2026", valign=Gtk.Align.CENTER)
-                _add_ep_btn.add_css_class("suggested-action")
-                _add_ep_btn.connect("clicked", self._on_add_entry_point_clicked)
-                _add_ep_row.add_suffix(_add_ep_btn)
-                _add_ep_row.set_activatable_widget(_add_ep_btn)
-                targets_group.add(_add_ep_row)
-
-                page.add(targets_group)
+            page.add(targets_group)
 
         # ── 6. Dependencies (Windows / Base only) ─────────────────────────
         if project.project_type not in ("linux", "dos"):
@@ -3514,32 +3370,6 @@ class PackageBuilderView(Adw.Bin):
 
         run_in_background(work=_work, on_done=_done, on_error=_error)
 
-    def _do_test_launch_scummvm(self, project) -> None:
-        """Test launch a ScummVM game from the builder."""
-        from cellar.backend.scummvm import (
-            build_scummvm_launch_cmd,
-            is_scummvm_available,
-            read_scummvm_id,
-        )
-
-        if not is_scummvm_available():
-            self._show_toast("ScummVM is not installed")
-            return
-
-        game_dir = project.content_path
-        scummvm_id = project.scummvm_id or read_scummvm_id(game_dir)
-        if not scummvm_id:
-            self._show_toast("ScummVM game ID not found")
-            return
-
-        cmd, _ = build_scummvm_launch_cmd(game_dir, scummvm_id)
-        log.info("ScummVM test launch: %s", " ".join(cmd))
-        try:
-            subprocess.Popen(cmd, cwd=str(game_dir), start_new_session=True)
-        except Exception as exc:
-            log.error("ScummVM launch failed: %s", exc)
-            self._show_toast(f"ScummVM launch failed: {exc}")
-
     def _on_browse_prefix_clicked(self, _btn) -> None:
         if self._project is None:
             return
@@ -3700,11 +3530,6 @@ class PackageBuilderView(Adw.Bin):
         if self._project is None:
             return
         project = self._project
-
-        # ScummVM: launch directly, no entry points needed
-        if project.engine == "scummvm":
-            self._do_test_launch_scummvm(project)
-            return
 
         if project.project_type not in ("linux", "dos") and not project.initialized:
             self._show_toast("Initialize the prefix before test launching.")
@@ -3871,7 +3696,6 @@ class PackageBuilderView(Adw.Bin):
             update_strategy="safe",
             platform={"linux": "linux", "dos": "dos"}.get(project.project_type, "windows"),
             engine=project.engine,
-            scummvm_id=project.scummvm_id,
             dxvk=project.dxvk,
             vkd3d=project.vkd3d,
             audio_driver=project.audio_driver,
@@ -4159,18 +3983,6 @@ class PackageBuilderView(Adw.Bin):
         if hasattr(win, "toast_overlay"):
             win.toast_overlay.add_toast(Adw.Toast(title=message))
 
-    def _on_scummvm_settings_clicked(self, _btn) -> None:
-        """Open the ScummVM Settings dialog for the current project."""
-        if self._project is None or not self._project.source_dir:
-            return
-        from cellar.views.scummvm_settings import ScummvmSettingsDialog
-
-        config_dir = Path(self._project.source_dir) / "config"
-        ScummvmSettingsDialog(
-            config_dir=config_dir,
-            on_saved=lambda: self._show_project(self._project) if self._project else None,
-        ).present(self)
-
     def _on_dosbox_settings_clicked(self, _btn) -> None:
         """Open the DOSBox Settings dialog for the current DOS project."""
         if self._project is None or not self._project.source_dir:
@@ -4439,11 +4251,6 @@ class PackageBuilderView(Adw.Bin):
                 self._show_project(project)
             self._show_toast("Converted to DOS package")
 
-            if entry_points:
-                _check_scummvm_compat(
-                    project.content_path, project, self,
-                    on_refreshed=lambda: self._show_project(project),
-                )
 
         def _error(msg):
             progress.force_close()
@@ -5198,10 +5005,6 @@ class _NewProjectDialog(Adw.Dialog):
             save_project(project)
             self._on_import(project)
 
-            if entry_points:
-                _check_scummvm_compat(
-                    content, project, self._parent_view,
-                )
 
         def _error(msg):
             progress.force_close()

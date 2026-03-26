@@ -8,7 +8,6 @@ python_sources = files(
   'install_runner.py',
   'launch_params.py',
   'launch_targets_group.py',
-  'scummvm_settings.py',
   'settings.py',
   'screenshot_grid.py',
   'steam_picker.py',

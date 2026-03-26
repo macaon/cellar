@@ -914,13 +914,10 @@ def install_dos_app(
     The caller is responsible for writing the DB record via
     ``database.mark_installed`` with ``platform="dos"``.
     """
-    from cellar.backend.umu import dos_dir, scummvm_dir  # noqa: PLC0415
+    from cellar.backend.umu import dos_dir  # noqa: PLC0415
     _check_cancel(cancel_event)
 
-    if entry.engine == "scummvm":
-        install_dest = scummvm_dir() / entry.id
-    else:
-        install_dest = dos_dir() / entry.id
+    install_dest = dos_dir() / entry.id
 
     # ── Steps 1-3: Stream, verify CRC32, extract directly ──────────────
     if phase_cb:
@@ -977,16 +974,9 @@ def install_dos_app(
     if profile_id:
         log.info("Applied DOSBox profile %r for %s", profile_id, entry.id)
 
-    # ── Step 6: Detect ScummVM compatibility ───────────────────────
-    from cellar.backend.scummvm_profiles import detect_scummvm_profile  # noqa: PLC0415
-    scummvm_slug = detect_scummvm_profile(install_dest)
-    if scummvm_slug:
-        log.info("ScummVM-compatible game detected: %r for %s",
-                 scummvm_slug, entry.id)
-
     if install_cb:
         install_cb(1.0)
-    return entry.id, install_dest, scummvm_slug or ""
+    return entry.id, install_dest
 
 
 def _safe_linux_name(dir_name: str, base_path: Path) -> str:

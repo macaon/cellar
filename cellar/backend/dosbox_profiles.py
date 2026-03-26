@@ -169,6 +169,13 @@ def apply_profile(game_dir: Path) -> str | None:
 
     Returns the profile slug if a profile was applied, ``None`` otherwise.
     """
+    # Only apply once — if a profile header already exists, don't touch it.
+    overrides_conf = game_dir / "config" / "dosbox-overrides.conf"
+    if overrides_conf.is_file():
+        first_line = overrides_conf.read_text(encoding="utf-8").split("\n", 1)[0]
+        if first_line.startswith("# Profile: "):
+            return None
+
     slug = detect_profile(game_dir)
     if slug is None:
         return None

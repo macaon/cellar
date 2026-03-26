@@ -186,10 +186,8 @@ class AppEntry:
     # DOS apps use DOSBox Staging as a transparent runtime; the entry_point is
     # typically a launch.sh wrapper that invokes dosbox with the right config.
     platform: str = "windows"
-    # Engine override for DOS apps: "" (default = dosbox), "dosbox", or "scummvm".
+    # Engine for DOS apps: "" or "dosbox".
     engine: str = ""
-    # ScummVM game ID (e.g. "sky", "monkey2") — required when engine == "scummvm".
-    scummvm_id: str = ""
     # Launch targets — each dict has {"name": str, "path": str, "args": str}.
     # For Windows: path is relative to drive_c (e.g. "Program Files/App/app.exe").
     # For Linux: path is relative to the installed app directory.
@@ -258,7 +256,7 @@ class AppEntry:
             raise ValueError(f"Unknown platform: {platform!r}")
 
         engine = data.get("engine", "")
-        if engine and engine not in ("dosbox", "scummvm"):
+        if engine and engine not in ("dosbox",):
             raise ValueError(f"Unknown engine: {engine!r}")
 
         audio = data.get("audio_driver", "auto")
@@ -297,7 +295,6 @@ class AppEntry:
             steam_appid=data.get("steam_appid"),
             platform=platform,
             engine=engine,
-            scummvm_id=data.get("scummvm_id", ""),
             launch_targets=tuple(data.get("launch_targets", [])),
             compatibility_notes=data.get("compatibility_notes", ""),
             changelog=data.get("changelog", ""),
@@ -387,7 +384,6 @@ class AppEntry:
             d["steam_appid"] = self.steam_appid
         d["platform"] = self.platform
         _opt_str(d, "engine", self.engine)
-        _opt_str(d, "scummvm_id", self.scummvm_id)
         if self.launch_targets:
             d["launch_targets"] = [dict(t) for t in self.launch_targets]
         _opt_str(d, "compatibility_notes", self.compatibility_notes)

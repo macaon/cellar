@@ -31,14 +31,22 @@ def fmt_size(n: int) -> str:
 
 
 def fmt_stats(done: int, total: int, speed: float) -> str:
-    """Format transfer progress as e.g. '2.6 MB / 349 MB (1.3 MB/s)'.
+    """Format transfer progress as e.g. '2.6 MB / 349 MB (1.3 MB/s) — about 4 min left'.
 
-    When *total* is 0 or unknown, omits the '/ total' part.
+    When *total* is 0 or unknown, omits the '/ total' part and the ETA.
     When *speed* is 0, shows '…' instead of a speed value.
     """
     size_str = f"{fmt_size(done)} / {fmt_size(total)}" if total > 0 else fmt_size(done)
     speed_str = f"{fmt_size(int(speed))}/s" if speed > 0 else "\u2026"
-    return f"{size_str} ({speed_str})"
+    eta = ""
+    if total > 0 and speed > 0 and done < total:
+        secs = (total - done) / speed
+        if secs < 60:
+            eta = " \u2014 about %d sec left" % max(1, int(secs))
+        else:
+            mins = secs / 60
+            eta = " \u2014 about %d min left" % max(1, int(mins + 0.5))
+    return f"{size_str} ({speed_str}){eta}"
 
 
 def fmt_file_count(current: int, total: int) -> str:

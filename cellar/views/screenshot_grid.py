@@ -17,9 +17,10 @@ from pathlib import Path
 
 import gi
 
+gi.require_version("Gdk", "4.0")
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Gtk
+from gi.repository import Gdk, Gtk
 
 from cellar.utils.async_work import run_in_background
 from cellar.views.widgets import set_margins
@@ -305,7 +306,7 @@ class ScreenshotGridWidget(Gtk.Box):
 
     def _make_tile(self, item: ScreenshotItem, kind: str, idx: int) -> Gtk.FlowBoxChild:
         fbc = Gtk.FlowBoxChild()
-        fbc.set_focusable(False)
+        fbc.set_focusable(True)
         if self._scrolled:
             fbc.set_hexpand(False)
             fbc.set_halign(Gtk.Align.START)
@@ -361,6 +362,18 @@ class ScreenshotGridWidget(Gtk.Box):
             lambda _g, _n, _x, _y, k=kind, i=idx: self._on_tile_clicked(k, i),
         )
         overlay.add_controller(gesture)
+
+        # Keyboard: Space/Return toggles selection (HIG accessibility)
+        key_ctrl = Gtk.EventControllerKey()
+        key_ctrl.connect(
+            "key-pressed",
+            lambda _c, kv, _code, _mod, k=kind, i=idx: (
+                self._on_tile_clicked(k, i) or True
+            )
+            if kv in (Gdk.KEY_space, Gdk.KEY_Return, Gdk.KEY_KP_Enter)
+            else False,
+        )
+        fbc.add_controller(key_ctrl)
 
         fbc.set_child(overlay)
         return fbc

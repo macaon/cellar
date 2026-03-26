@@ -8,6 +8,9 @@
         "files": ["SKY.BAT", "SKY.CFG"]
       },
       "settings": {
+        "dosbox": { "memsize": "8" },
+        "cpu": { "cycles": "fixed 23880" },
+        "render": { "aspect": "off" },
         "sblaster": { "sbtype": "sbpro2" },
         "mixer": { "reverb": "large", "chorus": "strong" }
       }

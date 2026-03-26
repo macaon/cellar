@@ -23,12 +23,19 @@ log = logging.getLogger(__name__)
 class AddLaunchTargetDialog(Adw.Dialog):
     """Dialog for adding a new launch target (name + executable path) to a project."""
 
-    def __init__(self, content_path: Path, on_added: Callable, platform: str = "windows") -> None:
+    def __init__(
+        self,
+        content_path: Path,
+        on_added: Callable,
+        platform: str = "windows",
+        cdtree_path: Path | None = None,
+    ) -> None:
         super().__init__(title="Add Launch Target", content_width=480)
         self._content_path = content_path
         self._platform = platform
         self._on_added = on_added
         self._chosen_path: str = ""
+        self._cdtree_path = cdtree_path
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -44,8 +51,12 @@ class AddLaunchTargetDialog(Adw.Dialog):
 
         self._exe_row = Adw.ActionRow(title="Executable")
         self._exe_row.set_subtitle("Not selected")
+        if self._cdtree_path and self._cdtree_path.is_file():
+            cd_btn = Gtk.Button(label="Pick from CD\u2026", valign=Gtk.Align.CENTER)
+            cd_btn.add_css_class("suggested-action")
+            cd_btn.connect("clicked", self._on_cd_pick_clicked)
+            self._exe_row.add_suffix(cd_btn)
         browse_btn = Gtk.Button(label="Browse\u2026", valign=Gtk.Align.CENTER)
-        browse_btn.add_css_class("suggested-action")
         browse_btn.connect("clicked", self._on_browse_clicked)
         self._exe_row.add_suffix(browse_btn)
         self._exe_row.set_activatable_widget(browse_btn)
@@ -156,6 +167,117 @@ class AddLaunchTargetDialog(Adw.Dialog):
         if self._admin_row is not None and self._admin_row.get_active():
             ep["run_as_admin"] = True
         self._on_added(ep)
+
+    # ── CD tree picker ────────────────────────────────────────────────
+
+    @staticmethod
+    def _parse_cdtree(path: Path) -> list[str]:
+        """Parse a DOS ``tree /f`` listing and return executable paths.
+
+        Returns executable paths (EXE/BAT/COM) relative to the CD root.
+        The file is written by DOSBox in codepage 437::
+
+            D:
+            ├───DIG
+            │   │   DIG.EXE
+            │   └───VIDEO
+            │           SKY.SAN
+            └───SETUP.EXE
+
+        Directories are identified by ``───`` connectors before the name.
+        Depth is determined by 4-char tree-drawing groups.
+        """
+        text = path.read_text(encoding="cp437", errors="replace")
+        executables: list[str] = []
+        exe_exts = {".exe", ".bat", ".com"}
+        dir_stack: list[str] = []
+        tree_chars = set("│├└─ ")
+
+        for line in text.splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("Directory") or stripped.startswith("Volume"):
+                continue
+            if stripped.rstrip("\\/ ").upper() == "D:":
+                dir_stack = []
+                continue
+
+            # Find where tree chars end and the name begins.
+            idx = 0
+            for idx, ch in enumerate(line):
+                if ch not in tree_chars:
+                    break
+            prefix = line[:idx]
+            name = line[idx:].strip()
+            if not name:
+                continue
+
+            # Depth = number of 4-char groups in the prefix.
+            depth = idx // 4
+
+            # Directories have ─── connector dashes before the name.
+            is_dir = prefix.endswith("───")
+
+            if is_dir:
+                del dir_stack[depth:]
+                dir_stack.append(name)
+            else:
+                if "." in name:
+                    ext = "." + name.rsplit(".", 1)[1].lower()
+                    if ext in exe_exts:
+                        parts = list(dir_stack[:depth]) + [name]
+                        executables.append("\\".join(parts))
+
+        return executables
+
+    def _on_cd_pick_clicked(self, _btn) -> None:
+        if not self._cdtree_path or not self._cdtree_path.is_file():
+            return
+        exes = self._parse_cdtree(self._cdtree_path)
+        if not exes:
+            err = Adw.AlertDialog(
+                heading="No Executables Found",
+                body="No .EXE, .BAT, or .COM files found in the CD directory listing.",
+            )
+            err.add_response("close", "Close")
+            err.set_close_response("close")
+            err.present(self)
+            return
+
+        dlg = Adw.Dialog(title="Pick Executable from CD", content_width=400, content_height=480)
+        toolbar = Adw.ToolbarView()
+        header = Adw.HeaderBar()
+        toolbar.add_top_bar(header)
+
+        listbox = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+        listbox.add_css_class("boxed-list")
+        listbox.set_margin_top(12)
+        listbox.set_margin_bottom(12)
+        listbox.set_margin_start(12)
+        listbox.set_margin_end(12)
+
+        for exe in exes:
+            name = exe.rsplit("\\", 1)[-1]
+            subdir = exe.rsplit("\\", 1)[0] if "\\" in exe else "D:\\"
+            row = Adw.ActionRow(title=name, subtitle=subdir)
+            row.add_suffix(Gtk.Image.new_from_icon_name("go-next-symbolic"))
+            row.set_activatable(True)
+            row.connect("activated", self._on_cd_exe_chosen, dlg, exe)
+            listbox.append(row)
+
+        scroll = Gtk.ScrolledWindow(vexpand=True)
+        scroll.set_child(listbox)
+        toolbar.set_content(scroll)
+        dlg.set_child(toolbar)
+        dlg.present(self)
+
+    def _on_cd_exe_chosen(self, _row, dlg: Adw.Dialog, exe: str) -> None:
+        dlg.close()
+        self._chosen_path = f"D:\\{exe}"
+        self._exe_row.set_subtitle(GLib.markup_escape_text(self._chosen_path))
+        if not self._name_row.get_text().strip():
+            stem = exe.rsplit("\\", 1)[-1].rsplit(".", 1)[0]
+            self._name_row.set_text(stem)
+        self._validate()
 
 
 class RunnerPickerDialog(Adw.Dialog):

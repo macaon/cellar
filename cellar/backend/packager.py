@@ -447,9 +447,6 @@ def compress_prefix_zst(
             raise CancelledError("Cancelled")
         if (ti.issym() or ti.islnk()) and "drive_c/users/" in ti.name:
             return None
-        # Skip installer diagnostics
-        if ti.isfile() and ti.name.lower().endswith("/cdtree.txt"):
-            return None
         if ti.isfile():
             done += 1
             done_bytes += ti.size

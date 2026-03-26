@@ -729,7 +729,7 @@ def run_dos_installer(
 
     # Dump CD directory tree before dropping to prompt (for ScummVM detection)
     if disc_images:
-        cmd += ["-c", "dir /s D: > cdtree.txt"]
+        cmd += ["-c", r"tree /f D:\ > cdtree.txt"]
 
     if is_cellar_sandboxed():
         cmd = ["flatpak-spawn", "--host"] + cmd
@@ -747,6 +747,15 @@ def run_dos_installer(
             if line:
                 stderr_cb(line)
     proc.wait()
+
+    # Move cdtree.txt out of hdd/ to the content root so it ships with
+    # the archive and remains available after installation.
+    _cdtree_src = hdd_dir / "cdtree.txt"
+    if not _cdtree_src.is_file():
+        _cdtree_src = hdd_dir / "CDTREE.TXT"
+    if _cdtree_src.is_file():
+        _cdtree_dst = content_dir / "cdtree.txt"
+        _cdtree_src.rename(_cdtree_dst)
 
     # Step 6: Scan hdd/ for entry point candidates
     from cellar.backend.detect import _LAUNCH_EXCLUDE, is_dos_executable
@@ -840,6 +849,12 @@ def _build_dos_cmd(
 
     # Entry point
     if entry_path:
+        # Detect drive letter prefix (e.g. "D:\GAME.EXE") and switch drives.
+        if len(entry_path) >= 3 and entry_path[1:3] in (":\\", ":/"):
+            drive = entry_path[0].upper()
+            cmd += ["-c", f"{drive}:"]
+            entry_path = entry_path[3:]
+
         exe_parent = str(Path(entry_path).parent)
         exe_name = Path(entry_path).name
         if exe_parent and exe_parent != ".":

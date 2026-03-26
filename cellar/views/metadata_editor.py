@@ -899,6 +899,7 @@ class MetadataEditorDialog(Adw.Dialog):
         desc_outer.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
 
         self._desc_view = Gtk.TextView()
+        self._desc_view.set_accepts_tab(False)
         self._desc_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
         self._desc_view.set_margin_top(8)
         self._desc_view.set_margin_bottom(8)

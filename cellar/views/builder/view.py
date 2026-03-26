@@ -1348,6 +1348,7 @@ class PackageBuilderView(Adw.Bin):
                 _browse_btn = Gtk.Button(icon_name="folder-open-symbolic")
                 _browse_btn.set_valign(Gtk.Align.CENTER)
                 _browse_btn.add_css_class("flat")
+                _browse_btn.set_tooltip_text("Browse Prefix")
                 _browse_btn.connect("clicked", self._on_browse_prefix_clicked)
                 self._prefix_status_row.add_suffix(_browse_btn)
             else:
@@ -1597,6 +1598,7 @@ class PackageBuilderView(Adw.Bin):
             _browse_btn = Gtk.Button(icon_name="folder-open-symbolic")
             _browse_btn.set_valign(Gtk.Align.CENTER)
             _browse_btn.add_css_class("flat")
+            _browse_btn.set_tooltip_text("Browse Prefix")
             _browse_btn.connect("clicked", self._on_browse_prefix_clicked)
             _browse_row.add_suffix(_browse_btn)
             base_files_group.add(_browse_row)
@@ -2663,8 +2665,10 @@ class PackageBuilderView(Adw.Bin):
 
             up_btn = Gtk.Button(icon_name="go-up-symbolic", valign=Gtk.Align.CENTER)
             up_btn.add_css_class("flat")
+            up_btn.set_tooltip_text("Move Up")
             down_btn = Gtk.Button(icon_name="go-down-symbolic", valign=Gtk.Align.CENTER)
             down_btn.add_css_class("flat")
+            down_btn.set_tooltip_text("Move Down")
             row.add_suffix(up_btn)
             row.add_suffix(down_btn)
             rows.append((row, p))
@@ -3461,6 +3465,7 @@ class PackageBuilderView(Adw.Bin):
         del_btn = Gtk.Button(icon_name="user-trash-symbolic")
         del_btn.add_css_class("flat")
         del_btn.set_valign(Gtk.Align.CENTER)
+        del_btn.set_tooltip_text("Remove Launch Target")
         del_btn.connect("clicked", self._on_remove_entry_point_clicked, ep)
         row.add_suffix(del_btn)
 
@@ -4768,8 +4773,10 @@ class _NewProjectDialog(Adw.Dialog):
 
             up_btn = Gtk.Button(icon_name="go-up-symbolic", valign=Gtk.Align.CENTER)
             up_btn.add_css_class("flat")
+            up_btn.set_tooltip_text("Move Up")
             down_btn = Gtk.Button(icon_name="go-down-symbolic", valign=Gtk.Align.CENTER)
             down_btn.add_css_class("flat")
+            down_btn.set_tooltip_text("Move Down")
             row.add_suffix(up_btn)
             row.add_suffix(down_btn)
 

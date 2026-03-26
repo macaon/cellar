@@ -896,6 +896,7 @@ def run_winetricks(
     gameid: int = 0,
     timeout: int = 600,
     line_cb: Callable[[str], None] | None = None,
+    cancel_event: "threading.Event | None" = None,
 ) -> subprocess.CompletedProcess:
     """Run winetricks verbs inside *prefix_path* via umu-run.
 
@@ -931,6 +932,10 @@ def run_winetricks(
             if proc.stdout is None:
                 raise RuntimeError("Expected stdout pipe but got None")
             for raw in proc.stdout:
+                if cancel_event is not None and cancel_event.is_set():
+                    proc.kill()
+                    proc.wait()
+                    return subprocess.CompletedProcess(cmd, -1)
                 # curl uses \r for in-place updates; treat each \r-segment as
                 # a separate line so callers see clean final-state lines.
                 for part in raw.split("\r"):

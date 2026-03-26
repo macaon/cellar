@@ -130,14 +130,24 @@ class WinetricksProgressDialog(Adw.Dialog):
 
     _MAX_LOG_LINES = 200
 
-    def __init__(self, verbs: list[str]) -> None:
+    def __init__(
+        self, verbs: list[str], cancel_event: "threading.Event | None" = None,
+    ) -> None:
         super().__init__(content_width=480)
-        self.set_can_close(False)
+        self.set_can_close(cancel_event is not None)
         self._closed = False
+        self._cancel_event = cancel_event
 
         toolbar = Adw.ToolbarView()
         header = Adw.HeaderBar(show_start_title_buttons=False, show_end_title_buttons=False)
         header.set_title_widget(Gtk.Label(label="Installing Dependencies"))
+
+        if cancel_event is not None:
+            cancel_btn = Gtk.Button(label="Cancel")
+            cancel_btn.connect("clicked", self._on_cancel)
+            header.pack_start(cancel_btn)
+            self.connect("close-attempt", lambda *_: self._on_cancel(None))
+
         toolbar.add_top_bar(header)
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -184,6 +194,10 @@ class WinetricksProgressDialog(Adw.Dialog):
         toolbar.set_content(box)
         self.set_child(toolbar)
         self.connect("destroy", self._on_destroy)
+
+    def _on_cancel(self, _btn) -> None:
+        if self._cancel_event is not None:
+            self._cancel_event.set()
 
     def _on_destroy(self, _widget) -> None:
         self._closed = True

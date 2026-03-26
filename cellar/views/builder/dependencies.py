@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import html
 import logging
+import threading
 from typing import Callable
 
 import gi
@@ -229,7 +230,8 @@ class DependencyPickerDialog(Adw.Dialog):
         self._install_verbs([verb], stack)
 
     def _install_verbs(self, verbs: list[str], stack: Gtk.Stack) -> None:
-        dlg = WinetricksProgressDialog(verbs)
+        cancel = threading.Event()
+        dlg = WinetricksProgressDialog(verbs, cancel_event=cancel)
         dlg.present(self)
 
         def _work():
@@ -239,6 +241,7 @@ class DependencyPickerDialog(Adw.Dialog):
                 self._runner_name,
                 verbs,
                 line_cb=lambda line: GLib.idle_add(dlg.push_line, line),
+                cancel_event=cancel,
             )
             return result.returncode == 0
 

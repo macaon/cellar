@@ -1,16 +1,3515 @@
 {
   "schema_version": 1,
   "profiles": {
-    "beneath-a-steel-sky": {
-      "name": "Beneath a Steel Sky",
-      "scummvm_id": "sky",
+    "simon-the-sorcerer": {
+      "name": "Simon the Sorcerer",
+      "scummvm_id": "simon1",
       "compatibility": "Excellent",
       "match": {
-        "gog_ids": ["1207658695"],
-        "files": ["SKY.BAT", "SKY.CFG"]
+        "gog_ids": [
+          "simon_the_sorcerer"
+        ],
+        "files": [
+          "gamebase",
+          "icondata",
+          "stripped",
+          "tbllist"
+        ]
       },
-      "required_files": ["SKY.DNR", "SKY.DSK"],
-      "cd_files": ["SKY.DNR", "SKY.DSK"]
+      "required_files": [
+        "gamebase",
+        "icondata",
+        "stripped",
+        "tbllist"
+      ]
+    },
+    "flight-of-the-amazon-queen": {
+      "name": "Flight of the Amazon Queen",
+      "scummvm_id": "queen",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [
+          "flight_of_the_amazon_queen"
+        ],
+        "files": [
+          "queen.1"
+        ]
+      },
+      "required_files": [
+        "queen.1"
+      ]
+    },
+    "broken-sword-the-shadow-of-the-templars": {
+      "name": "Broken Sword: The Shadow of the Templars",
+      "scummvm_id": "sword1",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [
+          "broken_sword_directors_cut"
+        ],
+        "files": [
+          "clusters/scripts.clu",
+          "clusters/swordres.rif",
+          "clusters/text.clu",
+          "smackshi/intro.smk"
+        ]
+      },
+      "required_files": [
+        "clusters/scripts.clu",
+        "clusters/swordres.rif",
+        "clusters/text.clu",
+        "smackshi/intro.smk"
+      ]
+    },
+    "broken-sword-ii-the-smoking-mirror": {
+      "name": "Broken Sword II: The Smoking Mirror",
+      "scummvm_id": "sword2",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [
+          "broken_sword_2__the_smoking_mirror"
+        ],
+        "files": [
+          "general.clu",
+          "docks.clu"
+        ]
+      },
+      "required_files": [
+        "general.clu",
+        "docks.clu"
+      ]
+    },
+    "gobliiins": {
+      "name": "Gobliiins",
+      "scummvm_id": "gob1",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [
+          "gobliiins_pack"
+        ],
+        "files": [
+          "intro.stk"
+        ]
+      },
+      "required_files": [
+        "intro.stk"
+      ]
+    },
+    "the-feeble-files": {
+      "name": "The Feeble Files",
+      "scummvm_id": "feeble",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [
+          "the_feeble_files"
+        ],
+        "files": [
+          "MAINMENU.SMK"
+        ]
+      },
+      "required_files": [
+        "MAINMENU.SMK"
+      ]
+    },
+    "the-legend-of-kyrandia": {
+      "name": "The Legend of Kyrandia",
+      "scummvm_id": "kyra1",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [
+          "legend_of_kyrandia"
+        ],
+        "files": [
+          "GEMCUT.EMC"
+        ]
+      },
+      "required_files": [
+        "GEMCUT.EMC"
+      ]
+    },
+    "gold-rush": {
+      "name": "Gold Rush!",
+      "scummvm_id": "goldrush",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "dirs"
+        ]
+      },
+      "required_files": [
+        "dirs"
+      ]
+    },
+    "mixed-up-mother-goose": {
+      "name": "Mixed-Up Mother Goose",
+      "scummvm_id": "mixedup",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "dirs"
+        ]
+      },
+      "required_files": [
+        "dirs"
+      ]
+    },
+    "simon-the-sorcerer-s-puzzle-pack-demon-in-my-pocket": {
+      "name": "Simon the Sorcerer's Puzzle Pack: Demon in my Pocket",
+      "scummvm_id": "dimp",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "data1.cab",
+          "0841.vga"
+        ]
+      },
+      "required_files": [
+        "data1.cab",
+        "0841.vga"
+      ]
+    },
+    "simon-the-sorcerer-s-puzzle-pack-jumble": {
+      "name": "Simon the Sorcerer's Puzzle Pack: Jumble",
+      "scummvm_id": "jumble",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "data1.cab",
+          "0841.vga"
+        ]
+      },
+      "required_files": [
+        "data1.cab",
+        "0841.vga"
+      ]
+    },
+    "simon-the-sorcerer-s-puzzle-pack-nopatience": {
+      "name": "Simon the Sorcerer's Puzzle Pack: NoPatience",
+      "scummvm_id": "puzzle",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "data1.cab",
+          "0841.vga"
+        ]
+      },
+      "required_files": [
+        "data1.cab",
+        "0841.vga"
+      ]
+    },
+    "simon-the-sorcerer-s-puzzle-pack-swampy-adventures": {
+      "name": "Simon the Sorcerer's Puzzle Pack: Swampy Adventures",
+      "scummvm_id": "swampy",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "data1.cab",
+          "0841.vga"
+        ]
+      },
+      "required_files": [
+        "data1.cab",
+        "0841.vga"
+      ]
+    },
+    "bargon-attack": {
+      "name": "Bargon Attack",
+      "scummvm_id": "bargon",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "intro.stk"
+        ]
+      },
+      "required_files": [
+        "intro.stk"
+      ]
+    },
+    "goblins-quest-3": {
+      "name": "Goblins Quest 3",
+      "scummvm_id": "gob3",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [
+          "gobliiins_pack"
+        ],
+        "files": [
+          "intro.stk"
+        ]
+      },
+      "required_files": [
+        "intro.stk"
+      ]
+    },
+    "nippon-safes-inc": {
+      "name": "Nippon Safes, Inc.",
+      "scummvm_id": "nippon",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "disk1",
+          "disk2",
+          "disk3",
+          "disk4",
+          "en",
+          "fr",
+          "ge",
+          "it"
+        ]
+      },
+      "required_files": [
+        "disk1",
+        "disk2",
+        "disk3",
+        "disk4",
+        "en",
+        "fr",
+        "ge",
+        "it"
+      ]
+    },
+    "touch-the-adventures-of-the-fifth-musketeer": {
+      "name": "Touché: The Adventures of the Fifth Musketeer",
+      "scummvm_id": "touche",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "touche.dat"
+        ]
+      },
+      "required_files": [
+        "touche.dat"
+      ]
+    },
+    "mickey-s-space-adventure": {
+      "name": "Mickey's Space Adventure",
+      "scummvm_id": "mickey",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "1.pic",
+          "OBJ/FLASHLIT.OOO"
+        ]
+      },
+      "required_files": [
+        "1.pic",
+        "OBJ/FLASHLIT.OOO"
+      ]
+    },
+    "troll-s-tale": {
+      "name": "Troll's Tale",
+      "scummvm_id": "troll",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "troll.img"
+        ]
+      },
+      "required_files": [
+        "troll.img"
+      ]
+    },
+    "winnie-the-pooh-in-the-hundred-acre-wood": {
+      "name": "Winnie the Pooh in the Hundred Acre Wood",
+      "scummvm_id": "winnie",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "title.pic",
+          "obj.40"
+        ]
+      },
+      "required_files": [
+        "title.pic",
+        "obj.40"
+      ]
+    },
+    "elvira-mistress-of-the-dark": {
+      "name": "Elvira: Mistress of the Dark",
+      "scummvm_id": "elvira1",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "elvira_mistress_of_the_dark"
+        ],
+        "files": [
+          "agos.mdf",
+          "englishdemo",
+          "icon.dat"
+        ]
+      },
+      "required_files": [
+        "agos.mdf",
+        "englishdemo",
+        "icon.dat"
+      ]
+    },
+    "elvira-ii-the-jaws-of-cerberus": {
+      "name": "Elvira II: The Jaws of Cerberus",
+      "scummvm_id": "elvira2",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "elvira_ii_the_jaws_of_cerberus"
+        ],
+        "files": [
+          "gameamiga",
+          "icon.dat",
+          "menus.dat",
+          "start",
+          "stripped.txt",
+          "tbllist"
+        ]
+      },
+      "required_files": [
+        "gameamiga",
+        "icon.dat",
+        "menus.dat",
+        "start",
+        "stripped.txt",
+        "tbllist"
+      ]
+    },
+    "waxworks": {
+      "name": "Waxworks",
+      "scummvm_id": "waxworks",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "waxworks"
+        ],
+        "files": [
+          "gameamiga",
+          "icon.pkd",
+          "menus.dat",
+          "start",
+          "stripped.txt",
+          "tbllist",
+          "xtbllist"
+        ]
+      },
+      "required_files": [
+        "gameamiga",
+        "icon.pkd",
+        "menus.dat",
+        "start",
+        "stripped.txt",
+        "tbllist",
+        "xtbllist"
+      ]
+    },
+    "harlan-ellison-i-have-no-mouth-and-i-must-scream": {
+      "name": "Harlan Ellison: I Have No Mouth, and I Must Scream",
+      "scummvm_id": "ihnm",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "i_have_no_mouth_and_i_must_scream"
+        ],
+        "files": [
+          "scream.res"
+        ]
+      },
+      "required_files": [
+        "scream.res"
+      ]
+    },
+    "dr-scula-the-vampire-strikes-back": {
+      "name": "Dráscula: The Vampire Strikes Back",
+      "scummvm_id": "drascula",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "packet.001",
+          "packet.001"
+        ]
+      },
+      "required_files": [
+        "packet.001",
+        "packet.001"
+      ]
+    },
+    "lost-in-time": {
+      "name": "Lost in Time",
+      "scummvm_id": "lit",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "intro.stk"
+        ]
+      },
+      "required_files": [
+        "intro.stk"
+      ]
+    },
+    "the-bizarre-adventures-of-woodruff-and-the-schnibble": {
+      "name": "The Bizarre Adventures of Woodruff and the Schnibble",
+      "scummvm_id": "woodruff",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "intro.stk"
+        ]
+      },
+      "required_files": [
+        "intro.stk"
+      ]
+    },
+    "the-7th-guest": {
+      "name": "The 7th Guest",
+      "scummvm_id": "t7g",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [
+          "the_7th_guest_25th_anniversary_edition"
+        ],
+        "files": [
+          "script.grv",
+          "AT.gjd"
+        ]
+      },
+      "required_files": [
+        "script.grv",
+        "AT.gjd"
+      ]
+    },
+    "bud-tucker-in-double-trouble": {
+      "name": "Bud Tucker in Double Trouble",
+      "scummvm_id": "tucker",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "infobar.txt"
+        ]
+      },
+      "required_files": [
+        "infobar.txt"
+      ]
+    },
+    "rodney-s-funscreen": {
+      "name": "Rodney's Funscreen",
+      "scummvm_id": "rodney",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "rodneys.dat"
+        ]
+      },
+      "required_files": [
+        "rodneys.dat"
+      ]
+    },
+    "discworld": {
+      "name": "Discworld",
+      "scummvm_id": "dw",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "dw.gra"
+        ]
+      },
+      "required_files": [
+        "dw.gra"
+      ]
+    },
+    "discworld-ii-missing-presumed": {
+      "name": "Discworld II: Missing Presumed...!?",
+      "scummvm_id": "dw2",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "dw2.scn",
+          "english.smp"
+        ]
+      },
+      "required_files": [
+        "dw2.scn",
+        "english.smp"
+      ]
+    },
+    "dragon-history": {
+      "name": "Dragon History",
+      "scummvm_id": "draci",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "INIT.DFW"
+        ]
+      },
+      "required_files": [
+        "INIT.DFW"
+      ]
+    },
+    "teen-agent": {
+      "name": "Teen Agent",
+      "scummvm_id": "teenagent",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "teenagent"
+        ],
+        "files": [
+          "off.res",
+          "on.res",
+          "ons.res",
+          "varia.res",
+          "lan_000.res",
+          "lan_500.res",
+          "mmm.res",
+          "sam_mmm.res",
+          "sam_sam.res",
+          "sdr.res"
+        ]
+      },
+      "required_files": [
+        "off.res",
+        "on.res",
+        "ons.res",
+        "varia.res",
+        "lan_000.res",
+        "lan_500.res",
+        "mmm.res",
+        "sam_mmm.res",
+        "sam_sam.res",
+        "sdr.res"
+      ]
+    },
+    "fascination": {
+      "name": "Fascination",
+      "scummvm_id": "fascination",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "disk0.stk"
+        ]
+      },
+      "required_files": [
+        "disk0.stk"
+      ]
+    },
+    "playtoons-limited-edition-bambou-le-sauveur-de-la-jungle": {
+      "name": "Playtoons Limited Edition - Bambou le sauveur de la jungle",
+      "scummvm_id": "bambou",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "intro.stk",
+          "bambou.itk"
+        ]
+      },
+      "required_files": [
+        "intro.stk",
+        "bambou.itk"
+      ]
+    },
+    "urban-runner": {
+      "name": "Urban Runner",
+      "scummvm_id": "urban",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "intro.stk"
+        ]
+      },
+      "required_files": [
+        "intro.stk"
+      ]
+    },
+    "hugo-s-house-of-horrors": {
+      "name": "Hugo's House of Horrors",
+      "scummvm_id": "hugo1",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "the_hugo_trilogy"
+        ],
+        "files": [
+          "house.art"
+        ]
+      },
+      "required_files": [
+        "house.art"
+      ]
+    },
+    "hugo-ii-whodunit": {
+      "name": "Hugo II: Whodunit?",
+      "scummvm_id": "hugo2",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "the_hugo_trilogy"
+        ],
+        "files": [
+          "objects.dat"
+        ]
+      },
+      "required_files": [
+        "objects.dat"
+      ]
+    },
+    "hugo-iii-jungle-of-doom": {
+      "name": "Hugo III: Jungle of Doom",
+      "scummvm_id": "hugo3",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "the_hugo_trilogy"
+        ],
+        "files": [
+          "objects.dat"
+        ]
+      },
+      "required_files": [
+        "objects.dat"
+      ]
+    },
+    "toonstruck": {
+      "name": "Toonstruck",
+      "scummvm_id": "toon",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "toonstruck"
+        ],
+        "files": [
+          "local.pak",
+          "arcaddbl.svl",
+          "study.svl"
+        ]
+      },
+      "required_files": [
+        "local.pak",
+        "arcaddbl.svl",
+        "study.svl"
+      ]
+    },
+    "ringworld-revenge-of-the-patriarch": {
+      "name": "Ringworld: Revenge of the Patriarch",
+      "scummvm_id": "ringworld",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "ring.rlb"
+        ]
+      },
+      "required_files": [
+        "ring.rlb"
+      ]
+    },
+    "so-tys": {
+      "name": "Sołtys",
+      "scummvm_id": "soltys",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "vol.cat",
+          "vol.dat"
+        ]
+      },
+      "required_files": [
+        "vol.cat",
+        "vol.dat"
+      ]
+    },
+    "darby-the-dragon": {
+      "name": "Darby the Dragon",
+      "scummvm_id": "darby",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "book.ini",
+          "page99.rsc"
+        ]
+      },
+      "required_files": [
+        "book.ini",
+        "page99.rsc"
+      ]
+    },
+    "gregory-and-the-hot-air-balloon": {
+      "name": "Gregory and the Hot Air Balloon",
+      "scummvm_id": "gregory",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "book.ini",
+          "page99.rsc"
+        ]
+      },
+      "required_files": [
+        "book.ini",
+        "page99.rsc"
+      ]
+    },
+    "magic-tales-liam-finds-a-story": {
+      "name": "Magic Tales: Liam Finds a Story",
+      "scummvm_id": "liam",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "book.ini"
+        ]
+      },
+      "required_files": [
+        "book.ini"
+      ]
+    },
+    "magic-tales-the-princess-and-the-crab": {
+      "name": "Magic Tales: The Princess and the Crab",
+      "scummvm_id": "princess",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "book.ini",
+          "page99.rsc"
+        ]
+      },
+      "required_files": [
+        "book.ini",
+        "page99.rsc"
+      ]
+    },
+    "magic-tales-sleeping-cub-s-test-of-courage": {
+      "name": "Magic Tales: Sleeping Cub's Test of Courage",
+      "scummvm_id": "sleepingcub",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "book.ini",
+          "page99.rsc"
+        ]
+      },
+      "required_files": [
+        "book.ini",
+        "page99.rsc"
+      ]
+    },
+    "dreamweb": {
+      "name": "DreamWeb",
+      "scummvm_id": "dreamweb",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "dreamw_1.rnc",
+          "dreamw_2.rnc",
+          "dreamw_3.rnc",
+          "dreamw_4.rnc",
+          "dreamw_5.rnc",
+          "dreamw_6.rnc"
+        ]
+      },
+      "required_files": [
+        "dreamw_1.rnc",
+        "dreamw_2.rnc",
+        "dreamw_3.rnc",
+        "dreamw_4.rnc",
+        "dreamw_5.rnc",
+        "dreamw_6.rnc"
+      ]
+    },
+    "geisha": {
+      "name": "Geisha",
+      "scummvm_id": "geisha",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "disk1.stk"
+        ]
+      },
+      "required_files": [
+        "disk1.stk"
+      ]
+    },
+    "once-upon-a-time-little-red-riding-hood": {
+      "name": "Once Upon A Time: Little Red Riding Hood",
+      "scummvm_id": "littlered",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "intro.stk"
+        ]
+      },
+      "required_files": [
+        "intro.stk"
+      ]
+    },
+    "blue-force": {
+      "name": "Blue Force",
+      "scummvm_id": "blueforce",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "blue.rlb"
+        ]
+      },
+      "required_files": [
+        "blue.rlb"
+      ]
+    },
+    "hopkins-fbi": {
+      "name": "Hopkins FBI",
+      "scummvm_id": "hopkins",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "RES_VAN.RES"
+        ]
+      },
+      "required_files": [
+        "RES_VAN.RES"
+      ]
+    },
+    "3-skulls-of-the-toltecs": {
+      "name": "3 Skulls of the Toltecs",
+      "scummvm_id": "toltecs",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "WESTERN"
+        ]
+      },
+      "required_files": [
+        "WESTERN"
+      ]
+    },
+    "tony-tough-and-the-night-of-roasted-moths": {
+      "name": "Tony Tough and the Night of Roasted Moths",
+      "scummvm_id": "tony",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "roasted.mpc",
+          "roasted.mpr",
+          "voices.vdb"
+        ]
+      },
+      "required_files": [
+        "roasted.mpc",
+        "roasted.mpr",
+        "voices.vdb"
+      ]
+    },
+    "mortville-manor": {
+      "name": "Mortville Manor",
+      "scummvm_id": "mortevielle",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "menufr.mor",
+          "dxx.mor"
+        ]
+      },
+      "required_files": [
+        "menufr.mor",
+        "dxx.mor"
+      ]
+    },
+    "the-neverhood": {
+      "name": "The Neverhood",
+      "scummvm_id": "neverhood",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "hd.blb"
+        ]
+      },
+      "required_files": [
+        "hd.blb"
+      ]
+    },
+    "return-to-ringworld": {
+      "name": "Return to Ringworld",
+      "scummvm_id": "ringworld2",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "r2rw.rlb"
+        ]
+      },
+      "required_files": [
+        "r2rw.rlb"
+      ]
+    },
+    "voyeur": {
+      "name": "Voyeur",
+      "scummvm_id": "voyeur",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "bvoy.blt"
+        ]
+      },
+      "required_files": [
+        "bvoy.blt"
+      ]
+    },
+    "five-lethal-demons": {
+      "name": "Five Lethal Demons",
+      "scummvm_id": "5ld",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "czech.dcp",
+          "data.dcp"
+        ]
+      },
+      "required_files": [
+        "czech.dcp",
+        "data.dcp"
+      ]
+    },
+    "five-magical-amulets": {
+      "name": "Five Magical Amulets",
+      "scummvm_id": "5ma",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "czech.dcp",
+          "data.dcp"
+        ]
+      },
+      "required_files": [
+        "czech.dcp",
+        "data.dcp"
+      ]
+    },
+    "bickadoodle": {
+      "name": "Bickadoodle",
+      "scummvm_id": "bickadoodle",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "data.dcp"
+        ]
+      },
+      "required_files": [
+        "data.dcp"
+      ]
+    },
+    "chivalry-is-not-dead": {
+      "name": "Chivalry is Not Dead",
+      "scummvm_id": "chivalry",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "data.dcp"
+        ]
+      },
+      "required_files": [
+        "data.dcp"
+      ]
+    },
+    "dead-city": {
+      "name": "Dead City",
+      "scummvm_id": "deadcity",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "data.dcp"
+        ]
+      },
+      "required_files": [
+        "data.dcp"
+      ]
+    },
+    "dirty-split": {
+      "name": "Dirty Split",
+      "scummvm_id": "dirtysplit",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "czech.dcp",
+          "data.dcp"
+        ]
+      },
+      "required_files": [
+        "czech.dcp",
+        "data.dcp"
+      ]
+    },
+    "escape-from-the-mansion": {
+      "name": "Escape from the Mansion",
+      "scummvm_id": "escapemansion",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "data.dcp"
+        ]
+      },
+      "required_files": [
+        "data.dcp"
+      ]
+    },
+    "helga-deep-in-trouble": {
+      "name": "Helga Deep In Trouble",
+      "scummvm_id": "helga",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "data.dcp",
+          "data.dcp"
+        ]
+      },
+      "required_files": [
+        "data.dcp",
+        "data.dcp"
+      ]
+    },
+    "1-ritter-auf-der-suche-nach-der-hinrei-enden-herzelinde": {
+      "name": "1½ Ritter: Auf der Suche nach der hinreißenden Herzelinde",
+      "scummvm_id": "ritter",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "data.dcp"
+        ]
+      },
+      "required_files": [
+        "data.dcp"
+      ]
+    },
+    "rosemary": {
+      "name": "Rosemary",
+      "scummvm_id": "rosemary",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "data.dcp"
+        ]
+      },
+      "required_files": [
+        "data.dcp"
+      ]
+    },
+    "the-white-chamber": {
+      "name": "The White Chamber",
+      "scummvm_id": "twc",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "data.dcp"
+        ]
+      },
+      "required_files": [
+        "data.dcp"
+      ]
+    },
+    "amazon-guardians-of-eden": {
+      "name": "Amazon: Guardians of Eden",
+      "scummvm_id": "amazon",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "amazon_guardians_of_eden"
+        ],
+        "files": [
+          "c00.ap"
+        ]
+      },
+      "required_files": [
+        "c00.ap"
+      ]
+    },
+    "mtv-s-beavis-and-butt-head-in-virtual-stupidity": {
+      "name": "MTV's Beavis and Butt-Head in Virtual Stupidity",
+      "scummvm_id": "bbvs",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "vspr0001.vnm"
+        ]
+      },
+      "required_files": [
+        "vspr0001.vnm"
+      ]
+    },
+    "sfinx": {
+      "name": "Sfinx",
+      "scummvm_id": "sfinx",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "vol.cat",
+          "vol.dat"
+        ]
+      },
+      "required_files": [
+        "vol.cat",
+        "vol.dat"
+      ]
+    },
+    "the-labyrinth-of-time": {
+      "name": "The Labyrinth of Time",
+      "scummvm_id": "lab",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "labyrinth_of_time_the"
+        ],
+        "files": [
+          "doors",
+          "noteold.fon"
+        ]
+      },
+      "required_files": [
+        "doors",
+        "noteold.fon"
+      ]
+    },
+    "rex-nebular-and-the-cosmic-gender-bender": {
+      "name": "Rex Nebular and the Cosmic Gender Bender",
+      "scummvm_id": "nebular",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "rex_nebular_and_the_cosmic_gender_bender"
+        ],
+        "files": [
+          "mpslabs.001",
+          "mpslabs.idx"
+        ]
+      },
+      "required_files": [
+        "mpslabs.001",
+        "mpslabs.idx"
+      ]
+    },
+    "the-lost-files-of-sherlock-holmes-case-of-the-rose-tattoo": {
+      "name": "The Lost Files of Sherlock Holmes: Case of the Rose Tattoo",
+      "scummvm_id": "rosetattoo",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "talk.lib"
+        ]
+      },
+      "required_files": [
+        "talk.lib"
+      ]
+    },
+    "the-lost-files-of-sherlock-holmes-the-case-of-the-serrated-scalpel": {
+      "name": "The Lost Files of Sherlock Holmes: The Case of the Serrated Scalpel",
+      "scummvm_id": "scalpel",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "talk.lib"
+        ]
+      },
+      "required_files": [
+        "talk.lib"
+      ]
+    },
+    "broken-sword-2-5-the-return-of-the-templars": {
+      "name": "Broken Sword 2.5: The Return of the Templars",
+      "scummvm_id": "sword25",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "data.b25c"
+        ]
+      },
+      "required_files": [
+        "data.b25c"
+      ]
+    },
+    "zork-grand-inquisitor": {
+      "name": "Zork: Grand Inquisitor",
+      "scummvm_id": "zgi",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "zork_grand_inquisitor"
+        ],
+        "files": [
+          "SCRIPTS.ZFS"
+        ]
+      },
+      "required_files": [
+        "SCRIPTS.ZFS"
+      ]
+    },
+    "zork-nemesis-the-forbidden-lands": {
+      "name": "Zork Nemesis: The Forbidden Lands",
+      "scummvm_id": "znemesis",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "zork_nemesis_the_forbidden_lands"
+        ],
+        "files": [
+          "CSCR.ZFS",
+          "ASCR.ZFS"
+        ]
+      },
+      "required_files": [
+        "CSCR.ZFS",
+        "ASCR.ZFS"
+      ]
+    },
+    "hi-res-adventure-1-mystery-house": {
+      "name": "Hi-Res Adventure #1: Mystery House",
+      "scummvm_id": "hires1",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "ADVENTURE",
+          "AUTO LOAD OBJ"
+        ]
+      },
+      "required_files": [
+        "ADVENTURE",
+        "AUTO LOAD OBJ"
+      ]
+    },
+    "u-f-o-s": {
+      "name": "U.F.O.s",
+      "scummvm_id": "gnap",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "stock_n.dat"
+        ]
+      },
+      "required_files": [
+        "stock_n.dat"
+      ]
+    },
+    "full-pipe": {
+      "name": "Full Pipe",
+      "scummvm_id": "fullpipe",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "4620.sc2"
+        ]
+      },
+      "required_files": [
+        "4620.sc2"
+      ]
+    },
+    "plumbers-don-t-wear-ties": {
+      "name": "Plumbers Don't Wear Ties",
+      "scummvm_id": "plumbers",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "GAME.BIN"
+        ]
+      },
+      "required_files": [
+        "GAME.BIN"
+      ]
+    },
+    "starship-titanic": {
+      "name": "Starship Titanic",
+      "scummvm_id": "titanic",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "starship_titanic"
+        ],
+        "files": [
+          "newgame.st"
+        ]
+      },
+      "required_files": [
+        "newgame.st"
+      ]
+    },
+    "blade-runner": {
+      "name": "Blade Runner",
+      "scummvm_id": "bladerunner",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "blade_runner"
+        ],
+        "files": [
+          "STARTUP.MIX"
+        ]
+      },
+      "required_files": [
+        "STARTUP.MIX"
+      ]
+    },
+    "versailles-1685": {
+      "name": "Versailles 1685",
+      "scummvm_id": "versailles",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "VERSAILL.EXE"
+        ]
+      },
+      "required_files": [
+        "VERSAILL.EXE"
+      ]
+    },
+    "hyperspace-delivery-boy": {
+      "name": "Hyperspace Delivery Boy!",
+      "scummvm_id": "hdb",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "hyperspace.mpc"
+        ]
+      },
+      "required_files": [
+        "hyperspace.mpc"
+      ]
+    },
+    "duckman-the-graphic-adventures-of-a-private-dick": {
+      "name": "Duckman: The Graphic Adventures of a Private Dick",
+      "scummvm_id": "duckman",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "duckman.gam"
+        ]
+      },
+      "required_files": [
+        "duckman.gam"
+      ]
+    },
+    "the-prince-and-the-coward": {
+      "name": "The Prince and the Coward",
+      "scummvm_id": "prince",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [
+          "galador_the_prince_and_the_coward"
+        ],
+        "files": [
+          "databank.ptc"
+        ]
+      },
+      "required_files": [
+        "databank.ptc"
+      ]
+    },
+    "mission-supernova-1": {
+      "name": "Mission Supernova 1",
+      "scummvm_id": "msn1",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "msn_data.000"
+        ]
+      },
+      "required_files": [
+        "msn_data.000"
+      ]
+    },
+    "mission-supernova-2": {
+      "name": "Mission Supernova 2",
+      "scummvm_id": "msn2",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "ms2_data.000"
+        ]
+      },
+      "required_files": [
+        "ms2_data.000"
+      ]
+    },
+    "might-and-magic-clouds-of-xeen": {
+      "name": "Might and Magic: Clouds of Xeen",
+      "scummvm_id": "cloudsofxeen",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "might_and_magic_6_limited_edition"
+        ],
+        "files": [
+          "xeen.cc"
+        ]
+      },
+      "required_files": [
+        "xeen.cc"
+      ]
+    },
+    "might-and-magic-darkside-of-xeen": {
+      "name": "Might and Magic: Darkside of Xeen",
+      "scummvm_id": "darksideofxeen",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "might_and_magic_6_limited_edition"
+        ],
+        "files": [
+          "dark.cc"
+        ]
+      },
+      "required_files": [
+        "dark.cc"
+      ]
+    },
+    "might-and-magic-swords-of-xeen": {
+      "name": "Might and Magic: Swords of Xeen",
+      "scummvm_id": "swordsofxeen",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "might_and_magic_6_limited_edition"
+        ],
+        "files": [
+          "swrd.cc"
+        ]
+      },
+      "required_files": [
+        "swrd.cc"
+      ]
+    },
+    "might-and-magic-world-of-xeen": {
+      "name": "Might and Magic: World of Xeen",
+      "scummvm_id": "worldofxeen",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "might_and_magic_6_limited_edition"
+        ],
+        "files": [
+          "xeen.cc",
+          "dark.cc"
+        ]
+      },
+      "required_files": [
+        "xeen.cc",
+        "dark.cc"
+      ]
+    },
+    "blazing-dragons": {
+      "name": "Blazing Dragons",
+      "scummvm_id": "dragons",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "bigfile.dat"
+        ]
+      },
+      "required_files": [
+        "bigfile.dat"
+      ]
+    },
+    "the-griffon-legend": {
+      "name": "The Griffon Legend",
+      "scummvm_id": "griffon",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "objectdb.dat"
+        ]
+      },
+      "required_files": [
+        "objectdb.dat"
+      ]
+    },
+    "ultima-iv-quest-of-the-avatar": {
+      "name": "Ultima IV: Quest of the Avatar",
+      "scummvm_id": "ultima4",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "ultima_4"
+        ],
+        "files": [
+          "britain.ult"
+        ]
+      },
+      "required_files": [
+        "britain.ult"
+      ]
+    },
+    "ultima-vi-the-false-prophet": {
+      "name": "Ultima VI: The False Prophet",
+      "scummvm_id": "ultima6",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "ultima_456"
+        ],
+        "files": [
+          "converse.a"
+        ]
+      },
+      "required_files": [
+        "converse.a"
+      ]
+    },
+    "ultima-viii-pagan": {
+      "name": "Ultima VIII - Pagan",
+      "scummvm_id": "ultima8",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "ultima_8_gold_edition"
+        ],
+        "files": [
+          "usecode/eusecode.flx"
+        ]
+      },
+      "required_files": [
+        "usecode/eusecode.flx"
+      ]
+    },
+    "the-blackwell-legacy": {
+      "name": "The Blackwell Legacy",
+      "scummvm_id": "blackwell1",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [
+          "blackwell_bundle"
+        ],
+        "files": [
+          "blackwell1.exe"
+        ]
+      },
+      "required_files": [
+        "blackwell1.exe"
+      ]
+    },
+    "blackwell-unbound": {
+      "name": "Blackwell Unbound",
+      "scummvm_id": "blackwell2",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [
+          "blackwell_bundle"
+        ],
+        "files": [
+          "unbound.exe"
+        ]
+      },
+      "required_files": [
+        "unbound.exe"
+      ]
+    },
+    "the-blackwell-convergence": {
+      "name": "The Blackwell Convergence",
+      "scummvm_id": "blackwell3",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [
+          "blackwell_bundle"
+        ],
+        "files": [
+          "convergence.exe"
+        ]
+      },
+      "required_files": [
+        "convergence.exe"
+      ]
+    },
+    "the-blackwell-deception": {
+      "name": "The Blackwell Deception",
+      "scummvm_id": "blackwell4",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "blackwell_bundle"
+        ],
+        "files": [
+          "deception.exe"
+        ]
+      },
+      "required_files": [
+        "deception.exe"
+      ]
+    },
+    "the-blackwell-epiphany": {
+      "name": "The Blackwell Epiphany",
+      "scummvm_id": "blackwell5",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "the_blackwell_epiphany"
+        ],
+        "files": [
+          "epiphany.exe"
+        ]
+      },
+      "required_files": [
+        "epiphany.exe"
+      ]
+    },
+    "a-golden-wake": {
+      "name": "A Golden Wake",
+      "scummvm_id": "goldenwake",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "a_golden_wake"
+        ],
+        "files": [
+          "a-golden-wake.exe"
+        ]
+      },
+      "required_files": [
+        "a-golden-wake.exe"
+      ]
+    },
+    "kathy-rain": {
+      "name": "Kathy Rain",
+      "scummvm_id": "kathyrain",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "kathy_rain"
+        ],
+        "files": [
+          "kathyrain.exe"
+        ]
+      },
+      "required_files": [
+        "kathyrain.exe"
+      ]
+    },
+    "resonance": {
+      "name": "Resonance",
+      "scummvm_id": "resonance",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "resonance"
+        ],
+        "files": [
+          "resonance.exe"
+        ]
+      },
+      "required_files": [
+        "resonance.exe"
+      ]
+    },
+    "the-shivah": {
+      "name": "The Shivah",
+      "scummvm_id": "shivah",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "the_shivah"
+        ],
+        "files": [
+          "shivah.exe"
+        ]
+      },
+      "required_files": [
+        "shivah.exe"
+      ]
+    },
+    "space-quest-iv-5-roger-wilco-and-the-voyage-home": {
+      "name": "Space Quest IV.5 - Roger Wilco and the Voyage Home",
+      "scummvm_id": "sq45",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "SQ4,5.exe"
+        ]
+      },
+      "required_files": [
+        "SQ4,5.exe"
+      ]
+    },
+    "space-quest-minus-1-decisions-of-the-elders": {
+      "name": "Space Quest Minus 1: Decisions of the Elders",
+      "scummvm_id": "sqdote",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "SQ DOTE.exe"
+        ]
+      },
+      "required_files": [
+        "SQ DOTE.exe"
+      ]
+    },
+    "space-quest-incinerations": {
+      "name": "Space Quest: Incinerations",
+      "scummvm_id": "sqinc",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "SQinc.exe"
+        ]
+      },
+      "required_files": [
+        "SQinc.exe"
+      ]
+    },
+    "space-quest-vohaul-strikes-back": {
+      "name": "Space Quest: Vohaul Strikes Back",
+      "scummvm_id": "sqvsb",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "vsb.exe"
+        ]
+      },
+      "required_files": [
+        "vsb.exe"
+      ]
+    },
+    "the-journeyman-project-2-buried-in-time": {
+      "name": "The Journeyman Project 2: Buried in Time",
+      "scummvm_id": "buried",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [
+          "journeyman_project_2"
+        ],
+        "files": [
+          "BIT816.EXE",
+          "BIT8LIB.DLL"
+        ]
+      },
+      "required_files": [
+        "BIT816.EXE",
+        "BIT8LIB.DLL"
+      ]
+    },
+    "grim-fandango": {
+      "name": "Grim Fandango",
+      "scummvm_id": "grim",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "VOX0001.LAB"
+        ]
+      },
+      "required_files": [
+        "VOX0001.LAB"
+      ]
+    },
+    "myst-iii-exile": {
+      "name": "Myst III: Exile",
+      "scummvm_id": "myst3",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "myst_3_exile"
+        ],
+        "files": [
+          "RSRC.m3r"
+        ]
+      },
+      "required_files": [
+        "RSRC.m3r"
+      ]
+    },
+    "red-comrades-1-save-the-galaxy": {
+      "name": "Red Comrades 1: Save the Galaxy",
+      "scummvm_id": "petka1",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "DEMO.EXE",
+          "SCRIPT.DAT"
+        ]
+      },
+      "required_files": [
+        "DEMO.EXE",
+        "SCRIPT.DAT"
+      ]
+    },
+    "red-comrades-2-for-the-great-justice": {
+      "name": "Red Comrades 2: For the Great Justice",
+      "scummvm_id": "petka2",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "main.str"
+        ]
+      },
+      "required_files": [
+        "main.str"
+      ]
+    },
+    "private-eye": {
+      "name": "Private Eye",
+      "scummvm_id": "private-eye",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "pvteye.z",
+          "intro.smk"
+        ]
+      },
+      "required_files": [
+        "pvteye.z",
+        "intro.smk"
+      ]
+    },
+    "the-longest-journey": {
+      "name": "The Longest Journey",
+      "scummvm_id": "tlj",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "the_longest_journey"
+        ],
+        "files": [
+          "x.xarc",
+          "chapters.ini",
+          "game.exe"
+        ]
+      },
+      "required_files": [
+        "x.xarc",
+        "chapters.ini",
+        "game.exe"
+      ]
+    },
+    "nightlong-union-city-conspiracy": {
+      "name": "Nightlong: Union City Conspiracy",
+      "scummvm_id": "nl",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "data.nl"
+        ]
+      },
+      "required_files": [
+        "data.nl"
+      ]
+    },
+    "little-big-adventure-relentless-twinsen-s-adventure": {
+      "name": "Little Big Adventure (Relentless: Twinsen's Adventure)",
+      "scummvm_id": "lba",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "little_big_adventure"
+        ],
+        "files": [
+          "LBA.EXE"
+        ]
+      },
+      "required_files": [
+        "LBA.EXE"
+      ]
+    },
+    "crusader-no-remorse": {
+      "name": "Crusader: No Remorse",
+      "scummvm_id": "remorse",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "crusader_no_remorse"
+        ],
+        "files": [
+          "usecode/eusecode.flx"
+        ]
+      },
+      "required_files": [
+        "usecode/eusecode.flx"
+      ]
+    },
+    "sanitarium": {
+      "name": "Sanitarium",
+      "scummvm_id": "asylum",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [
+          "sanitarium"
+        ],
+        "files": [
+          "SNTRM.DAT",
+          "RES.000",
+          "SCN.006"
+        ]
+      },
+      "required_files": [
+        "SNTRM.DAT",
+        "RES.000",
+        "SCN.006"
+      ]
+    },
+    "chewy-esc-from-f5": {
+      "name": "Chewy: Esc from F5",
+      "scummvm_id": "chewy",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "txt/atds.tap"
+        ]
+      },
+      "required_files": [
+        "txt/atds.tap"
+      ]
+    },
+    "the-11th-hour-the-sequel-to-the-7th-guest": {
+      "name": "The 11th Hour: The Sequel to The 7th Guest",
+      "scummvm_id": "11h",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "the_11th_hour"
+        ],
+        "files": [
+          "script.grv",
+          "introd1.gjd"
+        ]
+      },
+      "required_files": [
+        "script.grv",
+        "introd1.gjd"
+      ]
+    },
+    "clandestiny": {
+      "name": "Clandestiny",
+      "scummvm_id": "clandestiny",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "trailer.grv",
+          "The 11th Hour Installer"
+        ]
+      },
+      "required_files": [
+        "trailer.grv",
+        "The 11th Hour Installer"
+      ]
+    },
+    "tender-loving-care": {
+      "name": "Tender Loving Care",
+      "scummvm_id": "tlc",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "tender_loving_care"
+        ],
+        "files": [
+          "tlcmain.grv"
+        ]
+      },
+      "required_files": [
+        "tlcmain.grv"
+      ]
+    },
+    "uncle-henry-s-playhouse": {
+      "name": "Uncle Henry's Playhouse",
+      "scummvm_id": "unclehenry",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "tpot.grv"
+        ]
+      },
+      "required_files": [
+        "tpot.grv"
+      ]
+    },
+    "hades-challenge": {
+      "name": "Hades Challenge",
+      "scummvm_id": "hadesch",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "hadesch.exe",
+          "WD.POD",
+          "ol.pod"
+        ]
+      },
+      "required_files": [
+        "hadesch.exe",
+        "WD.POD",
+        "ol.pod"
+      ]
+    },
+    "marvel-comics-spider-man-the-sinister-six": {
+      "name": "Marvel Comics Spider-Man: The Sinister Six",
+      "scummvm_id": "sinistersix",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "DATA.Z",
+          "DCINE1.SMK"
+        ]
+      },
+      "required_files": [
+        "DATA.Z",
+        "DCINE1.SMK"
+      ]
+    },
+    "wetlands": {
+      "name": "Wetlands",
+      "scummvm_id": "wetlands",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "wetlands"
+        ],
+        "files": [
+          "wetlands.exe",
+          "c61.mis"
+        ]
+      },
+      "required_files": [
+        "wetlands.exe",
+        "c61.mis"
+      ]
+    },
+    "adibou-2": {
+      "name": "Adibou 2",
+      "scummvm_id": "adibou2",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "intro.stk"
+        ]
+      },
+      "required_files": [
+        "intro.stk"
+      ]
+    },
+    "obsidian": {
+      "name": "Obsidian",
+      "scummvm_id": "obsidian",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "Obsidian Installer"
+        ]
+      },
+      "required_files": [
+        "Obsidian Installer"
+      ]
+    },
+    "driller": {
+      "name": "Driller",
+      "scummvm_id": "driller",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "DRILLER.ZX.DATA"
+        ]
+      },
+      "required_files": [
+        "DRILLER.ZX.DATA"
+      ]
+    },
+    "soldier-boyz": {
+      "name": "Soldier Boyz",
+      "scummvm_id": "soldierboyz",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "boyz.exe",
+          "setup.exe"
+        ]
+      },
+      "required_files": [
+        "boyz.exe",
+        "setup.exe"
+      ]
+    },
+    "the-pink-panther-passport-to-peril": {
+      "name": "The Pink Panther: Passport to Peril",
+      "scummvm_id": "peril",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "PPTP.ORB"
+        ]
+      },
+      "required_files": [
+        "PPTP.ORB"
+      ]
+    },
+    "the-pink-panther-hokus-pokus-pink": {
+      "name": "The Pink Panther: Hokus Pokus Pink",
+      "scummvm_id": "pokus",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "HPP.orb"
+        ]
+      },
+      "required_files": [
+        "HPP.orb"
+      ]
+    },
+    "halls-of-the-dead-faery-tale-adventure-ii": {
+      "name": "Halls of the Dead: Faery Tale Adventure II",
+      "scummvm_id": "fta2",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "ftadata.hrs",
+          "fta.hrs",
+          "scripts.hrs",
+          "ftasound.hrs",
+          "ftaimage.hrs",
+          "fta2win.exe"
+        ]
+      },
+      "required_files": [
+        "ftadata.hrs",
+        "fta.hrs",
+        "scripts.hrs",
+        "ftasound.hrs",
+        "ftaimage.hrs",
+        "fta2win.exe"
+      ]
+    },
+    "syberia": {
+      "name": "Syberia",
+      "scummvm_id": "syberia",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "syberia"
+        ],
+        "files": [
+          "MacOS/Syberia"
+        ]
+      },
+      "required_files": [
+        "MacOS/Syberia"
+      ]
+    },
+    "syberia-ii": {
+      "name": "Syberia II",
+      "scummvm_id": "syberia2",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "syberia_2"
+        ],
+        "files": [
+          "Debug.lua",
+          "InGame.lua"
+        ]
+      },
+      "required_files": [
+        "Debug.lua",
+        "InGame.lua"
+      ]
+    },
+    "nancy-drew-secrets-can-kill": {
+      "name": "Nancy Drew: Secrets Can Kill",
+      "scummvm_id": "nancy1",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "ciftree.dat"
+        ]
+      },
+      "required_files": [
+        "ciftree.dat"
+      ]
+    },
+    "the-vampire-diaries": {
+      "name": "The Vampire Diaries",
+      "scummvm_id": "vampirediaries",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "boot.iff"
+        ]
+      },
+      "required_files": [
+        "boot.iff"
+      ]
+    },
+    "reah-face-the-unknown": {
+      "name": "Reah: Face the Unknown",
+      "scummvm_id": "reah",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [
+          "reah_face_the_unknown"
+        ],
+        "files": [
+          "Reah.exe",
+          "0170_b.wav"
+        ]
+      },
+      "required_files": [
+        "Reah.exe",
+        "0170_b.wav"
+      ]
+    },
+    "schizm-mysterious-journey": {
+      "name": "Schizm: Mysterious Journey",
+      "scummvm_id": "schizm",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [
+          "schizm"
+        ],
+        "files": [
+          "Schizm.exe",
+          "0001_a.wav"
+        ]
+      },
+      "required_files": [
+        "Schizm.exe",
+        "0001_a.wav"
+      ]
+    },
+    "might-and-magic-book-one-secret-of-the-inner-sanctum": {
+      "name": "Might and Magic: Book One - Secret of the Inner Sanctum",
+      "scummvm_id": "mm1",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "might_and_magic_6_limited_edition"
+        ],
+        "files": [
+          "wallpix.dta"
+        ]
+      },
+      "required_files": [
+        "wallpix.dta"
+      ]
+    },
+    "primordia": {
+      "name": "Primordia",
+      "scummvm_id": "primordia",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "primordia"
+        ],
+        "files": [
+          "primordia.exe"
+        ]
+      },
+      "required_files": [
+        "primordia.exe"
+      ]
+    },
+    "shardlight": {
+      "name": "Shardlight",
+      "scummvm_id": "shardlight",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "shardlight"
+        ],
+        "files": [
+          "shardlight.exe"
+        ]
+      },
+      "required_files": [
+        "shardlight.exe"
+      ]
+    },
+    "technobabylon": {
+      "name": "Technobabylon",
+      "scummvm_id": "technobabylon",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "technobabylon"
+        ],
+        "files": [
+          "technobabylon.exe"
+        ]
+      },
+      "required_files": [
+        "technobabylon.exe"
+      ]
+    },
+    "muppet-treasure-island": {
+      "name": "Muppet Treasure Island ",
+      "scummvm_id": "mti",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "xn--MTI1-8b7a"
+        ]
+      },
+      "required_files": [
+        "xn--MTI1-8b7a"
+      ]
+    },
+    "the-shivah-kosher-edition": {
+      "name": "The Shivah: Kosher Edition",
+      "scummvm_id": "shivahkosher",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "the_shivah"
+        ],
+        "files": [
+          "shivah.exe"
+        ]
+      },
+      "required_files": [
+        "shivah.exe"
+      ]
+    },
+    "unavowed": {
+      "name": "Unavowed",
+      "scummvm_id": "unavowed",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "unavowed"
+        ],
+        "files": [
+          "ac2game.dat"
+        ]
+      },
+      "required_files": [
+        "ac2game.dat"
+      ]
+    },
+    "gemini-rue": {
+      "name": "Gemini Rue",
+      "scummvm_id": "geminirue",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "gemini_rue"
+        ],
+        "files": [
+          "GeminiRue.exe"
+        ]
+      },
+      "required_files": [
+        "GeminiRue.exe"
+      ]
+    },
+    "strangeland": {
+      "name": "Strangeland",
+      "scummvm_id": "strangeland",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "strangeland"
+        ],
+        "files": [
+          "Strangeland.exe"
+        ]
+      },
+      "required_files": [
+        "Strangeland.exe"
+      ]
+    },
+    "the-excavation-of-hob-s-barrow": {
+      "name": "The Excavation of Hob's Barrow",
+      "scummvm_id": "excavationhb",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "the_excavation_of_hobs_barrow"
+        ],
+        "files": [
+          "TEOHB.exe"
+        ]
+      },
+      "required_files": [
+        "TEOHB.exe"
+      ]
+    },
+    "adibou-1": {
+      "name": "Adibou 1",
+      "scummvm_id": "adibou1",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "intro.stk"
+        ]
+      },
+      "required_files": [
+        "intro.stk"
+      ]
+    },
+    "dark-side": {
+      "name": "Dark Side",
+      "scummvm_id": "darkside",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "0.DRK",
+          "1.DRK"
+        ]
+      },
+      "required_files": [
+        "0.DRK",
+        "1.DRK"
+      ]
+    },
+    "nancy-drew-stay-tuned-for-danger": {
+      "name": "Nancy Drew: Stay Tuned for Danger",
+      "scummvm_id": "nancy2",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "ciftree.dat"
+        ]
+      },
+      "required_files": [
+        "ciftree.dat"
+      ]
+    },
+    "nancy-drew-message-in-a-haunted-mansion": {
+      "name": "Nancy Drew: Message in a Haunted Mansion",
+      "scummvm_id": "nancy3",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "ciftree.dat"
+        ]
+      },
+      "required_files": [
+        "ciftree.dat"
+      ]
+    },
+    "nancy-drew-treasure-in-the-royal-tower": {
+      "name": "Nancy Drew: Treasure in the Royal Tower",
+      "scummvm_id": "nancy4",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "ciftree.dat"
+        ]
+      },
+      "required_files": [
+        "ciftree.dat"
+      ]
+    },
+    "nancy-drew-the-final-scene": {
+      "name": "Nancy Drew: The Final Scene",
+      "scummvm_id": "nancy5",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "ciftree.dat"
+        ]
+      },
+      "required_files": [
+        "ciftree.dat"
+      ]
+    },
+    "whispers-of-a-machine": {
+      "name": "Whispers of a Machine",
+      "scummvm_id": "whispersofamachine",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [
+          "whispers_of_a_machine"
+        ],
+        "files": [
+          "whispers.exe"
+        ]
+      },
+      "required_files": [
+        "whispers.exe"
+      ]
+    },
+    "football-game": {
+      "name": "Football Game",
+      "scummvm_id": "footballgame",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "Football Game.exe"
+        ]
+      },
+      "required_files": [
+        "Football Game.exe"
+      ]
+    },
+    "sumatra-fate-of-yandi": {
+      "name": "Sumatra: Fate of Yandi",
+      "scummvm_id": "sumatra",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "sumatra_fate_of_yandi"
+        ],
+        "files": [
+          "sumatra fate of yandi.exe"
+        ]
+      },
+      "required_files": [
+        "sumatra fate of yandi.exe"
+      ]
+    },
+    "ashina-the-red-witch": {
+      "name": "Ashina: The Red Witch",
+      "scummvm_id": "ashinaredwitch",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "ATRW.exe"
+        ]
+      },
+      "required_files": [
+        "ATRW.exe"
+      ]
+    },
+    "just-ignore-them": {
+      "name": "Just Ignore Them",
+      "scummvm_id": "justignorethem",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "justignorethem.exe"
+        ]
+      },
+      "required_files": [
+        "justignorethem.exe"
+      ]
+    },
+    "my-big-sister": {
+      "name": "My Big Sister",
+      "scummvm_id": "mybigsister",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "My Big Sister.exe"
+        ]
+      },
+      "required_files": [
+        "My Big Sister.exe"
+      ]
+    },
+    "my-big-sister-remastered": {
+      "name": "My Big Sister Remastered",
+      "scummvm_id": "mybigsisterrm",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "MBSRemastered.exe"
+        ]
+      },
+      "required_files": [
+        "MBSRemastered.exe"
+      ]
+    },
+    "red-bow": {
+      "name": "Red Bow",
+      "scummvm_id": "redbow",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "Red Bow.exe"
+        ]
+      },
+      "required_files": [
+        "Red Bow.exe"
+      ]
+    },
+    "maniac-mansion-deluxe": {
+      "name": "Maniac Mansion Deluxe",
+      "scummvm_id": "maniacmansiondeluxe",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "Maniac.exe"
+        ]
+      },
+      "required_files": [
+        "Maniac.exe"
+      ]
+    },
+    "the-cute-machine": {
+      "name": "The Cute Machine",
+      "scummvm_id": "cutemachine",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "CUTE.EXE"
+        ]
+      },
+      "required_files": [
+        "CUTE.EXE"
+      ]
+    },
+    "orion-burger": {
+      "name": "Orion Burger",
+      "scummvm_id": "burger",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "burger.has"
+        ]
+      },
+      "required_files": [
+        "burger.has"
+      ]
+    },
+    "thimbleweed-park": {
+      "name": "Thimbleweed Park",
+      "scummvm_id": "twp",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [
+          "thimbleweed_park"
+        ],
+        "files": [
+          "ThimbleweedPark.ggpack1"
+        ]
+      },
+      "required_files": [
+        "ThimbleweedPark.ggpack1"
+      ]
+    },
+    "unrest": {
+      "name": "Unrest",
+      "scummvm_id": "unrest",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "unrest"
+        ],
+        "files": [
+          "characters/backer_chars.xml",
+          "traits/tanya_intelligent.png"
+        ]
+      },
+      "required_files": [
+        "characters/backer_chars.xml",
+        "traits/tanya_intelligent.png"
+      ]
+    },
+    "rise-of-the-dragon": {
+      "name": "Rise of the Dragon",
+      "scummvm_id": "rise",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "rise_of_the_dragon"
+        ],
+        "files": [
+          "volume.vga",
+          "volume.001"
+        ]
+      },
+      "required_files": [
+        "volume.vga",
+        "volume.001"
+      ]
+    },
+    "wait-for-it-issue-3-song-for-a-hare": {
+      "name": "Wait for it! Issue 3. Song for a hare",
+      "scummvm_id": "nupogodi3",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "qd_game.qml",
+          "qd_game.exe"
+        ]
+      },
+      "required_files": [
+        "qd_game.qml",
+        "qd_game.exe"
+      ]
+    },
+    "mask-show": {
+      "name": "Mask show",
+      "scummvm_id": "maski",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "qd_game.qml",
+          "maski.exe"
+        ]
+      },
+      "required_files": [
+        "qd_game.qml",
+        "maski.exe"
+      ]
+    },
+    "marvellous-mice-adventures-meeting-sea-rat": {
+      "name": "Marvellous Mice Adventures: Meeting Sea Rat",
+      "scummvm_id": "3mice1",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "qd_game.qml",
+          "qd_game.exe"
+        ]
+      },
+      "required_files": [
+        "qd_game.qml",
+        "qd_game.exe"
+      ]
+    },
+    "the-adventures-of-the-good-soldier-schweik": {
+      "name": "The Adventures of the Good Soldier Schweik",
+      "scummvm_id": "shveik",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "qd_game.qml",
+          "shveik.exe"
+        ]
+      },
+      "required_files": [
+        "qd_game.qml",
+        "shveik.exe"
+      ]
+    },
+    "marvellous-mice-adventures-sea-rat-s-birthday": {
+      "name": "Marvellous Mice Adventures: Sea Rat's Birthday",
+      "scummvm_id": "3mice2",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "qd_game.qml",
+          "qd_game.exe"
+        ]
+      },
+      "required_files": [
+        "qd_game.qml",
+        "qd_game.exe"
+      ]
+    },
+    "noah-s-ark": {
+      "name": "Noah's Ark",
+      "scummvm_id": "noah",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "OUTLINE.TXT"
+        ]
+      },
+      "required_files": [
+        "OUTLINE.TXT"
+      ]
+    },
+    "old-skies": {
+      "name": "Old Skies",
+      "scummvm_id": "oldskies",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "old_skies"
+        ],
+        "files": [
+          "OldSkies.ags"
+        ]
+      },
+      "required_files": [
+        "OldSkies.ags"
+      ]
+    },
+    "rosewater": {
+      "name": "Rosewater",
+      "scummvm_id": "rosewater",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "rosewater"
+        ],
+        "files": [
+          "Rosewater.ags"
+        ]
+      },
+      "required_files": [
+        "Rosewater.ags"
+      ]
+    },
+    "the-adventures-of-willy-beamish": {
+      "name": "The Adventures of Willy Beamish",
+      "scummvm_id": "beamish",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "the_adventures_of_willy_beamish"
+        ],
+        "files": [
+          "volume.rmf",
+          "volume.001"
+        ]
+      },
+      "required_files": [
+        "volume.rmf",
+        "volume.001"
+      ]
+    },
+    "little-longnose": {
+      "name": "Little Longnose",
+      "scummvm_id": "karliknos",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "qd_game.qml",
+          "qd_game.exe"
+        ]
+      },
+      "required_files": [
+        "qd_game.qml",
+        "qd_game.exe"
+      ]
+    },
+    "pilot-brothers-3-back-side-of-the-earth": {
+      "name": "Pilot Brothers 3: Back Side of the Earth",
+      "scummvm_id": "pilots3",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "qd_game.qml",
+          "bp4.exe"
+        ]
+      },
+      "required_files": [
+        "qd_game.qml",
+        "bp4.exe"
+      ]
+    },
+    "pilot-brothers-3d-the-case-of-garden-pests": {
+      "name": "Pilot Brothers 3D. The Case of Garden Pests",
+      "scummvm_id": "pilots3d",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "qd_game.qml",
+          "qd_game.exe"
+        ]
+      },
+      "required_files": [
+        "qd_game.qml",
+        "qd_game.exe"
+      ]
+    },
+    "pilot-brothers-3d-2-kennel-club-secrets": {
+      "name": "Pilot Brothers 3D-2. Kennel Club Secrets",
+      "scummvm_id": "pilots3d-2",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "qd_game.qml",
+          "qd_game.exe"
+        ]
+      },
+      "required_files": [
+        "qd_game.qml",
+        "qd_game.exe"
+      ]
+    },
+    "mom-don-t-worry": {
+      "name": "Mom don't worry",
+      "scummvm_id": "mng",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "qd_game.qml",
+          "mama.exe"
+        ]
+      },
+      "required_files": [
+        "qd_game.qml",
+        "mama.exe"
+      ]
+    },
+    "features-of-national-fishing": {
+      "name": "Features of national fishing",
+      "scummvm_id": "rybalka",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "qd_game.qml",
+          "onr.exe"
+        ]
+      },
+      "required_files": [
+        "qd_game.qml",
+        "onr.exe"
+      ]
+    },
+    "dog-n-cat-in-the-footsteps-of-unprecedented-beasts": {
+      "name": "Dog-n-cat: In the footsteps of unprecedented beasts",
+      "scummvm_id": "dogncat",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "qd_game.qml",
+          "qd_game.exe"
+        ]
+      },
+      "required_files": [
+        "qd_game.qml",
+        "qd_game.exe"
+      ]
+    },
+    "dog-n-cat-island-of-dr-rattardy": {
+      "name": "Dog-n-cat: Island of Dr Rattardy",
+      "scummvm_id": "dogncat2",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "qd_game.qml",
+          "qd_game.exe"
+        ]
+      },
+      "required_files": [
+        "qd_game.qml",
+        "qd_game.exe"
+      ]
+    },
+    "out-of-this-world-another-world": {
+      "name": "Out of This World (Another World)",
+      "scummvm_id": "anotherworld",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "memlist.bin"
+        ]
+      },
+      "required_files": [
+        "memlist.bin"
+      ]
+    },
+    "the-last-express": {
+      "name": "The Last Express",
+      "scummvm_id": "lastexpress",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [
+          "last_express_the"
+        ],
+        "files": [
+          "HD.HPF",
+          "CD1.HPF",
+          "CD2.HPF",
+          "CD3.HPF"
+        ]
+      },
+      "required_files": [
+        "HD.HPF",
+        "CD1.HPF",
+        "CD2.HPF",
+        "CD3.HPF"
+      ]
+    },
+    "above-the-waves": {
+      "name": "Above The Waves",
+      "scummvm_id": "atw",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "atw.slg"
+        ]
+      },
+      "required_files": [
+        "atw.slg"
+      ]
+    },
+    "cubert-badbone-p-i": {
+      "name": "Cubert Badbone, P.I.",
+      "scummvm_id": "cubert",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "Gamedata",
+          "Cubert.exe"
+        ]
+      },
+      "required_files": [
+        "Gamedata",
+        "Cubert.exe"
+      ]
+    },
+    "frasse-and-the-peas-of-kejick": {
+      "name": "Frasse and the Peas of Kejick",
+      "scummvm_id": "frasse",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "gamedata",
+          "frasse.exe"
+        ]
+      },
+      "required_files": [
+        "gamedata",
+        "frasse.exe"
+      ]
+    },
+    "the-interview": {
+      "name": "The Interview",
+      "scummvm_id": "interview",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "gamedata",
+          "interview.exe"
+        ]
+      },
+      "required_files": [
+        "gamedata",
+        "interview.exe"
+      ]
+    },
+    "lepton-s-quest": {
+      "name": "Lepton's Quest",
+      "scummvm_id": "leptonsquest",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "game.slg"
+        ]
+      },
+      "required_files": [
+        "game.slg"
+      ]
+    },
+    "life-flashes-by": {
+      "name": "Life Flashes By",
+      "scummvm_id": "life",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "LifeFlashesBy.slg"
+        ]
+      },
+      "required_files": [
+        "LifeFlashesBy.slg"
+      ]
+    },
+    "mandy-christmas-adventure": {
+      "name": "Mandy Christmas Adventure",
+      "scummvm_id": "mandy",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "data",
+          "Mandy.exe"
+        ]
+      },
+      "required_files": [
+        "data",
+        "Mandy.exe"
+      ]
+    },
+    "nathan-s-second-chance": {
+      "name": "Nathan's Second Chance",
+      "scummvm_id": "nsc",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "gamedata.slg"
+        ]
+      },
+      "required_files": [
+        "gamedata.slg"
+      ]
+    },
+    "out-of-order": {
+      "name": "Out Of Order",
+      "scummvm_id": "outoforder",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "gamedata",
+          "out-of-order.xpm"
+        ]
+      },
+      "required_files": [
+        "gamedata",
+        "out-of-order.xpm"
+      ]
+    },
+    "robin-s-rescue": {
+      "name": "Robin's Rescue",
+      "scummvm_id": "robinsrescue",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "robins_rescue.slg"
+        ]
+      },
+      "required_files": [
+        "robins_rescue.slg"
+      ]
+    },
+    "the-game-that-takes-place-on-a-cruise-ship": {
+      "name": "The Game That Takes Place on a Cruise Ship",
+      "scummvm_id": "tgttpoacs",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "gamedata",
+          "gert.ico"
+        ]
+      },
+      "required_files": [
+        "gamedata",
+        "gert.ico"
+      ]
+    },
+    "the-secret-of-tremendous-corporation": {
+      "name": "The Secret of Tremendous Corporation",
+      "scummvm_id": "tsotc",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "gamedata.slg"
+        ]
+      },
+      "required_files": [
+        "gamedata.slg"
+      ]
+    },
+    "heart-of-china": {
+      "name": "Heart of China",
+      "scummvm_id": "china",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [
+          "heart_of_china"
+        ],
+        "files": [
+          "volume.rmf",
+          "volume.001"
+        ]
+      },
+      "required_files": [
+        "volume.rmf",
+        "volume.001"
+      ]
+    },
+    "penumbra-overture": {
+      "name": "Penumbra: Overture",
+      "scummvm_id": "penumbraoverture",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [
+          "the_penumbra_collection"
+        ],
+        "files": [
+          "Penumbra.exe"
+        ]
+      },
+      "required_files": [
+        "Penumbra.exe"
+      ]
+    },
+    "martian-memorandum": {
+      "name": "Martian Memorandum",
+      "scummvm_id": "martian",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [
+          "tex_murphy_1_2"
+        ],
+        "files": [
+          "r01.ap"
+        ]
+      },
+      "required_files": [
+        "r01.ap"
+      ]
+    },
+    "clever-smart-a-movie-adventure": {
+      "name": "Clever & Smart - A Movie Adventure",
+      "scummvm_id": "aventuradecine",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "Textos/Objetos.nkr",
+          "Data/DATA02.BIN"
+        ]
+      },
+      "required_files": [
+        "Textos/Objetos.nkr",
+        "Data/DATA02.BIN"
+      ]
+    },
+    "hodj-n-podj": {
+      "name": "Hodj 'n' Podj",
+      "scummvm_id": "hodjnpodj",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "video/hodj.avi",
+          "meta/meta.gtl"
+        ]
+      },
+      "required_files": [
+        "video/hodj.avi",
+        "meta/meta.gtl"
+      ]
+    },
+    "trick-or-treat": {
+      "name": "Trick or Treat",
+      "scummvm_id": "tot",
+      "compatibility": "Excellent",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "AZCCOG.DAT",
+          "CREDITOS.DAT",
+          "TOT.EXE"
+        ]
+      },
+      "required_files": [
+        "AZCCOG.DAT",
+        "CREDITOS.DAT",
+        "TOT.EXE"
+      ]
+    },
+    "nancy-drew-secret-of-the-scarlet-hand": {
+      "name": "Nancy Drew: Secret of the Scarlet Hand",
+      "scummvm_id": "nancy6",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "ciftree.dat",
+          "amfid.avf"
+        ]
+      },
+      "required_files": [
+        "ciftree.dat",
+        "amfid.avf"
+      ]
+    },
+    "nancy-drew-ghost-dogs-of-moon-lake": {
+      "name": "Nancy Drew: Ghost Dogs of Moon Lake",
+      "scummvm_id": "nancy7",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "ciftree.dat"
+        ]
+      },
+      "required_files": [
+        "ciftree.dat"
+      ]
+    },
+    "mad-dog-mccree": {
+      "name": "Mad Dog McCree",
+      "scummvm_id": "maddog",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "MADDOG.LIB"
+        ]
+      },
+      "required_files": [
+        "MADDOG.LIB"
+      ]
+    },
+    "who-shot-johnny-rock": {
+      "name": "Who Shot Johnny Rock?",
+      "scummvm_id": "johnroc",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "JOHNROCD.LIB"
+        ]
+      },
+      "required_files": [
+        "JOHNROCD.LIB"
+      ]
+    },
+    "space-pirates": {
+      "name": "Space Pirates",
+      "scummvm_id": "spirates",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "SPDS.LIB"
+        ]
+      },
+      "required_files": [
+        "SPDS.LIB"
+      ]
+    },
+    "mad-dog-ii-the-lost-gold": {
+      "name": "Mad Dog II: The Lost Gold",
+      "scummvm_id": "maddog2",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "MADDOG2D.LIB"
+        ]
+      },
+      "required_files": [
+        "MADDOG2D.LIB"
+      ]
+    },
+    "crime-patrol": {
+      "name": "Crime Patrol",
+      "scummvm_id": "cpatrol",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "CPDS.LIB"
+        ]
+      },
+      "required_files": [
+        "CPDS.LIB"
+      ]
+    },
+    "crime-patrol-2-drug-wars": {
+      "name": "Crime Patrol 2: Drug Wars",
+      "scummvm_id": "dwars",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "DWDS.LIB"
+        ]
+      },
+      "required_files": [
+        "DWDS.LIB"
+      ]
+    },
+    "the-last-bounty-hunter": {
+      "name": "The Last Bounty Hunter",
+      "scummvm_id": "lbhunter",
+      "compatibility": "Good",
+      "match": {
+        "gog_ids": [],
+        "files": [
+          "BHDS.LIB"
+        ]
+      },
+      "required_files": [
+        "BHDS.LIB"
+      ]
     }
   }
 }

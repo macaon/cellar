@@ -4,8 +4,14 @@ Detects known DOS games that are compatible with ScummVM and provides
 profile data (game ID, compatibility level, required files) for the
 conversion flow.
 
-The profile database lives in ``data/scummvm-profiles.json`` (bundled)
-and can be updated from GitHub at runtime.
+The profile database is generated locally from:
+- ``scummvm --dump-all-detection-entries`` (file fingerprints)
+- ``compatibility.yaml`` from the scummvm-web GitHub repo
+- ``games.yaml`` from the scummvm-web GitHub repo
+
+Profiles are regenerated when the installed ScummVM version changes.
+A bundled fallback (``data/scummvm-profiles.json``) is used when
+ScummVM is not installed.
 """
 
 from __future__ import annotations
@@ -13,6 +19,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
+import subprocess
 from pathlib import Path
 
 from cellar.backend._profile_matching import (
@@ -27,13 +35,43 @@ _CACHE_DIR = (
     Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "cellar"
 )
 _PROFILES_CACHE = _CACHE_DIR / "scummvm-profiles.json"
+_VERSION_CACHE = _CACHE_DIR / "scummvm-profiles-version.txt"
 
-_PROFILES_URL = (
-    "https://raw.githubusercontent.com/macaon/cellar"
-    "/main/data/scummvm-profiles.json"
+_COMPAT_URL = (
+    "https://raw.githubusercontent.com/scummvm/scummvm-web"
+    "/master/data/en/compatibility.yaml"
+)
+_GAMES_URL = (
+    "https://raw.githubusercontent.com/scummvm/scummvm-web"
+    "/master/data/en/games.yaml"
 )
 
+# Ordered from best to worst — index determines the threshold.
+_COMPAT_TIERS = ("excellent", "good", "bugged", "untested")
+
 _warned_missing = False
+
+
+# ---------------------------------------------------------------------------
+# Config helpers
+# ---------------------------------------------------------------------------
+
+def _scummvm_compat_level() -> str:
+    """Return the user's chosen ScummVM compatibility level.
+
+    One of ``"excellent"``, ``"good"`` (includes excellent), or
+    ``"disabled"``.  Defaults to ``"good"``.
+    """
+    from cellar.backend.config import _load  # noqa: PLC0415
+    return _load().get("scummvm_compat_level", "good")
+
+
+def set_scummvm_compat_level(level: str) -> None:
+    """Persist the ScummVM compatibility level preference."""
+    from cellar.backend.config import _load, _save  # noqa: PLC0415
+    cfg = _load()
+    cfg["scummvm_compat_level"] = level
+    _save(cfg)
 
 
 # ---------------------------------------------------------------------------
@@ -57,16 +95,31 @@ def _bundled_profiles_path() -> Path | None:
 def load_profiles() -> dict:
     """Load the ScummVM profiles database.
 
-    Resolution order: cached (from GitHub fetch) -> bundled (source/Flatpak).
+    Resolution order: cached (locally generated) -> bundled (Flatpak).
     Returns the full JSON dict, or an empty ``{"profiles": {}}`` fallback.
     """
     global _warned_missing  # noqa: PLW0603
+
+    level = _scummvm_compat_level()
+    if level == "disabled":
+        return {"profiles": {}}
+
+    # Determine which tiers are accepted (everything at or above the chosen level).
+    if level in _COMPAT_TIERS:
+        threshold = _COMPAT_TIERS.index(level)
+        accepted = set(_COMPAT_TIERS[: threshold + 1])
+    else:
+        accepted = set(_COMPAT_TIERS)
 
     for path in (_PROFILES_CACHE, _bundled_profiles_path()):
         if path is not None and path.is_file():
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
                 if "profiles" in data:
+                    data["profiles"] = {
+                        k: v for k, v in data["profiles"].items()
+                        if v.get("compatibility", "").lower() in accepted
+                    }
                     return data
             except (json.JSONDecodeError, OSError) as exc:
                 log.warning("Failed to load ScummVM profiles from %s: %s",
@@ -99,16 +152,11 @@ def _load_cdtree(game_dir: Path) -> set[str]:
     names: set[str] = set()
     try:
         for line in cdtree.read_text(encoding="utf-8", errors="replace").splitlines():
-            # DOSBox DIR /S output lines look like: " SKY     DNR    123,456"
-            # or "SKY.DNR" depending on format.  Extract anything that looks
-            # like a filename with an extension.
             stripped = line.strip()
             if not stripped or stripped.startswith("Directory") or stripped.startswith("Volume"):
                 continue
-            # Try to extract 8.3 filename from DIR output columns
             parts = stripped.split()
             if len(parts) >= 1:
-                # Could be "FILENAME EXT  SIZE" or "FILENAME.EXT  SIZE"
                 first = parts[0]
                 if "." in first and not first.startswith("."):
                     names.add(first.lower())
@@ -122,12 +170,13 @@ def _load_cdtree(game_dir: Path) -> set[str]:
 def detect_scummvm_profile(game_dir: Path) -> str | None:
     """Detect whether the DOS game in *game_dir* is ScummVM-compatible.
 
-    Searches the HDD content root for matching files, and also checks
-    ``cdtree.txt`` (a CD directory listing generated during disc install)
-    for games whose data files live on the CD.
+    Ensures the profiles database is up-to-date before scanning.
 
     Returns the profile slug or ``None``.
     """
+    # Ensure profiles are current before detection.
+    ensure_profiles_current()
+
     db = load_profiles()
     profiles = db.get("profiles", {})
     if not profiles:
@@ -152,7 +201,6 @@ def detect_scummvm_profile(game_dir: Path) -> str | None:
         all_found = True
         for f in files:
             bare = f.rsplit("/", 1)[-1].lower()
-            # Check hdd first
             if "/" in f:
                 from cellar.backend._profile_matching import find_file_casefold
                 if find_file_casefold(root, f) is not None:
@@ -161,7 +209,6 @@ def detect_scummvm_profile(game_dir: Path) -> str | None:
                 from cellar.backend._profile_matching import find_file_recursive
                 if find_file_recursive(root, f) is not None:
                     continue
-            # Fall back to cdtree.txt
             if bare in cd_filenames:
                 continue
             all_found = False
@@ -174,40 +221,289 @@ def detect_scummvm_profile(game_dir: Path) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# Remote fetch
+# Profile generation
+# ---------------------------------------------------------------------------
+
+def _get_scummvm_version() -> str:
+    """Return the installed ScummVM version string, or empty string."""
+    from cellar.backend.scummvm import find_scummvm  # noqa: PLC0415
+    from cellar.backend.umu import is_cellar_sandboxed  # noqa: PLC0415
+
+    method = find_scummvm()
+    if method is None:
+        return ""
+
+    if method == "flatpak":
+        cmd = ["flatpak", "run", "org.scummvm.ScummVM", "--version"]
+    else:
+        cmd = ["scummvm", "--version"]
+
+    if is_cellar_sandboxed():
+        cmd = ["flatpak-spawn", "--host"] + cmd
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        # First line is typically "ScummVM 2026.1.0 (Feb 15 2026 ...)"
+        return result.stdout.split("\n", 1)[0].strip()
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return ""
+
+
+def _cached_version() -> str:
+    """Return the ScummVM version used for the last profile generation."""
+    try:
+        return _VERSION_CACHE.read_text(encoding="utf-8").strip()
+    except (OSError, ValueError):
+        return ""
+
+
+def _parse_simple_yaml(text: str) -> list[dict]:
+    """Parse the flat ScummVM YAML format (no nesting, ``'quoted'`` values).
+
+    Each record starts with ``-`` on its own line, followed by indented
+    ``key: value`` pairs.
+    """
+    records: list[dict] = []
+    current: dict | None = None
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped == "-":
+            if current is not None:
+                records.append(current)
+            current = {}
+            continue
+        if current is None:
+            continue
+        if ":" not in stripped:
+            continue
+        key, _, val = stripped.partition(":")
+        val = val.strip().strip("'\"")
+        current[key.strip()] = val
+    if current is not None:
+        records.append(current)
+    return records
+
+
+def _dump_detection_entries() -> str:
+    """Run ``scummvm --dump-all-detection-entries`` and return the output."""
+    from cellar.backend.scummvm import find_scummvm  # noqa: PLC0415
+    from cellar.backend.umu import is_cellar_sandboxed  # noqa: PLC0415
+
+    method = find_scummvm()
+    if method is None:
+        return ""
+
+    if method == "flatpak":
+        cmd = ["flatpak", "run", "org.scummvm.ScummVM",
+               "--dump-all-detection-entries"]
+    else:
+        cmd = ["scummvm", "--dump-all-detection-entries"]
+
+    if is_cellar_sandboxed():
+        cmd = ["flatpak-spawn", "--host"] + cmd
+
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=60,
+        )
+        return result.stdout
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
+        log.warning("Failed to dump ScummVM detection entries: %s", exc)
+        return ""
+
+
+def _parse_detection_dat(text: str) -> dict[str, list[dict]]:
+    """Parse the ScummVM detection entries DAT (CLRMAMEPro format).
+
+    Returns ``{engine:gameid: [entries]}``.
+    """
+    entries: dict[str, list[dict]] = {}
+
+    for block in re.finditer(
+        r"game\s*\(\s*(.*?)\n\s*\)", text, re.DOTALL,
+    ):
+        content = block.group(1)
+        entry: dict = {"roms": []}
+
+        for key in ("name", "title", "extra", "language", "platform",
+                     "sourcefile", "engine"):
+            m = re.search(rf'{key}\s+"([^"]*)"', content)
+            if m:
+                entry[key] = m.group(1)
+
+        for rom_match in re.finditer(
+            r'rom\s*\(\s*name\s+"([^"]+)"\s+size\s+(\d+)\s+'
+            r'md5[^\s]*\s+([a-f0-9]+)',
+            content,
+        ):
+            entry["roms"].append({
+                "name": rom_match.group(1),
+                "size": int(rom_match.group(2)),
+                "md5": rom_match.group(3),
+            })
+
+        game_id = entry.get("name", "")
+        engine = entry.get("engine", entry.get("sourcefile", ""))
+        full_id = f"{engine}:{game_id}" if engine else game_id
+
+        if full_id not in entries:
+            entries[full_id] = []
+        entries[full_id].append(entry)
+
+    return entries
+
+
+def _build_profiles(
+    detection: dict[str, list[dict]],
+    compat: dict[str, str],
+    games: dict[str, dict],
+) -> dict:
+    """Build the profiles JSON structure from the three data sources."""
+    profiles: dict[str, dict] = {}
+
+    for full_id, support in compat.items():
+        if support.lower() not in _ALLOWED_LEVELS:
+            continue
+
+        game_info = games.get(full_id, {})
+        name = game_info.get("name", full_id)
+        gog_id = game_info.get("gog_id", "")
+
+        parts = full_id.split(":", 1)
+        scummvm_id = parts[1] if len(parts) == 2 else parts[0]
+
+        det_entries = detection.get(full_id, [])
+        if not det_entries:
+            continue
+
+        # Prefer DOS platform entry for file fingerprints.
+        best_entry = det_entries[0]
+        for de in det_entries:
+            if de.get("platform", "").lower() == "dos":
+                best_entry = de
+                break
+
+        rom_files = [r["name"] for r in best_entry.get("roms", [])]
+        if not rom_files:
+            continue
+
+        slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+        gog_ids = [gog_id] if gog_id else []
+
+        profiles[slug] = {
+            "name": name,
+            "scummvm_id": scummvm_id,
+            "compatibility": support.capitalize(),
+            "match": {
+                "gog_ids": gog_ids,
+                "files": rom_files,
+            },
+            "required_files": rom_files,
+        }
+
+    return {"schema_version": 1, "profiles": profiles}
+
+
+def _generate_profiles() -> bool:
+    """Generate the profiles cache from ScummVM + upstream YAML data.
+
+    Returns ``True`` on success, ``False`` on failure.
+    """
+    from cellar.utils.http import make_session  # noqa: PLC0415
+
+    # 1. Dump detection entries from ScummVM.
+    log.info("Dumping ScummVM detection entries...")
+    det_text = _dump_detection_entries()
+    if not det_text:
+        log.warning("No detection data from ScummVM")
+        return False
+    detection = _parse_detection_dat(det_text)
+    log.info("Parsed %d game IDs from detection dump", len(detection))
+
+    # 2. Download YAML files from scummvm-web.
+    session = make_session()
+
+    log.info("Downloading compatibility.yaml...")
+    resp = session.get(_COMPAT_URL, timeout=15)
+    resp.raise_for_status()
+    compat_records = _parse_simple_yaml(resp.text)
+    compat = {}
+    for rec in compat_records:
+        gid = rec.get("id", "")
+        support = rec.get("support", "")
+        if gid and support:
+            compat[gid] = support
+
+    log.info("Downloading games.yaml...")
+    resp = session.get(_GAMES_URL, timeout=15)
+    resp.raise_for_status()
+    games_records = _parse_simple_yaml(resp.text)
+    games = {}
+    for rec in games_records:
+        gid = rec.get("id", "")
+        if gid:
+            games[gid] = rec
+
+    # 3. Build profiles.
+    result = _build_profiles(detection, compat, games)
+    count = len(result["profiles"])
+    log.info("Generated %d ScummVM profiles", count)
+
+    # 4. Write cache.
+    _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    _PROFILES_CACHE.write_text(
+        json.dumps(result, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+    # 5. Record the ScummVM version used.
+    version = _get_scummvm_version()
+    _VERSION_CACHE.write_text(version + "\n", encoding="utf-8")
+
+    log.info("Updated ScummVM profiles cache (%d profiles, version: %s)",
+             count, version)
+    return True
+
+
+def ensure_profiles_current() -> None:
+    """Regenerate the profiles cache if ScummVM version has changed.
+
+    No-op if ScummVM is not installed (uses bundled profiles) or if
+    the cache is already current.  Safe to call from any thread.
+    """
+    if _scummvm_compat_level() == "disabled":
+        return
+
+    current = _get_scummvm_version()
+    if not current:
+        # ScummVM not installed — bundled profiles are fine.
+        return
+
+    if current == _cached_version() and _PROFILES_CACHE.is_file():
+        return
+
+    log.info("ScummVM version changed (%s -> %s), regenerating profiles...",
+             _cached_version() or "(none)", current)
+    try:
+        _generate_profiles()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Failed to regenerate ScummVM profiles: %s", exc)
+
+
+# ---------------------------------------------------------------------------
+# Legacy fetch (replaced by local generation)
 # ---------------------------------------------------------------------------
 
 def fetch_profiles_update(on_complete: callable | None = None) -> None:
-    """Download the latest ScummVM profiles database from GitHub.
+    """Update ScummVM profiles (called from window.py on startup).
 
-    Writes to ``~/.cache/cellar/scummvm-profiles.json``.  Intended to be
-    called on a background thread.
+    Attempts local generation if ScummVM is installed; otherwise no-op.
     """
     try:
-        from cellar.utils.http import make_session
-
-        session = make_session()
-        resp = session.get(_PROFILES_URL, timeout=15)
-        resp.raise_for_status()
-
-        data = resp.json()
-        if "profiles" not in data:
-            log.warning("Fetched ScummVM profiles JSON missing 'profiles' key")
-            if on_complete:
-                on_complete(False)
-            return
-
-        _CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        _PROFILES_CACHE.write_text(
-            json.dumps(data, indent=2, ensure_ascii=False) + "\n",
-            encoding="utf-8",
-        )
-        log.info("Updated ScummVM profiles cache (%d profiles)",
-                 len(data["profiles"]))
+        ensure_profiles_current()
         if on_complete:
             on_complete(True)
-
-    except Exception as exc:
-        log.debug("Failed to fetch ScummVM profiles update: %s", exc)
+    except Exception as exc:  # noqa: BLE001
+        log.debug("ScummVM profiles update failed: %s", exc)
         if on_complete:
             on_complete(False)

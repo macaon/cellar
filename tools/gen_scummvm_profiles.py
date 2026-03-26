@@ -129,7 +129,7 @@ def build_profiles(
     profiles: dict[str, dict] = {}
 
     for full_id, support in compat.items():
-        if support.lower() != "excellent":
+        if support.lower() not in ("excellent", "good"):
             continue
 
         game_info = games.get(full_id, {})
@@ -165,7 +165,7 @@ def build_profiles(
         profiles[slug] = {
             "name": name,
             "scummvm_id": scummvm_id,
-            "compatibility": "Excellent",
+            "compatibility": support.capitalize(),
             "match": {
                 "gog_ids": gog_ids,
                 "files": rom_files,
@@ -209,7 +209,8 @@ def main() -> None:
     print(f"Loading compatibility from {args.compatibility}...")
     compat = load_compatibility(args.compatibility)
     excellent = sum(1 for v in compat.values() if v.lower() == "excellent")
-    print(f"  Found {len(compat)} entries ({excellent} Excellent)")
+    good = sum(1 for v in compat.values() if v.lower() == "good")
+    print(f"  Found {len(compat)} entries ({excellent} Excellent, {good} Good)")
 
     print(f"Loading games from {args.games}...")
     games = load_games(args.games)

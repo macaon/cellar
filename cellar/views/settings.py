@@ -73,6 +73,9 @@ class SettingsDialog(Adw.PreferencesDialog):
         # ── Group: Wine ────────────────────────────────────────────────────
         self._build_wine_group(page)
 
+        # ── Group: ScummVM ────────────────────────────────────────────────
+        self._build_scummvm_group(page)
+
         self._rebuild_repo_rows()
 
     # ------------------------------------------------------------------
@@ -419,6 +422,54 @@ class SettingsDialog(Adw.PreferencesDialog):
         idx = row.get_selected()
         if 0 <= idx < len(self._AUDIO_VALUES):
             save_audio_driver(self._AUDIO_VALUES[idx])
+
+    # ------------------------------------------------------------------
+    # ScummVM
+    # ------------------------------------------------------------------
+
+    _COMPAT_LABELS = ("Excellent", "Good", "Bugged / Untested")
+    _COMPAT_VALUES = ("excellent", "good", "untested")
+
+    def _build_scummvm_group(self, page: Adw.PreferencesPage) -> None:
+        from cellar.backend.scummvm_profiles import (  # noqa: PLC0415
+            _scummvm_compat_level,
+        )
+
+        group = Adw.PreferencesGroup(
+            title="ScummVM",
+            description=(
+                "Detect DOS games that can run natively in ScummVM "
+                "instead of DOSBox."
+            ),
+        )
+        page.add(group)
+
+        self._compat_row = Adw.ComboRow(
+            title="Compatibility Level",
+            subtitle="Minimum ScummVM support level to offer conversion",
+        )
+        model = Gtk.StringList()
+        for label in self._COMPAT_LABELS:
+            model.append(label)
+        self._compat_row.set_model(model)
+
+        current = _scummvm_compat_level()
+        if current in self._COMPAT_VALUES:
+            self._compat_row.set_selected(self._COMPAT_VALUES.index(current))
+
+        self._compat_row.connect(
+            "notify::selected", self._on_compat_level_changed,
+        )
+        group.add(self._compat_row)
+
+    def _on_compat_level_changed(self, row, _pspec) -> None:
+        from cellar.backend.scummvm_profiles import (  # noqa: PLC0415
+            set_scummvm_compat_level,
+        )
+
+        idx = row.get_selected()
+        if 0 <= idx < len(self._COMPAT_VALUES):
+            set_scummvm_compat_level(self._COMPAT_VALUES[idx])
 
     # ------------------------------------------------------------------
     # Repo list management

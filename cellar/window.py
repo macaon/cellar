@@ -650,9 +650,9 @@ class CellarWindow(Adw.ApplicationWindow):
     def _set_filter_active(self, active: bool) -> None:
         """Toggle accent styling on the filter button."""
         if active:
-            self.filter_button.add_css_class("suggested-action")
+            self.filter_button.add_css_class("accent")
         else:
-            self.filter_button.remove_css_class("suggested-action")
+            self.filter_button.remove_css_class("accent")
 
     def _any_filter_active(self) -> bool:
         return (
@@ -1111,10 +1111,6 @@ class CellarWindow(Adw.ApplicationWindow):
     def _on_search_mode_changed(self, bar: Gtk.SearchBar, _param) -> None:
         active = bar.get_search_mode()
         self.search_button.set_active(active)
-        if active:
-            self.search_button.add_css_class("suggested-action")
-        else:
-            self.search_button.remove_css_class("suggested-action")
 
     def _on_search_changed(self, entry: Gtk.SearchEntry) -> None:
         text = entry.get_text()

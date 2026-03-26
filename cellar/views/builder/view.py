@@ -3904,10 +3904,11 @@ class PackageBuilderView(Adw.Bin):
                 "updates, or delete it after publishing?"
             ),
         )
-        dlg.add_response("delete", "Delete After Publish")
         dlg.add_response("keep", "Keep")
+        dlg.add_response("delete", "Delete After Publish")
         dlg.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
         dlg.set_default_response("keep")
+        dlg.set_close_response("keep")
 
         def _on_response(_dlg, response):
             delete_after = response == "delete"
@@ -4083,10 +4084,11 @@ class PackageBuilderView(Adw.Bin):
                 " Do you want to keep it in the builder for future updates?"
             ),
         )
-        dlg.add_response("delete", "Delete")
         dlg.add_response("keep", "Keep")
+        dlg.add_response("delete", "Delete")
         dlg.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
         dlg.set_default_response("keep")
+        dlg.set_close_response("keep")
 
         def _on_response(_dlg, response):
             def _after():

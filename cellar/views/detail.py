@@ -1206,10 +1206,11 @@ class DetailView(Gtk.Box):
                 "Keep it for future package building, or remove it to free disk space?"
             ),
         )
-        dlg.add_response("remove", "Remove")
         dlg.add_response("keep", "Keep")
+        dlg.add_response("remove", "Remove")
         dlg.set_response_appearance("remove", Adw.ResponseAppearance.DESTRUCTIVE)
         dlg.set_default_response("keep")
+        dlg.set_close_response("keep")
 
         def _on_response(_dlg, response):
             if response == "remove":

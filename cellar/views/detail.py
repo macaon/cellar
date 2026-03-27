@@ -498,29 +498,37 @@ class DetailView(Gtk.Box):
         popover.set_parent(self._spinner_btn)
         popover.set_position(Gtk.PositionType.BOTTOM)
 
+        clamp = Adw.Clamp(maximum_size=300, tightening_threshold=300)
+
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         box.set_margin_top(12)
         box.set_margin_bottom(12)
         box.set_margin_start(12)
         box.set_margin_end(12)
+        box.set_size_request(280, -1)
 
         phase_label = Gtk.Label()
         phase_label.set_halign(Gtk.Align.START)
         phase_label.add_css_class("heading")
+        phase_label.set_max_width_chars(35)
+        phase_label.set_ellipsize(3)  # Pango.EllipsizeMode.END
         box.append(phase_label)
 
         progress_bar = Gtk.ProgressBar()
         progress_bar.set_show_text(False)
-        progress_bar.set_size_request(240, -1)
         box.append(progress_bar)
 
         stats_label = Gtk.Label()
         stats_label.set_halign(Gtk.Align.START)
         stats_label.add_css_class("dim-label")
         stats_label.add_css_class("caption")
+        stats_label.set_max_width_chars(45)
+        stats_label.set_ellipsize(3)  # Pango.EllipsizeMode.END
         box.append(stats_label)
 
-        popover.set_child(box)
+        clamp.set_child(box)
+
+        popover.set_child(clamp)
 
         def _update() -> bool:
             if not popover.is_visible():
@@ -528,15 +536,13 @@ class DetailView(Gtk.Box):
             if q.is_active(app_id):
                 phase = q.active_phase or "Installing\u2026"
                 phase_label.set_label(phase)
-                progress_bar.set_visible(True)
                 progress_bar.set_fraction(q.active_fraction)
                 stats = q.active_stats_text
                 stats_label.set_label(stats if stats else "")
-                stats_label.set_visible(bool(stats))
             else:
                 phase_label.set_label("Queued")
-                progress_bar.set_visible(False)
-                stats_label.set_visible(False)
+                progress_bar.set_fraction(0)
+                stats_label.set_label("")
             return True  # keep updating
 
         _update()

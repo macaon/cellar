@@ -31,22 +31,32 @@ def fmt_size(n: int) -> str:
 
 
 def fmt_stats(done: int, total: int, speed: float) -> str:
-    """Format transfer progress as e.g. '2.6 MB / 349 MB (1.3 MB/s) — about 4 min left'.
+    """Format transfer progress compactly, e.g. ``'103/355 MB (~1:30 left)'``.
 
-    When *total* is 0 or unknown, omits the '/ total' part and the ETA.
-    When *speed* is 0, shows '…' instead of a speed value.
+    When *total* is 0 or unknown, shows only the done amount.
+    When *speed* is 0, omits the ETA.
     """
-    size_str = f"{fmt_size(done)} / {fmt_size(total)}" if total > 0 else fmt_size(done)
-    speed_str = f"{fmt_size(int(speed))}/s" if speed > 0 else "\u2026"
+    if total > 0:
+        # Use the total's unit for both values to keep it tight.
+        if total < 1000 ** 2:
+            size_str = f"{done / 1000:.0f}/{total / 1000:.0f} KB"
+        elif total < 1000 ** 3:
+            size_str = f"{done / 1000 ** 2:.0f}/{total / 1000 ** 2:.0f} MB"
+        else:
+            size_str = f"{done / 1000 ** 3:.1f}/{total / 1000 ** 3:.1f} GB"
+    else:
+        size_str = fmt_size(done)
+
     eta = ""
     if total > 0 and speed > 0 and done < total:
-        secs = (total - done) / speed
+        secs = int((total - done) / speed)
         if secs < 60:
-            eta = " \u2014 about %d sec left" % max(1, int(secs))
+            eta = f" (~{max(1, secs)}s left)"
         else:
-            mins = secs / 60
-            eta = " \u2014 about %d min left" % max(1, int(mins + 0.5))
-    return f"{size_str} ({speed_str}){eta}"
+            mins, s = divmod(secs, 60)
+            eta = f" (~{mins}:{s:02d} left)"
+
+    return f"{size_str}{eta}"
 
 
 def fmt_file_count(current: int, total: int) -> str:

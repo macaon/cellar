@@ -181,6 +181,21 @@ class DosboxSettingsDialog(Adw.Dialog):
         self._profile_row.add_suffix(remove_btn)
 
         group.add(self._profile_row)
+
+        export_row = Adw.ActionRow(
+            title="Export Settings as Profile",
+            subtitle="Save current overrides as a reusable game profile",
+        )
+        export_btn = Gtk.Button(
+            icon_name="document-save-symbolic", valign=Gtk.Align.CENTER,
+        )
+        export_btn.add_css_class("flat")
+        export_btn.set_tooltip_text("Export to dosbox-profiles.json")
+        export_btn.connect("clicked", self._on_export_profile_clicked)
+        export_row.add_suffix(export_btn)
+        export_row.set_activatable_widget(export_btn)
+        group.add(export_row)
+
         page.add(group)
 
     # ── Display ────────────────────────────────────────────────────────
@@ -562,6 +577,30 @@ class DosboxSettingsDialog(Adw.Dialog):
         """
         self._flush_pending()
         Gio.AppInfo.launch_default_for_uri(self._conf.as_uri(), None)
+
+    def _on_export_profile_clicked(self, _btn) -> None:
+        """Export current overrides as a profile entry."""
+        self._flush_pending()
+        game_dir = self._config_dir.parent
+        name = self._entry.name if self._entry else "Unnamed"
+        # Derive a slug from the name
+        slug = name.lower().replace(" ", "-")
+        slug = "".join(c for c in slug if c.isalnum() or c == "-")
+
+        from cellar.backend.dosbox_profiles import export_profile, save_profile_to_db
+        profile = export_profile(game_dir, name, slug)
+
+        if not profile.get(slug, {}).get("settings"):
+            toast = Adw.Toast(title="No overrides to export")
+            if hasattr(self.get_root(), "toast_overlay"):
+                self.get_root().toast_overlay.add_toast(toast)
+            return
+
+        save_profile_to_db(profile)
+        toast = Adw.Toast(title=f"Profile \u201c{name}\u201d exported")
+        root = self.get_root()
+        if hasattr(root, "toast_overlay"):
+            root.toast_overlay.add_toast(toast)
 
     # ------------------------------------------------------------------
     # Asset management

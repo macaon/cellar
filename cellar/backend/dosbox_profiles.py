@@ -3,28 +3,18 @@
 Detects known DOS games at install time and merges proven-good settings
 into ``dosbox-overrides.conf`` with a ``# Profile:`` header comment.
 
-The profile database lives in ``data/dosbox-profiles.json`` (bundled) and can
-be updated from GitHub at runtime.
+The profile database lives in ``data/dosbox-profiles.json`` (user-supplied).
+It is not shipped with the app — users create their own profiles or export
+settings from the DOSBox settings dialog.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-import os
 from pathlib import Path
 
 log = logging.getLogger(__name__)
-
-_CACHE_DIR = (
-    Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "cellar"
-)
-_PROFILES_CACHE = _CACHE_DIR / "dosbox-profiles.json"
-
-_PROFILES_URL = (
-    "https://raw.githubusercontent.com/macaon/cellar"
-    "/main/data/dosbox-profiles.json"
-)
 
 # Sentinel so we only log "no profiles found" once.
 _warned_missing = False
@@ -34,14 +24,25 @@ _warned_missing = False
 # Loading
 # ---------------------------------------------------------------------------
 
+def _user_profiles_dir() -> Path:
+    """Return the user-writable directory for profiles."""
+    import os
+    return Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share") / "cellar"
+
+
 def _bundled_profiles_path() -> Path | None:
-    """Return the path to the bundled profiles JSON, or ``None``."""
+    """Return the path to the profiles JSON, or ``None``.
+
+    Resolution order: user data dir → source data dir → installed data dirs.
+    """
     from cellar.utils.paths import _SRC_DATA, _PKG_DATA, _installed_data_dirs
 
-    candidates = (
-        [_SRC_DATA / "dosbox-profiles.json", _PKG_DATA / "dosbox-profiles.json"]
-        + [d / "dosbox-profiles.json" for d in _installed_data_dirs()]
-    )
+    candidates = [
+        _user_profiles_dir() / "dosbox-profiles.json",
+        _SRC_DATA / "dosbox-profiles.json",
+        _PKG_DATA / "dosbox-profiles.json",
+    ] + [d / "dosbox-profiles.json" for d in _installed_data_dirs()]
+
     for c in candidates:
         if c.is_file():
             return c
@@ -49,24 +50,24 @@ def _bundled_profiles_path() -> Path | None:
 
 
 def load_profiles() -> dict:
-    """Load the profiles database.
+    """Load the profiles database from the local data directory.
 
-    Resolution order: cached (from GitHub fetch) → bundled (source/Flatpak).
-    Returns the full JSON dict, or an empty ``{"profiles": {}}`` fallback.
+    Returns the full JSON dict, or an empty ``{"profiles": {}}`` fallback
+    when no file exists.
     """
     global _warned_missing  # noqa: PLW0603
 
-    for path in (_PROFILES_CACHE, _bundled_profiles_path()):
-        if path is not None and path.is_file():
-            try:
-                data = json.loads(path.read_text(encoding="utf-8"))
-                if "profiles" in data:
-                    return data
-            except (json.JSONDecodeError, OSError) as exc:
-                log.warning("Failed to load profiles from %s: %s", path, exc)
+    path = _bundled_profiles_path()
+    if path is not None and path.is_file():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if "profiles" in data:
+                return data
+        except (json.JSONDecodeError, OSError) as exc:
+            log.warning("Failed to load profiles from %s: %s", path, exc)
 
     if not _warned_missing:
-        log.info("No DOSBox profiles database found; game detection disabled")
+        log.debug("No dosbox-profiles.json found; game detection disabled")
         _warned_missing = True
     return {"profiles": {}}
 
@@ -211,42 +212,82 @@ def apply_profile(game_dir: Path) -> str | None:
     return slug
 
 
+
 # ---------------------------------------------------------------------------
-# Remote fetch
+# Export
 # ---------------------------------------------------------------------------
 
-def fetch_profiles_update(on_complete: callable | None = None) -> None:
-    """Download the latest profiles database from GitHub.
+def export_profile(
+    game_dir: Path,
+    name: str,
+    slug: str,
+    match_files: list[str] | None = None,
+    match_gog_ids: list[str] | None = None,
+) -> dict:
+    """Export the current DOSBox overrides as a profile dict.
 
-    Writes to ``~/.cache/cellar/dosbox-profiles.json``.  Intended to be called
-    on a background thread.  Calls *on_complete(success)* when done.
+    Reads non-default settings from ``dosbox-overrides.conf`` and returns
+    a profile entry ready to be inserted into ``dosbox-profiles.json``.
     """
-    try:
-        from cellar.utils.http import make_session
+    overrides_conf = game_dir / "config" / "dosbox-overrides.conf"
+    settings: dict[str, dict[str, str]] = {}
 
-        session = make_session()
-        resp = session.get(_PROFILES_URL, timeout=15)
-        resp.raise_for_status()
+    if overrides_conf.is_file():
+        text = overrides_conf.read_text(encoding="utf-8", errors="replace")
+        current_section = ""
+        for line in text.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("#") or not stripped:
+                continue
+            if stripped.startswith("[") and stripped.endswith("]"):
+                current_section = stripped[1:-1].strip()
+                continue
+            if "=" in stripped and current_section:
+                key, _, value = stripped.partition("=")
+                key = key.strip()
+                value = value.strip()
+                if key and value:
+                    settings.setdefault(current_section, {})[key] = value
 
-        # Validate JSON before writing.
-        data = resp.json()
-        if "profiles" not in data:
-            log.warning("Fetched profiles JSON missing 'profiles' key")
-            if on_complete:
-                on_complete(False)
-            return
+    profile: dict = {"name": name}
+    match: dict = {}
+    if match_files:
+        match["files"] = match_files
+    if match_gog_ids:
+        match["gog_ids"] = match_gog_ids
+    if match:
+        profile["match"] = match
+    if settings:
+        profile["settings"] = settings
 
-        _CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        _PROFILES_CACHE.write_text(
-            json.dumps(data, indent=2, ensure_ascii=False) + "\n",
-            encoding="utf-8",
-        )
-        log.info("Updated DOSBox profiles cache (%d profiles)",
-                 len(data["profiles"]))
-        if on_complete:
-            on_complete(True)
+    return {slug: profile}
 
-    except Exception as exc:
-        log.debug("Failed to fetch profiles update: %s", exc)
-        if on_complete:
-            on_complete(False)
+
+def save_profile_to_db(profile_entry: dict) -> None:
+    """Merge a profile entry into the user's ``dosbox-profiles.json``.
+
+    Reads from the existing profiles file (if any) and writes to the
+    user data dir (``~/.local/share/cellar/``).  Creates the file if
+    it doesn't exist.
+    """
+    # Read existing profiles from wherever they currently live.
+    path = _bundled_profiles_path()
+    # Always write to the user-writable location.
+    write_path = _user_profiles_dir() / "dosbox-profiles.json"
+
+    if path is not None and path.is_file():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            data = {"profiles": {}}
+    else:
+        data = {"profiles": {}}
+
+    data.setdefault("profiles", {}).update(profile_entry)
+
+    write_path.parent.mkdir(parents=True, exist_ok=True)
+    write_path.write_text(
+        json.dumps(data, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    log.info("Saved profile to %s", write_path)

@@ -23,6 +23,9 @@ cellar.flatpak
 # Local dev scripts
 tests/flatpak-run.sh
 
+# User-supplied DOSBox profiles (not shipped)
+data/dosbox-profiles.json
+
 # pytest
 .pytest_cache/
 

@@ -142,7 +142,7 @@ class AppCard(BaseCard):
             return False
         if search:
             needle = search.lower()
-            if needle not in self.entry.name.lower() and needle not in self.entry.summary.lower():
+            if needle not in self.entry.name.lower():
                 return False
         return True
 
@@ -356,7 +356,7 @@ class CapsuleCard(Gtk.FlowBoxChild):
             return False
         if search:
             needle = search.lower()
-            if needle not in self.entry.name.lower() and needle not in self.entry.summary.lower():
+            if needle not in self.entry.name.lower():
                 return False
         return True
 

@@ -1089,7 +1089,7 @@ class DetailView(Gtk.Box):
         if self._has_update and not self._is_offline:
             main_section.append("Update", "detail.update")
 
-        targets = self._entry.launch_targets
+        targets = self._effective_launch_targets()
         if len(targets) > 1:
             main_section.append("Desktop Shortcuts\u2026", "detail.manage-shortcuts")
         elif has_desktop_entry(self._entry.id):
@@ -1533,7 +1533,7 @@ class DetailView(Gtk.Box):
     def _on_manage_shortcuts(self, _action, _param) -> None:
         from cellar.utils.desktop import has_desktop_entry
 
-        targets = self._entry.launch_targets
+        targets = self._effective_launch_targets()
         if not targets:
             return
 

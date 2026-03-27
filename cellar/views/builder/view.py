@@ -4523,8 +4523,13 @@ class _NewProjectDialog(Adw.Dialog):
 
     @staticmethod
     def _collect_disc_images(paths: list[Path]) -> list[Path]:
-        """Return disc image files from *paths*, scanning directories one level deep."""
-        _disc_exts = {".iso", ".cue", ".img", ".ima", ".vfd", ".bin"}
+        """Return disc image files from *paths*, scanning directories one level deep.
+
+        ``.bin`` files are only included when a matching ``.cue`` file exists
+        in the same directory — standalone ``.bin`` files are often game data
+        (e.g. ``HashDB.bin``) rather than CD-ROM images.
+        """
+        _disc_exts = {".iso", ".cue", ".img", ".ima", ".vfd"}
         found: list[Path] = []
         for p in paths:
             if p.is_dir():
@@ -4533,6 +4538,15 @@ class _NewProjectDialog(Adw.Dialog):
                         found.append(child)
             elif p.is_file() and p.suffix.lower() in _disc_exts:
                 found.append(p)
+        # Also collect .bin files that have a sibling .cue
+        cue_dirs = {p.parent for p in found if p.suffix.lower() == ".cue"}
+        for d in cue_dirs:
+            for bin_file in d.glob("*.bin"):
+                if bin_file not in found:
+                    found.append(bin_file)
+            for bin_file in d.glob("*.BIN"):
+                if bin_file not in found:
+                    found.append(bin_file)
         return found
 
     def _on_drag_enter(self, _target, _x, _y) -> Gdk.DragAction:

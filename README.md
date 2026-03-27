@@ -238,7 +238,7 @@ Flatpak repo for automatic updates:
 
 ```bash
 # One-time: add the Cellar Flatpak repo
-flatpak remote-add --user --if-not-exists cellar https://macaon.github.io/cellar/
+flatpak remote-add --user --if-not-exists cellar https://macaon.github.io/cellar/index.flatpakrepo
 
 # Install (or update)
 flatpak install --user cellar io.github.cellar

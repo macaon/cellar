@@ -231,7 +231,7 @@ class CellarWindow(Adw.ApplicationWindow):
             self.set_default_size(w, h)
         if self._settings.get_boolean("window-maximized"):
             self.maximize()
-        self.connect("close-request", self._save_window_state)
+        self.connect("close-request", self._on_close_request)
 
         # Category/genre/platform check buttons in filter popover — rebuilt after catalogue load.
         self._category_btns: dict[str, Gtk.CheckButton] = {}
@@ -894,13 +894,56 @@ class CellarWindow(Adw.ApplicationWindow):
         dialog.connect("closed", lambda _d: setattr(self, "_transfers_dialog", None))
         dialog.present(self)
 
-    def _save_window_state(self, _widget) -> bool:
+    def _save_window_state(self) -> None:
         self._settings.set_boolean("window-maximized", self.is_maximized())
         if not self.is_maximized():
             w, h = self.get_default_size()
             self._settings.set_int("window-width", w)
             self._settings.set_int("window-height", h)
-        return False
+
+    def _has_active_transfers(self) -> bool:
+        return not self._install_queue.is_empty or not self._publish_queue.is_empty
+
+    def _on_close_request(self, _widget) -> bool:
+        if getattr(self, "_quit_confirmed", False):
+            self._save_window_state()
+            return False  # user already confirmed — allow close
+        if not self._has_active_transfers():
+            self._save_window_state()
+            return False  # allow close
+
+        # Build a description of what's running.
+        parts: list[str] = []
+        iq, pq = self._install_queue, self._publish_queue
+        if iq.active_job:
+            parts.append(f"installing {iq.active_job.app_name}")
+        if pq.active_job:
+            parts.append(f"publishing {pq.active_job.app_name}")
+        n_queued = len(iq.queued_jobs) + len(pq.queued_jobs)
+        if n_queued:
+            parts.append(f"{n_queued} queued")
+
+        dialog = Adw.AlertDialog(
+            heading="Transfers in Progress",
+            body=f"Cellar is currently {', '.join(parts)}.\n\n"
+                 "Quitting now will cancel all active and queued transfers.",
+        )
+        dialog.add_response("cancel", "Keep Running")
+        dialog.add_response("quit", "Cancel Transfers & Quit")
+        dialog.set_response_appearance("quit", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+        dialog.connect("response", self._on_quit_dialog_response)
+        dialog.present(self)
+        return True  # suppress close until dialog responds
+
+    def _on_quit_dialog_response(self, _dialog, response: str) -> None:
+        if response != "quit":
+            return
+        self._install_queue.cancel_all()
+        self._publish_queue.cancel_all()
+        self._quit_confirmed = True
+        self.close()
 
     def _on_preferences_activated(self, _action, _param) -> None:
         from cellar.views.settings import SettingsDialog

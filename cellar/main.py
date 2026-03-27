@@ -38,6 +38,15 @@ class CellarApplication(Adw.Application):
         except Exception:
             pass
 
+    def _on_quit_activate(self, _action, _param) -> None:
+        """Route Ctrl+Q through the window's close-request so the transfer
+        guard dialog is shown when transfers are in progress."""
+        win = self.props.active_window
+        if win:
+            win.close()
+        else:
+            self.quit()
+
     def do_activate(self):
         from gi.repository import Gdk, Gtk
 
@@ -47,7 +56,7 @@ class CellarApplication(Adw.Application):
 
         if not self.props.active_window:
             quit_action = Gio.SimpleAction.new("quit", None)
-            quit_action.connect("activate", lambda *_: self.quit())
+            quit_action.connect("activate", self._on_quit_activate)
             self.add_action(quit_action)
 
         display = Gdk.Display.get_default()

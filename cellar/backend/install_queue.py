@@ -121,6 +121,14 @@ class InstallQueue:
             self._queue = deque(j for j in self._queue if j.app_id != app_id)
         self._notify_queue_changed()
 
+    def cancel_all(self) -> None:
+        """Cancel the active job and drop all queued jobs."""
+        with self._lock:
+            if self._active:
+                self._active.cancel_event.set()
+            self._queue.clear()
+        self._notify_queue_changed()
+
     def is_active(self, app_id: str) -> bool:
         with self._lock:
             return self._active is not None and self._active.app_id == app_id

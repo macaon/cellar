@@ -1074,6 +1074,10 @@ class DetailView(Gtk.Box):
         app_config_act.connect("activate", lambda *_: self._on_app_config_clicked())
         ag.add_action(app_config_act)
 
+        launcher_games_act = Gio.SimpleAction.new("launcher-games", None)
+        launcher_games_act.connect("activate", lambda *_: self._on_launcher_games())
+        ag.add_action(launcher_games_act)
+
         uninstall_act = Gio.SimpleAction.new("uninstall", None)
         uninstall_act.connect("activate", lambda *_: self._on_remove_clicked())
         ag.add_action(uninstall_act)
@@ -1099,6 +1103,9 @@ class DetailView(Gtk.Box):
 
         main_section.append("App Configuration\u2026", "detail.app-config")
 
+        if self._has_launcher_games():
+            main_section.append("Launcher Games\u2026", "detail.launcher-games")
+
         # ── Danger section ──────────────────────────────────────────────
         danger_section = Gio.Menu()
         danger_section.append("Uninstall\u2026", "detail.uninstall")
@@ -1107,6 +1114,39 @@ class DetailView(Gtk.Box):
         menu.append_section(None, main_section)
         menu.append_section(None, danger_section)
         self._gear_btn.set_menu_model(menu)
+
+    # ------------------------------------------------------------------
+    # Launcher games detection
+    # ------------------------------------------------------------------
+
+    def _has_launcher_games(self) -> bool:
+        """Return True if this app's prefix contains a supported game launcher."""
+        if self._entry.platform != "windows" or not self._is_installed:
+            return False
+        folder = self._get_install_folder()
+        if not folder:
+            return False
+        from cellar.backend.scanners import detect_launchers
+        return bool(detect_launchers(Path(folder)))
+
+    def _on_launcher_games(self) -> None:
+        """Open the launcher games dialog."""
+        folder = self._get_install_folder()
+        if not folder:
+            return
+
+        from cellar.backend import database
+        rec = database.get_installed(self._entry.id) or {}
+        overrides = database.get_launch_overrides(self._entry.id)
+        runner_name = overrides.get("runner") or rec.get("runner") or ""
+
+        from cellar.views.launcher_games import LauncherGamesDialog
+        dialog = LauncherGamesDialog(
+            prefix_path=folder,
+            runner_name=runner_name,
+            parent_name=self._entry.name,
+        )
+        dialog.present(self.get_root())
 
     # ------------------------------------------------------------------
     # Change install location

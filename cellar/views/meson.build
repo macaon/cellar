@@ -2,6 +2,7 @@ python_sources = files(
   '__init__.py',
   'browse.py',
   'detail.py',
+  'launcher_games.py',
   'transfer_dialog.py',
   'dosbox_settings.py',
   'metadata_editor.py',

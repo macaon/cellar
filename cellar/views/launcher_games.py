@@ -174,8 +174,18 @@ def _create_game_shortcut(
         + f" --env=UMU_FOLDERS_PATH={_desktop_quote(umu_data['UMU_FOLDERS_PATH'])}"
     )
 
-    if game.launch_uri:
-        # Use protocol URI — Epic launcher handles auth and starts the game.
+    if game.launch_uri and game.launch_uri.startswith("battlenet://"):
+        # Battle.net: invoke the launcher exe directly with --uri arg.
+        # Going through cmd /c start loses the URI in Wine's process chain.
+        # Use -- separator so umu-run doesn't consume the --uri flag.
+        bnet_exe = "C:/Program Files (x86)/Battle.net/Battle.net.exe"
+        exec_line = (
+            f"flatpak run --command=umu-run {env_parts} io.github.cellar"
+            f" -- {_desktop_quote(bnet_exe)}"
+            f" {_desktop_quote('--uri=' + game.launch_uri)}"
+        )
+    elif game.launch_uri:
+        # Other launchers (Epic): use protocol URI via cmd /c start.
         exec_line = (
             f"flatpak run --command=umu-run {env_parts} io.github.cellar"
             f" cmd /c start /b {_desktop_quote(game.launch_uri)}"

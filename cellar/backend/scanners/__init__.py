@@ -15,18 +15,20 @@ if TYPE_CHECKING:
     from cellar.backend.scanners.base import DetectedGame, LauncherScanner
 
 # Lazy imports to avoid circular deps and keep startup fast.
-_SCANNER_FACTORIES: dict[str, str] = {
-    "epic": "cellar.backend.scanners.epic",
+# Maps launcher_id → (module_path, class_name).
+_SCANNER_FACTORIES: dict[str, tuple[str, str]] = {
+    "epic": ("cellar.backend.scanners.epic", "EpicScanner"),
+    "battlenet": ("cellar.backend.scanners.battlenet", "BattlenetScanner"),
 }
 
 
 def _get_scanner(launcher_id: str) -> LauncherScanner:
     """Import and instantiate a scanner by launcher ID."""
-    module_path = _SCANNER_FACTORIES[launcher_id]
+    module_path, class_name = _SCANNER_FACTORIES[launcher_id]
     import importlib
 
     mod = importlib.import_module(module_path)
-    return mod.EpicScanner() if launcher_id == "epic" else mod.Scanner()
+    return getattr(mod, class_name)()
 
 
 def detect_launchers(prefix_path: Path) -> list[str]:

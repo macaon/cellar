@@ -1,6 +1,7 @@
 python_sources = files(
   '__init__.py',
   'base.py',
+  'battlenet.py',
   'epic.py',
 )
 

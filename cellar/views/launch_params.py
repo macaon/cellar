@@ -14,7 +14,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gtk
+from gi.repository import Adw, Gdk, Gtk
 
 from cellar.models.app_entry import AppEntry
 
@@ -97,6 +97,7 @@ class AppConfigDialog(Adw.Dialog):
         self._no_lsteamclient_row = None
 
         if is_proton:
+            self._build_installer_group(page)
             self._build_runner_group(page)
             self._build_compat_group(page)
 
@@ -205,6 +206,222 @@ class AppConfigDialog(Adw.Dialog):
         compat_group.add(self._no_lsteamclient_row)
 
         page.add(compat_group)
+
+    # ------------------------------------------------------------------
+    # Run Installer in Prefix
+    # ------------------------------------------------------------------
+
+    _INSTALLER_CSS = b"""
+.installer-drop-zone {
+    border: 2px dashed alpha(@borders, 0.8);
+    border-radius: 12px;
+    min-height: 90px;
+}
+.installer-drop-zone.drag-hover {
+    border-color: @accent_color;
+    background-color: alpha(@accent_color, 0.08);
+}
+"""
+    _installer_css_loaded = False
+
+    def _build_installer_group(self, page: Adw.PreferencesPage) -> None:
+        if not self._install_folder:
+            return
+
+        group = Adw.PreferencesGroup(title="Run Installer")
+        group.set_description(
+            "Run an .exe or .msi installer inside this app\u2019s prefix"
+        )
+
+        # Load CSS once.
+        if not AppConfigDialog._installer_css_loaded:
+            provider = Gtk.CssProvider()
+            provider.load_from_data(self._INSTALLER_CSS)
+            Gtk.StyleContext.add_provider_for_display(
+                Gdk.Display.get_default(), provider,
+                Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+            )
+            AppConfigDialog._installer_css_loaded = True
+
+        # Stack: drop zone vs running state.
+        self._installer_stack = Gtk.Stack()
+        self._installer_stack.set_transition_type(
+            Gtk.StackTransitionType.CROSSFADE,
+        )
+
+        # ── Drop zone ───────────────────────────────────────────────
+        drop_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+
+        frame = Gtk.Frame()
+        frame.add_css_class("installer-drop-zone")
+        drop_inner = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=4,
+            halign=Gtk.Align.CENTER,
+            valign=Gtk.Align.CENTER,
+            margin_top=14,
+            margin_bottom=14,
+        )
+        icon = Gtk.Image.new_from_icon_name("document-open-symbolic")
+        icon.set_pixel_size(28)
+        icon.add_css_class("dim-label")
+        drop_inner.append(icon)
+        hint = Gtk.Label(label="Drop installer here")
+        hint.add_css_class("dim-label")
+        drop_inner.append(hint)
+        frame.set_child(drop_inner)
+
+        drop = Gtk.DropTarget.new(Gdk.FileList, Gdk.DragAction.COPY)
+        drop.connect("drop", self._on_installer_drop)
+        drop.connect(
+            "enter",
+            lambda *_: frame.add_css_class("drag-hover") or Gdk.DragAction.COPY,
+        )
+        drop.connect("leave", lambda *_: frame.remove_css_class("drag-hover"))
+        frame.add_controller(drop)
+        drop_box.append(frame)
+
+        browse_btn = Gtk.Button(label="Browse File\u2026")
+        browse_btn.set_halign(Gtk.Align.CENTER)
+        browse_btn.add_css_class("pill")
+        browse_btn.connect("clicked", self._on_installer_browse)
+        drop_box.append(browse_btn)
+
+        self._installer_stack.add_named(drop_box, "drop")
+
+        # ── Running state ───────────────────────────────────────────
+        running_box = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=8,
+            halign=Gtk.Align.CENTER,
+            valign=Gtk.Align.CENTER,
+            margin_top=14,
+            margin_bottom=14,
+        )
+        spinner = Adw.Spinner()
+        spinner.set_halign(Gtk.Align.CENTER)
+        running_box.append(spinner)
+        self._installer_status = Gtk.Label(label="Running installer\u2026")
+        self._installer_status.add_css_class("dim-label")
+        running_box.append(self._installer_status)
+        cancel_btn = Gtk.Button(label="Cancel")
+        cancel_btn.set_halign(Gtk.Align.CENTER)
+        cancel_btn.add_css_class("pill")
+        cancel_btn.add_css_class("destructive-action")
+        cancel_btn.connect("clicked", self._on_installer_cancel)
+        running_box.append(cancel_btn)
+        self._installer_stack.add_named(running_box, "running")
+        self._installer_proc = None
+
+        self._installer_stack.set_visible_child_name("drop")
+        group.add(self._installer_stack)
+        page.add(group)
+
+    def _on_installer_drop(self, _target, value, _x, _y) -> bool:
+        gfiles = value.get_files() if hasattr(value, "get_files") else []
+        if not gfiles:
+            return False
+        path = gfiles[0].get_path()
+        if path and path.lower().endswith((".exe", ".msi")):
+            self._run_installer(path)
+            return True
+        return False
+
+    def _on_installer_browse(self, _btn) -> None:
+        dialog = Gtk.FileDialog()
+        dialog.set_title("Select Installer")
+        ff = Gtk.FileFilter()
+        ff.set_name("Windows Installers (*.exe, *.msi)")
+        ff.add_pattern("*.exe")
+        ff.add_pattern("*.msi")
+        ff.add_pattern("*.EXE")
+        ff.add_pattern("*.MSI")
+        from gi.repository import Gio
+        filters = Gio.ListStore.new(Gtk.FileFilter)
+        filters.append(ff)
+        dialog.set_filters(filters)
+        dialog.open(self.get_root(), None, self._on_installer_file_chosen)
+
+    def _on_installer_file_chosen(self, dialog, result) -> None:
+        try:
+            gfile = dialog.open_finish(result)
+        except Exception:
+            return
+        path = gfile.get_path()
+        if path:
+            self._run_installer(path)
+
+    def _on_installer_cancel(self, _btn) -> None:
+        proc = self._installer_proc
+        if proc is not None:
+            try:
+                proc.kill()
+            except OSError:
+                pass
+            self._installer_proc = None
+        self._installer_status.set_label("Cancelled")
+        from gi.repository import GLib
+        GLib.timeout_add(
+            1500,
+            lambda: self._installer_stack.set_visible_child_name("drop")
+            or False,
+        )
+
+    def _run_installer(self, exe_path: str) -> None:
+        from pathlib import Path
+
+        from cellar.utils.async_work import run_in_background
+
+        self._installer_status.set_label(
+            f"Running {Path(exe_path).name}\u2026"
+        )
+        self._installer_stack.set_visible_child_name("running")
+
+        runner = self._get_catalogue_runner()
+        prefix = self._install_folder
+
+        def _work():
+            import os
+            import subprocess
+
+            from cellar.backend.umu import _umu_cmd, build_env
+
+            env = {**os.environ, **build_env("", runner, 0, prefix_dir=Path(prefix))}
+            cmd = _umu_cmd() + [exe_path]
+            proc = subprocess.Popen(cmd, env=env)
+            self._installer_proc = proc
+            proc.wait()
+            return proc
+
+        def _done(proc) -> None:
+            self._installer_proc = None
+            code = proc.returncode if proc else -1
+            if code == 0:
+                self._installer_status.set_label("Installer finished successfully")
+            elif code < 0:
+                self._installer_status.set_label("Installer was cancelled")
+            else:
+                self._installer_status.set_label(
+                    f"Installer exited with code {code}"
+                )
+            from gi.repository import GLib
+            GLib.timeout_add(
+                3000,
+                lambda: self._installer_stack.set_visible_child_name("drop")
+                or False,
+            )
+
+        def _error(msg: str) -> None:
+            self._installer_proc = None
+            self._installer_status.set_label(f"Error: {msg}")
+            from gi.repository import GLib
+            GLib.timeout_add(
+                3000,
+                lambda: self._installer_stack.set_visible_child_name("drop")
+                or False,
+            )
+
+        run_in_background(work=_work, on_done=_done, on_error=_error)
 
     # ------------------------------------------------------------------
     # Runner / catalogue helpers

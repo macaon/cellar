@@ -1240,11 +1240,10 @@ class PackageBuilderView(Adw.Bin):
             self._meta_name_row.connect("changed", _on_name_changed)
             meta_group.add(self._meta_name_row)
 
-            # App ID — always visible, read-only
-            _slug_row = Adw.ActionRow(title="App ID", subtitle=project.slug)
-            _slug_row.set_subtitle_lines(1)
-            _slug_row.set_subtitle_selectable(True)
-            _slug_row.add_css_class("property")
+            # App ID — read-only
+            _slug_row = Adw.EntryRow(title="App ID")
+            _slug_row.set_text(project.slug)
+            _slug_row.set_editable(False)
             meta_group.add(_slug_row)
 
             # Category — visible inline so users don't miss it

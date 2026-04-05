@@ -793,10 +793,9 @@ class MetadataEditorDialog(Adw.Dialog):
             self._locked_name = ""
         id_group.add(self._title_widget)
 
-        self._slug_row = Adw.ActionRow(title="App ID", subtitle=ctx.app_id)
-        self._slug_row.add_css_class("property")
-        if ctx.save_is_async:
-            self._slug_row.set_subtitle_selectable(True)
+        self._slug_row = Adw.EntryRow(title="App ID")
+        self._slug_row.set_text(ctx.app_id)
+        self._slug_row.set_editable(False)
         id_group.add(self._slug_row)
 
         page.append(id_group)
@@ -1180,7 +1179,7 @@ class MetadataEditorDialog(Adw.Dialog):
         title = row.get_text().strip()
         if ctx.is_create:
             from cellar.backend.packager import slugify
-            self._slug_row.set_subtitle(slugify(title) if title else "")
+            self._slug_row.set_text(slugify(title) if title else "")
             self._action_btn.set_sensitive(bool(title))
         elif ctx.save_is_async:
             self._action_btn.set_sensitive(bool(title))

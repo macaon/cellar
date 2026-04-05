@@ -154,6 +154,28 @@ def dll_overrides(
     return ";".join(parts)
 
 
+def dll_overrides_to_string(
+    base: str,
+    extra: dict[str, str] | None = None,
+) -> str:
+    """Append *extra* per-app DLL overrides to a *base* override string.
+
+    *base* is the semicolon-separated string from :func:`dll_overrides`.
+    *extra* is a ``{dll_name: mode}`` dict of user-added overrides
+    (e.g. ``{"winmm": "n,b"}``).
+
+    User entries are appended after the base so that Wine's last-wins
+    semantics let user overrides trump any conflicting base entry.
+    Returns the combined string (or just *base* if *extra* is empty).
+    """
+    if not extra:
+        return base
+    user_parts = [f"{name}={mode}" for name, mode in extra.items()]
+    if base:
+        return base + ";" + ";".join(user_parts)
+    return ";".join(user_parts)
+
+
 def proton_compat_env(*, dxvk: bool = True, vkd3d: bool = True) -> dict[str, str]:
     """Return Proton environment variables to disable DXVK or VKD3D.
 
@@ -283,6 +305,97 @@ def _exe_basename(entry_point: str) -> str:
     import ntpath
 
     return ntpath.basename(entry_point)
+
+
+def _resolve_monitor_target(entry_point: str, wineprefix: str = "") -> str:
+    """Determine the actual executable to monitor for PID detection.
+
+    When *entry_point* is a ``.bat`` or ``.sh`` wrapper, parse the script
+    (and any chained ``.sh`` scripts it calls) to find the real binary.
+    Falls back to *entry_point* itself if parsing fails.
+    """
+    import ntpath
+    import re
+
+    name = ntpath.basename(entry_point).lower()
+
+    if name.endswith(".bat"):
+        bat_path = _win_to_linux_path(entry_point, wineprefix) if wineprefix else ""
+        if bat_path:
+            p = Path(bat_path)
+            if not p.is_absolute() and wineprefix:
+                p = Path(wineprefix) / p
+            try:
+                text = p.read_text(encoding="utf-8", errors="replace")
+                for line in text.splitlines():
+                    m = re.search(r'[\\/"]?(\S+\.exe)\b', line, re.IGNORECASE)
+                    if m:
+                        log.debug("Resolved .bat target: %s → %s", entry_point, m.group(1))
+                        return m.group(1)
+            except OSError:
+                pass
+
+    elif name.endswith(".sh"):
+        resolved = _resolve_sh_target(entry_point, wineprefix)
+        if resolved:
+            return resolved
+
+    return entry_point
+
+
+def _resolve_sh_target(entry_point: str, wineprefix: str = "", depth: int = 0) -> str:
+    """Recursively resolve ``.sh`` wrappers to find the real binary.
+
+    Follows one level of chained ``.sh`` scripts (e.g. GOG's
+    ``start.sh`` → ``run-client.sh`` → ``./starbound``).
+    """
+    import re
+
+    if depth > 2:
+        return ""
+
+    p = Path(entry_point)
+    if not p.is_absolute() and wineprefix:
+        p = Path(wineprefix) / p
+
+    try:
+        text = p.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+
+    # Track the most recent cd to resolve relative paths in the script.
+    script_dir = p.parent
+    current_dir = script_dir
+
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+
+        # Track cd commands to resolve relative paths.
+        cd_m = re.match(r'cd\s+["\']?([^"\';\s]+)', line)
+        if cd_m:
+            target = cd_m.group(1)
+            if not target.startswith("$") and not target.startswith("`"):
+                new_dir = current_dir / target
+                if new_dir.is_dir():
+                    current_dir = new_dir
+
+        # Match: ./"binary" or ./binary (not .sh scripts)
+        m = re.search(r'\./["\']?([^"\'\s;]+)', line)
+        if m:
+            candidate = m.group(1)
+            if candidate.endswith(".sh"):
+                # Follow chained .sh script.
+                chained = current_dir / candidate
+                result = _resolve_sh_target(str(chained), depth=depth + 1)
+                if result:
+                    return result
+            elif not candidate.startswith("$"):
+                log.debug("Resolved .sh target: %s → %s", entry_point, candidate)
+                return candidate
+
+    return ""
 
 
 def monitor_process_tree(
@@ -529,7 +642,9 @@ def launch_app_monitored(
     # PID-based launch detection — polls host /proc for the target exe.
     # Pass proc so the monitor defers its timeout while umu-run is alive
     # (e.g. downloading the Steam Runtime on first launch).
-    monitor_process_tree(entry_point, launch_event, line_cb, proc=proc)
+    # Resolve .bat/.sh wrappers to the real exe for accurate PID matching.
+    monitor_target = _resolve_monitor_target(entry_point, umu_env["WINEPREFIX"])
+    monitor_process_tree(monitor_target, launch_event, line_cb, proc=proc)
 
     # Signal stderr reader to stop and clean up.
     launch_event.set()
@@ -563,6 +678,11 @@ def merge_launch_params(entry, overrides: dict | None, *, installed_runner: str 
         entry_args = entry.launch_args
         launch_targets = list(entry.launch_targets)
 
+    # DLL overrides: catalogue provides defaults, user overrides merge on top.
+    cat_dll = dict(getattr(entry, "dll_overrides", None) or {})
+    usr_dll = dict(overrides.get("dll_overrides") or {})
+    merged_dll = {**cat_dll, **usr_dll}
+
     return {
         "entry_point": entry_point,
         "launch_args": entry_args,
@@ -583,6 +703,7 @@ def merge_launch_params(entry, overrides: dict | None, *, installed_runner: str 
             overrides["no_lsteamclient"] if "no_lsteamclient" in overrides
             else entry.no_lsteamclient
         ),
+        "dll_overrides": merged_dll,
     }
 
 

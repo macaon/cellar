@@ -759,14 +759,19 @@ class DetailView(Gtk.Box):
                 apply_run_as_admin(prefix, exe_base, enable=True)
 
         from cellar.backend.config import load_audio_driver  # noqa: PLC0415
-        from cellar.backend.umu import dll_overrides, proton_compat_env  # noqa: PLC0415
+        from cellar.backend.umu import (  # noqa: PLC0415
+            dll_overrides, dll_overrides_to_string, proton_compat_env,
+        )
         audio = params["audio_driver"]
         if audio == "auto":
             audio = load_audio_driver()
-        dll_overrides_str = dll_overrides(
+        base_overrides = dll_overrides(
             dxvk=params["dxvk"], vkd3d=params["vkd3d"],
             audio_driver=audio,
             no_lsteamclient=params.get("no_lsteamclient", False),
+        )
+        dll_overrides_str = dll_overrides_to_string(
+            base_overrides, params.get("dll_overrides"),
         )
         if dll_overrides_str:
             extra_env["WINEDLLOVERRIDES"] = dll_overrides_str
@@ -871,7 +876,10 @@ class DetailView(Gtk.Box):
         def _work() -> None:
             _sp.Popen(cmd, cwd=str(exe.parent), start_new_session=True)
             launch_event = threading.Event()
-            monitor_process_tree(entry_path, launch_event, _on_line)
+            # Resolve .sh wrappers to the real executable for PID detection.
+            from cellar.backend.umu import _resolve_monitor_target
+            monitor_target = _resolve_monitor_target(str(exe))
+            monitor_process_tree(monitor_target, launch_event, _on_line)
             GLib.idle_add(progress.force_close)
 
         threading.Thread(target=_work, daemon=True).start()

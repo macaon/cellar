@@ -140,6 +140,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
         _migrate_v5_to_v6(conn)
     if current < 7:
         _migrate_v6_to_v7(conn)
+    if current < 8:
+        _migrate_v7_to_v8(conn)
 
 
 def _create_schema_v1(conn: sqlite3.Connection) -> None:
@@ -374,6 +376,23 @@ def _migrate_v6_to_v7(conn: sqlite3.Connection) -> None:
         raise
 
 
+def _migrate_v7_to_v8(conn: sqlite3.Connection) -> None:
+    """Add ``dll_overrides`` column to the ``launch_overrides`` table."""
+    log.info("Migrating cellar.db from v7 to v8")
+    try:
+        with conn:
+            conn.execute(
+                "ALTER TABLE launch_overrides ADD COLUMN dll_overrides TEXT"
+            )
+            conn.execute(
+                "INSERT OR REPLACE INTO schema_version (version) VALUES (?)",
+                (8,),
+            )
+    except Exception:
+        log.exception("v7→v8 migration failed; database left unchanged")
+        raise
+
+
 # ---------------------------------------------------------------------------
 # Public API — installed apps
 # ---------------------------------------------------------------------------
@@ -531,6 +550,8 @@ def get_launch_overrides(app_id: str) -> dict:
     d.pop("app_id", None)
     if d.get("launch_targets") is not None:
         d["launch_targets"] = _json.loads(d["launch_targets"])
+    if d.get("dll_overrides") is not None:
+        d["dll_overrides"] = _json.loads(d["dll_overrides"])
     for key in ("dxvk", "vkd3d", "debug", "direct_proton", "no_lsteamclient"):
         if d.get(key) is not None:
             d[key] = bool(d[key])
@@ -550,13 +571,17 @@ def set_launch_overrides(app_id: str, overrides: dict) -> None:
     def _to_int(v: object) -> int | None:
         return int(v) if v is not None else None
 
+    dll = overrides.get("dll_overrides")
+    dll_json = _json.dumps(dll) if dll else None
+
     with _open_db() as conn:
         conn.execute(
             """
             INSERT INTO launch_overrides
                 (app_id, launch_targets, steam_appid, runner, dxvk, vkd3d,
-                 audio_driver, debug, direct_proton, no_lsteamclient)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 audio_driver, debug, direct_proton, no_lsteamclient,
+                 dll_overrides)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(app_id) DO UPDATE SET
                 launch_targets  = excluded.launch_targets,
                 steam_appid     = excluded.steam_appid,
@@ -566,7 +591,8 @@ def set_launch_overrides(app_id: str, overrides: dict) -> None:
                 audio_driver    = excluded.audio_driver,
                 debug           = excluded.debug,
                 direct_proton   = excluded.direct_proton,
-                no_lsteamclient = excluded.no_lsteamclient
+                no_lsteamclient = excluded.no_lsteamclient,
+                dll_overrides   = excluded.dll_overrides
             """,
             (
                 app_id,
@@ -579,6 +605,7 @@ def set_launch_overrides(app_id: str, overrides: dict) -> None:
                 _to_int(overrides.get("debug")),
                 _to_int(overrides.get("direct_proton")),
                 _to_int(overrides.get("no_lsteamclient")),
+                dll_json,
             ),
         )
 

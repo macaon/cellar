@@ -1701,6 +1701,26 @@ class PackageBuilderView(Adw.Bin):
                 launch_group.add(self._lock_runner_row)
 
                 page.add(launch_group)
+
+                # ── DLL Overrides ──────────────────────────────────
+                self._dll_override_rows: list[tuple[Adw.ComboRow, str]] = []
+                dll_group = Adw.PreferencesGroup(
+                    title="DLL Overrides",
+                    description="Extra WINEDLLOVERRIDES appended to the sane defaults",
+                )
+                self._dll_overrides_group = dll_group
+
+                add_btn = Gtk.Button(icon_name="list-add-symbolic")
+                add_btn.add_css_class("flat")
+                add_btn.set_tooltip_text("Add a DLL override")
+                add_btn.set_valign(Gtk.Align.CENTER)
+                add_btn.connect("clicked", self._on_add_dll_override)
+                dll_group.set_header_suffix(add_btn)
+
+                for dll_name, mode in (project.dll_overrides or {}).items():
+                    self._add_dll_override_row(dll_group, dll_name, mode)
+
+                page.add(dll_group)
             else:
                 self._dxvk_row = None
                 self._vkd3d_row = None
@@ -1709,6 +1729,8 @@ class PackageBuilderView(Adw.Bin):
                 self._direct_proton_row = None
                 self._no_lsteamclient_row = None
                 self._lock_runner_row = None
+                self._dll_override_rows = []
+                self._dll_overrides_group = None
 
             # Test launch
             test_row = Adw.ActionRow(
@@ -3558,6 +3580,95 @@ class PackageBuilderView(Adw.Bin):
         self._project.audio_driver = choices[idx] if idx < len(choices) else "auto"
         save_project(self._project)
 
+    # ── DLL override helpers (builder) ──────────────────────────────
+
+    _DLL_MODE_LABELS = [
+        "Native, then Builtin",
+        "Builtin, then Native",
+        "Native (Windows)",
+        "Builtin (Wine)",
+        "Disabled",
+    ]
+    _DLL_MODE_VALUES = ["n,b", "b,n", "n", "b", "d"]
+
+    def _add_dll_override_row(
+        self, group: Adw.PreferencesGroup, dll_name: str, mode: str,
+    ) -> Adw.ComboRow:
+        row = Adw.ComboRow(title=dll_name)
+        row.set_model(Gtk.StringList.new(self._DLL_MODE_LABELS))
+        if mode in self._DLL_MODE_VALUES:
+            row.set_selected(self._DLL_MODE_VALUES.index(mode))
+        else:
+            row.set_selected(0)
+        row.connect("notify::selected", self._on_dll_override_changed)
+
+        delete_btn = Gtk.Button(icon_name="user-trash-symbolic")
+        delete_btn.add_css_class("flat")
+        delete_btn.set_valign(Gtk.Align.CENTER)
+        delete_btn.set_tooltip_text(f"Remove {dll_name} override")
+        delete_btn.connect(
+            "clicked", self._on_remove_dll_override, row, group,
+        )
+        row.add_suffix(delete_btn)
+
+        group.add(row)
+        self._dll_override_rows.append((row, dll_name))
+        return row
+
+    def _on_dll_override_changed(self, _row: Adw.ComboRow, _pspec) -> None:
+        self._save_dll_overrides()
+
+    def _on_add_dll_override(self, _btn: Gtk.Button) -> None:
+        dialog = Adw.AlertDialog(heading="Add DLL Override")
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("add", "Add")
+        dialog.set_default_response("add")
+        dialog.set_close_response("cancel")
+
+        entry = Gtk.Entry(placeholder_text="e.g. winmm")
+        entry.set_margin_top(12)
+        entry.set_margin_bottom(6)
+        entry.set_margin_start(12)
+        entry.set_margin_end(12)
+        dialog.set_extra_child(entry)
+
+        def _on_response(_d: Adw.AlertDialog, response: str) -> None:
+            if response != "add":
+                return
+            name = entry.get_text().strip().lower()
+            if not name:
+                return
+            existing = {n for _, n in self._dll_override_rows}
+            if name in existing:
+                return
+            if self._dll_overrides_group is not None:
+                self._add_dll_override_row(
+                    self._dll_overrides_group, name, "n,b",
+                )
+                self._save_dll_overrides()
+
+        dialog.connect("response", _on_response)
+        dialog.present(self.get_root())
+
+    def _on_remove_dll_override(
+        self, _btn: Gtk.Button, row: Adw.ComboRow, group: Adw.PreferencesGroup,
+    ) -> None:
+        group.remove(row)
+        self._dll_override_rows = [
+            (r, n) for r, n in self._dll_override_rows if r is not row
+        ]
+        self._save_dll_overrides()
+
+    def _save_dll_overrides(self) -> None:
+        if self._project is None:
+            return
+        dll_dict: dict[str, str] = {}
+        for row, dll_name in self._dll_override_rows:
+            mode = self._DLL_MODE_VALUES[row.get_selected()]
+            dll_dict[dll_name] = mode
+        self._project.dll_overrides = dll_dict
+        save_project(self._project)
+
     def _on_remove_entry_point_clicked(self, _btn, ep: dict) -> None:
         if self._project is None:
             return
@@ -3652,16 +3763,19 @@ class PackageBuilderView(Adw.Bin):
             what = "a base image" if project.project_type == "app" else "a runner"
             self._show_toast(f"Select {what} before test launching.")
             return
-        from cellar.backend.umu import dll_overrides, launch_app, proton_compat_env
+        from cellar.backend.umu import (
+            dll_overrides, dll_overrides_to_string, launch_app, proton_compat_env,
+        )
         extra_env: dict[str, str] = {}
         if project.debug:
             extra_env["PROTON_LOG"] = "1"
         extra_env.update(proton_compat_env(dxvk=project.dxvk, vkd3d=project.vkd3d))
-        overrides = dll_overrides(
+        base_overrides = dll_overrides(
             dxvk=project.dxvk, vkd3d=project.vkd3d,
             audio_driver=project.audio_driver,
             no_lsteamclient=project.no_lsteamclient,
         )
+        overrides = dll_overrides_to_string(base_overrides, project.dll_overrides)
         if overrides:
             extra_env["WINEDLLOVERRIDES"] = overrides
         launch_app(
@@ -3752,6 +3866,7 @@ class PackageBuilderView(Adw.Bin):
             direct_proton=project.direct_proton,
             no_lsteamclient=project.no_lsteamclient,
             lock_runner=project.lock_runner,
+            dll_overrides=dict(project.dll_overrides) if project.dll_overrides else {},
         )
         images: dict = {}
         if project.icon_path:

@@ -23,6 +23,15 @@ log = logging.getLogger(__name__)
 _AUDIO_LABELS = ["Auto", "PulseAudio", "ALSA", "OSS"]
 _AUDIO_VALUES = ["auto", "pulseaudio", "alsa", "oss"]
 
+_DLL_MODE_LABELS = [
+    "Native, then Builtin",
+    "Builtin, then Native",
+    "Native (Windows)",
+    "Builtin (Wine)",
+    "Disabled",
+]
+_DLL_MODE_VALUES = ["n,b", "b,n", "n", "b", "d"]
+
 
 class AppConfigDialog(Adw.Dialog):
     """Per-installation app configuration overrides.
@@ -96,10 +105,14 @@ class AppConfigDialog(Adw.Dialog):
         self._direct_proton_row = None
         self._no_lsteamclient_row = None
 
+        self._dll_override_rows: list[tuple[Adw.ComboRow, str]] = []
+        self._dll_overrides_group: Adw.PreferencesGroup | None = None
+
         if is_proton:
             self._build_installer_group(page)
             self._build_runner_group(page)
             self._build_compat_group(page)
+            self._build_dll_overrides_group(page)
 
     def _build_user_data_group(self, page: Adw.PreferencesPage) -> None:
         if not self._install_folder and not self._user_data_cbs:
@@ -206,6 +219,91 @@ class AppConfigDialog(Adw.Dialog):
         compat_group.add(self._no_lsteamclient_row)
 
         page.add(compat_group)
+
+    # ------------------------------------------------------------------
+    # DLL Overrides
+    # ------------------------------------------------------------------
+
+    def _build_dll_overrides_group(self, page: Adw.PreferencesPage) -> None:
+        group = Adw.PreferencesGroup(title="DLL Overrides")
+        self._dll_overrides_group = group
+
+        add_btn = Gtk.Button(icon_name="list-add-symbolic")
+        add_btn.add_css_class("flat")
+        add_btn.set_tooltip_text("Add a DLL override")
+        add_btn.set_valign(Gtk.Align.CENTER)
+        add_btn.connect("clicked", self._on_add_dll_override)
+        group.set_header_suffix(add_btn)
+
+        # Seed from catalogue + user overrides (user wins).
+        cat_dll = dict(getattr(self._entry, "dll_overrides", None) or {})
+        usr_dll = dict(self._overrides.get("dll_overrides") or {})
+        merged = {**cat_dll, **usr_dll}
+        for dll_name, mode in merged.items():
+            self._add_dll_override_row(group, dll_name, mode)
+
+        page.add(group)
+
+    def _add_dll_override_row(
+        self, group: Adw.PreferencesGroup, dll_name: str, mode: str,
+    ) -> Adw.ComboRow:
+        row = Adw.ComboRow(title=dll_name)
+        row.set_model(Gtk.StringList.new(_DLL_MODE_LABELS))
+        if mode in _DLL_MODE_VALUES:
+            row.set_selected(_DLL_MODE_VALUES.index(mode))
+        else:
+            row.set_selected(0)  # default: Native, then Builtin
+
+        delete_btn = Gtk.Button(icon_name="user-trash-symbolic")
+        delete_btn.add_css_class("flat")
+        delete_btn.set_valign(Gtk.Align.CENTER)
+        delete_btn.set_tooltip_text(f"Remove {dll_name} override")
+        delete_btn.connect("clicked", self._on_remove_dll_override, row, group)
+        row.add_suffix(delete_btn)
+
+        group.add(row)
+        self._dll_override_rows.append((row, dll_name))
+        return row
+
+    def _on_add_dll_override(self, _btn: Gtk.Button) -> None:
+        dialog = Adw.AlertDialog(heading="Add DLL Override")
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("add", "Add")
+        dialog.set_default_response("add")
+        dialog.set_close_response("cancel")
+
+        entry = Gtk.Entry(placeholder_text="e.g. winmm")
+        entry.set_margin_top(12)
+        entry.set_margin_bottom(6)
+        entry.set_margin_start(12)
+        entry.set_margin_end(12)
+        dialog.set_extra_child(entry)
+
+        def _on_response(_d: Adw.AlertDialog, response: str) -> None:
+            if response != "add":
+                return
+            name = entry.get_text().strip().lower()
+            if not name:
+                return
+            # Avoid duplicates.
+            existing = {n for _, n in self._dll_override_rows}
+            if name in existing:
+                return
+            if self._dll_overrides_group is not None:
+                self._add_dll_override_row(
+                    self._dll_overrides_group, name, "n,b",
+                )
+
+        dialog.connect("response", _on_response)
+        dialog.present(self)
+
+    def _on_remove_dll_override(
+        self, _btn: Gtk.Button, row: Adw.ComboRow, group: Adw.PreferencesGroup,
+    ) -> None:
+        group.remove(row)
+        self._dll_override_rows = [
+            (r, n) for r, n in self._dll_override_rows if r is not row
+        ]
 
     # ------------------------------------------------------------------
     # Run Installer in Prefix
@@ -487,6 +585,19 @@ class AppConfigDialog(Adw.Dialog):
             audio_val = _AUDIO_VALUES[self._audio_row.get_selected()]
             if audio_val != entry.audio_driver:
                 overrides["audio_driver"] = audio_val
+
+        # DLL overrides — collect from rows
+        if self._dll_override_rows:
+            dll_dict = {}
+            for row, dll_name in self._dll_override_rows:
+                mode = _DLL_MODE_VALUES[row.get_selected()]
+                dll_dict[dll_name] = mode
+            cat_dll = dict(getattr(entry, "dll_overrides", None) or {})
+            if dll_dict != cat_dll:
+                overrides["dll_overrides"] = dll_dict
+        elif getattr(entry, "dll_overrides", None):
+            # User removed all overrides — store empty to override catalogue.
+            overrides["dll_overrides"] = {}
 
         return overrides
 

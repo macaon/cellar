@@ -64,6 +64,7 @@ class Project:
     direct_proton: bool = False
     no_lsteamclient: bool = False  # disable Proton's lsteamclient.dll shim
     lock_runner: bool = False
+    dll_overrides: dict[str, str] = field(default_factory=dict)  # {dll_name: mode}
 
     # ── Catalogue metadata (App only) ─────────────────────────────────────
     version: str = "1.0"
@@ -139,6 +140,7 @@ class Project:
             direct_proton=bool(data.get("direct_proton", False)),
             no_lsteamclient=bool(data.get("no_lsteamclient", False)),
             lock_runner=bool(data.get("lock_runner", False)),
+            dll_overrides=dict(data.get("dll_overrides") or {}),
             version=data.get("version", "1.0"),
             category=data.get("category", ""),
             developer=data.get("developer", ""),
@@ -207,6 +209,8 @@ class Project:
             d["no_lsteamclient"] = True
         if self.lock_runner:
             d["lock_runner"] = True
+        if self.dll_overrides:
+            d["dll_overrides"] = dict(self.dll_overrides)
         if self.version and self.version != "1.0":
             d["version"] = self.version
         if self.category:

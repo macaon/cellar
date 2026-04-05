@@ -207,6 +207,9 @@ class AppEntry:
     no_lsteamclient: bool = False
     # Wine audio backend: "auto" (let Proton decide), "pulseaudio", "alsa", "oss".
     audio_driver: str = "auto"
+    # Per-app DLL overrides appended to the base WINEDLLOVERRIDES string.
+    # Maps DLL name → Wine mode (e.g. {"winmm": "n,b"}).
+    dll_overrides: dict[str, str] = field(default_factory=dict)
 
     # ------------------------------------------------------------------
     # Convenience accessors (primary = first target)
@@ -305,6 +308,7 @@ class AppEntry:
             direct_proton=bool(data.get("direct_proton", False)),
             no_lsteamclient=bool(data.get("no_lsteamclient", False)),
             audio_driver=audio,
+            dll_overrides=dict(data.get("dll_overrides") or {}),
         )
 
     def to_index_dict(self) -> dict:
@@ -402,6 +406,8 @@ class AppEntry:
             d["no_lsteamclient"] = True
         if self.audio_driver != "auto":
             d["audio_driver"] = self.audio_driver
+        if self.dll_overrides:
+            d["dll_overrides"] = dict(self.dll_overrides)
         return d
 
 

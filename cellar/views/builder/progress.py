@@ -237,7 +237,7 @@ class WinetricksProgressDialog(Adw.Dialog):
             while len(self._log_lines) > self._MAX_LOG_LINES:
                 self._log_lines.pop(0)
                 start = self._text_buffer.get_start_iter()
-                first_nl = self._text_buffer.get_iter_at_line(1)
+                _, first_nl = self._text_buffer.get_iter_at_line(1)
                 self._text_buffer.delete(start, first_nl)
             # Auto-scroll to bottom
             end_iter = self._text_buffer.get_end_iter()

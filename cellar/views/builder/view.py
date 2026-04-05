@@ -1242,6 +1242,8 @@ class PackageBuilderView(Adw.Bin):
 
             # App ID — always visible, read-only
             _slug_row = Adw.ActionRow(title="App ID", subtitle=project.slug)
+            _slug_row.set_subtitle_lines(1)
+            _slug_row.set_subtitle_selectable(True)
             _slug_row.add_css_class("property")
             meta_group.add(_slug_row)
 

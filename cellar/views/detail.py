@@ -839,6 +839,7 @@ class DetailView(Gtk.Box):
             is_cellar_sandboxed,
             monitor_process_tree,
         )
+        from cellar.utils import ensure_host_libs  # noqa: PLC0415
         from cellar.views.builder.progress import ProgressDialog  # noqa: PLC0415
 
         install_folder = self._get_install_folder()
@@ -848,8 +849,17 @@ class DetailView(Gtk.Box):
         cmd = [str(exe)]
         if entry_args:
             cmd += _shlex.split(entry_args)
+
+        # Stage bundled libs and build env with LD_LIBRARY_PATH for the host.
+        host_env: dict[str, str] | None = None
         if is_cellar_sandboxed():
-            cmd = ["flatpak-spawn", "--host"] + cmd
+            import os
+            host_env = os.environ.copy()
+            lib_dir = ensure_host_libs()
+            ld_path = host_env.get("LD_LIBRARY_PATH", "")
+            host_env["LD_LIBRARY_PATH"] = f"{lib_dir}:{ld_path}" if ld_path else lib_dir
+            cmd = ["flatpak-spawn", "--host",
+                   f"--env=LD_LIBRARY_PATH={host_env['LD_LIBRARY_PATH']}"] + cmd
 
         progress = ProgressDialog(label="Launching\u2026")
         progress.set_can_close(True)

@@ -481,6 +481,9 @@ class BrowseView(Gtk.Box):
             self._show_status(self._empty_title, self._empty_description)
             return
 
+        # Show spinner while assets resolve in the background.
+        self._stack.set_visible_child_name("loading")
+
         card_cls = CapsuleCard if self._display_mode == "capsule" else AppCard
         resolve = self._resolve_asset
         installed_ids = self._installed_ids

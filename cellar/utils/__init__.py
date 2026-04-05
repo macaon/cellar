@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 import re
+from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 _TOKEN_RE = re.compile(r"(\d+|[a-zA-Z]+)")
 _ARTICLE_RE = re.compile(r"^(the|a|an)\s+", re.IGNORECASE)
@@ -45,3 +49,25 @@ def natural_sort_key(s: str) -> tuple[int, list[str]]:
         else:
             parts.append(f"0:{tok.lower()}")
     return (starts_num, parts)
+
+
+def ensure_host_libs() -> str:
+    """Copy Flatpak-bundled shared libraries to a host-visible path.
+
+    Returns the directory path suitable for ``LD_LIBRARY_PATH``.
+    Libraries are only copied when running inside the Flatpak sandbox
+    and the destination is missing or outdated.
+    """
+    from cellar.backend.config import data_dir
+
+    dest = data_dir() / "lib"
+    dest.mkdir(parents=True, exist_ok=True)
+    for lib_name in ("libGLU.so.1",):
+        src = Path("/app/lib") / lib_name
+        dst = dest / lib_name
+        if src.is_file():
+            if not dst.exists() or dst.stat().st_size != src.stat().st_size:
+                import shutil
+                shutil.copy2(src, dst)
+                log.debug("Staged %s → %s", src, dst)
+    return str(dest)

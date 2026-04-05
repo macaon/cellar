@@ -189,7 +189,14 @@ def create_desktop_entry(
     elif platform == "linux":
         if exe_path:
             exe = game_dir / exe_path
-            exec_line = _desktop_quote(str(exe))
+            # Prepend LD_LIBRARY_PATH so Flatpak-bundled libs (e.g. libGLU)
+            # are found when the shortcut is launched from the desktop.
+            from cellar.utils import ensure_host_libs
+            lib_dir = ensure_host_libs()
+            exec_line = (
+                f"env LD_LIBRARY_PATH={_desktop_quote(lib_dir)}:$LD_LIBRARY_PATH"
+                f" {_desktop_quote(str(exe))}"
+            )
             if launch_args:
                 exec_line += f" {launch_args}"
         else:

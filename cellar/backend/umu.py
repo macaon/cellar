@@ -372,13 +372,16 @@ def _resolve_sh_target(entry_point: str, wineprefix: str = "", depth: int = 0) -
         if not line or line.startswith("#"):
             continue
 
-        # Track cd commands to resolve relative paths.
+        # Track cd commands to resolve relative paths, clamped to the script's tree.
         cd_m = re.match(r'cd\s+["\']?([^"\';\s]+)', line)
         if cd_m:
             target = cd_m.group(1)
             if not target.startswith("$") and not target.startswith("`"):
-                new_dir = current_dir / target
-                if new_dir.is_dir():
+                try:
+                    new_dir = (current_dir / target).resolve()
+                except OSError:
+                    new_dir = None
+                if new_dir and new_dir.is_dir() and str(new_dir).startswith(str(script_dir)):
                     current_dir = new_dir
 
         # Match: ./"binary" or ./binary (not .sh scripts)

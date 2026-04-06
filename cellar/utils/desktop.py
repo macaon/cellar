@@ -194,11 +194,17 @@ def create_desktop_entry(
             from cellar.utils import ensure_host_libs
             lib_dir = ensure_host_libs()
             exec_line = (
-                f"env LD_LIBRARY_PATH={_desktop_quote(lib_dir)}:$LD_LIBRARY_PATH"
+                f"env LD_LIBRARY_PATH={_desktop_quote(lib_dir)}"
                 f" {_desktop_quote(str(exe))}"
             )
             if launch_args:
-                exec_line += f" {launch_args}"
+                import shlex as _shlex
+                try:
+                    exec_line += " " + " ".join(
+                        _desktop_quote(a) for a in _shlex.split(launch_args)
+                    )
+                except ValueError:
+                    exec_line += f" {_sanitize(launch_args)}"
         else:
             exec_line = "true"  # placeholder; entry point unknown
         comment = (entry.summary or f"Launch {entry.name}.").replace("\n", " ")

@@ -12,7 +12,7 @@ every DB open :func:`_open_db` reads the version and runs any pending
 migrations in order, then stamps the new version.  A fresh install creates
 the current schema directly (no migration required).
 
-Schema v5 (current)
+Schema v8 (current)
 -------------------
 ::
 
@@ -31,6 +31,7 @@ Schema v5 (current)
         install_path    TEXT,
         install_size    INTEGER,
         delta_size      INTEGER,
+        engine          TEXT DEFAULT '',
         repo_source     TEXT,
         installed_at    TEXT,
         last_updated    TEXT
@@ -52,7 +53,8 @@ Schema v5 (current)
         audio_driver     TEXT,
         debug            INTEGER,
         direct_proton    INTEGER,
-        no_lsteamclient  INTEGER
+        no_lsteamclient  INTEGER,
+        dll_overrides    TEXT
     );
 """
 
@@ -67,7 +69,7 @@ from cellar.backend.config import data_dir
 
 log = logging.getLogger(__name__)
 
-_CURRENT_VERSION = 7
+_CURRENT_VERSION = 8
 
 
 # ---------------------------------------------------------------------------
@@ -184,7 +186,8 @@ def _create_schema_v1(conn: sqlite3.Connection) -> None:
             audio_driver     TEXT,
             debug            INTEGER,
             direct_proton    INTEGER,
-            no_lsteamclient  INTEGER
+            no_lsteamclient  INTEGER,
+            dll_overrides    TEXT
         );
     """)
     conn.execute("INSERT INTO schema_version (version) VALUES (?)", (_CURRENT_VERSION,))

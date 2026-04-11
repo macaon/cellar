@@ -47,6 +47,62 @@ def is_cellar_sandboxed() -> bool:
     return _FLATPAK_INFO.exists()
 
 
+# Cached result: None = not yet checked, str = missing extension name, "" = all good.
+_nvidia_gl_check: str | None = None
+
+
+def check_flatpak_nvidia_gl() -> str:
+    """Return the name of the missing Flatpak NVIDIA GL extension, or "" if OK.
+
+    Only relevant when Cellar is sandboxed and an NVIDIA GPU is present.
+    The result is cached for the lifetime of the process.
+
+    When the 64-bit GL extension for the active driver is absent, Mesa's EGL
+    takes over inside the sandbox and games render on CPU with no warning.
+    """
+    global _nvidia_gl_check
+    if _nvidia_gl_check is not None:
+        return _nvidia_gl_check
+
+    if not is_cellar_sandboxed():
+        _nvidia_gl_check = ""
+        return ""
+
+    # Read driver version from /proc — accessible inside the sandbox.
+    try:
+        version_line = Path("/proc/driver/nvidia/version").read_text().splitlines()[0]
+        # "NVRM version: NVIDIA UNIX x86_64 Kernel Module  570.133.07 ..."
+        import re
+        m = re.search(r"Kernel Module\s+(\S+)", version_line)
+        if not m:
+            _nvidia_gl_check = ""
+            return ""
+        raw = m.group(1)  # e.g. "580.126.18"
+        ext_version = raw.replace(".", "-")  # e.g. "580-126-18"
+    except OSError:
+        # No NVIDIA GPU present.
+        _nvidia_gl_check = ""
+        return ""
+
+    ext_name = f"org.freedesktop.Platform.GL.nvidia-{ext_version}"
+
+    try:
+        result = subprocess.run(
+            ["flatpak", "list", "--columns=application"],
+            capture_output=True, text=True, check=False,
+        )
+        installed = result.stdout
+    except FileNotFoundError:
+        _nvidia_gl_check = ""
+        return ""
+
+    if ext_name in installed:
+        _nvidia_gl_check = ""
+    else:
+        _nvidia_gl_check = ext_name
+    return _nvidia_gl_check
+
+
 def runners_dir() -> Path:
     """Return (and create if needed) the Cellar runners directory."""
     from cellar.backend.config import data_dir

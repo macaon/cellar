@@ -12,7 +12,7 @@ every DB open :func:`_open_db` reads the version and runs any pending
 migrations in order, then stamps the new version.  A fresh install creates
 the current schema directly (no migration required).
 
-Schema v8 (current)
+Schema v9 (current)
 -------------------
 ::
 
@@ -69,7 +69,7 @@ from cellar.backend.config import data_dir
 
 log = logging.getLogger(__name__)
 
-_CURRENT_VERSION = 8
+_CURRENT_VERSION = 9
 
 
 # ---------------------------------------------------------------------------
@@ -144,6 +144,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
         _migrate_v6_to_v7(conn)
     if current < 8:
         _migrate_v7_to_v8(conn)
+    if current < 9:
+        _migrate_v8_to_v9(conn)
 
 
 def _create_schema_v1(conn: sqlite3.Connection) -> None:
@@ -393,6 +395,33 @@ def _migrate_v7_to_v8(conn: sqlite3.Connection) -> None:
             )
     except Exception:
         log.exception("v7→v8 migration failed; database left unchanged")
+        raise
+
+
+def _migrate_v8_to_v9(conn: sqlite3.Connection) -> None:
+    """Defensive repair: ensure all expected v8 columns are present.
+
+    The Flatpak database reached v8 without ``dll_overrides`` due to a prior
+    migration bug where the version stamp was committed but the ALTER TABLE
+    was not.  This migration adds any missing columns and re-stamps v9.
+    """
+    log.info("Migrating cellar.db from v8 to v9")
+    try:
+        with conn:
+            existing = {
+                r[1] for r in conn.execute("PRAGMA table_info(launch_overrides)")
+            }
+            if "dll_overrides" not in existing:
+                log.info("v8→v9: adding missing dll_overrides column")
+                conn.execute(
+                    "ALTER TABLE launch_overrides ADD COLUMN dll_overrides TEXT"
+                )
+            conn.execute(
+                "INSERT OR REPLACE INTO schema_version (version) VALUES (?)",
+                (9,),
+            )
+    except Exception:
+        log.exception("v8→v9 migration failed; database left unchanged")
         raise
 
 

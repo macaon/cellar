@@ -47,6 +47,125 @@ def is_cellar_sandboxed() -> bool:
     return _FLATPAK_INFO.exists()
 
 
+# ---------------------------------------------------------------------------
+# Host-side umu-run resolution
+# ---------------------------------------------------------------------------
+
+_host_umu_run_path: str | None = None
+
+
+def _resolve_host_umu_run() -> str:
+    """Resolve the path to umu-run on the host, deploying the bundled copy if needed.
+
+    When not sandboxed, returns ``"umu-run"`` (assumed on PATH).
+
+    When sandboxed:
+    1. If the user has umu-run on the host PATH (detected via
+       ``flatpak-spawn --host which umu-run``), use that.
+    2. Otherwise deploy ``/app/bin/umu-run`` to
+       ``~/.local/share/cellar/umu-run``, updating it when the bundled
+       version has changed.
+
+    The result is cached for the lifetime of the process.
+    """
+    global _host_umu_run_path
+    if _host_umu_run_path is not None:
+        return _host_umu_run_path
+
+    if not is_cellar_sandboxed():
+        _host_umu_run_path = "umu-run"
+        return _host_umu_run_path
+
+    # Prefer the user's own installation.
+    try:
+        result = subprocess.run(
+            ["flatpak-spawn", "--host", "which", "umu-run"],
+            capture_output=True, text=True, check=False,
+        )
+        if result.returncode == 0:
+            path = result.stdout.strip()
+            if path:
+                log.info("Using host umu-run: %s", path)
+                _host_umu_run_path = path
+                return _host_umu_run_path
+    except FileNotFoundError:
+        pass
+
+    # Deploy the bundled zipapp to the host data directory.
+    deploy_dir = Path.home() / ".local" / "share" / "cellar"
+    deploy_path = deploy_dir / "umu-run"
+    version_stamp = deploy_dir / "umu-run.version"
+    bundled = Path("/app/bin/umu-run")
+
+    bundled_version = ""
+    try:
+        ver_result = subprocess.run(
+            [str(bundled), "--version"],
+            capture_output=True, text=True, check=False,
+        )
+        bundled_version = ver_result.stdout.strip()
+    except (FileNotFoundError, OSError):
+        pass
+
+    needs_deploy = True
+    if deploy_path.exists() and version_stamp.exists():
+        try:
+            stamped = version_stamp.read_text().strip()
+            if stamped and stamped == bundled_version:
+                needs_deploy = False
+        except OSError:
+            pass
+
+    if needs_deploy:
+        import shutil
+        deploy_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(str(bundled), str(deploy_path))
+        deploy_path.chmod(0o755)
+        try:
+            version_stamp.write_text(bundled_version)
+        except OSError:
+            pass
+        log.info(
+            "Deployed bundled umu-run to %s (version: %s)",
+            deploy_path, bundled_version or "unknown",
+        )
+
+    _host_umu_run_path = str(deploy_path)
+    return _host_umu_run_path
+
+
+def _umu_spawn_prefix(
+    umu_env: dict[str, str],
+    *,
+    cwd: str | None = None,
+) -> tuple[list[str], "dict[str, str] | None", "str | None"]:
+    """Build the command prefix and environment for a umu-run subprocess call.
+
+    Returns ``(cmd_prefix, popen_env, popen_cwd)``:
+
+    * **cmd_prefix** — prepend to the umu arguments (executable path, etc.)
+    * **popen_env** — pass as ``env=`` to subprocess, or ``None`` when
+      sandboxed (all umu vars are injected via ``flatpak-spawn --env=``).
+    * **popen_cwd** — pass as ``cwd=`` to subprocess, or ``None`` when
+      sandboxed (handled via ``flatpak-spawn --directory=``).
+
+    When *not* sandboxed the subprocess inherits ``os.environ`` merged with
+    *umu_env*.  When sandboxed, ``flatpak-spawn --host`` is used so the game
+    runs outside the Flatpak sandbox with the correct host environment.
+    """
+    import os
+    umu_bin = _resolve_host_umu_run()
+    if not is_cellar_sandboxed():
+        return [umu_bin], {**os.environ, **umu_env}, cwd
+    # Inject every umu var via --env= so the host process receives them.
+    spawn_args: list[str] = ["flatpak-spawn", "--host"]
+    if cwd:
+        spawn_args.append(f"--directory={cwd}")
+    spawn_args += [f"--env={k}={v}" for k, v in umu_env.items()]
+    spawn_args.append(umu_bin)
+    return spawn_args, None, None
+
+
 # Cached result: None = not yet checked, str = missing extension name, "" = all good.
 _nvidia_gl_check: str | None = None
 
@@ -286,12 +405,11 @@ def _win_to_linux_path(entry_point: str, wineprefix: str) -> str:
 
 
 def _umu_cmd() -> list[str]:
-    """Return the base umu-run command.
+    """Return the bare umu-run command (non-sandboxed helper, legacy use only).
 
-    umu-run is bundled inside the Flatpak at ``/app/bin/umu-run`` and is
-    always available on ``$PATH`` within the sandbox.
+    Prefer :func:`_umu_spawn_prefix` for all new invocations.
     """
-    return ["umu-run"]
+    return [_resolve_host_umu_run()]
 
 
 def launch_app(
@@ -322,25 +440,29 @@ def launch_app(
     import os
     import shlex
     umu_env = build_env(app_id, runner_name, steam_appid, prefix_dir=prefix_dir)
-    env = {**os.environ, **umu_env, **(extra_env or {})}
     exe = _win_to_linux_path(entry_point, umu_env["WINEPREFIX"])
+    exe_dir = str(Path(exe).parent) if "/" in exe else None
     if direct_proton:
         proton_dir = runners_dir() / runner_name
         proton_script = proton_dir / "proton"
         wineprefix = prefix_dir if prefix_dir is not None else prefixes_dir() / app_id
+        env = {**os.environ, **umu_env, **(extra_env or {})}
         env["STEAM_COMPAT_DATA_PATH"] = str(wineprefix)
         env["STEAM_COMPAT_CLIENT_INSTALL_PATH"] = str(proton_dir)
         appid_str = str(steam_appid) if steam_appid else "0"
         env["SteamGameId"] = appid_str
         env["SteamAppId"] = appid_str
         cmd = [sys.executable, str(proton_script), "run", exe]
+        if launch_args:
+            cmd += shlex.split(launch_args)
+        popen_cwd = exe_dir
+        popen_env: dict[str, str] | None = env
     else:
-        cmd = _umu_cmd() + [exe]
-    if launch_args:
-        cmd += shlex.split(launch_args)
-    # Set cwd to the executable's directory — some games (and Steam
-    # emulators) resolve config files relative to the working directory.
-    exe_dir = str(Path(exe).parent) if "/" in exe else None
+        merged_umu_env = {**umu_env, **(extra_env or {})}
+        cmd_prefix, popen_env, popen_cwd = _umu_spawn_prefix(merged_umu_env, cwd=exe_dir)
+        cmd = cmd_prefix + [exe]
+        if launch_args:
+            cmd += shlex.split(launch_args)
     log.info(
         "Launching app %s via %s\n  WINEPREFIX=%s\n  PROTONPATH=%s"
         "\n  GAMEID=%s\n  EXE=%s\n  CWD=%s%s",
@@ -349,7 +471,7 @@ def launch_app(
         exe_dir or "(default)",
         ("\n  EXTRA_ENV=" + _fmt_env(extra_env)) if extra_env else "",
     )
-    subprocess.Popen(cmd, env=env, cwd=exe_dir, start_new_session=True)
+    subprocess.Popen(cmd, env=popen_env, cwd=popen_cwd, start_new_session=True)
 
 
 def _exe_basename(entry_point: str) -> str:
@@ -644,23 +766,29 @@ def launch_app_monitored(
     import threading
 
     umu_env = build_env(app_id, runner_name, steam_appid, prefix_dir=prefix_dir)
-    env = {**os.environ, **umu_env, **(extra_env or {})}
     exe = _win_to_linux_path(entry_point, umu_env["WINEPREFIX"])
+    exe_dir = str(Path(exe).parent) if "/" in exe else None
     if direct_proton:
         proton_dir = runners_dir() / runner_name
         proton_script = proton_dir / "proton"
         wineprefix = prefix_dir if prefix_dir is not None else prefixes_dir() / app_id
+        env = {**os.environ, **umu_env, **(extra_env or {})}
         env["STEAM_COMPAT_DATA_PATH"] = str(wineprefix)
         env["STEAM_COMPAT_CLIENT_INSTALL_PATH"] = str(proton_dir)
         appid_str = str(steam_appid) if steam_appid else "0"
         env["SteamGameId"] = appid_str
         env["SteamAppId"] = appid_str
         cmd = [sys.executable, str(proton_script), "run", exe]
+        if launch_args:
+            cmd += shlex.split(launch_args)
+        popen_cwd = exe_dir
+        popen_env: dict[str, str] | None = env
     else:
-        cmd = _umu_cmd() + [exe]
-    if launch_args:
-        cmd += shlex.split(launch_args)
-    exe_dir = str(Path(exe).parent) if "/" in exe else None
+        merged_umu_env = {**umu_env, **(extra_env or {})}
+        cmd_prefix, popen_env, popen_cwd = _umu_spawn_prefix(merged_umu_env, cwd=exe_dir)
+        cmd = cmd_prefix + [exe]
+        if launch_args:
+            cmd += shlex.split(launch_args)
     log.info(
         "Launching app (monitored) %s via %s"
         "\n  WINEPREFIX=%s\n  PROTONPATH=%s\n  GAMEID=%s\n  EXE=%s\n  CWD=%s%s",
@@ -670,7 +798,7 @@ def launch_app_monitored(
         ("\n  EXTRA_ENV=" + _fmt_env(extra_env)) if extra_env else "",
     )
     proc = subprocess.Popen(
-        cmd, env=env, cwd=exe_dir, start_new_session=True,
+        cmd, env=popen_env, cwd=popen_cwd, start_new_session=True,
         stderr=subprocess.PIPE, text=True, bufsize=1,
     )
     if proc.stderr is None:
@@ -779,18 +907,17 @@ def init_prefix(
     way to create/initialise a prefix without running anything.  This lets
     umu handle Steam Runtime setup correctly.
     """
-    import os
     base_env = build_env("", runner_name, steam_appid, prefix_dir=prefix_path)
     gameid = base_env["GAMEID"]
     prefix_path.mkdir(parents=True, exist_ok=True)
-    env = {**os.environ, **base_env}
+    cmd_prefix, popen_env, _ = _umu_spawn_prefix(base_env)
     # Empty-string positional arg → umu initialises the prefix, runs nothing.
-    cmd = _umu_cmd() + [""]
+    cmd = cmd_prefix + [""]
     log.info(
         "init_prefix: %s\n  WINEPREFIX=%s\n  PROTONPATH=%s\n  GAMEID=%s",
         " ".join(cmd), base_env["WINEPREFIX"], base_env["PROTONPATH"], gameid,
     )
-    result = subprocess.run(cmd, env=env, timeout=timeout, capture_output=False)
+    result = subprocess.run(cmd, env=popen_env, timeout=timeout, capture_output=False)
     # umu-run "" exits with code 1 because Wine rejects an empty executable path,
     # but the WINEPREFIX is fully initialized at that point.  Callers should check
     # for drive_c existence rather than relying solely on returncode.
@@ -803,28 +930,29 @@ def init_prefix(
     # share/wine/mono/<version>/support/winemono-support.msi but umu-run ""
     # doesn't trigger the automatic install.
     if (prefix_path / "drive_c").is_dir():
-        _install_mono(prefix_path, runner_name, env, timeout)
+        _install_mono(prefix_path, runner_name, base_env, timeout)
     return result
 
 
 def _install_mono(
     prefix_path: Path,
     runner_name: str,
-    env: dict[str, str],
+    umu_env: dict[str, str],
     timeout: int,
 ) -> None:
     """Install Wine Mono into the prefix from the runner's bundled MSI."""
     mono_dir = runners_dir() / runner_name / "files" / "share" / "wine" / "mono"
     if not mono_dir.is_dir():
         return
+    cmd_prefix, popen_env, _ = _umu_spawn_prefix(umu_env)
     # Find the support MSI inside the versioned mono directory.
     for child in mono_dir.iterdir():
         msi = child / "support" / "winemono-support.msi"
         if msi.is_file():
             wine_path = "Z:" + str(msi).replace("/", "\\")
-            cmd = _umu_cmd() + ["msiexec", "/i", wine_path, "/qn"]
+            cmd = cmd_prefix + ["msiexec", "/i", wine_path, "/qn"]
             log.info("Installing Wine Mono from %s", msi)
-            subprocess.run(cmd, env=env, timeout=timeout, capture_output=False)
+            subprocess.run(cmd, env=popen_env, timeout=timeout, capture_output=False)
             return
 
 
@@ -1087,23 +1215,21 @@ def run_winetricks(
     line is passed to *line_cb* as it arrives; otherwise output is inherited
     from the parent process (printed to the terminal).
     """
-    import os
     base_env = build_env("", runner_name, gameid, prefix_dir=prefix_path)
-    env = {**os.environ, **base_env}
-    cmd = _umu_cmd() + ["winetricks"] + verbs
+    cmd_prefix, popen_env, _ = _umu_spawn_prefix(base_env)
+    cmd = cmd_prefix + ["winetricks"] + verbs
     log.info(
-        "run_winetricks: %s\n  WINEPREFIX=%s\n  PROTONPATH=%s\n  GAMEID=%s\n  verbs=%s",
-        " ".join(cmd[:len(_umu_cmd())]),
+        "run_winetricks: umu-run winetricks\n  WINEPREFIX=%s\n  PROTONPATH=%s\n  GAMEID=%s\n  verbs=%s",
         base_env["WINEPREFIX"], base_env["PROTONPATH"], base_env["GAMEID"],
         " ".join(verbs),
     )
 
     if line_cb is None:
-        result = subprocess.run(cmd, env=env, timeout=timeout, capture_output=False)
+        result = subprocess.run(cmd, env=popen_env, timeout=timeout, capture_output=False)
     else:
         with subprocess.Popen(
             cmd,
-            env=env,
+            env=popen_env,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -1158,16 +1284,15 @@ def run_in_prefix(
     timeout:
         Subprocess timeout in seconds.
     """
-    import os
     base_env = build_env("", runner_name, gameid, prefix_dir=prefix_path)
-    env = {**os.environ, **base_env, **(extra_env or {})}
+    merged_umu_env = {**base_env, **(extra_env or {})}
+    cmd_prefix, popen_env, _ = _umu_spawn_prefix(merged_umu_env)
     # Pass exe as positional arg — the primary documented umu-run form.
-    cmd = _umu_cmd() + [exe_path]
+    cmd = cmd_prefix + [exe_path]
     log.info(
-        "run_in_prefix: %s\n  WINEPREFIX=%s\n  PROTONPATH=%s\n  GAMEID=%s\n  EXE=%s",
-        " ".join(cmd[:-1]),
+        "run_in_prefix: umu-run\n  WINEPREFIX=%s\n  PROTONPATH=%s\n  GAMEID=%s\n  EXE=%s",
         base_env["WINEPREFIX"], base_env["PROTONPATH"], base_env["GAMEID"], exe_path,
     )
-    result = subprocess.run(cmd, env=env, timeout=timeout, capture_output=False)
+    result = subprocess.run(cmd, env=popen_env, timeout=timeout, capture_output=False)
     log.info("run_in_prefix exited with code %d", result.returncode)
     return result

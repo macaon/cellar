@@ -781,12 +781,6 @@ class DetailView(Gtk.Box):
         if params["debug"]:
             extra_env["PROTON_LOG"] = "1"
 
-        from cellar.backend.umu import check_flatpak_nvidia_gl  # noqa: PLC0415
-        missing_ext = check_flatpak_nvidia_gl()
-        if missing_ext:
-            self._warn_missing_nvidia_gl(missing_ext)
-            return
-
         progress = ProgressDialog(label="Launching\u2026")
         progress.set_can_close(True)
 
@@ -1639,25 +1633,6 @@ class DetailView(Gtk.Box):
         root = self.get_root()
         if hasattr(root, "toast_overlay"):
             root.toast_overlay.add_toast(Adw.Toast(title=message))
-
-    def _warn_missing_nvidia_gl(self, ext_name: str) -> None:
-        """Show a dialog when the Flatpak NVIDIA GL extension is missing.
-
-        Without it Mesa takes over inside the sandbox, games render on CPU,
-        and there is no other visible indication of what went wrong.
-        """
-        dialog = Adw.AlertDialog(
-            heading="Missing NVIDIA Driver Extension",
-            body=(
-                f"The Flatpak NVIDIA GL extension for your driver is not installed.\n\n"
-                f"Without it, games will render on CPU instead of your GPU.\n\n"
-                f"Run the following command to fix it, then try again:\n\n"
-                f"flatpak install flathub {ext_name}"
-            ),
-        )
-        dialog.add_response("ok", "OK")
-        dialog.set_default_response("ok")
-        dialog.present(self.get_root())
 
     # ------------------------------------------------------------------
     # Section builders

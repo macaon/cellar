@@ -3,25 +3,6 @@
   "runtime": "org.gnome.Platform",
   "runtime-version": "49",
   "sdk": "org.gnome.Sdk",
-  "sdk-extensions": ["org.freedesktop.Sdk.Compat.i386"],
-  "add-extensions": {
-    "org.freedesktop.Platform.Compat.i386": {
-      "directory": "lib/i386-linux-gnu",
-      "version": "25.08"
-    },
-    "org.freedesktop.Platform.GL32": {
-      "directory": "lib/i386-linux-gnu/GL",
-      "version": "1.4",
-      "versions": "25.08;1.4",
-      "subdirectories": true,
-      "no-autodownload": true,
-      "autodelete": false,
-      "add-ld-path": "lib",
-      "merge-dirs": "vulkan/icd.d;glvnd/egl_vendor.d;OpenCL/vendors;lib/dri;lib/d3d;vulkan/explicit_layer.d;vulkan/implicit_layer.d",
-      "download-if": "active-gl-driver",
-      "enable-if": "active-gl-driver"
-    }
-  },
   "command": "cellar",
   "finish-args": [
     "--share=network",
@@ -32,7 +13,6 @@
     "--socket=ssh-auth",
     "--filesystem=home",
     "--device=all",
-    "--allow=multiarch",
     "--talk-name=org.freedesktop.secrets",
     "--talk-name=org.kde.kwalletd5",
     "--talk-name=org.kde.kwalletd6",
@@ -148,20 +128,6 @@
       ]
     },
     {
-      "name": "python3-pyyaml",
-      "buildsystem": "simple",
-      "build-commands": [
-        "pip3 install --verbose --exists-action=i --no-index --find-links=\"file://${PWD}\" --prefix=${FLATPAK_DEST} \"PyYAML\" --no-build-isolation"
-      ],
-      "sources": [
-        {
-          "type": "file",
-          "url": "https://files.pythonhosted.org/packages/74/27/e5b8f34d02d9995b80abcef563ea1f8b56d20134d8f4e5e81733b1feceb2/pyyaml-6.0.3-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
-          "sha256": "0f29edc409a6392443abf94b9cf89ce99889a1dd5376d94316ae5145dfedd5d6"
-        }
-      ]
-    },
-    {
       "name": "python3-pillow",
       "buildsystem": "simple",
       "build-commands": [
@@ -251,22 +217,6 @@
           "sha256": "36502de766f3cc549ff85196a04fb5afdb4eb2a72c023f22fd25895df91fda2f"
         }
       ]
-    },
-    {
-      "name": "glu",
-      "buildsystem": "meson",
-      "sources": [
-        {
-          "type": "archive",
-          "url": "https://archive.mesa3d.org/glu/glu-9.0.3.tar.xz",
-          "sha256": "bd43fe12f374b1192eb15fe20e45ff456b9bc26ab57f0eee919f96ca0f8a330f"
-        }
-      ]
-    },
-    {
-      "name": "i386-compat",
-      "buildsystem": "simple",
-      "build-commands": ["mkdir -p /app/lib/i386-linux-gnu /app/lib/i386-linux-gnu/GL"]
     },
     {
       "name": "cellar",

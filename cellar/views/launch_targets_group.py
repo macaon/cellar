@@ -36,6 +36,7 @@ class LaunchTargetsGroup:
         self._overrides = overrides or {}
         self._launch_targets: list[dict] = []
         self._target_rows: list[Adw.ExpanderRow] = []
+        self._path_entries: list[Adw.EntryRow] = []
         self._chooser = None  # prevent GC of file choosers
 
         self._group = Adw.PreferencesGroup(title="Launch Targets")
@@ -145,6 +146,7 @@ class LaunchTargetsGroup:
             row.add_row(admin_row)
 
         self._target_rows.append(row)
+        self._path_entries.append(path_entry)
         self._group.remove(self._add_target_row_widget)
         self._group.add(row)
         self._group.add(self._add_target_row_widget)
@@ -158,6 +160,7 @@ class LaunchTargetsGroup:
         self._group.remove(self._target_rows[idx])
         self._launch_targets.pop(idx)
         self._target_rows.pop(idx)
+        self._path_entries.pop(idx)
         self._rebind_target_indices()
 
     def _rebind_target_indices(self) -> None:
@@ -166,6 +169,7 @@ class LaunchTargetsGroup:
             self._group.remove(row)
         self._launch_targets.clear()
         self._target_rows.clear()
+        self._path_entries.clear()
         for t in old_targets:
             self._add_target_row_ui(t)
 
@@ -309,11 +313,4 @@ class LaunchTargetsGroup:
             self._target_rows[idx].set_subtitle(
                 GLib.markup_escape_text(formatted),
             )
-            # Update the path entry inside the row
-            row = self._target_rows[idx]
-            child = row.get_first_child()
-            while child:
-                if isinstance(child, Adw.EntryRow) and child.get_title() == "Path":
-                    child.set_text(formatted)
-                    break
-                child = child.get_next_sibling()
+            self._path_entries[idx].set_text(formatted)

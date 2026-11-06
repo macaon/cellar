@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from threading import Event
 from typing import Callable
+from uuid import uuid4
 
 from cellar.utils.images import content_hash as _content_hash
 from cellar.utils.images import optimize_image as _optimize_image
@@ -41,22 +42,22 @@ def _is_safe_repo_relpath(relpath: str) -> bool:
     return not Path(relpath).is_absolute() and ".." not in parts
 
 
-def _atomic_write_json(path, data: dict) -> None:
-    """Write JSON to *path* atomically for local paths, directly for remote.
-
-    Local ``pathlib.Path`` objects use a write-to-tmp + rename pattern so a
-    crash mid-write never leaves a truncated file.  Remote path types
-    (``SshPath``, ``SmbPath``) lack ``replace``, so they fall back to a
-    direct ``write_text`` — acceptable since remote write errors surface as
-    transport exceptions rather than silent corruption.
-    """
-    text = json.dumps(data, indent=2, ensure_ascii=False)
-    if isinstance(path, Path):
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(text, encoding="utf-8")
+def _atomic_write_bytes(path, data: bytes) -> None:
+    """Write to a sibling file, then replace the destination."""
+    tmp = path.parent / f".{path.name}.{uuid4().hex}.tmp"
+    try:
+        tmp.write_bytes(data)
         tmp.replace(path)
-    else:
-        path.write_text(text)
+    except Exception:
+        try:
+            tmp.unlink(missing_ok=True)
+        except Exception:
+            log.debug("Could not remove temporary file %s", tmp, exc_info=True)
+        raise
+
+
+def _atomic_write_json(path, data: dict) -> None:
+    _atomic_write_bytes(path, json.dumps(data, indent=2, ensure_ascii=False).encode("utf-8"))
 
 
 def _output_ext(src: str, role: str) -> str:
@@ -90,12 +91,8 @@ def _optimize_and_hash(src: str, dest_dir, slot: str, role: str) -> str:
         h = _content_hash(tmp)
         hashed_name = f"{slot}_{h}{ext}"
         dest = dest_dir / hashed_name
-        if isinstance(dest_dir, Path):
-            dest_dir.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(tmp, dest)
-        else:
-            dest_dir.mkdir(parents=True, exist_ok=True)
-            dest.write_bytes(tmp.read_bytes())
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        _atomic_write_bytes(dest, tmp.read_bytes())
         return hashed_name
 
 
@@ -339,39 +336,12 @@ class _ChunkWriter:
         return self._crc_writer
 
 
-def _cleanup_old_archive(repo_root, new_entry) -> None:
-    """Remove stale archive files left by a previous publish of the same app.
-
-    When an app is re-published with ``archive_in_place=True`` the new chunk
-    files are already on disk.  This helper reads the *existing* catalogue
-    entry (if any) and removes its old archive artefacts — either the old
-    unchunked file or the old chunk files — so they don't linger on the repo.
-    """
-    cat_path = repo_root / "catalogue.json"
-    if not cat_path.exists():
-        return
-    try:
-        raw = json.loads(cat_path.read_text())
-        apps = raw.get("apps", raw) if isinstance(raw, dict) else raw
-    except Exception:
-        return
-    old = next((a for a in apps if a.get("id") == new_entry.id), None)
-    if not old or not old.get("archive"):
-        return
-    if not _is_safe_repo_relpath(old["archive"]):
-        log.warning("Skipping out-of-repo archive path: %r", old["archive"])
-        return
-    old_archive = repo_root / old["archive"]
-    if old.get("archive_chunks"):
-        # Old entry was chunked — remove old chunk files.
-        _cleanup_chunks(old_archive)
-    else:
-        # Old entry was a single file — remove it if it still exists.
-        if old_archive.exists():
-            try:
-                old_archive.unlink(missing_ok=True)
-            except (OSError, TypeError):
-                pass
+def versioned_archive_path(relpath: str) -> str:
+    """Allocate a new archive name without reusing any published path."""
+    if not _is_safe_repo_relpath(relpath):
+        raise ValueError(f"Invalid archive path: {relpath!r}")
+    path = Path(relpath)
+    return path.with_name(f"{uuid4().hex}-{path.name}").as_posix()
 
 
 def _cleanup_chunks(dest_path) -> None:
@@ -814,6 +784,7 @@ def import_to_repo(
     app_dir.mkdir(parents=True, exist_ok=True)
 
     if not archive_in_place:
+        entry = replace(entry, archive=versioned_archive_path(entry.archive))
         # ── Archive copy (chunked for progress reporting + CRC32) ──────────────
         if phase_cb:
             phase_cb("Copying archive\u2026")
@@ -900,8 +871,7 @@ def update_in_repo(
 ):
     """Update an existing entry in *repo_root*.
 
-    - If *new_archive_src* is given, the archive is replaced (chunked copy,
-      old file removed if the path changed and the file still exists).
+    - If *new_archive_src* is given, copy it to a new archive path.
     - Only image keys with a non-empty value in *images* are overwritten.
     - Screenshots are fully replaced when *images["screenshots"]* is non-empty.
     - ``catalogue.json`` is updated in place (matched by ID).
@@ -912,6 +882,9 @@ def update_in_repo(
 
     # ── Archive (optional replacement + CRC32) ──────────────────────────────
     if new_archive_src:
+        new_entry = replace(
+            new_entry, archive=versioned_archive_path(new_entry.archive), archive_chunks=(),
+        )
         if phase_cb:
             phase_cb("Copying archive\u2026")
         archive_dest = repo_root / new_entry.archive
@@ -946,16 +919,9 @@ def update_in_repo(
             archive_dest.unlink(missing_ok=True)
             raise RuntimeError(f"Failed to copy archive: {exc}") from exc
 
-        new_entry = replace(new_entry, archive_crc32=format(crc & 0xFFFFFFFF, "08x"))
-
-        # Remove old archive files (single file or chunks)
-        if old_entry.archive and _is_safe_repo_relpath(old_entry.archive):
-            if old_entry.archive_chunks:
-                _cleanup_chunks(repo_root / old_entry.archive)
-            else:
-                old_archive = repo_root / old_entry.archive
-                if old_archive != archive_dest and old_archive.exists():
-                    old_archive.unlink(missing_ok=True)
+        new_entry = replace(
+            new_entry, archive_crc32=format(crc & 0xFFFFFFFF, "08x"), archive_size=copied,
+        )
 
     # ── Single images (icon, cover, logo) — content-hashed names ────────
     for key in ("icon", "cover", "logo"):
@@ -963,17 +929,6 @@ def update_in_repo(
         if src:
             hashed = _optimize_and_hash(src, app_dir, key, key)
             new_rel = f"apps/{new_entry.id}/{hashed}"
-            # Remove old image file if path changed
-            old_rel = getattr(old_entry, key, "")
-            if old_rel and old_rel != new_rel and _is_safe_repo_relpath(old_rel):
-                old_file = repo_root / old_rel
-                if isinstance(old_file, Path):
-                    old_file.unlink(missing_ok=True)
-                else:
-                    try:
-                        old_file.unlink()
-                    except Exception:
-                        pass
             new_entry = replace(new_entry, **{key: new_rel})
 
     # ── Screenshots — content-hashed names ────────────────────────────────
@@ -981,29 +936,10 @@ def update_in_repo(
     new_screenshots = images.get("screenshots")
     if new_screenshots is not None:
         ss_dir = repo_root / "apps" / new_entry.id / "screenshots"
-        # Copy sources to a temp dir first — on local repos the source
-        # paths may point *inside* ss_dir which is about to be deleted.
-        safe_sources = list(new_screenshots)
-        if safe_sources:
-            import tempfile as _tmp_ss
-            _staging = Path(_tmp_ss.mkdtemp(prefix="cellar_ss_"))
-            staged: list[str] = []
-            for src in safe_sources:
-                src_p = Path(src)
-                if src_p.is_file():
-                    dest = _staging / src_p.name
-                    shutil.copy2(src, dest)
-                    staged.append(str(dest))
-                else:
-                    staged.append(src)
-            safe_sources = staged
-        if ss_dir.exists():
-            _rmtree(ss_dir)
         ss_rels: list[str] = []
-        if safe_sources:
-            for src in safe_sources:
-                hashed = _optimize_and_hash(src, ss_dir, "ss", "screenshot")
-                ss_rels.append(f"apps/{new_entry.id}/screenshots/{hashed}")
+        for src in new_screenshots:
+            hashed = _optimize_and_hash(src, ss_dir, "ss", "screenshot")
+            ss_rels.append(f"apps/{new_entry.id}/screenshots/{hashed}")
         # Rebuild screenshot_sources with the new hashed paths.
         old_sources = new_entry.screenshot_sources or {}
         old_ss = new_entry.screenshots or ()
@@ -1084,7 +1020,7 @@ def _upsert_catalogue(repo_root: Path, entry) -> None:
     meta_path = meta_dir / "metadata.json"
     new_meta = json.dumps(entry.to_metadata_dict(), indent=2, ensure_ascii=False)
     if not meta_path.exists() or meta_path.read_text(encoding="utf-8") != new_meta:
-        meta_path.write_text(new_meta, encoding="utf-8")
+        _atomic_write_bytes(meta_path, new_meta.encode("utf-8"))
     # Auto-register custom category into the top-level categories list
     category = entry.category if hasattr(entry, "category") else ""
     if category and category not in BASE_CATEGORIES:
@@ -1164,7 +1100,7 @@ def upsert_runner(
         raw = json.loads(cat_path.read_text())
         apps = raw.get("apps", []) if isinstance(raw, dict) else []
         categories = raw.get("categories") if isinstance(raw, dict) else None
-        runners: dict = dict(raw.get("runners") or {})
+        runners: dict = dict(raw.get("runners") or {}) if isinstance(raw, dict) else {}
         bases = raw.get("bases") if isinstance(raw, dict) else None
         category_icons = raw.get("category_icons") if isinstance(raw, dict) else None
     else:
@@ -1205,7 +1141,7 @@ def upsert_base(
         apps = raw.get("apps", []) if isinstance(raw, dict) else []
         categories = raw.get("categories") if isinstance(raw, dict) else None
         runners = raw.get("runners") if isinstance(raw, dict) else None
-        bases: dict = dict(raw.get("bases") or {})
+        bases: dict = dict(raw.get("bases") or {}) if isinstance(raw, dict) else {}
         category_icons = raw.get("category_icons") if isinstance(raw, dict) else None
     else:
         apps, categories, runners, bases, category_icons = [], None, None, {}, None

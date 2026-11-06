@@ -3974,10 +3974,12 @@ class PackageBuilderView(Adw.Bin):
             from cellar.backend.base_store import install_base_from_dir
             from cellar.backend.packager import (
                 CancelledError,
+                _cleanup_chunks,
                 compress_prefix_zst,
                 compress_runner_zst,
                 upsert_base,
                 upsert_runner,
+                versioned_archive_path,
             )
             from cellar.backend.umu import runners_dir
 
@@ -3988,7 +3990,7 @@ class PackageBuilderView(Adw.Bin):
             try:
                 # ── Compress and upload the runner ────────────────────────
                 runner_src = runners_dir() / runner
-                runner_archive_rel = f"runners/{runner}.tar.zst"
+                runner_archive_rel = versioned_archive_path(f"runners/{runner}.tar.zst")
                 runner_archive_dest = repo_root / runner_archive_rel
                 runner_archive_dest.parent.mkdir(parents=True, exist_ok=True)
 
@@ -4005,7 +4007,7 @@ class PackageBuilderView(Adw.Bin):
                 # ── Compress and upload the base image ────────────────────
                 GLib.idle_add(progress.set_label, "Compressing and uploading base image\u2026")
                 GLib.idle_add(progress.set_stats, "")
-                archive_dest_rel = f"bases/{base_name}-base.tar.zst"
+                archive_dest_rel = versioned_archive_path(f"bases/{base_name}-base.tar.zst")
                 archive_dest = repo_root / archive_dest_rel
                 archive_dest.parent.mkdir(parents=True, exist_ok=True)
 
@@ -4016,8 +4018,9 @@ class PackageBuilderView(Adw.Bin):
                     cancel_event=cancel_event,
                     bytes_cb=_bytes_cb,
                 )
-            except CancelledError:
-                from cellar.backend.packager import _cleanup_chunks
+                if cancel_event.is_set():
+                    raise CancelledError("Publish cancelled by user")
+            except Exception:
                 for f in _partial_files:
                     try:
                         _cleanup_chunks(f)

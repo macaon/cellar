@@ -153,6 +153,10 @@ class SmbPath(RemotePathMixin):
             self._unc, mode=mode, encoding=encoding or "utf-8", **kwargs
         )
 
+    def replace(self, target: "SmbPath") -> None:
+        import smbclient  # type: ignore[import]
+        smbclient.replace(self._unc, target._unc)
+
     def unlink(self, missing_ok: bool = False) -> None:
         import smbclient  # type: ignore[import]
         try:

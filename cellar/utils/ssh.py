@@ -407,6 +407,10 @@ class SshPath(RemotePathMixin):
                 return io.BytesIO(data)
             return io.StringIO(data.decode(encoding or "utf-8"))
 
+    def replace(self, target: "SshPath") -> None:
+        with self._sftp() as sftp:
+            sftp.posix_rename(self._path, target._path)
+
     def unlink(self, missing_ok: bool = False) -> None:
         try:
             with self._sftp() as sftp:

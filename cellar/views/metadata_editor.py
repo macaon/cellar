@@ -508,7 +508,6 @@ class RepoContext(_SaveContext):
 
         screenshot_rels = e.screenshots
         grid_items = images.get("screenshot_items")       # None if not dirty
-        excluded_locals = images.get("excluded_locals", [])
 
         new_entry = _dc_replace(
             e,
@@ -594,20 +593,6 @@ class RepoContext(_SaveContext):
         )
         if final_entry is not None:
             _run_entry = final_entry
-
-        if excluded_locals:
-            new_rels_set = set(_run_entry.screenshots)
-            for _excl in excluded_locals:
-                if not _excl.local_path:
-                    continue
-                for old_rel in e.screenshots:
-                    if str(repo_root / old_rel) == _excl.local_path:
-                        if old_rel not in new_rels_set:
-                            try:
-                                (repo_root / old_rel).unlink(missing_ok=True)
-                            except Exception:
-                                pass
-                        break
 
         if grid_items is not None:
             for _rel in e.screenshots:
@@ -1080,9 +1065,6 @@ class MetadataEditorDialog(Adw.Dialog):
             "all_steam_items": all_steam,
             # Dirty-gated (RepoContext uses these)
             "screenshot_items": all_items if self._screenshots_dirty else None,
-            "excluded_locals": (
-                grid.get_excluded_local_items() if self._screenshots_dirty else []
-            ),
         }
 
     # ── Action button ─────────────────────────────────────────────────────

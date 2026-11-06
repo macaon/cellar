@@ -214,13 +214,13 @@ class PublishQueue:
         from cellar.backend.packager import (
             CancelledError,
             _cleanup_chunks,
-            _cleanup_old_archive,
             compress_prefix_delta_zst,
             compress_prefix_zst,
             compress_runner_zst,
             import_to_repo,
             upsert_base,
             upsert_runner,
+            versioned_archive_path,
         )
 
         project = job.project
@@ -305,15 +305,10 @@ class PublishQueue:
 
         # ── Prepare archive destination ───────────────────────────────
         repo_root = job.repo.writable_path()
+        entry = _dc_replace(entry, archive=versioned_archive_path(entry.archive))
         archive_dest = repo_root / entry.archive
         archive_dest.parent.mkdir(parents=True, exist_ok=True)
-        _cleanup_old_archive(repo_root, entry)
-
-        _written_archive = False
-        _runner_upserted: tuple[str, object] | None = None
-        _base_upserted: tuple[str, object] | None = None
-        _partial_dest = None
-        _app_imported = False
+        unpublished_archives = [archive_dest]
 
         _src_path = (
             Path(project.source_dir)
@@ -325,7 +320,6 @@ class PublishQueue:
             _reset_phase("Compressing and uploading\u2026")
             _delta_uncompressed = 0
             if project.project_type in ("linux", "dos"):
-                _partial_dest = archive_dest
                 _exclude: set[str] = set()
                 if project.project_type == "dos" and not project.include_cd:
                     _exclude.add("cd")
@@ -346,7 +340,6 @@ class PublishQueue:
                         "Install the base image before publishing."
                     )
                 _reset_phase("Scanning files\u2026")
-                _partial_dest = archive_dest
                 size, crc32, chunks, _delta_uncompressed = compress_prefix_delta_zst(
                     _src_path,
                     base_path(project.runner),
@@ -356,8 +349,6 @@ class PublishQueue:
                     bytes_cb=_bytes_cb,
                 )
                 base_image = project.runner
-            _partial_dest = None
-            _written_archive = True
 
             # ── Auto-publish base image + runner if missing ───────────
             if base_image:
@@ -366,18 +357,12 @@ class PublishQueue:
                 from cellar.backend.base_store import base_path
                 from cellar.backend.umu import runners_dir
 
-                _target_bases: dict[str, str] = {}
-                _target_runners: dict[str, str] = {}
                 _cat_path = repo_root / "catalogue.json"
-                try:
-                    if _cat_path.exists():
-                        with _cat_path.open("r") as _f:
-                            _cat_raw = _json.load(_f)
-                        if isinstance(_cat_raw, dict):
-                            _target_bases = _cat_raw.get("bases", {})
-                            _target_runners = _cat_raw.get("runners", {})
-                except Exception:
-                    pass
+                _cat_raw = _json.loads(_cat_path.read_text()) if _cat_path.exists() else {}
+                _target_bases = (_cat_raw.get("bases") or {}) if isinstance(_cat_raw, dict) else {}
+                _target_runners = (
+                    (_cat_raw.get("runners") or {}) if isinstance(_cat_raw, dict) else {}
+                )
 
                 _need_base = base_image not in _target_bases
                 if _need_base:
@@ -395,36 +380,36 @@ class PublishQueue:
 
                     if _need_runner:
                         _runner_src = runners_dir() / _runner_name
-                        _runner_rel = f"runners/{_runner_name}.tar.zst"
+                        _runner_rel = versioned_archive_path(f"runners/{_runner_name}.tar.zst")
                         _runner_dest = repo_root / _runner_rel
                         _runner_dest.parent.mkdir(parents=True, exist_ok=True)
                         _reset_phase("Uploading runner\u2026")
-                        _partial_dest = _runner_dest
+                        unpublished_archives.append(_runner_dest)
                         _rs, _rc, _rch = compress_runner_zst(
                             _runner_src,
                             _runner_dest,
                             cancel_event=job.cancel_event,
                             bytes_cb=_bytes_cb,
                         )
-                        _partial_dest = None
+                        unpublished_archives.remove(_runner_dest)
                         upsert_runner(repo_root, _runner_name, _runner_rel, _rc, _rs, _rch)
-                        _runner_upserted = (_runner_name, _runner_dest)
 
-                    _base_rel = f"bases/{base_image}-base.tar.zst"
+                    _base_rel = versioned_archive_path(f"bases/{base_image}-base.tar.zst")
                     _base_dest = repo_root / _base_rel
                     _base_dest.parent.mkdir(parents=True, exist_ok=True)
                     _reset_phase("Uploading base image\u2026")
-                    _partial_dest = _base_dest
+                    unpublished_archives.append(_base_dest)
                     _bs, _bc, _bch = compress_prefix_zst(
                         base_path(base_image),
                         _base_dest,
                         cancel_event=job.cancel_event,
                         bytes_cb=_bytes_cb,
                     )
-                    _partial_dest = None
+                    unpublished_archives.remove(_base_dest)
                     upsert_base(repo_root, base_image, _runner_name, _base_rel, _bc, _bs, _bch)
-                    _base_upserted = (base_image, _base_dest)
 
+            if job.cancel_event.is_set():
+                raise CancelledError("Publish cancelled by user")
             _reset_phase("Finalizing\u2026")
             final_entry = _dc_replace(
                 entry,
@@ -434,6 +419,8 @@ class PublishQueue:
                 base_image=base_image,
                 delta_size=_delta_uncompressed,
             )
+            # Metadata can become visible before the catalogue write returns.
+            unpublished_archives.remove(archive_dest)
             import_to_repo(
                 repo_root,
                 final_entry,
@@ -442,45 +429,12 @@ class PublishQueue:
                 archive_in_place=True,
                 phase_cb=_reset_phase,
             )
-            _app_imported = True
-
-        except CancelledError:
-            from cellar.backend.packager import (
-                _remove_from_catalogue,
-                _rmtree,
-                remove_base,
-                remove_runner,
-            )
-
-            if _partial_dest is not None:
+        except Exception:
+            for dest in unpublished_archives:
                 try:
-                    _cleanup_chunks(_partial_dest)
+                    _cleanup_chunks(dest)
                 except Exception:
-                    pass
-            if _app_imported:
-                try:
-                    _remove_from_catalogue(repo_root, entry.id)
-                except Exception:
-                    pass
-                try:
-                    _rmtree(repo_root / "apps" / entry.id, ignore_errors=True)
-                except Exception:
-                    pass
-            if _base_upserted:
-                try:
-                    remove_base(repo_root, _base_upserted[0])
-                except Exception:
-                    pass
-            if _runner_upserted:
-                try:
-                    remove_runner(repo_root, _runner_upserted[0])
-                except Exception:
-                    pass
-            if _written_archive:
-                try:
-                    _cleanup_chunks(archive_dest)
-                except Exception:
-                    pass
+                    log.warning("Could not clean up unpublished archive %s", dest, exc_info=True)
             raise
 
     def _on_job_done(self, job: PublishJob) -> None:
